@@ -3,12 +3,14 @@ package controllers
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"log"
 	"net/http"
 	"strings"
 	"time"
 
 	"corner/backend/internal/services"
+
 	"github.com/gorilla/websocket"
 )
 
@@ -44,7 +46,6 @@ func (w *WSController) Chat(wr http.ResponseWriter, req *http.Request) {
 	}
 	defer conn.Close()
 
-	defaultSessionID := strings.TrimSpace(req.URL.Query().Get("sessionId"))
 	sessionCtx, cancelSession := context.WithCancel(req.Context())
 	defer cancelSession()
 
@@ -130,7 +131,14 @@ func (w *WSController) Chat(wr http.ResponseWriter, req *http.Request) {
 			receivedAt := time.Now()
 			sessionID := strings.TrimSpace(incoming.SessionID)
 			if sessionID == "" {
-				sessionID = defaultSessionID
+				if !enqueue(map[string]any{
+					"type":      "error",
+					"sessionId": "",
+					"error":     errors.New("sessionId is required").Error(),
+				}) {
+					return
+				}
+				continue
 			}
 			session, err := w.chatService.EnsureSession(sessionID)
 			if err != nil {

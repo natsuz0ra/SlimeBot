@@ -17,6 +17,7 @@ import (
 type ChatService struct {
 	repo   *repositories.Repository
 	openai *OpenAIClient
+	agent  *AgentService
 }
 
 const contextHistoryLimit = 20
@@ -34,6 +35,7 @@ func NewChatService(repo *repositories.Repository, openai *OpenAIClient) *ChatSe
 	return &ChatService{
 		repo:   repo,
 		openai: openai,
+		agent:  NewAgentService(openai),
 	}
 }
 
@@ -57,6 +59,10 @@ func (s *ChatService) BuildContextMessages(sessionID string, userInput string) (
 		return nil, err
 	}
 
+	// 拼接环境信息到系统提示词
+	envInfo := CollectEnvInfo()
+	systemPrompt = systemPrompt + "\n\n## 当前运行环境\n" + envInfo.FormatForPrompt()
+
 	history, err := s.repo.ListRecentSessionMessages(sessionID, contextHistoryLimit)
 	if err != nil {
 		return nil, err
@@ -79,15 +85,21 @@ func (s *ChatService) loadSystemPrompt() (string, error) {
 		return "", fmt.Errorf("无法定位系统提示词文件路径")
 	}
 
-	promptPath := filepath.Join(filepath.Dir(currentFile), "..", "prompts", "system_prompt.txt")
-	raw, err := os.ReadFile(promptPath)
+	// 优先尝试 .md 文件，兼容 .txt
+	promptDir := filepath.Join(filepath.Dir(currentFile), "..", "prompts")
+	mdPath := filepath.Join(promptDir, "system_prompt.md")
+
+	var raw []byte
+	var err error
+
+	raw, err = os.ReadFile(mdPath)
 	if err != nil {
 		return "", fmt.Errorf("读取系统提示词失败: %w", err)
 	}
 
 	prompt := strings.TrimSpace(string(raw))
 	if prompt == "" {
-		return "", fmt.Errorf("系统提示词为空: %s", promptPath)
+		return "", fmt.Errorf("系统提示词为空")
 	}
 	return prompt, nil
 }
@@ -112,12 +124,14 @@ func (s *ChatService) ResolveLLMConfig(modelID string) (*models.LLMConfig, error
 	return config, nil
 }
 
+// HandleChatStream 使用 Agent 循环处理聊天流。
+// 模型可能返回纯文本或 tool_calls，Agent 循环会自动处理工具调用流程。
 func (s *ChatService) HandleChatStream(
 	ctx context.Context,
 	sessionID string,
 	content string,
 	modelID string,
-	onChunk func(chunk string) error,
+	callbacks AgentCallbacks,
 ) (*ChatStreamResult, error) {
 	if strings.TrimSpace(content) == "" {
 		return nil, fmt.Errorf("消息不能为空")
@@ -151,6 +165,7 @@ func (s *ChatService) HandleChatStream(
 	var pushErr error
 	streamStart := time.Now()
 	var firstTokenAt time.Time
+
 	pushBody := func(body string) error {
 		if body == "" {
 			return nil
@@ -159,26 +174,37 @@ func (s *ChatService) HandleChatStream(
 		if pushErr != nil {
 			return nil
 		}
-		if err := onChunk(body); err != nil {
+		if err := callbacks.OnChunk(body); err != nil {
 			pushErr = err
 		}
 		return nil
 	}
 
-	err = s.openai.StreamChat(ctx, ModelRuntimeConfig{
+	// 包装 OnChunk，经过 title parser
+	agentCallbacks := AgentCallbacks{
+		OnChunk: func(chunk string) error {
+			if chunk != "" && firstTokenAt.IsZero() {
+				firstTokenAt = time.Now()
+			}
+			body := parser.Feed(chunk)
+			return pushBody(body)
+		},
+		OnToolCallStart:  callbacks.OnToolCallStart,
+		WaitApproval:     callbacks.WaitApproval,
+		OnToolCallResult: callbacks.OnToolCallResult,
+	}
+
+	modelConfig := ModelRuntimeConfig{
 		BaseURL: llmConfig.BaseURL,
 		APIKey:  llmConfig.APIKey,
 		Model:   llmConfig.Model,
-	}, contextMessages, func(chunk string) error {
-		if chunk != "" && firstTokenAt.IsZero() {
-			firstTokenAt = time.Now()
-		}
-		body := parser.Feed(chunk)
-		return pushBody(body)
-	})
-	if err != nil {
+	}
+
+	answer, err := s.agent.RunAgentLoop(ctx, modelConfig, contextMessages, agentCallbacks)
+	if err != nil && answer == "" {
 		return nil, err
 	}
+
 	firstTokenMs := int64(-1)
 	if !firstTokenAt.IsZero() {
 		firstTokenMs = firstTokenAt.Sub(streamStart).Milliseconds()
@@ -189,15 +215,15 @@ func (s *ChatService) HandleChatStream(
 		return nil, err
 	}
 
-	answer := answerBuilder.String()
-	if strings.TrimSpace(answer) == "" {
-		answer = "模型没有返回内容。"
+	finalAnswer := answerBuilder.String()
+	if strings.TrimSpace(finalAnswer) == "" {
+		finalAnswer = "模型没有返回内容。"
 	}
-	if _, err := s.repo.AddMessage(sessionID, "assistant", answer); err != nil {
+	if _, err := s.repo.AddMessage(sessionID, "assistant", finalAnswer); err != nil {
 		return nil, err
 	}
 
-	result := &ChatStreamResult{Answer: answer}
+	result := &ChatStreamResult{Answer: finalAnswer}
 	if parser.Title() != "" {
 		if err := s.repo.UpdateSessionTitle(sessionID, parser.Title()); err != nil {
 			return nil, err
@@ -313,7 +339,7 @@ func parseProtocolTitle(line string) (string, bool) {
 	title := strings.TrimSpace(strings.TrimPrefix(trimmed, "[TITLE]"))
 	title = strings.ReplaceAll(title, "\r", "")
 	title = strings.ReplaceAll(title, "\n", "")
-	title = strings.Trim(title, "\"'“”")
+	title = strings.Trim(title, "\"'\u201c\u201d")
 	title = truncateRunes(title, 20)
 	if title == "" {
 		return "", false

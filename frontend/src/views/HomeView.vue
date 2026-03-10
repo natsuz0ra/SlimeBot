@@ -7,6 +7,7 @@ import { useI18n } from 'vue-i18n'
 import MdiIcon from '../components/MdiIcon.vue'
 import TypingDots from '../components/TypingDots.vue'
 import SettingsPanel from '../components/SettingsPanel.vue'
+import ToolCallCard from '../components/ToolCallCard.vue'
 import { llmAPI, sessionAPI, type LLMConfig } from '../api'
 import { useChatStore } from '../stores/chat'
 import { renderMarkdown } from '../utils/markdown'
@@ -238,6 +239,13 @@ watch(
   },
 )
 
+watch(
+  () => store.toolCalls.length,
+  () => {
+    queueScrollMessagesToBottom()
+  },
+)
+
 onUnmounted(() => {
   store.disconnectSocket()
   document.removeEventListener('click', onGlobalClick)
@@ -324,7 +332,14 @@ onUnmounted(() => {
               </template>
             </div>
           </div>
-          <div v-if="store.waiting && !store.streamingStarted" class="message assistant assistant-waiting">
+          <div v-for="tc in store.toolCalls" :key="tc.toolCallId" class="tool-call-row">
+            <ToolCallCard
+              :item="tc"
+              @approve="store.approveToolCall($event, true)"
+              @reject="store.approveToolCall($event, false)"
+            />
+          </div>
+          <div v-if="store.waiting && !store.streamingStarted && store.toolCalls.length === 0" class="message assistant assistant-waiting">
             <div class="avatar"><MdiIcon :path="mdiRobotOutline" :size="30" /></div>
             <div class="bubble"><TypingDots /></div>
           </div>
@@ -609,6 +624,12 @@ onUnmounted(() => {
 
 .message.assistant-waiting {
   align-items: center;
+}
+
+.tool-call-row {
+  display: flex;
+  margin-bottom: 12px;
+  padding-left: 40px;
 }
 
 .message.assistant-waiting .bubble {

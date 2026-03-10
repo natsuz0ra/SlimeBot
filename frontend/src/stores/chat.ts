@@ -2,7 +2,7 @@ import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 
 import { ChatSocket, type ConnectionStatus } from '../api/chatSocket'
-import type { MessageItem, SessionItem } from '../api'
+import type { MessageItem, SessionItem, ToolCallItem } from '../api'
 import { sessionAPI } from '../api'
 
 export const useChatStore = defineStore('chat', () => {
@@ -14,6 +14,9 @@ export const useChatStore = defineStore('chat', () => {
   const connectionStatus = ref<ConnectionStatus>('disconnected')
   const connectionError = ref('')
   const isSocketReady = computed(() => connectionStatus.value === 'connected')
+
+  // 工具调用相关状态
+  const toolCalls = ref<ToolCallItem[]>([])
 
   const ws = new ChatSocket()
 
@@ -35,6 +38,7 @@ export const useChatStore = defineStore('chat', () => {
   async function selectSession(id: string) {
     currentSessionId.value = id
     messages.value = await sessionAPI.history(id)
+    toolCalls.value = []
   }
 
   function connectSocket() {
@@ -48,6 +52,7 @@ export const useChatStore = defineStore('chat', () => {
         if (!sessionId || sessionId !== currentSessionId.value) return
         waiting.value = true
         streamingStarted.value = false
+        toolCalls.value = []
       },
       onChunk: (chunk, sessionId) => {
         if (!sessionId || sessionId !== currentSessionId.value) return
@@ -76,13 +81,34 @@ export const useChatStore = defineStore('chat', () => {
         if (!sessionId || sessionId !== currentSessionId.value) return
         waiting.value = false
         streamingStarted.value = false
+        toolCalls.value = []
         await loadSessions()
       },
       onError: (error, sessionId) => {
         if (!sessionId || sessionId !== currentSessionId.value) return
         waiting.value = false
         streamingStarted.value = false
+        toolCalls.value = []
         connectionError.value = error
+      },
+      onToolCallStart: (data, sessionId) => {
+        if (!sessionId || sessionId !== currentSessionId.value) return
+        toolCalls.value.push({
+          toolCallId: data.toolCallId,
+          toolName: data.toolName,
+          command: data.command,
+          params: data.params,
+          status: 'pending',
+        })
+      },
+      onToolCallResult: (data, sessionId) => {
+        if (!sessionId || sessionId !== currentSessionId.value) return
+        const item = toolCalls.value.find((tc) => tc.toolCallId === data.toolCallId)
+        if (item) {
+          item.status = data.error ? 'error' : 'completed'
+          item.output = data.output
+          item.error = data.error
+        }
       },
       onSocketError: (error) => {
         waiting.value = false
@@ -132,6 +158,14 @@ export const useChatStore = defineStore('chat', () => {
     return true
   }
 
+  function approveToolCall(toolCallId: string, approved: boolean) {
+    const item = toolCalls.value.find((tc) => tc.toolCallId === toolCallId)
+    if (item) {
+      item.status = approved ? 'executing' : 'rejected'
+    }
+    ws.sendToolApproval(toolCallId, approved)
+  }
+
   function disconnectSocket() {
     waiting.value = false
     streamingStarted.value = false
@@ -147,12 +181,14 @@ export const useChatStore = defineStore('chat', () => {
     connectionStatus,
     connectionError,
     isSocketReady,
+    toolCalls,
     loadSessions,
     createSession,
     selectSession,
     connectSocket,
     ensureSessionReady,
     sendMessage,
+    approveToolCall,
     disconnectSocket,
   }
 })

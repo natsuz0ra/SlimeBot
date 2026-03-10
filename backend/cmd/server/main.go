@@ -11,6 +11,9 @@ import (
 	"corner/backend/internal/repositories"
 	"corner/backend/internal/router"
 	"corner/backend/internal/services"
+
+	// 导入 tools 包触发各工具的 init() 自注册
+	_ "corner/backend/internal/tools"
 )
 
 func main() {

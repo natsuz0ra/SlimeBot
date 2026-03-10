@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"corner/backend/internal/services"
@@ -20,10 +21,12 @@ type WSController struct {
 }
 
 type chatIncoming struct {
-	Type      string `json:"type"`
-	SessionID string `json:"sessionId"`
-	Content   string `json:"content"`
-	ModelID   string `json:"modelId"`
+	Type       string `json:"type"`
+	SessionID  string `json:"sessionId"`
+	Content    string `json:"content"`
+	ModelID    string `json:"modelId"`
+	ToolCallID string `json:"toolCallId"`
+	Approved   *bool  `json:"approved"`
 }
 
 func NewWSController(chatService *services.ChatService) *WSController {
@@ -39,6 +42,42 @@ func NewWSController(chatService *services.ChatService) *WSController {
 	}
 }
 
+// approvalBroker 管理工具调用审批的通道
+type approvalBroker struct {
+	mu       sync.Mutex
+	channels map[string]chan services.ApprovalResponse
+}
+
+func newApprovalBroker() *approvalBroker {
+	return &approvalBroker{channels: make(map[string]chan services.ApprovalResponse)}
+}
+
+func (b *approvalBroker) Register(toolCallID string) chan services.ApprovalResponse {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	ch := make(chan services.ApprovalResponse, 1)
+	b.channels[toolCallID] = ch
+	return ch
+}
+
+func (b *approvalBroker) Resolve(toolCallID string, resp services.ApprovalResponse) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if ch, ok := b.channels[toolCallID]; ok {
+		select {
+		case ch <- resp:
+		default:
+		}
+		delete(b.channels, toolCallID)
+	}
+}
+
+func (b *approvalBroker) Remove(toolCallID string) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	delete(b.channels, toolCallID)
+}
+
 func (w *WSController) Chat(wr http.ResponseWriter, req *http.Request) {
 	conn, err := w.upgrader.Upgrade(wr, req, nil)
 	if err != nil {
@@ -51,6 +90,7 @@ func (w *WSController) Chat(wr http.ResponseWriter, req *http.Request) {
 
 	writeCh := make(chan map[string]any, 128)
 	chatCh := make(chan chatIncoming, 16)
+	broker := newApprovalBroker()
 
 	enqueue := func(payload map[string]any) bool {
 		select {
@@ -61,7 +101,7 @@ func (w *WSController) Chat(wr http.ResponseWriter, req *http.Request) {
 		}
 	}
 
-	// single writer goroutine: guarantees serialized websocket writes
+	// 单写协程：保证 websocket 写操作串行化
 	go func() {
 		for {
 			select {
@@ -76,7 +116,7 @@ func (w *WSController) Chat(wr http.ResponseWriter, req *http.Request) {
 		}
 	}()
 
-	// reader goroutine: keeps processing ping/chat while a chat stream is running
+	// 读协程：处理 ping/chat/tool_approve 消息
 	go func() {
 		for {
 			_, payload, err := conn.ReadMessage()
@@ -94,35 +134,41 @@ func (w *WSController) Chat(wr http.ResponseWriter, req *http.Request) {
 				continue
 			}
 
-			if incoming.Type == "ping" {
+			switch incoming.Type {
+			case "ping":
 				if !enqueue(map[string]any{"type": "pong"}) {
 					cancelSession()
 					return
 				}
-				continue
-			}
 
-			if incoming.Type != "" && incoming.Type != "chat" {
+			case "tool_approve":
+				if incoming.ToolCallID != "" && incoming.Approved != nil {
+					broker.Resolve(incoming.ToolCallID, services.ApprovalResponse{
+						ToolCallID: incoming.ToolCallID,
+						Approved:   *incoming.Approved,
+					})
+				}
+
+			case "chat", "":
+				if strings.TrimSpace(incoming.Content) == "" {
+					continue
+				}
+				select {
+				case <-sessionCtx.Done():
+					return
+				case chatCh <- incoming:
+				}
+
+			default:
 				if !enqueue(map[string]any{"type": "error", "error": "不支持的消息类型"}) {
 					cancelSession()
 					return
 				}
-				continue
-			}
-
-			if strings.TrimSpace(incoming.Content) == "" {
-				continue
-			}
-
-			select {
-			case <-sessionCtx.Done():
-				return
-			case chatCh <- incoming:
 			}
 		}
 	}()
 
-	// chat processing loop: serially handles chat tasks for this connection
+	// 聊天处理循环
 	for {
 		select {
 		case <-sessionCtx.Done():
@@ -161,20 +207,62 @@ func (w *WSController) Chat(wr http.ResponseWriter, req *http.Request) {
 			startSentAt := time.Now()
 			var firstChunkSentAt time.Time
 
-			chatCtx, cancel := context.WithTimeout(sessionCtx, 120*time.Second)
-			streamResult, err := w.chatService.HandleChatStream(chatCtx, session.ID, incoming.Content, incoming.ModelID, func(chunk string) error {
-				if firstChunkSentAt.IsZero() && chunk != "" {
-					firstChunkSentAt = time.Now()
-				}
-				if !enqueue(map[string]any{
-					"type":      "chunk",
-					"sessionId": session.ID,
-					"content":   chunk,
-				}) {
-					return context.Canceled
-				}
-				return nil
-			})
+			chatCtx, cancel := context.WithTimeout(sessionCtx, 300*time.Second)
+
+			callbacks := services.AgentCallbacks{
+				OnChunk: func(chunk string) error {
+					if firstChunkSentAt.IsZero() && chunk != "" {
+						firstChunkSentAt = time.Now()
+					}
+					if !enqueue(map[string]any{
+						"type":      "chunk",
+						"sessionId": session.ID,
+						"content":   chunk,
+					}) {
+						return context.Canceled
+					}
+					return nil
+				},
+				OnToolCallStart: func(req services.ApprovalRequest) error {
+					if !enqueue(map[string]any{
+						"type":       "tool_call_start",
+						"sessionId":  session.ID,
+						"toolCallId": req.ToolCallID,
+						"toolName":   req.ToolName,
+						"command":    req.Command,
+						"params":     req.Params,
+					}) {
+						return context.Canceled
+					}
+					return nil
+				},
+				WaitApproval: func(ctx context.Context, toolCallID string) (*services.ApprovalResponse, error) {
+					ch := broker.Register(toolCallID)
+					defer broker.Remove(toolCallID)
+					select {
+					case <-ctx.Done():
+						return nil, ctx.Err()
+					case resp := <-ch:
+						return &resp, nil
+					}
+				},
+				OnToolCallResult: func(result services.ToolCallResult) error {
+					if !enqueue(map[string]any{
+						"type":       "tool_call_result",
+						"sessionId":  session.ID,
+						"toolCallId": result.ToolCallID,
+						"toolName":   result.ToolName,
+						"command":    result.Command,
+						"output":     result.Output,
+						"error":      result.Error,
+					}) {
+						return context.Canceled
+					}
+					return nil
+				},
+			}
+
+			streamResult, err := w.chatService.HandleChatStream(chatCtx, session.ID, incoming.Content, incoming.ModelID, callbacks)
 			cancel()
 
 			if err != nil {

@@ -37,6 +37,18 @@ export interface MCPConfig {
   isEnabled: boolean
 }
 
+export type ToolCallStatus = 'pending' | 'approved' | 'rejected' | 'executing' | 'completed' | 'error'
+
+export interface ToolCallItem {
+  toolCallId: string
+  toolName: string
+  command: string
+  params: Record<string, string>
+  status: ToolCallStatus
+  output?: string
+  error?: string
+}
+
 export const sessionAPI = {
   list: async () => (await apiClient.get<SessionItem[]>('/api/sessions')).data,
   create: async (name?: string) => (await apiClient.post<SessionItem>('/api/sessions', { name })).data,

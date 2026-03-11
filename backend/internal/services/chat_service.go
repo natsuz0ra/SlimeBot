@@ -15,8 +15,8 @@ import (
 )
 
 type ChatService struct {
-	repo   *repositories.Repository
-	openai *OpenAIClient
+	repo  *repositories.Repository
+	agent *AgentService
 }
 
 const contextHistoryLimit = 20
@@ -32,8 +32,8 @@ type ChatStreamResult struct {
 
 func NewChatService(repo *repositories.Repository, openai *OpenAIClient) *ChatService {
 	return &ChatService{
-		repo:   repo,
-		openai: openai,
+		repo:  repo,
+		agent: NewAgentService(openai),
 	}
 }
 
@@ -57,6 +57,10 @@ func (s *ChatService) BuildContextMessages(sessionID string, userInput string) (
 		return nil, err
 	}
 
+	// 拼接环境信息到系统提示词
+	envInfo := CollectEnvInfo()
+	systemPrompt = systemPrompt + "\n\n## 当前运行环境\n" + envInfo.FormatForPrompt()
+
 	history, err := s.repo.ListRecentSessionMessages(sessionID, contextHistoryLimit)
 	if err != nil {
 		return nil, err
@@ -79,15 +83,21 @@ func (s *ChatService) loadSystemPrompt() (string, error) {
 		return "", fmt.Errorf("无法定位系统提示词文件路径")
 	}
 
-	promptPath := filepath.Join(filepath.Dir(currentFile), "..", "prompts", "system_prompt.txt")
-	raw, err := os.ReadFile(promptPath)
+	// 优先尝试 .md 文件，兼容 .txt
+	promptDir := filepath.Join(filepath.Dir(currentFile), "..", "prompts")
+	mdPath := filepath.Join(promptDir, "system_prompt.md")
+
+	var raw []byte
+	var err error
+
+	raw, err = os.ReadFile(mdPath)
 	if err != nil {
 		return "", fmt.Errorf("读取系统提示词失败: %w", err)
 	}
 
 	prompt := strings.TrimSpace(string(raw))
 	if prompt == "" {
-		return "", fmt.Errorf("系统提示词为空: %s", promptPath)
+		return "", fmt.Errorf("系统提示词为空")
 	}
 	return prompt, nil
 }
@@ -112,12 +122,14 @@ func (s *ChatService) ResolveLLMConfig(modelID string) (*models.LLMConfig, error
 	return config, nil
 }
 
+// HandleChatStream 使用 Agent 循环处理聊天流。
+// 模型可能返回纯文本或 tool_calls，Agent 循环会自动处理工具调用流程。
 func (s *ChatService) HandleChatStream(
 	ctx context.Context,
 	sessionID string,
 	content string,
 	modelID string,
-	onChunk func(chunk string) error,
+	callbacks AgentCallbacks,
 ) (*ChatStreamResult, error) {
 	if strings.TrimSpace(content) == "" {
 		return nil, fmt.Errorf("消息不能为空")
@@ -151,6 +163,7 @@ func (s *ChatService) HandleChatStream(
 	var pushErr error
 	streamStart := time.Now()
 	var firstTokenAt time.Time
+
 	pushBody := func(body string) error {
 		if body == "" {
 			return nil
@@ -159,26 +172,37 @@ func (s *ChatService) HandleChatStream(
 		if pushErr != nil {
 			return nil
 		}
-		if err := onChunk(body); err != nil {
+		if err := callbacks.OnChunk(body); err != nil {
 			pushErr = err
 		}
 		return nil
 	}
 
-	err = s.openai.StreamChat(ctx, ModelRuntimeConfig{
+	// 包装 OnChunk，经过 title parser
+	agentCallbacks := AgentCallbacks{
+		OnChunk: func(chunk string) error {
+			if chunk != "" && firstTokenAt.IsZero() {
+				firstTokenAt = time.Now()
+			}
+			body := parser.Feed(chunk)
+			return pushBody(body)
+		},
+		OnToolCallStart:  callbacks.OnToolCallStart,
+		WaitApproval:     callbacks.WaitApproval,
+		OnToolCallResult: callbacks.OnToolCallResult,
+	}
+
+	modelConfig := ModelRuntimeConfig{
 		BaseURL: llmConfig.BaseURL,
 		APIKey:  llmConfig.APIKey,
 		Model:   llmConfig.Model,
-	}, contextMessages, func(chunk string) error {
-		if chunk != "" && firstTokenAt.IsZero() {
-			firstTokenAt = time.Now()
-		}
-		body := parser.Feed(chunk)
-		return pushBody(body)
-	})
-	if err != nil {
+	}
+
+	answer, err := s.agent.RunAgentLoop(ctx, modelConfig, contextMessages, agentCallbacks)
+	if err != nil && answer == "" {
 		return nil, err
 	}
+
 	firstTokenMs := int64(-1)
 	if !firstTokenAt.IsZero() {
 		firstTokenMs = firstTokenAt.Sub(streamStart).Milliseconds()
@@ -189,21 +213,28 @@ func (s *ChatService) HandleChatStream(
 		return nil, err
 	}
 
-	answer := answerBuilder.String()
-	if strings.TrimSpace(answer) == "" {
-		answer = "模型没有返回内容。"
+	finalAnswer := answer
+	// 兜底解析 [TITLE] 协议，避免在多轮 tool_call 场景下标题丢失。
+	// 同时统一净化正文，确保不会把 [TITLE] 残留存档。
+	title := parser.Title()
+	if parsedTitle, cleanBody := extractProtocolTitleAndBody(finalAnswer); parsedTitle != "" {
+		title = parsedTitle
+		finalAnswer = cleanBody
 	}
-	if _, err := s.repo.AddMessage(sessionID, "assistant", answer); err != nil {
+	if strings.TrimSpace(finalAnswer) == "" {
+		finalAnswer = "模型没有返回内容。"
+	}
+	if _, err := s.repo.AddMessage(sessionID, "assistant", finalAnswer); err != nil {
 		return nil, err
 	}
 
-	result := &ChatStreamResult{Answer: answer}
-	if parser.Title() != "" {
-		if err := s.repo.UpdateSessionTitle(sessionID, parser.Title()); err != nil {
+	result := &ChatStreamResult{Answer: finalAnswer}
+	if title != "" {
+		if err := s.repo.UpdateSessionTitle(sessionID, title); err != nil {
 			return nil, err
 		}
 		result.TitleUpdated = true
-		result.Title = parser.Title()
+		result.Title = title
 	}
 	if pushErr != nil {
 		result.PushFailed = true
@@ -213,95 +244,110 @@ func (s *ChatService) HandleChatStream(
 }
 
 type titleStreamParser struct {
-	enabled        bool
-	resolved       bool
-	title          string
-	probeRuneLimit int
-	buffer         strings.Builder
+	// 是否启用协议解析；关闭时全部透传。
+	enabled bool
+	// 最近一次成功解析出的标题。
+	title string
+	// 探测模式下的行缓冲，用于按“行”识别 [TITLE] 协议。
+	lineBuf strings.Builder
+	// 是否处于探测模式：true=先入缓冲识别协议，false=正文直通。
+	probing bool
 }
 
 func newTitleStreamParser(enabled bool, probeRuneLimit int) *titleStreamParser {
+	_ = probeRuneLimit
 	if !enabled {
-		return &titleStreamParser{enabled: false, resolved: true}
+		return &titleStreamParser{enabled: false}
 	}
-	if probeRuneLimit <= 0 {
-		probeRuneLimit = 80
-	}
-	return &titleStreamParser{enabled: true, probeRuneLimit: probeRuneLimit}
+	return &titleStreamParser{enabled: true, probing: true}
 }
 
 func (p *titleStreamParser) Feed(chunk string) string {
 	if chunk == "" {
 		return ""
 	}
-	if !p.enabled || p.resolved {
+	if !p.enabled {
 		return chunk
 	}
-
-	p.buffer.WriteString(chunk)
-	current := p.buffer.String()
-	trimmedLeft := strings.TrimLeft(current, " \t\r\n\uFEFF")
-	titleTag := "[TITLE]"
-	if len([]rune(trimmedLeft)) >= len([]rune(titleTag)) && !strings.HasPrefix(trimmedLeft, titleTag) {
-		p.resolved = true
-		p.buffer.Reset()
-		return current
-	}
-	newlineIndex, newlineLen := firstNewlineIndex(current)
-	if newlineIndex < 0 {
-		if len([]rune(current)) > p.probeRuneLimit {
-			p.resolved = true
-			p.buffer.Reset()
-			return current
-		}
-		return ""
-	}
-
-	firstLine := current[:newlineIndex]
-	rest := current[newlineIndex+newlineLen:]
-	p.resolved = true
-	p.buffer.Reset()
-
-	if title, ok := parseProtocolTitle(firstLine); ok {
-		p.title = title
-		return rest
-	}
-	return firstLine + current[newlineIndex:newlineIndex+newlineLen] + rest
+	return p.process(chunk, false)
 }
 
 func (p *titleStreamParser) Flush() string {
-	if !p.enabled || p.resolved {
+	if !p.enabled {
 		return ""
 	}
+	return p.process("", true)
+}
 
-	current := p.buffer.String()
-	p.buffer.Reset()
-	p.resolved = true
+func (p *titleStreamParser) process(chunk string, flush bool) string {
+	var out strings.Builder
 
-	if title, ok := parseProtocolTitle(current); ok {
-		p.title = title
-		return ""
+	// 将确认属于正文的内容透传到输出。
+	writePassthrough := func(content string) {
+		if content == "" {
+			return
+		}
+		out.WriteString(content)
 	}
-	return current
+
+	// 刷新当前行缓冲：可在遇到换行时自然刷新，也可强制刷新（流结束/判定非协议时）。
+	flushLineBuffer := func(force bool) {
+		current := p.lineBuf.String()
+		if current == "" {
+			return
+		}
+		if !force && !strings.Contains(current, "\n") {
+			return
+		}
+		line := strings.TrimSuffix(current, "\n")
+		line = strings.TrimSuffix(line, "\r")
+		if title, ok := parseProtocolTitle(line); ok {
+			// 协议行仅用于更新标题，不进入正文输出。
+			p.title = title
+			p.lineBuf.Reset()
+			// 处理完一行后继续处于探测模式，便于识别下一行协议。
+			p.probing = true
+			return
+		}
+		writePassthrough(current)
+		p.lineBuf.Reset()
+		// 仅当以换行结束时，下一字符才视作新行开头并重新探测。
+		p.probing = strings.HasSuffix(current, "\n")
+	}
+
+	for i := 0; i < len(chunk); i++ {
+		ch := chunk[i]
+		if p.probing {
+			// 探测模式：先累积到行缓冲，再判断是否为 [TITLE] 协议。
+			p.lineBuf.WriteByte(ch)
+			trimmedLeft := strings.TrimLeft(p.lineBuf.String(), " \t\r\n\uFEFF")
+			titleTag := "[TITLE]"
+			// 前缀已足够但不匹配时，立即强制刷新为正文，避免无谓等待整行。
+			if len([]rune(trimmedLeft)) >= len([]rune(titleTag)) && !strings.HasPrefix(trimmedLeft, titleTag) {
+				flushLineBuffer(true)
+			} else {
+				flushLineBuffer(false)
+			}
+			continue
+		}
+
+		// 直通模式：正文原样输出，换行后回到探测模式。
+		out.WriteByte(ch)
+		if ch == '\n' {
+			p.probing = true
+		}
+	}
+
+	if flush {
+		// 流结束时强制处理残留缓冲，避免最后半行被遗漏。
+		flushLineBuffer(true)
+	}
+
+	return out.String()
 }
 
 func (p *titleStreamParser) Title() string {
 	return p.title
-}
-
-func firstNewlineIndex(input string) (int, int) {
-	for i := 0; i < len(input); i++ {
-		switch input[i] {
-		case '\n':
-			return i, 1
-		case '\r':
-			if i+1 < len(input) && input[i+1] == '\n' {
-				return i, 2
-			}
-			return i, 1
-		}
-	}
-	return -1, 0
 }
 
 func parseProtocolTitle(line string) (string, bool) {
@@ -313,12 +359,45 @@ func parseProtocolTitle(line string) (string, bool) {
 	title := strings.TrimSpace(strings.TrimPrefix(trimmed, "[TITLE]"))
 	title = strings.ReplaceAll(title, "\r", "")
 	title = strings.ReplaceAll(title, "\n", "")
-	title = strings.Trim(title, "\"'“”")
+	title = strings.Trim(title, "\"'\u201c\u201d")
 	title = truncateRunes(title, 20)
 	if title == "" {
 		return "", false
 	}
 	return title, true
+}
+
+func extractProtocolTitleAndBody(input string) (string, string) {
+	if strings.TrimSpace(input) == "" {
+		return "", input
+	}
+
+	// 按行扫描协议行，支持 [TITLE] 出现在首行/中间/末行。
+	segments := strings.SplitAfter(input, "\n")
+	if len(segments) == 0 {
+		return "", input
+	}
+
+	var extractedTitle string
+	var hasTitle bool
+	bodySegments := make([]string, 0, len(segments))
+
+	for _, seg := range segments {
+		line := strings.TrimSuffix(seg, "\n")
+		line = strings.TrimSuffix(line, "\r")
+		if title, ok := parseProtocolTitle(line); ok {
+			extractedTitle = title
+			hasTitle = true
+			continue
+		}
+		bodySegments = append(bodySegments, seg)
+	}
+
+	if !hasTitle {
+		return "", input
+	}
+
+	return extractedTitle, strings.Join(bodySegments, "")
 }
 
 func truncateRunes(input string, max int) string {

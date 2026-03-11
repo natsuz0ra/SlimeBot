@@ -1,11 +1,12 @@
 # Corner
 
-这是一个个人练手用的全栈 Demo 项目，目标是实现一个可持续扩展的 AI 会话应用雏形。
+这是个人练手用的 Agent Demo 项目，目标是实现一个可持续扩展的 AI 会话应用雏形。
 
 ## 1. 当前支持功能
 
 - 基本会话功能：会话记录以及上下文能力
 - 消息能力：基于 WebSocket 的流式回复
+- tools能力：支持调用工具为模型提供外部感知能力
 
 ## 2. 架构与技术栈
 
@@ -86,6 +87,7 @@ npm run dev
 - `SERVER_PORT`：服务端口，默认 `8080`
 - `DB_PATH`：SQLite 文件路径，默认 `./storage/corner.db`
 - `FRONTEND_ORIGIN`：允许跨域的前端地址，默认 `http://localhost:5173`
+- `WEB_SEARCH_API_KEY`：tavily网络搜索api_key
 
 示例：
 
@@ -112,9 +114,12 @@ VITE_WS_URL=ws://localhost:8080
 ### 已完成
 
 - 基本的会话功能
+- tools
+  - exec: 系统命令行执行器
+  - http_request: http请求器
+  - web_search: 基于tavily的网络搜索器
 
 ### 待完成功能
 
-- tools
 - mcp
 - skills

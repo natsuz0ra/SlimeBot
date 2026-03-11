@@ -11,12 +11,17 @@ import (
 	"corner/backend/internal/repositories"
 	"corner/backend/internal/router"
 	"corner/backend/internal/services"
+	"github.com/joho/godotenv"
 
 	// 导入 tools 包触发各工具的 init() 自注册
 	_ "corner/backend/internal/tools"
 )
 
 func main() {
+	if err := godotenv.Load(); err != nil {
+		log.Printf(".env 未加载（将继续使用系统环境变量）: %v", err)
+	}
+
 	cfg := config.Load()
 	if err := os.MkdirAll(filepath.Dir(cfg.DBPath), os.ModePerm); err != nil {
 		log.Fatalf("创建数据库目录失败: %v", err)

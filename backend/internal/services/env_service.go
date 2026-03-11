@@ -6,22 +6,32 @@ import (
 	"os/exec"
 	"runtime"
 	"strings"
+	"time"
 )
 
 // EnvInfo 描述运行服务的设备环境信息
 type EnvInfo struct {
-	OS       string `json:"os"`
-	Arch     string `json:"arch"`
-	Hostname string `json:"hostname"`
-	Version  string `json:"version"`
-	Shell    string `json:"shell"`
+	OS             string `json:"os"`
+	Arch           string `json:"arch"`
+	Hostname       string `json:"hostname"`
+	Version        string `json:"version"`
+	Shell          string `json:"shell"`
+	CurrentDate    string `json:"current_date"`
+	CurrentTime    string `json:"current_time"`
+	Timezone       string `json:"timezone"`
+	TimezoneOffset string `json:"timezone_offset"`
 }
 
 // CollectEnvInfo 采集当前设备的环境信息
 func CollectEnvInfo() *EnvInfo {
+	now := time.Now()
 	info := &EnvInfo{
-		OS:   runtime.GOOS,
-		Arch: runtime.GOARCH,
+		OS:             runtime.GOOS,
+		Arch:           runtime.GOARCH,
+		CurrentDate:    now.Format("2006-01-02"),
+		CurrentTime:    now.Format("15:04:05"),
+		Timezone:       now.Location().String(),
+		TimezoneOffset: now.Format("-07:00"),
 	}
 
 	if hostname, err := os.Hostname(); err == nil {
@@ -37,6 +47,19 @@ func CollectEnvInfo() *EnvInfo {
 // FormatForPrompt 将环境信息格式化为可嵌入系统提示词的文本
 func (e *EnvInfo) FormatForPrompt() string {
 	var b strings.Builder
+	if e.CurrentDate != "" {
+		b.WriteString(fmt.Sprintf("- 当前本地日期: %s\n", e.CurrentDate))
+	}
+	if e.CurrentTime != "" {
+		b.WriteString(fmt.Sprintf("- 当前本地时间: %s\n", e.CurrentTime))
+	}
+	if e.Timezone != "" {
+		if e.TimezoneOffset != "" {
+			b.WriteString(fmt.Sprintf("- 当前时区: %s (UTC%s)\n", e.Timezone, e.TimezoneOffset))
+		} else {
+			b.WriteString(fmt.Sprintf("- 当前时区: %s\n", e.Timezone))
+		}
+	}
 	b.WriteString(fmt.Sprintf("- 操作系统: %s\n", e.OS))
 	b.WriteString(fmt.Sprintf("- 系统架构: %s\n", e.Arch))
 	if e.Version != "" {

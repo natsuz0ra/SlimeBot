@@ -20,12 +20,14 @@ const { t } = useI18n()
 const toolIcon = computed(() => {
   if (props.item.toolName === 'exec') return mdiConsoleLine
   if (props.item.toolName === 'http_request') return mdiWeb
+  if (props.item.toolName === 'web_search') return mdiWeb
   return mdiConsoleLine
 })
 
 const toolLabel = computed(() => {
   if (props.item.toolName === 'exec') return t('toolExec')
   if (props.item.toolName === 'http_request') return t('toolHttpRequest')
+  if (props.item.toolName === 'web_search') return t('toolWebSearch')
   return props.item.toolName
 })
 

@@ -3,7 +3,7 @@ type Handlers = {
   onStart: (sessionId?: string) => void
   onChunk: (chunk: string, sessionId?: string) => void
   onSessionTitle: (title: string, sessionId?: string) => void
-  onDone: (sessionId?: string) => void
+  onDone: (sessionId?: string, answer?: string) => void
   onError: (error: string, sessionId?: string) => void
   onToolCallStart?: (data: ToolCallStartData, sessionId?: string) => void
   onToolCallResult?: (data: ToolCallResultData, sessionId?: string) => void
@@ -20,6 +20,7 @@ export interface ToolCallStartData {
   toolName: string
   command: string
   params: Record<string, string>
+  preamble?: string
 }
 
 export interface ToolCallResultData {
@@ -34,12 +35,14 @@ type WSIncoming = {
   type: string
   sessionId?: string
   content?: string
+  answer?: string
   title?: string
   error?: string
   toolCallId?: string
   toolName?: string
   command?: string
   params?: Record<string, string>
+  preamble?: string
   output?: string
 }
 
@@ -128,7 +131,7 @@ export class ChatSocket {
       if (data.type === 'start') this.handlers?.onStart(data.sessionId)
       if (data.type === 'chunk') this.handlers?.onChunk(data.content || '', data.sessionId)
       if (data.type === 'session_title') this.handlers?.onSessionTitle(data.title || '', data.sessionId)
-      if (data.type === 'done') this.handlers?.onDone(data.sessionId)
+      if (data.type === 'done') this.handlers?.onDone(data.sessionId, data.answer)
       if (data.type === 'error') this.handlers?.onError(data.error || 'unknown error', data.sessionId)
 
       if (data.type === 'tool_call_start') {
@@ -137,6 +140,7 @@ export class ChatSocket {
           toolName: data.toolName || '',
           command: data.command || '',
           params: data.params || {},
+          preamble: data.preamble || '',
         }, data.sessionId)
       }
 

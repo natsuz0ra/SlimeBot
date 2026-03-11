@@ -22,6 +22,7 @@ type ApprovalRequest struct {
 	ToolName   string            `json:"toolName"`
 	Command    string            `json:"command"`
 	Params     map[string]string `json:"params"`
+	Preamble   string            `json:"preamble,omitempty"`
 }
 
 // ApprovalResponse 前端返回的审批结果
@@ -139,6 +140,7 @@ func (a *AgentService) RunAgentLoop(
 
 		// tool_calls: 将 assistant 消息（含 tool_calls）追加到上下文
 		messages = append(messages, result.AssistantMessage)
+		preamble := strings.TrimSpace(result.AssistantMessage.Content)
 
 		for _, tc := range result.ToolCalls {
 			toolName, command, err := parseToolCallName(tc.Name)
@@ -167,6 +169,7 @@ func (a *AgentService) RunAgentLoop(
 				ToolName:   toolName,
 				Command:    command,
 				Params:     params,
+				Preamble:   preamble,
 			}); err != nil {
 				return "", fmt.Errorf("推送工具调用审批请求失败: %w", err)
 			}

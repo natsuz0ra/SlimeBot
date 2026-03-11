@@ -215,7 +215,14 @@ func (s *ChatService) HandleChatStream(
 		return nil, err
 	}
 
-	finalAnswer := answerBuilder.String()
+	finalAnswer := answer
+	// 兜底解析 [TITLE] 协议，避免在多轮 tool_call 场景下标题丢失。
+	// 同时统一净化正文，确保不会把 [TITLE] 残留存档。
+	title := parser.Title()
+	if parsedTitle, cleanBody := extractProtocolTitleAndBody(finalAnswer); parsedTitle != "" {
+		title = parsedTitle
+		finalAnswer = cleanBody
+	}
 	if strings.TrimSpace(finalAnswer) == "" {
 		finalAnswer = "模型没有返回内容。"
 	}
@@ -224,12 +231,12 @@ func (s *ChatService) HandleChatStream(
 	}
 
 	result := &ChatStreamResult{Answer: finalAnswer}
-	if parser.Title() != "" {
-		if err := s.repo.UpdateSessionTitle(sessionID, parser.Title()); err != nil {
+	if title != "" {
+		if err := s.repo.UpdateSessionTitle(sessionID, title); err != nil {
 			return nil, err
 		}
 		result.TitleUpdated = true
-		result.Title = parser.Title()
+		result.Title = title
 	}
 	if pushErr != nil {
 		result.PushFailed = true
@@ -239,76 +246,93 @@ func (s *ChatService) HandleChatStream(
 }
 
 type titleStreamParser struct {
-	enabled        bool
-	resolved       bool
-	title          string
-	probeRuneLimit int
-	buffer         strings.Builder
+	enabled bool
+	title   string
+	lineBuf strings.Builder
+	probing bool
 }
 
 func newTitleStreamParser(enabled bool, probeRuneLimit int) *titleStreamParser {
+	_ = probeRuneLimit
 	if !enabled {
-		return &titleStreamParser{enabled: false, resolved: true}
+		return &titleStreamParser{enabled: false}
 	}
-	if probeRuneLimit <= 0 {
-		probeRuneLimit = 80
-	}
-	return &titleStreamParser{enabled: true, probeRuneLimit: probeRuneLimit}
+	return &titleStreamParser{enabled: true, probing: true}
 }
 
 func (p *titleStreamParser) Feed(chunk string) string {
 	if chunk == "" {
 		return ""
 	}
-	if !p.enabled || p.resolved {
+	if !p.enabled {
 		return chunk
 	}
-
-	p.buffer.WriteString(chunk)
-	current := p.buffer.String()
-	trimmedLeft := strings.TrimLeft(current, " \t\r\n\uFEFF")
-	titleTag := "[TITLE]"
-	if len([]rune(trimmedLeft)) >= len([]rune(titleTag)) && !strings.HasPrefix(trimmedLeft, titleTag) {
-		p.resolved = true
-		p.buffer.Reset()
-		return current
-	}
-	newlineIndex, newlineLen := firstNewlineIndex(current)
-	if newlineIndex < 0 {
-		if len([]rune(current)) > p.probeRuneLimit {
-			p.resolved = true
-			p.buffer.Reset()
-			return current
-		}
-		return ""
-	}
-
-	firstLine := current[:newlineIndex]
-	rest := current[newlineIndex+newlineLen:]
-	p.resolved = true
-	p.buffer.Reset()
-
-	if title, ok := parseProtocolTitle(firstLine); ok {
-		p.title = title
-		return rest
-	}
-	return firstLine + current[newlineIndex:newlineIndex+newlineLen] + rest
+	return p.process(chunk, false)
 }
 
 func (p *titleStreamParser) Flush() string {
-	if !p.enabled || p.resolved {
+	if !p.enabled {
 		return ""
 	}
+	return p.process("", true)
+}
 
-	current := p.buffer.String()
-	p.buffer.Reset()
-	p.resolved = true
+func (p *titleStreamParser) process(chunk string, flush bool) string {
+	var out strings.Builder
 
-	if title, ok := parseProtocolTitle(current); ok {
-		p.title = title
-		return ""
+	writePassthrough := func(content string) {
+		if content == "" {
+			return
+		}
+		out.WriteString(content)
 	}
-	return current
+
+	flushLineBuffer := func(force bool) {
+		current := p.lineBuf.String()
+		if current == "" {
+			return
+		}
+		if !force && !strings.Contains(current, "\n") {
+			return
+		}
+		line := strings.TrimSuffix(current, "\n")
+		line = strings.TrimSuffix(line, "\r")
+		if title, ok := parseProtocolTitle(line); ok {
+			p.title = title
+			p.lineBuf.Reset()
+			p.probing = true
+			return
+		}
+		writePassthrough(current)
+		p.lineBuf.Reset()
+		p.probing = strings.HasSuffix(current, "\n")
+	}
+
+	for i := 0; i < len(chunk); i++ {
+		ch := chunk[i]
+		if p.probing {
+			p.lineBuf.WriteByte(ch)
+			trimmedLeft := strings.TrimLeft(p.lineBuf.String(), " \t\r\n\uFEFF")
+			titleTag := "[TITLE]"
+			if len([]rune(trimmedLeft)) >= len([]rune(titleTag)) && !strings.HasPrefix(trimmedLeft, titleTag) {
+				flushLineBuffer(true)
+			} else {
+				flushLineBuffer(false)
+			}
+			continue
+		}
+
+		out.WriteByte(ch)
+		if ch == '\n' {
+			p.probing = true
+		}
+	}
+
+	if flush {
+		flushLineBuffer(true)
+	}
+
+	return out.String()
 }
 
 func (p *titleStreamParser) Title() string {
@@ -345,6 +369,39 @@ func parseProtocolTitle(line string) (string, bool) {
 		return "", false
 	}
 	return title, true
+}
+
+func extractProtocolTitleAndBody(input string) (string, string) {
+	if strings.TrimSpace(input) == "" {
+		return "", input
+	}
+
+	// 按行扫描协议行，支持 [TITLE] 出现在首行/中间/末行。
+	segments := strings.SplitAfter(input, "\n")
+	if len(segments) == 0 {
+		return "", input
+	}
+
+	var extractedTitle string
+	var hasTitle bool
+	bodySegments := make([]string, 0, len(segments))
+
+	for _, seg := range segments {
+		line := strings.TrimSuffix(seg, "\n")
+		line = strings.TrimSuffix(line, "\r")
+		if title, ok := parseProtocolTitle(line); ok {
+			extractedTitle = title
+			hasTitle = true
+			continue
+		}
+		bodySegments = append(bodySegments, seg)
+	}
+
+	if !hasTitle {
+		return "", input
+	}
+
+	return extractedTitle, strings.Join(bodySegments, "")
 }
 
 func truncateRunes(input string, max int) string {

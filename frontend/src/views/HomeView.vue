@@ -8,7 +8,7 @@ import MdiIcon from '../components/MdiIcon.vue'
 import TypingDots from '../components/TypingDots.vue'
 import SettingsPanel from '../components/SettingsPanel.vue'
 import ToolCallCard from '../components/ToolCallCard.vue'
-import { llmAPI, sessionAPI, type LLMConfig } from '../api'
+import { llmAPI, sessionAPI, type LLMConfig, type ToolCallItem } from '../api'
 import { useChatStore } from '../stores/chat'
 import { renderMarkdown } from '../utils/markdown'
 
@@ -24,6 +24,9 @@ const inputValue = ref('')
 const loading = ref(false)
 const settingsVisible = ref(false)
 const hasConnectedOnce = ref(false)
+const toolDetailVisible = ref(false)
+const toolDetailBatchId = ref('')
+const toolDetailDialogWidth = 'min(688px, calc(100vw - 36px))'
 
 const activeSessionMenu = ref<{ id: string; x: number; y: number } | null>(null)
 const topMenuVisible = ref(false)
@@ -38,6 +41,58 @@ const networkStatusText = computed(() => {
   if (store.connectionStatus === 'reconnecting') return t('networkReconnecting')
   if (store.connectionStatus === 'disconnected') return t('networkDisconnected')
   return ''
+})
+const hasVisibleToolCallsWhileWaiting = computed(() => {
+  return store.replyBatches.some((batch) => !batch.collapsed && batch.toolCalls.length > 0)
+})
+
+function findReplyBatchByMessageId(messageId: string) {
+  return store.replyBatches.find((batch) => batch.assistantMessageId === messageId)
+}
+
+function getReplyToolCount(messageId: string) {
+  return findReplyBatchByMessageId(messageId)?.toolCalls.length || 0
+}
+
+function getReplyToolCalls(messageId: string): ToolCallItem[] {
+  return findReplyBatchByMessageId(messageId)?.toolCalls || []
+}
+
+function getReplyTimeline(messageId: string) {
+  return findReplyBatchByMessageId(messageId)?.timeline || []
+}
+
+function getReplyToolItem(messageId: string, toolCallId: string) {
+  return getReplyToolCalls(messageId).find((item) => item.toolCallId === toolCallId)
+}
+
+function isReplyToolCollapsed(messageId: string) {
+  return findReplyBatchByMessageId(messageId)?.collapsed ?? false
+}
+
+function isEmptyPlaceholder(messageId: string) {
+  const batch = findReplyBatchByMessageId(messageId)
+  if (!batch) return false
+  if (batch.collapsed) return false
+  const msg = store.messages.find((m) => m.id === messageId)
+  return !!msg && msg.content === '' && batch.timeline.length === 0
+}
+
+function openToolDetail(messageId: string) {
+  const batch = findReplyBatchByMessageId(messageId)
+  if (!batch || batch.toolCalls.length === 0) return
+  toolDetailBatchId.value = batch.id
+  toolDetailVisible.value = true
+}
+
+const toolDetailItems = computed(() => {
+  return store.replyBatches.find((batch) => batch.id === toolDetailBatchId.value)?.toolCalls || []
+})
+const toolDetailTimeline = computed(() => {
+  return store.replyBatches.find((batch) => batch.id === toolDetailBatchId.value)?.timeline || []
+})
+const toolDetailToolTimeline = computed(() => {
+  return toolDetailTimeline.value.filter((entry) => entry.kind !== 'text')
 })
 
 function onGlobalClick() {
@@ -240,7 +295,19 @@ watch(
 )
 
 watch(
-  () => store.toolCalls.length,
+  () => store.replyBatches.length,
+  () => {
+    queueScrollMessagesToBottom()
+  },
+)
+
+watch(
+  () => {
+    const batchId = store.currentBatchId
+    if (!batchId) return 0
+    const batch = store.replyBatches.find((b) => b.id === batchId)
+    return batch?.timeline.length ?? 0
+  },
   () => {
     queueScrollMessagesToBottom()
   },
@@ -319,29 +386,60 @@ onUnmounted(() => {
 
         <section ref="messagesRef" class="messages">
           <div v-if="loading" class="loading-text">{{ t('loading') }}</div>
-          <div v-for="item in store.messages" :key="item.id" class="message" :class="item.role">
+          <div
+            v-for="item in store.messages"
+            :key="item.id"
+            class="message"
+            :class="[item.role, { 'assistant-waiting-inline': item.role === 'assistant' && isEmptyPlaceholder(item.id) && store.waiting }]"
+          >
             <div v-if="item.role === 'assistant'" class="avatar">
               <MdiIcon :path="mdiRobotOutline" :size="30" />
             </div>
             <div class="bubble">
               <template v-if="item.role === 'assistant'">
-                <div class="bubble-markdown" v-html="renderMarkdown(item.content)" />
+                <div
+                  v-if="getReplyToolCount(item.id) > 0"
+                  class="tool-summary-line"
+                >
+                  <button
+                    type="button"
+                    class="tool-summary-btn"
+                    @click="openToolDetail(item.id)"
+                  >
+                    {{ t('toolExecutionCount', { count: getReplyToolCount(item.id) }) }}
+                  </button>
+                </div>
+                <div
+                  v-if="getReplyToolCount(item.id) > 0 && !isReplyToolCollapsed(item.id)"
+                  class="tool-inline-list"
+                >
+                  <template v-for="entry in getReplyTimeline(item.id)" :key="entry.id">
+                    <div v-if="entry.kind === 'text'" class="timeline-text bubble-markdown" v-html="renderMarkdown(entry.content)" />
+                    <div v-else-if="entry.kind === 'tool_start'" class="timeline-tool-row">
+                      <ToolCallCard
+                        v-if="getReplyToolItem(item.id, entry.toolCallId)"
+                        :item="getReplyToolItem(item.id, entry.toolCallId)!"
+                        :show-preamble="false"
+                        @approve="store.approveToolCall($event, true)"
+                        @reject="store.approveToolCall($event, false)"
+                      />
+                    </div>
+                    <div v-else class="timeline-tool-result">
+                      {{ t('toolExecutionFinished') }}
+                    </div>
+                  </template>
+                </div>
+                <div
+                  v-if="getReplyToolCount(item.id) === 0 || isReplyToolCollapsed(item.id)"
+                  class="bubble-markdown"
+                  v-html="renderMarkdown(item.content)"
+                />
+                <TypingDots v-if="isEmptyPlaceholder(item.id) && store.waiting" />
               </template>
               <template v-else>
                 {{ item.content }}
               </template>
             </div>
-          </div>
-          <div v-for="tc in store.toolCalls" :key="tc.toolCallId" class="tool-call-row">
-            <ToolCallCard
-              :item="tc"
-              @approve="store.approveToolCall($event, true)"
-              @reject="store.approveToolCall($event, false)"
-            />
-          </div>
-          <div v-if="store.waiting && !store.streamingStarted && store.toolCalls.length === 0" class="message assistant assistant-waiting">
-            <div class="avatar"><MdiIcon :path="mdiRobotOutline" :size="30" /></div>
-            <div class="bubble"><TypingDots /></div>
           </div>
         </section>
 
@@ -377,6 +475,30 @@ onUnmounted(() => {
       @confirm="confirmRename"
     >
       <t-input v-model="renameValue" />
+    </t-dialog>
+
+    <t-dialog
+      v-model:visible="toolDetailVisible"
+      class="tool-detail-dialog"
+      :header="t('toolExecutionDetailTitle')"
+      :confirm-btn="null"
+      :cancel-btn="t('close')"
+      :width="toolDetailDialogWidth"
+    >
+      <div class="tool-detail-list">
+        <template v-for="entry in toolDetailToolTimeline" :key="entry.id">
+          <ToolCallCard
+            v-if="entry.kind === 'tool_start' && toolDetailItems.find((tc) => tc.toolCallId === entry.toolCallId)"
+            :item="toolDetailItems.find((tc) => tc.toolCallId === entry.toolCallId)!"
+            :show-preamble="true"
+            @approve="store.approveToolCall($event, true)"
+            @reject="store.approveToolCall($event, false)"
+          />
+          <div v-else-if="entry.kind === 'tool_result'" class="timeline-tool-result">
+            {{ t('toolExecutionFinished') }}
+          </div>
+        </template>
+      </div>
     </t-dialog>
 
     <div v-if="settingsVisible" class="settings-overlay" @click.self="settingsVisible = false">
@@ -622,14 +744,57 @@ onUnmounted(() => {
   margin-left: -8px;
 }
 
+.message.assistant.assistant-waiting-inline {
+  align-items: center;
+}
+
+.message.assistant.assistant-waiting-inline .avatar {
+  display: flex;
+  align-items: center;
+}
+
 .message.assistant-waiting {
   align-items: center;
 }
 
-.tool-call-row {
+.tool-summary-line {
+  margin: 2px 0 8px;
+}
+
+.tool-summary-btn {
+  border: 1px solid #d5d5d5;
+  border-radius: 14px;
+  padding: 2px 10px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: #4a4a4a;
+  background: #f7f7f7;
+  cursor: pointer;
+}
+
+.tool-summary-btn:hover {
+  background: #efefef;
+}
+
+.tool-inline-list {
   display: flex;
-  margin-bottom: 12px;
-  padding-left: 40px;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.timeline-text {
+  padding: 4px 0;
+}
+
+.timeline-tool-row {
+  width: 100%;
+}
+
+.timeline-tool-result {
+  font-size: 12px;
+  color: #5f6368;
+  padding: 2px 0 4px;
 }
 
 .message.assistant-waiting .bubble {
@@ -866,5 +1031,13 @@ onUnmounted(() => {
 .floating-session-menu {
   position: fixed;
   z-index: 80;
+}
+
+.tool-detail-list {
+  max-height: min(60vh, 560px);
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }
 </style>

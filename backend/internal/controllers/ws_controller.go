@@ -231,6 +231,7 @@ func (w *WSController) Chat(wr http.ResponseWriter, req *http.Request) {
 						"toolName":   req.ToolName,
 						"command":    req.Command,
 						"params":     req.Params,
+						"preamble":   req.Preamble,
 					}) {
 						return context.Canceled
 					}
@@ -294,7 +295,11 @@ func (w *WSController) Chat(wr http.ResponseWriter, req *http.Request) {
 					return
 				}
 			}
-			if !enqueue(map[string]any{"type": "done", "sessionId": session.ID}) {
+			donePayload := map[string]any{"type": "done", "sessionId": session.ID}
+			if streamResult != nil {
+				donePayload["answer"] = streamResult.Answer
+			}
+			if !enqueue(donePayload) {
 				return
 			}
 			doneSentAt := time.Now()

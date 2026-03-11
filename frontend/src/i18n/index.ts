@@ -51,6 +51,10 @@ const messages = {
     toolCallApprove: '允许执行',
     toolCallReject: '拒绝',
     toolCallOutput: '查看输出',
+    toolExecutionCount: '工具执行 {count} 条',
+    toolExecutionDetailTitle: '工具执行详情',
+    toolExecutionFinished: '工具执行完成',
+    close: '关闭',
   },
   'en-US': {
     appName: 'Corner',
@@ -102,6 +106,10 @@ const messages = {
     toolCallApprove: 'Approve',
     toolCallReject: 'Reject',
     toolCallOutput: 'View output',
+    toolExecutionCount: '{count} tool calls',
+    toolExecutionDetailTitle: 'Tool call details',
+    toolExecutionFinished: 'Tool execution finished',
+    close: 'Close',
   },
 }
 

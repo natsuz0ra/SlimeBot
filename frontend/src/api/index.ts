@@ -44,6 +44,7 @@ export interface ToolCallItem {
   toolName: string
   command: string
   params: Record<string, string>
+  preamble?: string
   status: ToolCallStatus
   output?: string
   error?: string

@@ -6,7 +6,8 @@ import MdiIcon from './MdiIcon.vue'
 import type { ToolCallItem } from '../api'
 
 const props = defineProps<{
-  item: ToolCallItem
+  item: ToolCallItem & { preamble?: string }
+  showPreamble?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -47,6 +48,7 @@ const paramsDisplay = computed(() => {
 
 const showActions = computed(() => props.item.status === 'pending')
 const showResult = computed(() => props.item.status === 'completed' || props.item.status === 'error')
+const shouldShowPreamble = computed(() => !!props.showPreamble && !!props.item.preamble)
 </script>
 
 <template>
@@ -61,6 +63,10 @@ const showResult = computed(() => props.item.status === 'completed' || props.ite
 
     <div v-if="paramsDisplay" class="tool-call-params">
       <pre>{{ paramsDisplay }}</pre>
+    </div>
+
+    <div v-if="shouldShowPreamble" class="tool-call-preamble">
+      {{ item.preamble }}
     </div>
 
     <div v-if="showActions" class="tool-call-actions">
@@ -89,10 +95,13 @@ const showResult = computed(() => props.item.status === 'completed' || props.ite
   border: 1px solid #e0e0e0;
   border-radius: 8px;
   padding: 10px 12px;
-  margin: 8px 0;
+  margin: 0;
   background: #fafafa;
   font-size: 13px;
-  max-width: min(100%, 640px);
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+  overflow: visible;
 }
 
 .tool-call-card.pending {
@@ -119,6 +128,7 @@ const showResult = computed(() => props.item.status === 'completed' || props.ite
 .tool-call-header {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 6px;
   font-weight: 500;
   color: #333;
@@ -131,6 +141,8 @@ const showResult = computed(() => props.item.status === 'completed' || props.ite
 .tool-command {
   color: #666;
   font-family: 'Consolas', 'Courier New', monospace;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .tool-status {
@@ -173,6 +185,15 @@ const showResult = computed(() => props.item.status === 'completed' || props.ite
   margin-top: 8px;
   display: flex;
   gap: 8px;
+}
+
+.tool-call-preamble {
+  margin-top: 8px;
+  font-size: 13px;
+  line-height: 1.6;
+  color: #333;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 .action-btn {
@@ -237,7 +258,6 @@ const showResult = computed(() => props.item.status === 'completed' || props.ite
   font-family: 'Consolas', 'Courier New', monospace;
   white-space: pre-wrap;
   word-break: break-all;
-  max-height: 200px;
-  overflow-y: auto;
+  overflow: visible;
 }
 </style>

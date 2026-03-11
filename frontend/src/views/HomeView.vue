@@ -705,7 +705,7 @@ onUnmounted(() => {
 .message {
   display: flex;
   gap: 10px;
-  margin-bottom: 16px;
+  margin-bottom: 32px;
 }
 
 .message.user {
@@ -884,7 +884,7 @@ onUnmounted(() => {
     width: min(100%, 688px);
     margin-left: auto;
     margin-right: auto;
-    margin-bottom: 12px;
+    margin-bottom: 24px;
   }
 
   .message.assistant .avatar {

@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"corner/backend/internal/mcp"
 	"corner/backend/internal/models"
 	"corner/backend/internal/repositories"
 )
@@ -30,10 +31,10 @@ type ChatStreamResult struct {
 	PushError    string
 }
 
-func NewChatService(repo *repositories.Repository, openai *OpenAIClient) *ChatService {
+func NewChatService(repo *repositories.Repository, openai *OpenAIClient, mcpManager *mcp.Manager) *ChatService {
 	return &ChatService{
 		repo:  repo,
-		agent: NewAgentService(openai),
+		agent: NewAgentService(openai, mcpManager),
 	}
 }
 
@@ -83,14 +84,14 @@ func (s *ChatService) loadSystemPrompt() (string, error) {
 		return "", fmt.Errorf("无法定位系统提示词文件路径")
 	}
 
-	// 优先尝试 .md 文件，兼容 .txt
-	promptDir := filepath.Join(filepath.Dir(currentFile), "..", "prompts")
-	mdPath := filepath.Join(promptDir, "system_prompt.md")
+	serviceDir := filepath.Dir(currentFile)
+	projectRoot := filepath.Clean(filepath.Join(serviceDir, "..", ".."))
 
-	var raw []byte
-	var err error
-
-	raw, err = os.ReadFile(mdPath)
+	var (
+		raw []byte
+		err error
+	)
+	raw, err = os.ReadFile(filepath.Join(projectRoot, "system_prompt.md"))
 	if err != nil {
 		return "", fmt.Errorf("读取系统提示词失败: %w", err)
 	}
@@ -156,6 +157,10 @@ func (s *ChatService) HandleChatStream(
 	if err != nil {
 		return nil, err
 	}
+	enabledMCPConfigs, err := s.repo.ListEnabledMCPConfigs()
+	if err != nil {
+		return nil, err
+	}
 
 	isTitleLocked := session.IsTitleLocked
 	parser := newTitleStreamParser(!isTitleLocked, titleProbeRuneLimit)
@@ -198,7 +203,7 @@ func (s *ChatService) HandleChatStream(
 		Model:   llmConfig.Model,
 	}
 
-	answer, err := s.agent.RunAgentLoop(ctx, modelConfig, contextMessages, agentCallbacks)
+	answer, err := s.agent.RunAgentLoop(ctx, modelConfig, contextMessages, enabledMCPConfigs, agentCallbacks)
 	if err != nil && answer == "" {
 		return nil, err
 	}

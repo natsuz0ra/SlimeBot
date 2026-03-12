@@ -8,6 +8,7 @@ import (
 	"corner/backend/internal/config"
 	"corner/backend/internal/controllers"
 	"corner/backend/internal/database"
+	"corner/backend/internal/mcp"
 	"corner/backend/internal/repositories"
 	"corner/backend/internal/router"
 	"corner/backend/internal/services"
@@ -34,7 +35,8 @@ func main() {
 
 	repo := repositories.New(db)
 	openaiClient := services.NewOpenAIClient()
-	chatService := services.NewChatService(repo, openaiClient)
+	mcpManager := mcp.NewManager()
+	chatService := services.NewChatService(repo, openaiClient, mcpManager)
 
 	httpController := controllers.NewHTTPController(repo)
 	wsController := controllers.NewWSController(chatService)

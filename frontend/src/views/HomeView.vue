@@ -42,10 +42,6 @@ const networkStatusText = computed(() => {
   if (store.connectionStatus === 'disconnected') return t('networkDisconnected')
   return ''
 })
-const hasVisibleToolCallsWhileWaiting = computed(() => {
-  return store.replyBatches.some((batch) => !batch.collapsed && batch.toolCalls.length > 0)
-})
-
 function findReplyBatchByMessageId(messageId: string) {
   return store.replyBatches.find((batch) => batch.assistantMessageId === messageId)
 }

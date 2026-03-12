@@ -31,10 +31,10 @@ export interface LLMConfig {
 export interface MCPConfig {
   id: string
   name: string
-  serverUrl: string
-  authType: string
-  authValue: string
+  config: string
   isEnabled: boolean
+  createdAt?: string
+  updatedAt?: string
 }
 
 export type ToolCallStatus = 'pending' | 'approved' | 'rejected' | 'executing' | 'completed' | 'error'

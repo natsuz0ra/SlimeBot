@@ -2,7 +2,11 @@
 import { computed, onMounted, ref } from 'vue'
 import { MessagePlugin } from 'tdesign-vue-next'
 import { useI18n } from 'vue-i18n'
-import { mdiClose, mdiPlus } from '@mdi/js'
+import { mdiClose, mdiPencil, mdiPlus } from '@mdi/js'
+import CodeMirror from 'vue-codemirror6'
+import { json } from '@codemirror/lang-json'
+import { oneDark } from '@codemirror/theme-one-dark'
+import { lineNumbers } from '@codemirror/view'
 
 import MdiIcon from './MdiIcon.vue'
 import { llmAPI, mcpAPI, settingAPI } from '../api'
@@ -21,12 +25,16 @@ const llmDialogVisible = ref(false)
 const mcpDialogVisible = ref(false)
 const llmSubmitting = ref(false)
 const mcpSubmitting = ref(false)
+const mcpEditingID = ref('')
 
 const llmForm = ref({ name: '', baseUrl: '', apiKey: '', model: '' })
-const mcpForm = ref({ name: '', serverUrl: '', authType: '', authValue: '', isEnabled: true })
+const mcpForm = ref({ name: '', config: '', isEnabled: true })
+const mcpTemplateType = ref<'stdio' | 'sse' | 'streamable_http'>('stdio')
+const mcpEditorExtensions = [lineNumbers(), json(), oneDark]
 
 const llmRows = computed(() => llmList.value || [])
 const mcpRows = computed(() => mcpList.value || [])
+const mcpDialogTitle = computed(() => (mcpEditingID.value ? t('editMcp') : t('addMcp')))
 
 function showError(message: string) {
   MessagePlugin.error({
@@ -106,20 +114,82 @@ async function deleteLLM(id: string) {
   llmList.value = await llmAPI.list()
 }
 
+function buildTemplate(transport: 'stdio' | 'sse' | 'streamable_http') {
+  if (transport === 'stdio') {
+    return JSON.stringify(
+      {
+        command: 'python',
+        args: ['-m', 'your_module'],
+      },
+      null,
+      2,
+    )
+  }
+  return JSON.stringify(
+    {
+      transport,
+      url: 'https://your-mcp-server-url',
+      headers: {},
+      timeout: 5,
+      sse_read_timeout: 300,
+    },
+    null,
+    2,
+  )
+}
+
+function applyTemplate(transport: 'stdio' | 'sse' | 'streamable_http') {
+  mcpTemplateType.value = transport
+  mcpForm.value.config = buildTemplate(transport)
+}
+
 function openMCPDialog() {
-  mcpForm.value = { name: '', serverUrl: '', authType: '', authValue: '', isEnabled: true }
+  mcpEditingID.value = ''
+  mcpForm.value = { name: '', config: buildTemplate('stdio'), isEnabled: true }
+  mcpTemplateType.value = 'stdio'
   mcpDialogVisible.value = true
 }
 
-async function addMCP() {
-  if (!mcpForm.value.name || !mcpForm.value.serverUrl) {
+function openMCPEditDialog(item: any) {
+  mcpEditingID.value = item.id
+  mcpForm.value = {
+    name: item.name,
+    config: item.config,
+    isEnabled: item.isEnabled,
+  }
+  mcpDialogVisible.value = true
+}
+
+async function saveMCP() {
+  if (!mcpForm.value.name || !mcpForm.value.config) {
     showError(t('mcpFormIncomplete'))
     return
   }
+  let parsed: any
+  try {
+    parsed = JSON.parse(mcpForm.value.config)
+  } catch {
+    showError(t('mcpJsonInvalid'))
+    return
+  }
+  if (parsed?.mcpServers) {
+    showError(t('mcpWrapperNotSupported'))
+    return
+  }
+
   mcpSubmitting.value = true
   try {
-    await mcpAPI.create(mcpForm.value)
-    mcpForm.value = { name: '', serverUrl: '', authType: '', authValue: '', isEnabled: true }
+    const payload = {
+      name: mcpForm.value.name.trim(),
+      config: JSON.stringify(parsed, null, 2),
+      isEnabled: mcpForm.value.isEnabled,
+    }
+    if (mcpEditingID.value) {
+      await mcpAPI.update(mcpEditingID.value, payload)
+    } else {
+      await mcpAPI.create(payload)
+    }
+    mcpForm.value = { name: '', config: buildTemplate('stdio'), isEnabled: true }
     mcpList.value = await mcpAPI.list()
     mcpDialogVisible.value = false
   } finally {
@@ -130,11 +200,22 @@ async function addMCP() {
 async function updateMCP(item: any) {
   await mcpAPI.update(item.id, {
     name: item.name,
-    serverUrl: item.serverUrl,
-    authType: item.authType,
-    authValue: item.authValue,
+    config: item.config,
     isEnabled: item.isEnabled,
   })
+}
+
+function mcpPreview(item: any) {
+  try {
+    const cfg = JSON.parse(item.config || '{}')
+    const transport = cfg.transport || 'stdio'
+    if (transport === 'stdio') {
+      return `${transport} · ${cfg.command || '-'}`
+    }
+    return `${transport} · ${cfg.url || '-'}`
+  } catch {
+    return t('mcpJsonInvalid')
+  }
 }
 
 async function deleteMCP(id: string) {
@@ -197,9 +278,13 @@ onMounted(loadData)
           <div class="list">
             <div v-for="item in mcpRows" :key="item.id" class="list-row">
               <div class="list-title">{{ item.name }}</div>
-              <div class="list-desc">{{ item.serverUrl }}</div>
+              <div class="list-desc">{{ mcpPreview(item) }}</div>
               <div class="actions">
                 <t-switch v-model="item.isEnabled" size="small" @change="updateMCP(item)" />
+                <button type="button" class="text-btn" @click="openMCPEditDialog(item)">
+                  <MdiIcon :path="mdiPencil" :size="14" />
+                  {{ t('editMcp') }}
+                </button>
                 <button type="button" class="danger-btn" @click="deleteMCP(item.id)">{{ t('delete') }}</button>
               </div>
             </div>
@@ -229,23 +314,39 @@ onMounted(loadData)
       </div>
     </t-dialog>
 
-    <t-dialog v-model:visible="mcpDialogVisible" :header="t('addMcp')" :confirm-btn="t('confirm')" :cancel-btn="t('cancel')" :confirm-loading="mcpSubmitting" @confirm="addMCP">
+    <t-dialog
+      v-model:visible="mcpDialogVisible"
+      :header="mcpDialogTitle"
+      :confirm-btn="t('confirm')"
+      :cancel-btn="t('cancel')"
+      :confirm-loading="mcpSubmitting"
+      width="760px"
+      @confirm="saveMCP"
+    >
       <div class="dialog-form">
         <div class="dialog-field">
           <div class="dialog-label">{{ t('name') }}</div>
           <t-input v-model="mcpForm.name" />
         </div>
         <div class="dialog-field">
-          <div class="dialog-label">{{ t('mcpServerUrl') }}</div>
-          <t-input v-model="mcpForm.serverUrl" />
-        </div>
-        <div class="dialog-field">
-          <div class="dialog-label">{{ t('mcpAuthType') }}</div>
-          <t-input v-model="mcpForm.authType" />
-        </div>
-        <div class="dialog-field">
-          <div class="dialog-label">{{ t('mcpAuthValue') }}</div>
-          <t-input v-model="mcpForm.authValue" />
+          <div class="dialog-template-row">
+            <div class="dialog-label">{{ t('mcpConfigJson') }}</div>
+            <div class="template-actions">
+              <t-button variant="outline" size="small" :theme="mcpTemplateType === 'stdio' ? 'primary' : 'default'" @click="applyTemplate('stdio')">stdio</t-button>
+              <t-button variant="outline" size="small" :theme="mcpTemplateType === 'sse' ? 'primary' : 'default'" @click="applyTemplate('sse')">sse</t-button>
+              <t-button variant="outline" size="small" :theme="mcpTemplateType === 'streamable_http' ? 'primary' : 'default'" @click="applyTemplate('streamable_http')">streamable_http</t-button>
+            </div>
+          </div>
+          <div class="json-editor-wrap">
+            <CodeMirror
+              v-model="mcpForm.config"
+              class="json-codemirror"
+              :extensions="mcpEditorExtensions"
+              :indent-with-tab="true"
+              :tab-size="2"
+              :style="{ height: '320px' }"
+            />
+          </div>
         </div>
       </div>
     </t-dialog>
@@ -383,6 +484,17 @@ onMounted(loadData)
   gap: 8px;
 }
 
+.text-btn {
+  border: 0;
+  background: transparent;
+  color: #3f6fd9;
+  cursor: pointer;
+  padding: 0;
+  display: inline-flex;
+  gap: 4px;
+  align-items: center;
+}
+
 .danger-btn {
   border: 0;
   background: transparent;
@@ -406,6 +518,40 @@ onMounted(loadData)
 .dialog-label {
   font-size: 12px;
   color: #555;
+}
+
+.dialog-template-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.template-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.json-editor-wrap {
+  border-radius: 10px;
+  overflow: hidden;
+  border: 1px solid #2f2f2f;
+}
+
+.json-codemirror :deep(.cm-editor) {
+  height: 100%;
+  background: #1e1e1e;
+}
+
+.json-codemirror :deep(.cm-scroller) {
+  font-family: 'Consolas', 'Courier New', monospace;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.json-codemirror :deep(.cm-gutters) {
+  background: #1e1e1e;
+  border-right: 1px solid #313131;
 }
 
 @media (max-width: 900px) {

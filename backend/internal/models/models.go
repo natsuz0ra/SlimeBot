@@ -37,12 +37,10 @@ type LLMConfig struct {
 }
 
 type MCPConfig struct {
-	ID         string    `gorm:"primaryKey;size:36" json:"id"`
-	Name       string    `gorm:"size:128;not null" json:"name"`
-	ServerURL  string    `gorm:"size:512;not null" json:"serverUrl"`
-	AuthType   string    `gorm:"size:64" json:"authType"`
-	AuthValue  string    `gorm:"size:512" json:"authValue"`
-	IsEnabled  bool      `gorm:"default:true" json:"isEnabled"`
-	CreatedAt  time.Time `json:"createdAt"`
-	ModifiedAt time.Time `gorm:"column:updated_at" json:"updatedAt"`
+	ID        string    `gorm:"primaryKey;size:36" json:"id"`
+	Name      string    `gorm:"size:128;not null" json:"name"`
+	Config    string    `gorm:"type:text;not null" json:"config"`
+	IsEnabled bool      `gorm:"default:true;not null" json:"isEnabled"`
+	CreatedAt time.Time `json:"createdAt"`
+	UpdatedAt time.Time `json:"updatedAt"`
 }

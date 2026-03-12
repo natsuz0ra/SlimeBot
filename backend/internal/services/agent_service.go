@@ -8,6 +8,8 @@ import (
 	"strings"
 	"time"
 
+	"corner/backend/internal/mcp"
+	"corner/backend/internal/models"
 	"corner/backend/internal/tools"
 )
 
@@ -55,10 +57,11 @@ type AgentCallbacks struct {
 // AgentService 封装 Agent 循环逻辑
 type AgentService struct {
 	openai *OpenAIClient
+	mcp    *mcp.Manager
 }
 
-func NewAgentService(openai *OpenAIClient) *AgentService {
-	return &AgentService{openai: openai}
+func NewAgentService(openai *OpenAIClient, mcpManager *mcp.Manager) *AgentService {
+	return &AgentService{openai: openai, mcp: mcpManager}
 }
 
 // BuildToolDefs 从全局工具注册中心生成 OpenAI function call 的工具定义列表。
@@ -104,6 +107,36 @@ func BuildToolDefs() []ToolDef {
 	return defs
 }
 
+func (a *AgentService) buildRuntimeToolDefs(ctx context.Context, configs []models.MCPConfig) ([]ToolDef, map[string]mcp.ToolMeta, error) {
+	defs := BuildToolDefs()
+	metaByFunc := make(map[string]mcp.ToolMeta)
+	if a.mcp == nil || len(configs) == 0 {
+		return defs, metaByFunc, nil
+	}
+
+	metas, mcpDefs, err := a.mcp.LoadTools(ctx, configs)
+	if err != nil {
+		return nil, nil, err
+	}
+	for _, def := range mcpDefs {
+		name, _ := def["name"].(string)
+		description, _ := def["description"].(string)
+		parameters, _ := def["parameters"].(map[string]any)
+		if name == "" {
+			continue
+		}
+		defs = append(defs, ToolDef{
+			Name:        name,
+			Description: description,
+			Parameters:  parameters,
+		})
+	}
+	for _, meta := range metas {
+		metaByFunc[meta.FuncName] = meta
+	}
+	return defs, metaByFunc, nil
+}
+
 // RunAgentLoop 执行完整的 Agent 循环：
 // 1. 调用 LLM（带 tools）
 // 2. 如果返回纯文本 -> 通过 onChunk 推送，循环结束
@@ -113,9 +146,13 @@ func (a *AgentService) RunAgentLoop(
 	ctx context.Context,
 	modelConfig ModelRuntimeConfig,
 	contextMessages []ChatMessage,
+	mcpConfigs []models.MCPConfig,
 	callbacks AgentCallbacks,
 ) (string, error) {
-	toolDefs := BuildToolDefs()
+	toolDefs, mcpToolMeta, err := a.buildRuntimeToolDefs(ctx, mcpConfigs)
+	if err != nil {
+		return "", fmt.Errorf("加载 MCP 工具失败: %w", err)
+	}
 	messages := make([]ChatMessage, len(contextMessages))
 	copy(messages, contextMessages)
 
@@ -144,7 +181,14 @@ func (a *AgentService) RunAgentLoop(
 
 		for _, tc := range result.ToolCalls {
 			toolName, command, err := parseToolCallName(tc.Name)
-			if err != nil {
+			isMCP := false
+			mcpMeta, hasMCPMeta := mcpToolMeta[tc.Name]
+			if hasMCPMeta {
+				toolName = mcpMeta.ServerAlias
+				command = mcpMeta.ToolName
+				isMCP = true
+			}
+			if err != nil && !isMCP {
 				messages = append(messages, ChatMessage{
 					Role:       "tool",
 					ToolCallID: tc.ID,
@@ -209,7 +253,22 @@ func (a *AgentService) RunAgentLoop(
 			}
 
 			// 执行工具
-			execResult := executeToolCall(toolName, command, params)
+			var execResult *tools.ExecuteResult
+			if isMCP {
+				argsAny, parseErr := parseToolCallArgsAny(tc.Arguments)
+				if parseErr != nil {
+					execResult = &tools.ExecuteResult{Error: parseErr.Error()}
+				} else {
+					callResult, callErr := a.mcp.Execute(ctx, mcpConfigs, toolName, command, argsAny)
+					if callErr != nil {
+						execResult = &tools.ExecuteResult{Error: callErr.Error()}
+					} else {
+						execResult = &tools.ExecuteResult{Output: callResult.Output, Error: callResult.Error}
+					}
+				}
+			} else {
+				execResult = executeToolCall(toolName, command, params)
+			}
 
 			if cbErr := callbacks.OnToolCallResult(ToolCallResult{
 				ToolCallID: tc.ID,
@@ -267,6 +326,17 @@ func parseToolCallArgs(arguments string) (map[string]string, error) {
 		}
 	}
 	return result, nil
+}
+
+func parseToolCallArgsAny(arguments string) (map[string]any, error) {
+	if strings.TrimSpace(arguments) == "" {
+		return map[string]any{}, nil
+	}
+	var raw map[string]any
+	if err := json.Unmarshal([]byte(arguments), &raw); err != nil {
+		return nil, fmt.Errorf("JSON 解析失败: %w", err)
+	}
+	return raw, nil
 }
 
 func executeToolCall(toolName, command string, params map[string]string) *tools.ExecuteResult {

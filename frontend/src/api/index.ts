@@ -3,7 +3,6 @@ import { apiClient } from './client'
 export interface SessionItem {
   id: string
   name: string
-  modelConfigId?: string
   updatedAt: string
 }
 
@@ -17,7 +16,6 @@ export interface MessageItem {
 
 export interface AppSettings {
   language: 'zh-CN' | 'en-US'
-  defaultModel?: string
 }
 
 export interface LLMConfig {
@@ -37,7 +35,17 @@ export interface MCPConfig {
   updatedAt?: string
 }
 
-export type ToolCallStatus = 'pending' | 'approved' | 'rejected' | 'executing' | 'completed' | 'error'
+export interface SkillItem {
+  id: string
+  name: string
+  relativePath: string
+  description: string
+  uploadedAt: string
+  createdAt?: string
+  updatedAt?: string
+}
+
+export type ToolCallStatus = 'pending' | 'rejected' | 'executing' | 'completed' | 'error'
 
 export interface ToolCallItem {
   toolCallId: string
@@ -56,7 +64,6 @@ export const sessionAPI = {
   rename: async (id: string, name: string) => apiClient.patch(`/api/sessions/${id}/name`, { name }),
   remove: async (id: string) => apiClient.delete(`/api/sessions/${id}`),
   history: async (id: string) => (await apiClient.get<MessageItem[]>(`/api/sessions/${id}/messages`)).data,
-  setModel: async (id: string, modelConfigId: string) => apiClient.put(`/api/sessions/${id}/model`, { modelConfigId }),
 }
 
 export const settingAPI = {
@@ -75,4 +82,14 @@ export const mcpAPI = {
   create: async (payload: Omit<MCPConfig, 'id'>) => (await apiClient.post<MCPConfig>('/api/mcp-configs', payload)).data,
   update: async (id: string, payload: Omit<MCPConfig, 'id'>) => apiClient.put(`/api/mcp-configs/${id}`, payload),
   remove: async (id: string) => apiClient.delete(`/api/mcp-configs/${id}`),
+}
+
+export const skillsAPI = {
+  list: async () => (await apiClient.get<SkillItem[]>('/api/skills')).data,
+  upload: async (files: File[]) => {
+    const formData = new FormData()
+    files.forEach((file) => formData.append('files', file))
+    return (await apiClient.post('/api/skills/upload', formData, { headers: { 'Content-Type': 'multipart/form-data' } })).data
+  },
+  remove: async (id: string) => apiClient.delete(`/api/skills/${id}`),
 }

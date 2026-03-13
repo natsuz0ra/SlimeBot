@@ -16,8 +16,9 @@ import (
 )
 
 type ChatService struct {
-	repo  *repositories.Repository
-	agent *AgentService
+	repo         *repositories.Repository
+	agent        *AgentService
+	skillRuntime *SkillRuntimeService
 }
 
 const contextHistoryLimit = 20
@@ -31,10 +32,11 @@ type ChatStreamResult struct {
 	PushError    string
 }
 
-func NewChatService(repo *repositories.Repository, openai *OpenAIClient, mcpManager *mcp.Manager) *ChatService {
+func NewChatService(repo *repositories.Repository, openai *OpenAIClient, mcpManager *mcp.Manager, skillRuntime *SkillRuntimeService) *ChatService {
 	return &ChatService{
-		repo:  repo,
-		agent: NewAgentService(openai, mcpManager),
+		repo:         repo,
+		agent:        NewAgentService(openai, mcpManager, skillRuntime),
+		skillRuntime: skillRuntime,
 	}
 }
 
@@ -61,6 +63,15 @@ func (s *ChatService) BuildContextMessages(sessionID string, userInput string) (
 	// 拼接环境信息到系统提示词
 	envInfo := CollectEnvInfo()
 	systemPrompt = systemPrompt + "\n\n## 当前运行环境\n" + envInfo.FormatForPrompt()
+	if s.skillRuntime != nil {
+		catalogPrompt, _, catalogErr := s.skillRuntime.BuildCatalogPrompt()
+		if catalogErr != nil {
+			return nil, catalogErr
+		}
+		if strings.TrimSpace(catalogPrompt) != "" {
+			systemPrompt = systemPrompt + "\n\n" + catalogPrompt
+		}
+	}
 
 	history, err := s.repo.ListRecentSessionMessages(sessionID, contextHistoryLimit)
 	if err != nil {
@@ -192,7 +203,16 @@ func (s *ChatService) HandleChatStream(
 			body := parser.Feed(chunk)
 			return pushBody(body)
 		},
-		OnToolCallStart:  callbacks.OnToolCallStart,
+		OnToolCallStart: func(req ApprovalRequest) error {
+			// 进入工具调用阶段前，结束当前回答片段并为下一轮回答重置标题探测状态。
+			if err := pushBody(parser.BeginAssistantTurn()); err != nil {
+				return err
+			}
+			if callbacks.OnToolCallStart == nil {
+				return nil
+			}
+			return callbacks.OnToolCallStart(req)
+		},
 		WaitApproval:     callbacks.WaitApproval,
 		OnToolCallResult: callbacks.OnToolCallResult,
 	}
@@ -203,7 +223,8 @@ func (s *ChatService) HandleChatStream(
 		Model:   llmConfig.Model,
 	}
 
-	answer, err := s.agent.RunAgentLoop(ctx, modelConfig, contextMessages, enabledMCPConfigs, agentCallbacks)
+	activatedSkills := make(map[string]struct{})
+	answer, err := s.agent.RunAgentLoop(ctx, modelConfig, contextMessages, enabledMCPConfigs, activatedSkills, agentCallbacks)
 	if err != nil && answer == "" {
 		return nil, err
 	}
@@ -353,6 +374,16 @@ func (p *titleStreamParser) process(chunk string, flush bool) string {
 
 func (p *titleStreamParser) Title() string {
 	return p.title
+}
+
+func (p *titleStreamParser) BeginAssistantTurn() string {
+	if !p.enabled {
+		return ""
+	}
+	// 工具调用切轮时先冲刷残留，再回到“新一行起点探测”状态。
+	passthrough := p.process("", true)
+	p.probing = true
+	return passthrough
 }
 
 func parseProtocolTitle(line string) (string, bool) {

@@ -9,6 +9,7 @@ type Config struct {
 	ServerPort string
 	DBPath     string
 	Frontend   string
+	SkillsRoot string
 }
 
 func Load() Config {
@@ -16,6 +17,7 @@ func Load() Config {
 		ServerPort: getEnv("SERVER_PORT", "8080"),
 		DBPath:     getEnv("DB_PATH", "./storage/corner.db"),
 		Frontend:   getEnv("FRONTEND_ORIGIN", "http://localhost:5173"),
+		SkillsRoot: getEnv("SKILLS_ROOT", "./skills"),
 	}
 }
 

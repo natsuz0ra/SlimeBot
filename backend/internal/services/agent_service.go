@@ -16,6 +16,7 @@ import (
 const (
 	agentMaxIterations   = 10
 	agentApprovalTimeout = 120 * time.Second
+	maxToolNameLen       = 64
 )
 
 // ApprovalRequest 发送给前端的工具调用审批请求
@@ -56,12 +57,13 @@ type AgentCallbacks struct {
 
 // AgentService 封装 Agent 循环逻辑
 type AgentService struct {
-	openai *OpenAIClient
-	mcp    *mcp.Manager
+	openai       *OpenAIClient
+	mcp          *mcp.Manager
+	skillRuntime *SkillRuntimeService
 }
 
-func NewAgentService(openai *OpenAIClient, mcpManager *mcp.Manager) *AgentService {
-	return &AgentService{openai: openai, mcp: mcpManager}
+func NewAgentService(openai *OpenAIClient, mcpManager *mcp.Manager, skillRuntime *SkillRuntimeService) *AgentService {
+	return &AgentService{openai: openai, mcp: mcpManager, skillRuntime: skillRuntime}
 }
 
 // BuildToolDefs 从全局工具注册中心生成 OpenAI function call 的工具定义列表。
@@ -110,6 +112,15 @@ func BuildToolDefs() []ToolDef {
 func (a *AgentService) buildRuntimeToolDefs(ctx context.Context, configs []models.MCPConfig) ([]ToolDef, map[string]mcp.ToolMeta, error) {
 	defs := BuildToolDefs()
 	metaByFunc := make(map[string]mcp.ToolMeta)
+	if a.skillRuntime != nil {
+		skills, err := a.skillRuntime.ListSkills()
+		if err != nil {
+			return nil, nil, err
+		}
+		if def := a.skillRuntime.BuildActivateSkillToolDef(skills); def != nil {
+			defs = append(defs, *def)
+		}
+	}
 	if a.mcp == nil || len(configs) == 0 {
 		return defs, metaByFunc, nil
 	}
@@ -134,6 +145,13 @@ func (a *AgentService) buildRuntimeToolDefs(ctx context.Context, configs []model
 	for _, meta := range metas {
 		metaByFunc[meta.FuncName] = meta
 	}
+	for _, def := range defs {
+		nameLen := len(def.Name)
+		if nameLen > maxToolNameLen {
+			log.Printf("tool_name_too_long name=%s len=%d", def.Name, nameLen)
+			return nil, nil, fmt.Errorf("工具名称过长: %s (len=%d, max=%d)", def.Name, nameLen, maxToolNameLen)
+		}
+	}
 	return defs, metaByFunc, nil
 }
 
@@ -147,6 +165,7 @@ func (a *AgentService) RunAgentLoop(
 	modelConfig ModelRuntimeConfig,
 	contextMessages []ChatMessage,
 	mcpConfigs []models.MCPConfig,
+	activatedSkills map[string]struct{},
 	callbacks AgentCallbacks,
 ) (string, error) {
 	toolDefs, mcpToolMeta, err := a.buildRuntimeToolDefs(ctx, mcpConfigs)
@@ -203,6 +222,25 @@ func (a *AgentService) RunAgentLoop(
 					Role:       "tool",
 					ToolCallID: tc.ID,
 					Content:    fmt.Sprintf("参数解析失败: %s", err.Error()),
+				})
+				continue
+			}
+
+			if tc.Name == "activate_skill" && a.skillRuntime != nil {
+				skillName := strings.TrimSpace(params["name"])
+				content, _, activateErr := a.skillRuntime.ActivateSkill(skillName, activatedSkills)
+				if activateErr != nil {
+					messages = append(messages, ChatMessage{
+						Role:       "tool",
+						ToolCallID: tc.ID,
+						Content:    fmt.Sprintf("skill 激活失败: %s", activateErr.Error()),
+					})
+					continue
+				}
+				messages = append(messages, ChatMessage{
+					Role:       "tool",
+					ToolCallID: tc.ID,
+					Content:    content,
 				})
 				continue
 			}

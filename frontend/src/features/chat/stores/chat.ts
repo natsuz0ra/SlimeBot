@@ -1,9 +1,10 @@
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 
-import { ChatSocket, type ConnectionStatus } from '../api/chatSocket'
-import type { MessageItem, SessionItem, ToolCallItem } from '../api'
-import { sessionAPI } from '../api'
+import { ChatSocket, type ConnectionStatus } from '../../../api/chatSocket'
+import type { MessageItem, SessionItem, ToolCallItem } from '../../../api'
+import { sessionAPI } from '../../../api'
+import { i18n } from '../../../app/i18n'
 
 interface AssistantReplyBatch {
   id: string
@@ -41,20 +42,110 @@ export const useChatStore = defineStore('chat', () => {
   const connectionError = ref('')
   const isSocketReady = computed(() => connectionStatus.value === 'connected')
 
-  // 单次助手回复批次：工具调用和文本归并在同一次回复中展示
   const replyBatches = ref<AssistantReplyBatch[]>([])
   const currentBatchId = ref<string>('')
+  const assistantErrorIds = ref(new Set<string>())
+  const failedUserMessageIds = ref(new Set<string>())
 
   const ws = new ChatSocket()
 
   function resetSessionRuntimeState() {
     replyBatches.value = []
     currentBatchId.value = ''
+    assistantErrorIds.value.clear()
+    failedUserMessageIds.value.clear()
   }
 
   function getCurrentBatch() {
     if (!currentBatchId.value) return undefined
     return replyBatches.value.find((item) => item.id === currentBatchId.value)
+  }
+
+  function formatAssistantError(rawError: string) {
+    const safeError = rawError?.trim() || 'unknown error'
+    return i18n.global.t('assistantReplyFailed', { error: safeError }) as string
+  }
+
+  function markAssistantError(messageId: string) {
+    assistantErrorIds.value.add(messageId)
+  }
+
+  function clearAssistantError(messageId: string) {
+    assistantErrorIds.value.delete(messageId)
+  }
+
+  function isAssistantErrorMessage(messageId: string) {
+    return assistantErrorIds.value.has(messageId)
+  }
+
+  function markFailedUserMessage(messageId: string) {
+    failedUserMessageIds.value.add(messageId)
+  }
+
+  function isFailedUserMessage(messageId: string) {
+    return failedUserMessageIds.value.has(messageId)
+  }
+
+  function pushFailedUserMessage(content: string) {
+    const sessionId = currentSessionId.value
+    if (!sessionId) return
+    const messageId = crypto.randomUUID()
+    messages.value.push({
+      id: messageId,
+      sessionId,
+      role: 'user',
+      content,
+      createdAt: new Date().toISOString(),
+    })
+    markFailedUserMessage(messageId)
+  }
+
+  function finalizeAssistantError(rawError: string, sessionId?: string) {
+    const targetSessionId = sessionId || currentSessionId.value
+    if (!targetSessionId || targetSessionId !== currentSessionId.value) return
+    const errorMessage = formatAssistantError(rawError)
+    const batch = getCurrentBatch()
+    if (batch) {
+      const assistant = messages.value.find((msg) => msg.id === batch.assistantMessageId)
+      if (assistant) {
+        assistant.content = errorMessage
+        markAssistantError(assistant.id)
+      }
+      const textEntry: AssistantReplyTimelineItem = {
+        id: crypto.randomUUID(),
+        kind: 'text',
+        content: errorMessage,
+      }
+      const rebuiltTimeline: AssistantReplyTimelineItem[] = []
+      let inserted = false
+      for (const entry of batch.timeline) {
+        if (entry.kind === 'text') {
+          if (!inserted) {
+            rebuiltTimeline.push(textEntry)
+            inserted = true
+          }
+          continue
+        }
+        rebuiltTimeline.push(entry)
+      }
+      if (!inserted) {
+        rebuiltTimeline.push(textEntry)
+      }
+      batch.timeline = rebuiltTimeline
+      batch.collapsed = true
+      currentBatchId.value = ''
+      return
+    }
+
+    const assistantMessageId = crypto.randomUUID()
+    messages.value.push({
+      id: assistantMessageId,
+      sessionId: targetSessionId,
+      role: 'assistant',
+      content: errorMessage,
+      createdAt: new Date().toISOString(),
+    })
+    markAssistantError(assistantMessageId)
   }
 
   async function loadSessions() {
@@ -91,7 +182,6 @@ export const useChatStore = defineStore('chat', () => {
         if (!sessionId || sessionId !== currentSessionId.value) return
         waiting.value = true
         streamingStarted.value = false
-        // 提前创建本次 assistant 占位消息，确保工具条目和文本固定在同一回复块
         const assistantMessageId = crypto.randomUUID()
         messages.value.push({
           id: assistantMessageId,
@@ -100,6 +190,7 @@ export const useChatStore = defineStore('chat', () => {
           content: '',
           createdAt: new Date().toISOString(),
         })
+        clearAssistantError(assistantMessageId)
         const batchId = crypto.randomUUID()
         currentBatchId.value = batchId
         replyBatches.value.push({
@@ -146,6 +237,7 @@ export const useChatStore = defineStore('chat', () => {
             const assistant = messages.value.find((msg) => msg.id === batch.assistantMessageId)
             if (assistant) {
               assistant.content = answer
+              clearAssistantError(assistant.id)
             }
             const mergedTextEntry = {
               id: crypto.randomUUID(),
@@ -178,8 +270,8 @@ export const useChatStore = defineStore('chat', () => {
         if (!sessionId || sessionId !== currentSessionId.value) return
         waiting.value = false
         streamingStarted.value = false
-        currentBatchId.value = ''
         connectionError.value = error
+        finalizeAssistantError(error, sessionId)
       },
       onToolCallStart: (data, sessionId) => {
         if (!sessionId || sessionId !== currentSessionId.value) return
@@ -243,14 +335,24 @@ export const useChatStore = defineStore('chat', () => {
 
   async function sendMessage(content: string, modelId: string) {
     if (!modelId) {
-      connectionError.value = 'modelId is required'
+      const error = 'modelId is required'
+      connectionError.value = error
+      pushFailedUserMessage(content)
       return false
     }
     const ready = await ensureSessionReady()
-    if (!ready || !currentSessionId.value || !isSocketReady.value) return false
+    if (!ready || !currentSessionId.value) return false
+    if (!isSocketReady.value) {
+      const error = 'socket is not connected'
+      connectionError.value = error
+      pushFailedUserMessage(content)
+      return false
+    }
     const sent = ws.send(content, currentSessionId.value, modelId)
     if (!sent) {
-      connectionError.value = 'socket is not connected'
+      const error = 'socket is not connected'
+      connectionError.value = error
+      pushFailedUserMessage(content)
       return false
     }
     messages.value.push({
@@ -286,8 +388,9 @@ export const useChatStore = defineStore('chat', () => {
     waiting,
     streamingStarted,
     connectionStatus,
-    connectionError,
     isSocketReady,
+    isAssistantErrorMessage,
+    isFailedUserMessage,
     replyBatches,
     currentBatchId,
     loadSessions,

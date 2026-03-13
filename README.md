@@ -119,7 +119,8 @@ VITE_WS_URL=ws://localhost:8080
   - http_request: http请求器
   - web_search: 基于tavily的网络搜索器
 - mcp
+- skills
 
 ### 待完成功能
 
-- skills
+- 前端重构美化

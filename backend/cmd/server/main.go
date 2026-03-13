@@ -27,6 +27,9 @@ func main() {
 	if err := os.MkdirAll(filepath.Dir(cfg.DBPath), os.ModePerm); err != nil {
 		log.Fatalf("创建数据库目录失败: %v", err)
 	}
+	if err := os.MkdirAll(cfg.SkillsRoot, os.ModePerm); err != nil {
+		log.Fatalf("创建 skills 目录失败: %v", err)
+	}
 
 	db, err := database.NewSQLite(cfg.DBPath)
 	if err != nil {
@@ -36,9 +39,11 @@ func main() {
 	repo := repositories.New(db)
 	openaiClient := services.NewOpenAIClient()
 	mcpManager := mcp.NewManager()
-	chatService := services.NewChatService(repo, openaiClient, mcpManager)
+	skillPackageService := services.NewSkillPackageService(repo, cfg.SkillsRoot)
+	skillRuntimeService := services.NewSkillRuntimeService(repo, cfg.SkillsRoot)
+	chatService := services.NewChatService(repo, openaiClient, mcpManager, skillRuntimeService)
 
-	httpController := controllers.NewHTTPController(repo)
+	httpController := controllers.NewHTTPController(repo, skillPackageService, skillRuntimeService)
 	wsController := controllers.NewWSController(chatService)
 	engine := router.New(cfg, httpController, wsController)
 

@@ -36,6 +36,10 @@ func New(cfg config.Config, httpController *controllers.HTTPController, wsContro
 		api.POST("/mcp-configs", httpController.CreateMCPConfig)
 		api.PUT("/mcp-configs/:id", httpController.UpdateMCPConfig)
 		api.DELETE("/mcp-configs/:id", httpController.DeleteMCPConfig)
+
+		api.GET("/skills", httpController.ListSkills)
+		api.POST("/skills/upload", httpController.UploadSkills)
+		api.DELETE("/skills/:id", httpController.DeleteSkill)
 	}
 
 	r.GET("/ws/chat", func(c *gin.Context) {

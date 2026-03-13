@@ -8,17 +8,21 @@ import { json } from '@codemirror/lang-json'
 import { oneDark } from '@codemirror/theme-one-dark'
 import { lineNumbers } from '@codemirror/view'
 
-import MdiIcon from './MdiIcon.vue'
-import { llmAPI, mcpAPI, settingAPI } from '../api'
+import MdiIcon from '../../../shared/components/MdiIcon.vue'
+import { llmAPI, mcpAPI, settingAPI, skillsAPI } from '../../../api'
 
-const emit = defineEmits<{ close: [] }>()
+const emit = defineEmits<{
+  close: []
+  llmChanged: []
+}>()
 
 const { t, locale } = useI18n()
 
-const tab = ref<'basic' | 'llm' | 'mcp'>('basic')
+const tab = ref<'basic' | 'llm' | 'mcp' | 'skills'>('basic')
 const language = ref<'zh-CN' | 'en-US'>('zh-CN')
 const llmList = ref<any[]>([])
 const mcpList = ref<any[]>([])
+const skillsList = ref<any[]>([])
 const loading = ref(false)
 const savingLanguage = ref(false)
 const llmDialogVisible = ref(false)
@@ -26,6 +30,9 @@ const mcpDialogVisible = ref(false)
 const llmSubmitting = ref(false)
 const mcpSubmitting = ref(false)
 const mcpEditingID = ref('')
+const skillsUploading = ref(false)
+const skillsDropActive = ref(false)
+const skillsFileInputRef = ref<HTMLInputElement | null>(null)
 
 const llmForm = ref({ name: '', baseUrl: '', apiKey: '', model: '' })
 const mcpForm = ref({ name: '', config: '', isEnabled: true })
@@ -34,6 +41,13 @@ const mcpEditorExtensions = [lineNumbers(), json(), oneDark]
 
 const llmRows = computed(() => llmList.value || [])
 const mcpRows = computed(() => mcpList.value || [])
+const skillsRows = computed(() =>
+  [...(skillsList.value || [])].sort((a, b) => {
+    const aTime = new Date(a.uploadedAt || 0).getTime()
+    const bTime = new Date(b.uploadedAt || 0).getTime()
+    return bTime - aTime
+  }),
+)
 const mcpDialogTitle = computed(() => (mcpEditingID.value ? t('editMcp') : t('addMcp')))
 
 function showError(message: string) {
@@ -58,6 +72,7 @@ async function loadData() {
     locale.value = language.value
     llmList.value = await llmAPI.list()
     mcpList.value = await mcpAPI.list()
+    skillsList.value = await skillsAPI.list()
   } finally {
     loading.value = false
   }
@@ -102,6 +117,7 @@ async function addLLM() {
     await llmAPI.create(llmForm.value)
     llmForm.value = { name: '', baseUrl: '', apiKey: '', model: '' }
     llmList.value = await llmAPI.list()
+    emit('llmChanged')
     llmDialogVisible.value = false
   } finally {
     llmSubmitting.value = false
@@ -112,6 +128,7 @@ async function deleteLLM(id: string) {
   if (!window.confirm(t('confirmDelete'))) return
   await llmAPI.remove(id)
   llmList.value = await llmAPI.list()
+  emit('llmChanged')
 }
 
 function buildTemplate(transport: 'stdio' | 'sse' | 'streamable_http') {
@@ -224,6 +241,87 @@ async function deleteMCP(id: string) {
   mcpList.value = await mcpAPI.list()
 }
 
+function openSkillsPicker() {
+  skillsFileInputRef.value?.click()
+}
+
+function getZipFiles(fileList: FileList | null | undefined) {
+  if (!fileList) return []
+  return Array.from(fileList).filter((file) => file.name.toLowerCase().endsWith('.zip'))
+}
+
+async function uploadSkills(files: File[]) {
+  if (!files.length) return
+  const invalidCount = files.filter((file) => !file.name.toLowerCase().endsWith('.zip')).length
+  if (invalidCount > 0) {
+    showError(t('onlyZipAllowed'))
+    return
+  }
+
+  skillsUploading.value = true
+  try {
+    const result = await skillsAPI.upload(files)
+    const failed = Array.isArray(result?.failed) ? result.failed : []
+    if (failed.length > 0) {
+      const detail = failed.map((x: any) => `${x.file}: ${x.error}`).join('\n')
+      showError(`${t('skillsUploadPartial')}\n${detail}`)
+    } else {
+      showSuccess(t('skillsUploadSuccess'))
+    }
+    skillsList.value = await skillsAPI.list()
+  } catch (err: any) {
+    const failed = err?.response?.data?.failed
+    if (Array.isArray(failed) && failed.length > 0) {
+      const detail = failed.map((x: any) => `${x.file}: ${x.error}`).join('\n')
+      showError(`${t('skillsUploadFailed')}\n${detail}`)
+    } else {
+      showError(err?.response?.data?.error || t('skillsUploadFailed'))
+    }
+  } finally {
+    skillsUploading.value = false
+    if (skillsFileInputRef.value) {
+      skillsFileInputRef.value.value = ''
+    }
+  }
+}
+
+function onSkillsInputChange(event: Event) {
+  const target = event.target as HTMLInputElement
+  const files = getZipFiles(target.files)
+  if (!files.length && target.files?.length) {
+    showError(t('onlyZipAllowed'))
+    return
+  }
+  void uploadSkills(files)
+}
+
+function onSkillsDrop(event: DragEvent) {
+  event.preventDefault()
+  skillsDropActive.value = false
+  const files = getZipFiles(event.dataTransfer?.files)
+  if (!files.length && event.dataTransfer?.files?.length) {
+    showError(t('onlyZipAllowed'))
+    return
+  }
+  void uploadSkills(files)
+}
+
+function onSkillsDragOver(event: DragEvent) {
+  event.preventDefault()
+  skillsDropActive.value = true
+}
+
+function onSkillsDragLeave(event: DragEvent) {
+  event.preventDefault()
+  skillsDropActive.value = false
+}
+
+async function deleteSkill(id: string) {
+  if (!window.confirm(t('confirmDelete'))) return
+  await skillsAPI.remove(id)
+  skillsList.value = await skillsAPI.list()
+}
+
 onMounted(loadData)
 </script>
 
@@ -240,6 +338,7 @@ onMounted(loadData)
         <button type="button" class="tab-item" :class="{ active: tab === 'basic' }" @click="tab = 'basic'">{{ t('basicSettings') }}</button>
         <button type="button" class="tab-item" :class="{ active: tab === 'llm' }" @click="tab = 'llm'">{{ t('llmSettings') }}</button>
         <button type="button" class="tab-item" :class="{ active: tab === 'mcp' }" @click="tab = 'mcp'">{{ t('mcpSettings') }}</button>
+        <button type="button" class="tab-item" :class="{ active: tab === 'skills' }" @click="tab = 'skills'">{{ t('skillsSettings') }}</button>
       </aside>
       <section class="tab-content" v-loading="loading">
         <div v-if="tab === 'basic'" class="block">
@@ -287,6 +386,44 @@ onMounted(loadData)
                 </button>
                 <button type="button" class="danger-btn" @click="deleteMCP(item.id)">{{ t('delete') }}</button>
               </div>
+            </div>
+          </div>
+        </div>
+
+        <div v-if="tab === 'skills'" class="block stack">
+          <div class="section-header">
+            <div class="section-title">{{ t('skillsSettings') }}</div>
+            <t-button size="small" theme="primary" :loading="skillsUploading" @click="openSkillsPicker">
+              <template #icon><MdiIcon :path="mdiPlus" :size="14" /></template>
+              {{ t('skillsUploadButton') }}
+            </t-button>
+          </div>
+          <div class="skills-desc">{{ t('skillsDescription') }}</div>
+          <div
+            class="skills-uploader"
+            :class="{ active: skillsDropActive }"
+            @dragover="onSkillsDragOver"
+            @dragleave="onSkillsDragLeave"
+            @drop="onSkillsDrop"
+            @click="openSkillsPicker"
+          >
+            {{ t('skillsUploadHint') }}
+          </div>
+          <input
+            ref="skillsFileInputRef"
+            class="skills-file-input"
+            type="file"
+            accept=".zip,application/zip"
+            multiple
+            @change="onSkillsInputChange"
+          />
+          <div v-if="!skillsRows.length" class="list-empty">{{ t('skillsEmpty') }}</div>
+          <div v-else class="list">
+            <div v-for="item in skillsRows" :key="item.id" class="list-row">
+              <div class="list-title">{{ item.name }}</div>
+              <div class="list-desc">{{ item.description }}</div>
+              <div class="list-desc">{{ item.relativePath }}</div>
+              <button type="button" class="danger-btn" @click="deleteSkill(item.id)">{{ t('delete') }}</button>
             </div>
           </div>
         </div>
@@ -446,12 +583,6 @@ onMounted(loadData)
   gap: 10px;
 }
 
-.form-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(120px, 1fr));
-  gap: 8px;
-}
-
 .list {
   max-height: 220px;
   overflow: auto;
@@ -554,6 +685,38 @@ onMounted(loadData)
   border-right: 1px solid #313131;
 }
 
+.skills-desc {
+  color: #666;
+  font-size: 12px;
+}
+
+.skills-uploader {
+  border: 1px dashed #b8b8b8;
+  border-radius: 8px;
+  padding: 14px;
+  color: #666;
+  background: #f3f3f3;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.skills-uploader.active {
+  border-color: #0052d9;
+  background: #e8f3ff;
+}
+
+.skills-file-input {
+  display: none;
+}
+
+.list-empty {
+  border: 1px dashed #d5d5d5;
+  border-radius: 8px;
+  color: #777;
+  padding: 12px;
+  text-align: center;
+}
+
 @media (max-width: 900px) {
   .panel-body {
     flex-direction: column;
@@ -564,10 +727,6 @@ onMounted(loadData)
     border-right: 0;
     border-bottom: 1px solid #d7d7d7;
     flex-direction: row;
-  }
-
-  .form-grid {
-    grid-template-columns: 1fr;
   }
 }
 </style>

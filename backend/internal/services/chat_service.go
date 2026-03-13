@@ -203,7 +203,16 @@ func (s *ChatService) HandleChatStream(
 			body := parser.Feed(chunk)
 			return pushBody(body)
 		},
-		OnToolCallStart:  callbacks.OnToolCallStart,
+		OnToolCallStart: func(req ApprovalRequest) error {
+			// 进入工具调用阶段前，结束当前回答片段并为下一轮回答重置标题探测状态。
+			if err := pushBody(parser.BeginAssistantTurn()); err != nil {
+				return err
+			}
+			if callbacks.OnToolCallStart == nil {
+				return nil
+			}
+			return callbacks.OnToolCallStart(req)
+		},
 		WaitApproval:     callbacks.WaitApproval,
 		OnToolCallResult: callbacks.OnToolCallResult,
 	}
@@ -365,6 +374,16 @@ func (p *titleStreamParser) process(chunk string, flush bool) string {
 
 func (p *titleStreamParser) Title() string {
 	return p.title
+}
+
+func (p *titleStreamParser) BeginAssistantTurn() string {
+	if !p.enabled {
+		return ""
+	}
+	// 工具调用切轮时先冲刷残留，再回到“新一行起点探测”状态。
+	passthrough := p.process("", true)
+	p.probing = true
+	return passthrough
 }
 
 func parseProtocolTitle(line string) (string, bool) {

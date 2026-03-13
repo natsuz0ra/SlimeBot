@@ -1,0 +1,91 @@
+.sidebar-enter-active,
+.sidebar-leave-active {
+  transition: transform 200ms ease-out;
+}
+.sidebar-enter-from,
+.sidebar-leave-to {
+  transform: translateX(-100%);
+}
+
+.mask-fade-enter-active,
+.mask-fade-leave-active {
+  transition: opacity 200ms ease-out;
+}
+.mask-fade-enter-from,
+.mask-fade-leave-to {
+  opacity: 0;
+}
+
+.overlay-fade-enter-active,
+.overlay-fade-leave-active {
+  transition: opacity 150ms ease-out;
+}
+.overlay-fade-enter-from,
+.overlay-fade-leave-to {
+  opacity: 0;
+}
+
+/* textarea 自适应高度 */
+textarea {
+  field-sizing: content;
+  min-height: 22px;
+}
+
+/* 浮动会话菜单弹出动画 */
+.session-menu-pop-enter-active {
+  transition: opacity 120ms ease, transform 120ms ease;
+}
+.session-menu-pop-leave-active {
+  transition: opacity 80ms ease, transform 80ms ease;
+}
+.session-menu-pop-enter-from,
+.session-menu-pop-leave-to {
+  opacity: 0;
+  transform: scale(0.94) translateY(-4px);
+}
+
+/* 顶部标题下拉菜单弹出动画 */
+.top-menu-pop-enter-active {
+  transition: opacity 120ms ease, transform 120ms ease;
+}
+.top-menu-pop-leave-active {
+  transition: opacity 80ms ease, transform 80ms ease;
+}
+.top-menu-pop-enter-from,
+.top-menu-pop-leave-to {
+  opacity: 0;
+  transform: scale(0.94) translateY(-4px);
+}
+
+/* 滚动条自动显隐 */
+.scroll-area::-webkit-scrollbar {
+  width: 5px;
+}
+.scroll-area::-webkit-scrollbar-track {
+  background: transparent;
+}
+.scroll-area::-webkit-scrollbar-thumb {
+  background: transparent;
+  border-radius: 3px;
+  transition: background 0.25s;
+}
+.scroll-area:hover::-webkit-scrollbar-thumb,
+.scroll-area.is-scrolling::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.18);
+}
+
+/* 输入框滚动条（与会话列表风格一致） */
+textarea::-webkit-scrollbar {
+  width: 5px;
+}
+textarea::-webkit-scrollbar-track {
+  background: transparent;
+}
+textarea::-webkit-scrollbar-thumb {
+  background: transparent;
+  border-radius: 3px;
+  transition: background 0.25s;
+}
+textarea:hover::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.18);
+}

@@ -9,6 +9,7 @@ import { lineNumbers } from '@codemirror/view'
 
 import MdiIcon from '@/components/MdiIcon.vue'
 import BaseDialog from '@/components/ui/BaseDialog.vue'
+import AppSelect from '@/components/ui/AppSelect.vue'
 import { llmAPI, mcpAPI, settingAPI, skillsAPI } from '@/api/settings'
 import { useToast } from '@/composables/useToast'
 
@@ -38,6 +39,8 @@ const skillsFileInputRef = ref<HTMLInputElement | null>(null)
 
 const llmForm = ref({ name: '', baseUrl: '', apiKey: '', model: '' })
 const mcpForm = ref({ name: '', config: '', isEnabled: true })
+const confirmDialogVisible = ref(false)
+const confirmDialogCallback = ref<(() => Promise<void>) | null>(null)
 const mcpTemplateType = ref<'stdio' | 'sse' | 'streamable_http'>('stdio')
 const mcpEditorExtensions = [lineNumbers(), json(), oneDark]
 
@@ -108,11 +111,23 @@ async function addLLM() {
   }
 }
 
-async function deleteLLM(id: string) {
-  if (!window.confirm(t('confirmDelete'))) return
-  await llmAPI.remove(id)
-  llmList.value = await llmAPI.list()
-  emit('llmChanged')
+function openConfirmDialog(callback: () => Promise<void>) {
+  confirmDialogCallback.value = callback
+  confirmDialogVisible.value = true
+}
+
+async function runConfirmDialog() {
+  if (confirmDialogCallback.value) await confirmDialogCallback.value()
+  confirmDialogVisible.value = false
+  confirmDialogCallback.value = null
+}
+
+function deleteLLM(id: string) {
+  openConfirmDialog(async () => {
+    await llmAPI.remove(id)
+    llmList.value = await llmAPI.list()
+    emit('llmChanged')
+  })
 }
 
 function buildTemplate(transport: 'stdio' | 'sse' | 'streamable_http') {
@@ -196,10 +211,11 @@ function mcpPreview(item: any) {
   }
 }
 
-async function deleteMCP(id: string) {
-  if (!window.confirm(t('confirmDelete'))) return
-  await mcpAPI.remove(id)
-  mcpList.value = await mcpAPI.list()
+function deleteMCP(id: string) {
+  openConfirmDialog(async () => {
+    await mcpAPI.remove(id)
+    mcpList.value = await mcpAPI.list()
+  })
 }
 
 function openSkillsPicker() {
@@ -275,10 +291,11 @@ function onSkillsDragLeave(event: DragEvent) {
   skillsDropActive.value = false
 }
 
-async function deleteSkill(id: string) {
-  if (!window.confirm(t('confirmDelete'))) return
-  await skillsAPI.remove(id)
-  skillsList.value = await skillsAPI.list()
+function deleteSkill(id: string) {
+  openConfirmDialog(async () => {
+    await skillsAPI.remove(id)
+    skillsList.value = await skillsAPI.list()
+  })
 }
 
 onMounted(loadData)
@@ -333,18 +350,17 @@ onMounted(loadData)
 
         <!-- 基础设置 -->
         <div v-if="tab === 'basic'">
-          <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">{{ t('basicSettings') }}</p>
-          <div class="flex items-center justify-between py-3 border-b border-gray-100">
-            <span class="text-sm text-gray-800">{{ t('language') }}</span>
-            <select
-              :value="language"
-              class="text-sm border border-gray-200 rounded-lg px-3 py-1.5 outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100 cursor-pointer transition-all duration-150 bg-white text-gray-700"
+          <div class="flex items-center justify-between mb-3 h-8">
+            <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide">{{ t('basicSettings') }}</p>
+          </div>
+          <div class="flex items-center gap-4 py-3 border-b border-gray-100">
+            <span class="text-sm text-gray-800 flex-shrink-0">{{ t('language') }}</span>
+            <AppSelect
+              :model-value="language"
+              :options="[{ value: 'zh-CN', label: t('chinese') }, { value: 'en-US', label: t('english') }]"
               :disabled="savingLanguage"
-              @change="onLanguageChange(($event.target as HTMLSelectElement).value as any)"
-            >
-              <option value="zh-CN">{{ t('chinese') }}</option>
-              <option value="en-US">{{ t('english') }}</option>
-            </select>
+              @update:model-value="onLanguageChange($event as any)"
+            />
           </div>
         </div>
 
@@ -538,6 +554,19 @@ onMounted(loadData)
         />
       </div>
     </div>
+  </BaseDialog>
+
+  <!-- 通用删除确认弹窗 -->
+  <BaseDialog
+    v-model:visible="confirmDialogVisible"
+    :title="t('delete')"
+    :confirm-text="t('confirm')"
+    :cancel-text="t('cancel')"
+    :confirm-danger="true"
+    width="360px"
+    @confirm="runConfirmDialog"
+  >
+    <p class="text-sm text-gray-700">{{ t('confirmDeleteItem') }}</p>
   </BaseDialog>
 
   <!-- 新增/编辑 MCP 弹窗 -->

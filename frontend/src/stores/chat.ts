@@ -157,10 +157,16 @@ export const useChatStore = defineStore('chat', () => {
     }
   }
 
+  function resetToNewSession() {
+    currentSessionId.value = undefined
+    messages.value = []
+    resetSessionRuntimeState()
+  }
+
   async function createSession() {
     const item = await sessionAPI.create()
-    sessions.value.unshift(item)
     currentSessionId.value = item.id
+    sessions.value = [item, ...sessions.value]
     messages.value = []
     resetSessionRuntimeState()
   }
@@ -394,6 +400,7 @@ export const useChatStore = defineStore('chat', () => {
     replyBatches,
     currentBatchId,
     loadSessions,
+    resetToNewSession,
     createSession,
     selectSession,
     connectSocket,

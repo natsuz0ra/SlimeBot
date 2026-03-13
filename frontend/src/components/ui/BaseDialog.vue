@@ -9,12 +9,14 @@ const props = withDefaults(defineProps<{
   confirmText?: string
   cancelText?: string
   confirmLoading?: boolean
+  confirmDanger?: boolean
   width?: string
   hideFooter?: boolean
 }>(), {
   confirmText: '确认',
   cancelText: '取消',
   confirmLoading: false,
+  confirmDanger: false,
   width: '480px',
   hideFooter: false,
 })
@@ -84,7 +86,8 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown))
             </button>
             <button
               type="button"
-              class="px-4 py-1.5 text-sm rounded-lg bg-blue-600 text-white hover:bg-blue-700 transition-colors duration-150 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5"
+              class="px-4 py-1.5 text-sm rounded-lg text-white transition-colors duration-150 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5"
+              :class="confirmDanger ? 'bg-red-600 hover:bg-red-700' : 'bg-blue-600 hover:bg-blue-700'"
               :disabled="confirmLoading"
               @click="onConfirm"
             >

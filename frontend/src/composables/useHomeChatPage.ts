@@ -1,5 +1,6 @@
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { useRouter, useRoute } from 'vue-router'
 import { useToast } from '@/composables/useToast'
 
 import { sessionAPI, type ToolCallItem } from '@/api/chat'
@@ -10,6 +11,8 @@ export function useHomeChatPage() {
   const { t } = useI18n()
   const store = useChatStore()
   const toast = useToast()
+  const router = useRouter()
+  const route = useRoute()
   const MODEL_STORAGE_KEY = 'corner:selectedModelId'
 
   const drawerOpen = ref(false)
@@ -26,17 +29,43 @@ export function useHomeChatPage() {
 
   const activeSessionMenu = ref<{ id: string; x: number; y: number } | null>(null)
   const topMenuVisible = ref(false)
+  const deleteConfirmVisible = ref(false)
+  const deleteTargetId = ref('')
   const modelOptions = ref<LLMConfig[]>([])
   const selectedModelId = ref('')
   const messagesRef = ref<HTMLElement | null>(null)
+  const sidebarListRef = ref<HTMLElement | null>(null)
+  const scrollTimers = new Map<HTMLElement, ReturnType<typeof setTimeout>>()
 
   function setMessagesRef(el: any) {
     messagesRef.value = (el?.$el ?? el) as HTMLElement | null
   }
 
+  function setSidebarListRef(el: any) {
+    sidebarListRef.value = (el?.$el ?? el) as HTMLElement | null
+  }
+
+  function bindScrollFade(el: HTMLElement | null) {
+    if (!el) return
+    el.addEventListener('scroll', () => {
+      el.classList.add('is-scrolling')
+      const prev = scrollTimers.get(el)
+      if (prev) clearTimeout(prev)
+      scrollTimers.set(
+        el,
+        setTimeout(() => {
+          el.classList.remove('is-scrolling')
+          scrollTimers.delete(el)
+        }, 1500),
+      )
+    }, { passive: true })
+  }
+
   const currentSession = computed(() => store.sessions.find((item) => item.id === store.currentSessionId))
+  const modelSelectOptions = computed(() => modelOptions.value.map((m) => ({ value: m.id, label: m.name })))
   const hasModel = computed(() => modelOptions.value.length > 0)
-  const sendDisabled = computed(() => !hasModel.value || !selectedModelId.value || !store.currentSessionId || !inputValue.value.trim() || store.waiting || !store.isSocketReady)
+  const isEmptySession = computed(() => !loading.value && store.messages.length === 0)
+  const sendDisabled = computed(() => !hasModel.value || !selectedModelId.value || !inputValue.value.trim() || store.waiting || !store.isSocketReady)
   const networkStatusText = computed(() => {
     if (store.connectionStatus === 'reconnecting') return t('networkReconnecting')
     if (store.connectionStatus === 'disconnected') return t('networkDisconnected')
@@ -174,8 +203,20 @@ export function useHomeChatPage() {
       await refreshModelOptions(true)
 
       await store.loadSessions()
-      if (store.sessions.length === 0) {
-        await store.createSession()
+      const routeSessionId = route.params.sessionId as string | undefined
+      const isNewChatRoute = route.name === 'new-chat' || route.name === 'home'
+      if (routeSessionId && routeSessionId !== 'new_chat') {
+        const matched = store.sessions.find((s) => s.id === routeSessionId)
+        if (matched) {
+          await store.selectSession(matched.id)
+        } else if (store.sessions.length > 0) {
+          const first = store.sessions[0]
+          if (first) await store.selectSession(first.id)
+        } else {
+          store.resetToNewSession()
+        }
+      } else if (isNewChatRoute || store.sessions.length === 0) {
+        store.resetToNewSession()
       } else {
         const first = store.sessions[0]
         if (first) await store.selectSession(first.id)
@@ -201,22 +242,27 @@ export function useHomeChatPage() {
     renameVisible.value = false
   }
 
-  async function removeSession(id: string) {
-    if (!window.confirm(t('confirmDelete'))) return
+  function removeSession(id: string) {
+    deleteTargetId.value = id
+    deleteConfirmVisible.value = true
+    activeSessionMenu.value = null
+    topMenuVisible.value = false
+  }
+
+  async function confirmDeleteSession() {
+    if (!deleteTargetId.value) return
     try {
-      await sessionAPI.remove(id)
+      const isDeletingCurrent = deleteTargetId.value === store.currentSessionId
+      await sessionAPI.remove(deleteTargetId.value)
       await store.loadSessions()
-      const first = store.sessions[0]
-      if (first) {
-        await store.selectSession(first.id)
-      } else {
-        await store.createSession()
+      if (isDeletingCurrent) {
+        store.resetToNewSession()
       }
     } catch {
       showError('删除失败')
     } finally {
-      activeSessionMenu.value = null
-      topMenuVisible.value = false
+      deleteConfirmVisible.value = false
+      deleteTargetId.value = ''
     }
   }
 
@@ -228,8 +274,9 @@ export function useHomeChatPage() {
   }
 
   async function createSession() {
-    await store.createSession()
+    store.resetToNewSession()
     drawerOpen.value = false
+    void router.push('/chat/new_chat')
   }
 
   async function sendMessage() {
@@ -240,6 +287,8 @@ export function useHomeChatPage() {
       return
     }
     inputValue.value = ''
+    // 发送成功后立即刷新会话列表，确保顶部标题与侧边栏列表即时呈现新会话
+    void store.loadSessions()
   }
 
   function renameFromFloatingMenu() {
@@ -264,6 +313,24 @@ export function useHomeChatPage() {
   onMounted(() => {
     void boot()
     document.addEventListener('click', onGlobalClick)
+  })
+
+  watch(
+    () => store.currentSessionId,
+    (id) => {
+      const targetPath = id ? `/chat/${id}` : '/chat/new_chat'
+      if (route.path !== targetPath) {
+        void router.replace(targetPath)
+      }
+    },
+  )
+
+  watch(messagesRef, (el) => {
+    if (el) bindScrollFade(el)
+  })
+
+  watch(sidebarListRef, (el) => {
+    if (el) bindScrollFade(el)
   })
 
   watch(
@@ -338,6 +405,7 @@ export function useHomeChatPage() {
     renameValue,
     inputValue,
     loading,
+    isEmptySession,
     settingsVisible,
     toolDetailVisible,
     toolDetailDialogWidth,
@@ -357,12 +425,16 @@ export function useHomeChatPage() {
     openToolDetail,
     toolDetailItems,
     toolDetailToolTimeline,
+    modelSelectOptions,
+    setSidebarListRef,
     toggleSidebar,
     toggleSessionMenu,
     refreshModelOptions,
     openRename,
     confirmRename,
     removeSession,
+    confirmDeleteSession,
+    deleteConfirmVisible,
     pickSession,
     createSession,
     sendMessage,

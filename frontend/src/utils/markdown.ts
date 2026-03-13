@@ -36,8 +36,18 @@ const md = new MarkdownIt({
   },
 })
 
+/**
+ * Inserts zero-width spaces between CJK/fullwidth characters and emphasis markers
+ * to work around markdown-it's CommonMark emphasis parsing limitations with CJK punctuation.
+ */
+function preprocessCJKEmphasis(text: string): string {
+  return text
+    .replace(/([\u2e80-\u9fff\uff00-\uffef])(\*{1,3})/g, '$1\u200B$2')
+    .replace(/(\*{1,3})([\u2e80-\u9fff\uff00-\uffef])/g, '$1\u200B$2')
+}
+
 export function renderMarkdown(content: string): string {
-  const raw = md.render(content || '')
+  const raw = md.render(preprocessCJKEmphasis(content || ''))
   return DOMPurify.sanitize(raw, {
     USE_PROFILES: { html: true },
   })

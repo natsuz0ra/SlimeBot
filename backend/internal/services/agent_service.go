@@ -16,6 +16,7 @@ import (
 const (
 	agentMaxIterations   = 10
 	agentApprovalTimeout = 120 * time.Second
+	maxToolNameLen       = 64
 )
 
 // ApprovalRequest 发送给前端的工具调用审批请求
@@ -143,6 +144,13 @@ func (a *AgentService) buildRuntimeToolDefs(ctx context.Context, configs []model
 	}
 	for _, meta := range metas {
 		metaByFunc[meta.FuncName] = meta
+	}
+	for _, def := range defs {
+		nameLen := len(def.Name)
+		if nameLen > maxToolNameLen {
+			log.Printf("tool_name_too_long name=%s len=%d", def.Name, nameLen)
+			return nil, nil, fmt.Errorf("工具名称过长: %s (len=%d, max=%d)", def.Name, nameLen, maxToolNameLen)
+		}
 	}
 	return defs, metaByFunc, nil
 }

@@ -2,6 +2,8 @@ package mcp
 
 import (
 	"context"
+	"crypto/sha1"
+	"encoding/hex"
 	"fmt"
 	"strings"
 	"sync"
@@ -28,6 +30,11 @@ type managedClient struct {
 	alias    string
 	client   Client
 }
+
+const (
+	mcpFuncNameMaxLen = 64
+	mcpFuncHashLen    = 8
+)
 
 // NewManager 创建一个新的 MCP 管理器实例。
 func NewManager() *Manager {
@@ -60,9 +67,8 @@ func (m *Manager) LoadTools(ctx context.Context, configs []models.MCPConfig) ([]
 		}
 
 		for _, tool := range tools {
-			// 统一函数名格式，避免上游工具名包含非法字符导致 function call 失败。
-			commandAlias := sanitizeToken(tool.Name)
-			funcName := entry.alias + "__" + commandAlias
+			// 控制函数名长度，兼容部分 OpenAI 协议实现对 name 长度的严格限制（如 <=64）。
+			funcName := buildMCPFuncName(entry.alias, tool.Name)
 			inputSchema := tool.InputSchema
 			if inputSchema == nil {
 				inputSchema = map[string]any{
@@ -188,4 +194,49 @@ func sanitizeToken(input string) string {
 		return "x"
 	}
 	return out
+}
+
+func buildMCPFuncName(serverAlias, toolName string) string {
+	serverToken := sanitizeToken(serverAlias)
+	toolToken := sanitizeToken(toolName)
+	full := serverToken + "__" + toolToken
+	if len(full) <= mcpFuncNameMaxLen {
+		return full
+	}
+
+	// 保留可读前缀，并追加稳定哈希，兼顾长度限制与冲突概率。
+	sum := sha1.Sum([]byte(serverToken + "::" + toolToken))
+	hash := hex.EncodeToString(sum[:])
+	if len(hash) > mcpFuncHashLen {
+		hash = hash[:mcpFuncHashLen]
+	}
+
+	// 预留 "__" 与 "_<hash>"。
+	available := mcpFuncNameMaxLen - len("__") - 1 - len(hash)
+	if available < 2 {
+		available = 2
+	}
+	serverLen := available / 2
+	toolLen := available - serverLen
+
+	shortServer := truncateToken(serverToken, serverLen)
+	shortTool := truncateToken(toolToken, toolLen)
+	name := shortServer + "__" + shortTool + "_" + hash
+	if len(name) <= mcpFuncNameMaxLen {
+		return name
+	}
+	return name[:mcpFuncNameMaxLen]
+}
+
+func truncateToken(input string, max int) string {
+	if max <= 0 {
+		return "x"
+	}
+	if input == "" {
+		return "x"
+	}
+	if len(input) <= max {
+		return input
+	}
+	return input[:max]
 }

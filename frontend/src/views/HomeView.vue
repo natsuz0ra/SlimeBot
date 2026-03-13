@@ -718,6 +718,10 @@ onUnmounted(() => {
   justify-content: flex-end;
 }
 
+.message.assistant {
+  gap: 14px;
+}
+
 .message.user.user-send-failed {
   align-items: flex-end;
 }
@@ -771,7 +775,7 @@ onUnmounted(() => {
 }
 
 .message.assistant .avatar {
-  margin-left: -8px;
+  margin-left: -11px;
 }
 
 .message.assistant.assistant-waiting-inline {
@@ -931,6 +935,10 @@ onUnmounted(() => {
 
   .bubble {
     max-width: calc(100% - 24px - 10px);
+  }
+
+  .message.assistant .bubble {
+    max-width: calc(100% - 24px - 14px);
   }
 }
 

@@ -3,7 +3,6 @@ import { apiClient } from './client'
 export interface SessionItem {
   id: string
   name: string
-  modelConfigId?: string
   updatedAt: string
 }
 
@@ -17,7 +16,6 @@ export interface MessageItem {
 
 export interface AppSettings {
   language: 'zh-CN' | 'en-US'
-  defaultModel?: string
 }
 
 export interface LLMConfig {
@@ -47,7 +45,7 @@ export interface SkillItem {
   updatedAt?: string
 }
 
-export type ToolCallStatus = 'pending' | 'approved' | 'rejected' | 'executing' | 'completed' | 'error'
+export type ToolCallStatus = 'pending' | 'rejected' | 'executing' | 'completed' | 'error'
 
 export interface ToolCallItem {
   toolCallId: string
@@ -66,7 +64,6 @@ export const sessionAPI = {
   rename: async (id: string, name: string) => apiClient.patch(`/api/sessions/${id}/name`, { name }),
   remove: async (id: string) => apiClient.delete(`/api/sessions/${id}`),
   history: async (id: string) => (await apiClient.get<MessageItem[]>(`/api/sessions/${id}/messages`)).data,
-  setModel: async (id: string, modelConfigId: string) => apiClient.put(`/api/sessions/${id}/model`, { modelConfigId }),
 }
 
 export const settingAPI = {

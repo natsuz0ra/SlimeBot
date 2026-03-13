@@ -1,10 +1,10 @@
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 
-import { ChatSocket, type ConnectionStatus } from '../api/chatSocket'
-import type { MessageItem, SessionItem, ToolCallItem } from '../api'
-import { sessionAPI } from '../api'
-import { i18n } from '../i18n'
+import { ChatSocket, type ConnectionStatus } from '../../../api/chatSocket'
+import type { MessageItem, SessionItem, ToolCallItem } from '../../../api'
+import { sessionAPI } from '../../../api'
+import { i18n } from '../../../app/i18n'
 
 interface AssistantReplyBatch {
   id: string
@@ -42,7 +42,6 @@ export const useChatStore = defineStore('chat', () => {
   const connectionError = ref('')
   const isSocketReady = computed(() => connectionStatus.value === 'connected')
 
-  // 单次助手回复批次：工具调用和文本归并在同一次回复中展示
   const replyBatches = ref<AssistantReplyBatch[]>([])
   const currentBatchId = ref<string>('')
   const assistantErrorIds = ref(new Set<string>())
@@ -183,7 +182,6 @@ export const useChatStore = defineStore('chat', () => {
         if (!sessionId || sessionId !== currentSessionId.value) return
         waiting.value = true
         streamingStarted.value = false
-        // 提前创建本次 assistant 占位消息，确保工具条目和文本固定在同一回复块
         const assistantMessageId = crypto.randomUUID()
         messages.value.push({
           id: assistantMessageId,
@@ -390,7 +388,6 @@ export const useChatStore = defineStore('chat', () => {
     waiting,
     streamingStarted,
     connectionStatus,
-    connectionError,
     isSocketReady,
     isAssistantErrorMessage,
     isFailedUserMessage,

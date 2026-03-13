@@ -8,8 +8,8 @@ import { json } from '@codemirror/lang-json'
 import { oneDark } from '@codemirror/theme-one-dark'
 import { lineNumbers } from '@codemirror/view'
 
-import MdiIcon from './MdiIcon.vue'
-import { llmAPI, mcpAPI, settingAPI, skillsAPI } from '../api'
+import MdiIcon from '../../../shared/components/MdiIcon.vue'
+import { llmAPI, mcpAPI, settingAPI, skillsAPI } from '../../../api'
 
 const emit = defineEmits<{
   close: []
@@ -583,12 +583,6 @@ onMounted(loadData)
   gap: 10px;
 }
 
-.form-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(120px, 1fr));
-  gap: 8px;
-}
-
 .list {
   max-height: 220px;
   overflow: auto;
@@ -733,10 +727,6 @@ onMounted(loadData)
     border-right: 0;
     border-bottom: 1px solid #d7d7d7;
     flex-direction: row;
-  }
-
-  .form-grid {
-    grid-template-columns: 1fr;
   }
 }
 </style>

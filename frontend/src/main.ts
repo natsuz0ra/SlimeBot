@@ -6,8 +6,8 @@ import TDesign from 'tdesign-vue-next'
 import 'tdesign-vue-next/es/style/index.css'
 
 import { createPinia } from 'pinia'
-import router from './router'
-import { i18n } from './i18n'
+import router from './app/router'
+import { i18n } from './app/i18n'
 
 const app = createApp(App)
 app.use(TDesign)

@@ -4,8 +4,8 @@ import (
 	"errors"
 	"time"
 
-	"corner/backend/internal/models"
 	"gorm.io/gorm"
+	"slimebot/backend/internal/models"
 )
 
 func (r *Repository) GetSetting(key string) (string, error) {

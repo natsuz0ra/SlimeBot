@@ -1,4 +1,4 @@
-module corner/backend
+module slimebot/backend
 
 go 1.26.0
 

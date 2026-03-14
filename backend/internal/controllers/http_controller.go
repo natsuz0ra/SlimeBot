@@ -1,7 +1,7 @@
 package controllers
 
-import "corner/backend/internal/repositories"
-import "corner/backend/internal/services"
+import "slimebot/backend/internal/repositories"
+import "slimebot/backend/internal/services"
 
 type HTTPController struct {
 	repo         *repositories.Repository

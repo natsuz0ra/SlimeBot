@@ -3,9 +3,9 @@ package repositories
 import (
 	"errors"
 
-	"corner/backend/internal/models"
 	"github.com/google/uuid"
 	"gorm.io/gorm"
+	"slimebot/backend/internal/models"
 )
 
 func (r *Repository) ListLLMConfigs() ([]models.LLMConfig, error) {

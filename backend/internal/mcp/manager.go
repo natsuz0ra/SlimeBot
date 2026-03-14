@@ -8,7 +8,7 @@ import (
 	"strings"
 	"sync"
 
-	"corner/backend/internal/models"
+	"slimebot/backend/internal/models"
 )
 
 // ToolMeta 记录函数调用定义与 MCP 真实工具之间的映射关系。

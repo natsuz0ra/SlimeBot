@@ -6,8 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"corner/backend/internal/models"
-	"corner/backend/internal/repositories"
+	"slimebot/backend/internal/models"
+	"slimebot/backend/internal/repositories"
 )
 
 type SkillRuntimeService struct {

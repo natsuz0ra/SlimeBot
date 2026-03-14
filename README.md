@@ -1,4 +1,8 @@
-# Corner
+<p align="center">
+  <img src="frontend/public/slime-icon.svg" alt="SlimeBot Logo" width="96" />
+</p>
+
+<h1 align="center">SlimeBot</h1>
 
 这是个人练手用的 Agent Demo 项目，目标是实现一个可持续扩展的 AI 会话应用雏形。
 
@@ -31,14 +35,14 @@
 
 ```powershell
 # 1) 启动后端
-cd G:\gitCode\Corner\backend
+cd G:\gitCode\SlimeBot\backend
 go mod tidy
 go run .\cmd\server\main.go
 ```
 
 ```powershell
 # 2) 启动前端（新开一个终端）
-cd G:\gitCode\Corner\frontend
+cd G:\gitCode\SlimeBot\frontend
 npm install
 Copy-Item .env.example .env
 npm run dev
@@ -48,14 +52,14 @@ npm run dev
 
 ```bash
 # 1) 启动后端
-cd /path/to/Corner/backend
+cd /path/to/SlimeBot/backend
 go mod tidy
 go run ./cmd/server/main.go
 ```
 
 ```bash
 # 2) 启动前端（新开一个终端）
-cd /path/to/Corner/frontend
+cd /path/to/SlimeBot/frontend
 npm install
 cp .env.example .env
 npm run dev
@@ -65,14 +69,14 @@ npm run dev
 
 ```bash
 # 1) 启动后端
-cd /path/to/Corner/backend
+cd /path/to/SlimeBot/backend
 go mod tidy
 go run ./cmd/server/main.go
 ```
 
 ```bash
 # 2) 启动前端（新开一个终端）
-cd /path/to/Corner/frontend
+cd /path/to/SlimeBot/frontend
 npm install
 cp .env.example .env
 npm run dev
@@ -85,7 +89,7 @@ npm run dev
 后端启动时会读取环境变量：
 
 - `SERVER_PORT`：服务端口，默认 `8080`
-- `DB_PATH`：SQLite 文件路径，默认 `./storage/corner.db`
+- `DB_PATH`：SQLite 文件路径，默认 `./storage/data.db`
 - `FRONTEND_ORIGIN`：允许跨域的前端地址，默认 `http://localhost:5173`
 - `WEB_SEARCH_API_KEY`：tavily网络搜索api_key
 
@@ -93,7 +97,7 @@ npm run dev
 
 ```env
 SERVER_PORT=8080
-DB_PATH=./storage/corner.db
+DB_PATH=./storage/data.db
 FRONTEND_ORIGIN=http://localhost:5173
 ```
 

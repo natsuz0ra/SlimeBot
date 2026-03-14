@@ -65,7 +65,7 @@ func (c *stdioClient) initialize(ctx context.Context) error {
 		"protocolVersion": "2024-11-05",
 		"capabilities":    map[string]any{},
 		"clientInfo": map[string]any{
-			"name":    "corner",
+			"name":    "slimebot",
 			"version": "1.2",
 		},
 	})

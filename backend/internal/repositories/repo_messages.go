@@ -3,9 +3,9 @@ package repositories
 import (
 	"time"
 
-	"corner/backend/internal/models"
 	"github.com/google/uuid"
 	"gorm.io/gorm"
+	"slimebot/backend/internal/models"
 )
 
 func (r *Repository) ListSessionMessages(sessionID string) ([]models.Message, error) {

@@ -3,9 +3,9 @@ package router
 import (
 	"net/http"
 
-	"corner/backend/internal/config"
-	"corner/backend/internal/controllers"
 	"github.com/gin-gonic/gin"
+	"slimebot/backend/internal/config"
+	"slimebot/backend/internal/controllers"
 )
 
 func New(cfg config.Config, httpController *controllers.HTTPController, wsController *controllers.WSController) *gin.Engine {

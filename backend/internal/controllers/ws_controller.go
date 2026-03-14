@@ -10,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	"corner/backend/internal/services"
+	"slimebot/backend/internal/services"
 
 	"github.com/gorilla/websocket"
 )

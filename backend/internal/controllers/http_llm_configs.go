@@ -3,8 +3,8 @@ package controllers
 import (
 	"net/http"
 
-	"corner/backend/internal/models"
 	"github.com/gin-gonic/gin"
+	"slimebot/backend/internal/models"
 )
 
 func (h *HTTPController) ListLLMConfigs(c *gin.Context) {

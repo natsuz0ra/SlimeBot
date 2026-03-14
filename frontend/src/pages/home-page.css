@@ -1,0 +1,112 @@
+/* ── 侧边栏滑入动画 ── */
+.sidebar-enter-active,
+.sidebar-leave-active {
+  transition: transform 280ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+.sidebar-enter-from,
+.sidebar-leave-to {
+  transform: translateX(-100%);
+}
+
+/* ── 遮罩淡入 ── */
+.mask-fade-enter-active,
+.mask-fade-leave-active {
+  transition: opacity 220ms ease-out;
+}
+.mask-fade-enter-from,
+.mask-fade-leave-to {
+  opacity: 0;
+}
+
+/* ── 全局遮罩淡入（设置弹窗等） ── */
+.overlay-fade-enter-active,
+.overlay-fade-leave-active {
+  transition: opacity 180ms ease-out;
+}
+.overlay-fade-enter-from,
+.overlay-fade-leave-to {
+  opacity: 0;
+}
+
+/* ── textarea 自适应高度 ── */
+textarea {
+  field-sizing: content;
+  min-height: 22px;
+}
+
+/* ── 浮动会话菜单弹出 ── */
+.session-menu-pop-enter-active {
+  transition: opacity 140ms ease, transform 140ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+.session-menu-pop-leave-active {
+  transition: opacity 80ms ease, transform 80ms ease;
+}
+.session-menu-pop-enter-from,
+.session-menu-pop-leave-to {
+  opacity: 0;
+  transform: scale(0.92) translateY(-4px);
+}
+
+/* ── 顶部标题下拉菜单弹出 ── */
+.top-menu-pop-enter-active {
+  transition: opacity 140ms ease, transform 140ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+.top-menu-pop-leave-active {
+  transition: opacity 80ms ease, transform 80ms ease;
+}
+.top-menu-pop-enter-from,
+.top-menu-pop-leave-to {
+  opacity: 0;
+  transform: scale(0.92) translateY(-6px);
+}
+
+/* ── 顶部菜单毛玻璃面板 ── */
+.top-menu-glass {
+  background: var(--top-menu-bg);
+  border: 1px solid var(--top-menu-border);
+  box-shadow: var(--top-menu-shadow);
+  backdrop-filter: blur(14px) saturate(140%);
+  -webkit-backdrop-filter: blur(14px) saturate(140%);
+}
+
+@supports not ((backdrop-filter: blur(2px)) or (-webkit-backdrop-filter: blur(2px))) {
+  .top-menu-glass {
+    background: var(--top-menu-bg-fallback);
+  }
+}
+
+/* ── 滚动条样式 ── */
+.scroll-area::-webkit-scrollbar {
+  width: 4px;
+}
+.scroll-area::-webkit-scrollbar-track {
+  background: transparent;
+}
+.scroll-area::-webkit-scrollbar-thumb {
+  background: transparent;
+  border-radius: 4px;
+  transition: background 0.25s;
+}
+.scroll-area:hover::-webkit-scrollbar-thumb,
+.scroll-area.is-scrolling::-webkit-scrollbar-thumb {
+  background: var(--scrollbar-thumb);
+}
+.scroll-area:hover::-webkit-scrollbar-thumb:hover {
+  background: var(--scrollbar-thumb-hover);
+}
+
+/* ── textarea 滚动条 ── */
+textarea::-webkit-scrollbar {
+  width: 4px;
+}
+textarea::-webkit-scrollbar-track {
+  background: transparent;
+}
+textarea::-webkit-scrollbar-thumb {
+  background: transparent;
+  border-radius: 4px;
+  transition: background 0.25s;
+}
+textarea:hover::-webkit-scrollbar-thumb {
+  background: var(--scrollbar-thumb);
+}

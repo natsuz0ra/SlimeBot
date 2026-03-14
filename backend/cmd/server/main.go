@@ -5,17 +5,17 @@ import (
 	"os"
 	"path/filepath"
 
-	"corner/backend/internal/config"
-	"corner/backend/internal/controllers"
-	"corner/backend/internal/database"
-	"corner/backend/internal/mcp"
-	"corner/backend/internal/repositories"
-	"corner/backend/internal/router"
-	"corner/backend/internal/services"
 	"github.com/joho/godotenv"
+	"slimebot/backend/internal/config"
+	"slimebot/backend/internal/controllers"
+	"slimebot/backend/internal/database"
+	"slimebot/backend/internal/mcp"
+	"slimebot/backend/internal/repositories"
+	"slimebot/backend/internal/router"
+	"slimebot/backend/internal/services"
 
 	// 导入 tools 包触发各工具的 init() 自注册
-	_ "corner/backend/internal/tools"
+	_ "slimebot/backend/internal/tools"
 )
 
 func main() {

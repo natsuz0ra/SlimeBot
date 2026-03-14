@@ -12,9 +12,9 @@ import (
 	"strings"
 	"time"
 
-	"corner/backend/internal/models"
-	"corner/backend/internal/repositories"
 	"github.com/goccy/go-yaml"
+	"slimebot/backend/internal/models"
+	"slimebot/backend/internal/repositories"
 )
 
 const (

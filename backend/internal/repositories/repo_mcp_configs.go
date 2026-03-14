@@ -3,8 +3,8 @@ package repositories
 import (
 	"time"
 
-	"corner/backend/internal/models"
 	"github.com/google/uuid"
+	"slimebot/backend/internal/models"
 )
 
 func (r *Repository) ListMCPConfigs() ([]models.MCPConfig, error) {

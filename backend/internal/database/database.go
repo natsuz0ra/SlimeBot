@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"path/filepath"
 
-	"corner/backend/internal/models"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
+	"slimebot/backend/internal/models"
 )
 
 func NewSQLite(dbPath string) (*gorm.DB, error) {

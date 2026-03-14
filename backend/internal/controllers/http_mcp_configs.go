@@ -4,9 +4,9 @@ import (
 	"net/http"
 	"strings"
 
-	"corner/backend/internal/mcp"
-	"corner/backend/internal/models"
 	"github.com/gin-gonic/gin"
+	"slimebot/backend/internal/mcp"
+	"slimebot/backend/internal/models"
 )
 
 func (h *HTTPController) ListMCPConfigs(c *gin.Context) {

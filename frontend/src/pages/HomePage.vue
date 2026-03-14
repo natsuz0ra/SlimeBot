@@ -9,7 +9,6 @@ import {
   mdiMenu,
   mdiPencilOutline,
   mdiPlus,
-  mdiRobotOutline,
   mdiSend,
   mdiWeatherNight,
   mdiWeatherSunny,
@@ -21,6 +20,7 @@ import SettingsPanel from '@/components/settings/SettingsPanel.vue'
 import ToolCallCard from '@/components/chat/ToolCallCard.vue'
 import BaseDialog from '@/components/ui/BaseDialog.vue'
 import AppSelect from '@/components/ui/AppSelect.vue'
+import CornerLogo from '@/components/ui/CornerLogo.vue'
 import { renderMarkdown } from '@/utils/markdown'
 import { useHomeChatPage } from '@/composables/useHomeChatPage'
 import { useTheme } from '@/composables/useTheme'
@@ -106,11 +106,7 @@ function onTextareaInput(e: Event) {
           <div class="flex items-center justify-between px-4 h-14" style="border-bottom: 1px solid var(--sidebar-border)">
             <!-- Logo -->
             <div class="flex items-center gap-2.5">
-              <div class="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0" style="background: linear-gradient(135deg, #6366f1 0%, #a78bfa 100%)">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
-                  <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
-                </svg>
-              </div>
+              <CornerLogo :size="36" />
               <span class="text-sm font-semibold" style="color: var(--text-primary)">Corner</span>
             </div>
 
@@ -122,7 +118,7 @@ function onTextareaInput(e: Event) {
                 style="color: var(--text-muted)"
                 @click="createSession"
               >
-                <MdiIcon :path="mdiPlus" :size="18" class="group-hover:scale-110 transition-transform duration-150" />
+                <MdiIcon :path="mdiPlus" :size="20" class="group-hover:scale-110 transition-transform duration-150" />
               </button>
               <!-- 关闭侧边栏 -->
               <button
@@ -131,7 +127,7 @@ function onTextareaInput(e: Event) {
                 style="color: var(--text-muted)"
                 @click="drawerOpen = false"
               >
-                <MdiIcon :path="mdiClose" :size="18" />
+                <MdiIcon :path="mdiClose" :size="20" />
               </button>
             </div>
           </div>
@@ -176,7 +172,7 @@ function onTextareaInput(e: Event) {
                 style="color: var(--text-muted)"
                 @click="toggleTheme"
               >
-                <MdiIcon :path="isDark ? mdiWeatherSunny : mdiWeatherNight" :size="18" />
+                <MdiIcon :path="isDark ? mdiWeatherSunny : mdiWeatherNight" :size="20" />
               </button>
               <!-- 设置 -->
               <button
@@ -185,7 +181,7 @@ function onTextareaInput(e: Event) {
                 style="color: var(--text-secondary)"
                 @click="settingsVisible = true"
               >
-                <MdiIcon :path="mdiCogOutline" :size="17" />
+                <MdiIcon :path="mdiCogOutline" :size="19" />
                 <span class="font-medium">{{ t('settings') }}</span>
               </button>
             </div>
@@ -204,11 +200,11 @@ function onTextareaInput(e: Event) {
       </Transition>
 
       <!-- ───── 主内容区 ───── -->
-      <main class="flex-1 flex flex-col min-w-0 overflow-hidden">
+      <main class="relative z-0 flex-1 flex flex-col min-w-0">
 
         <!-- 顶栏 -->
         <header
-          class="relative flex items-center justify-center h-14 flex-shrink-0 backdrop-blur-sm"
+          class="relative z-30 flex items-center justify-center h-14 flex-shrink-0 backdrop-blur-sm"
           style="background: var(--header-bg); border-bottom: 1px solid var(--card-border)"
         >
           <!-- 左侧菜单按钮 -->
@@ -238,9 +234,6 @@ function onTextareaInput(e: Event) {
             />
           </button>
 
-          <!-- 无会话时显示 APP 名 -->
-          <span v-else class="text-sm font-semibold" style="color: var(--text-primary)">Corner</span>
-
           <!-- 网络状态 badge -->
           <div
             v-if="networkStatusText"
@@ -257,8 +250,7 @@ function onTextareaInput(e: Event) {
           <Transition name="top-menu-pop">
             <div
               v-if="topMenuVisible"
-              class="absolute top-[52px] left-1/2 -translate-x-1/2 w-40 rounded-xl py-1 overflow-hidden z-50"
-              style="background: var(--menu-bg); border: 1px solid var(--menu-border); box-shadow: var(--menu-shadow)"
+              class="absolute top-[52px] left-1/2 -translate-x-1/2 w-40 rounded-xl py-1 overflow-hidden z-[85] top-menu-glass"
               @click.stop
             >
               <button
@@ -297,13 +289,11 @@ function onTextareaInput(e: Event) {
 
             <template v-else>
               <!-- AI 渐变图标 -->
-              <div class="w-16 h-16 rounded-2xl flex items-center justify-center mb-6 shadow-lg" style="background: var(--ai-avatar-bg)">
-                <MdiIcon :path="mdiRobotOutline" :size="32" class="text-white" />
-              </div>
+              <img src="/slime-icon.svg" alt="Corner AI" class="w-20 h-20 mb-2 object-contain drop-shadow-lg" />
 
               <!-- 欢迎标题 -->
               <h2 class="text-2xl font-bold mb-2 text-center welcome-title">{{ t('welcomeTitle') }}</h2>
-              <p class="text-sm mb-8 text-center" style="color: var(--text-muted)">{{ t('welcomeSubtitle') }}</p>
+              <p class="text-sm mb-6 text-center" style="color: var(--text-muted)">{{ t('welcomeSubtitle') }}</p>
 
               <!-- 居中输入框 -->
               <div class="w-full max-w-[640px]">
@@ -367,10 +357,9 @@ function onTextareaInput(e: Event) {
                 <!-- AI 头像 -->
                 <div
                   v-if="item.role === 'assistant'"
-                  class="flex-shrink-0 w-8 h-8 rounded-xl flex items-center justify-center shadow-sm"
-                  style="background: var(--ai-avatar-bg)"
+                  class="flex-shrink-0 w-10 h-10 flex items-center justify-center"
                 >
-                  <MdiIcon :path="mdiRobotOutline" :size="17" class="text-white" />
+                  <img src="/slime-icon.svg" alt="Corner AI" class="w-10 h-10 object-contain" />
                 </div>
 
                 <!-- 失败图标（用户消息） -->

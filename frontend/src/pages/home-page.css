@@ -60,6 +60,21 @@ textarea {
   transform: scale(0.92) translateY(-6px);
 }
 
+/* ── 顶部菜单毛玻璃面板 ── */
+.top-menu-glass {
+  background: var(--top-menu-bg);
+  border: 1px solid var(--top-menu-border);
+  box-shadow: var(--top-menu-shadow);
+  backdrop-filter: blur(14px) saturate(140%);
+  -webkit-backdrop-filter: blur(14px) saturate(140%);
+}
+
+@supports not ((backdrop-filter: blur(2px)) or (-webkit-backdrop-filter: blur(2px))) {
+  .top-menu-glass {
+    background: var(--top-menu-bg-fallback);
+  }
+}
+
 /* ── 滚动条样式 ── */
 .scroll-area::-webkit-scrollbar {
   width: 4px;

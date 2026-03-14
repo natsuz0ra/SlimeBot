@@ -52,6 +52,10 @@ html, body {
   --menu-bg: rgba(255, 255, 255, 0.95);
   --menu-border: rgba(99, 102, 241, 0.12);
   --menu-shadow: 0 8px 32px rgba(99, 102, 241, 0.12), 0 2px 8px rgba(0, 0, 0, 0.06);
+  --top-menu-bg: rgba(255, 255, 255, 0.76);
+  --top-menu-bg-fallback: rgba(255, 255, 255, 0.94);
+  --top-menu-border: rgba(255, 255, 255, 0.55);
+  --top-menu-shadow: 0 14px 36px rgba(2, 6, 23, 0.14), 0 4px 14px rgba(99, 102, 241, 0.14), inset 0 1px 0 rgba(255, 255, 255, 0.45);
 }
 
 .dark {
@@ -75,6 +79,10 @@ html, body {
   --menu-bg: rgba(24, 24, 48, 0.97);
   --menu-border: rgba(255, 255, 255, 0.08);
   --menu-shadow: 0 8px 32px rgba(0, 0, 0, 0.4), 0 2px 8px rgba(0, 0, 0, 0.2);
+  --top-menu-bg: rgba(24, 24, 48, 0.62);
+  --top-menu-bg-fallback: rgba(24, 24, 48, 0.9);
+  --top-menu-border: rgba(255, 255, 255, 0.16);
+  --top-menu-shadow: 0 16px 40px rgba(0, 0, 0, 0.45), 0 4px 16px rgba(0, 0, 0, 0.28), inset 0 1px 0 rgba(255, 255, 255, 0.08);
 }
 
 /* ─── CodeMirror overrides ─── */

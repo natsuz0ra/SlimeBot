@@ -26,11 +26,8 @@ router.beforeEach((to) => {
   if (requiresAuth && !authStore.isAuthenticated) {
     return '/login'
   }
-  if (to.path === '/login' && authStore.isAuthenticated && !authStore.mustChangePassword) {
+  if (to.path === '/login' && authStore.isAuthenticated) {
     return '/'
-  }
-  if (authStore.mustChangePassword && to.path !== '/login') {
-    return '/login'
   }
   return true
 })

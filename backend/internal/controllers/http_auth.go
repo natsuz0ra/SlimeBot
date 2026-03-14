@@ -110,7 +110,11 @@ func (h *HTTPController) UpdateAccount(c *gin.Context) {
 			return
 		}
 		if !auth.ComparePassword(storedHash, req.OldPassword) {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "旧密码错误"})
+			c.JSON(http.StatusBadRequest, gin.H{"error": "旧密码错误"})
+			return
+		}
+		if auth.ComparePassword(storedHash, newPassword) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "新密码不能与旧密码相同"})
 			return
 		}
 

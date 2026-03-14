@@ -67,8 +67,8 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown))
           @click.stop
         >
           <!-- 头部 -->
-          <div class="flex items-center justify-between px-5 py-4 dialog-header">
-            <span class="text-sm font-semibold dialog-title">{{ title }}</span>
+          <div class="flex items-center justify-between px-5 py-3 dialog-header">
+            <span class="text-base font-semibold dialog-title">{{ title }}</span>
             <button
               v-if="showClose"
               type="button"
@@ -85,7 +85,7 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown))
           </div>
 
           <!-- 底部 -->
-          <div v-if="!hideFooter" class="flex items-center justify-end gap-2 px-5 py-4 dialog-footer">
+          <div v-if="!hideFooter" class="flex items-center justify-end gap-2 px-5 py-3 dialog-footer">
             <button
               v-if="showCancel"
               type="button"
@@ -121,10 +121,6 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown))
   box-shadow: 0 25px 60px rgba(0, 0, 0, 0.35), 0 0 0 1px rgba(99, 102, 241, 0.08);
 }
 
-.dialog-header {
-  border-bottom: 1px solid var(--card-border);
-}
-
 .dialog-title {
   color: var(--text-primary);
 }
@@ -135,10 +131,6 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown))
 .dialog-close-btn:hover {
   background: rgba(99, 102, 241, 0.08);
   color: var(--text-primary);
-}
-
-.dialog-footer {
-  border-top: 1px solid var(--card-border);
 }
 
 .dialog-cancel-btn {

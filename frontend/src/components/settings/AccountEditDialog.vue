@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import BaseDialog from '@/components/ui/BaseDialog.vue'
+import AppTextInput from '@/components/ui/AppTextInput.vue'
+import AppPasswordInput from '@/components/ui/AppPasswordInput.vue'
 import { useToast } from '@/composables/useToast'
 import { useI18n } from 'vue-i18n'
 import { authAPI } from '@/api/auth'
@@ -24,6 +26,9 @@ const submitting = ref(false)
 const username = ref('')
 const oldPassword = ref('')
 const newPassword = ref('')
+const oldPasswordError = ref('')
+const newPasswordError = ref('')
+const oldPasswordShake = ref(false)
 
 const title = computed(() => (props.forceMode ? t('forcePasswordChangeTitle') : t('accountEditTitle')))
 
@@ -31,6 +36,27 @@ function resetForm() {
   username.value = ''
   oldPassword.value = ''
   newPassword.value = ''
+  oldPasswordError.value = ''
+  newPasswordError.value = ''
+  oldPasswordShake.value = false
+}
+
+function triggerOldPasswordShake() {
+  oldPasswordShake.value = false
+  window.setTimeout(() => {
+    oldPasswordShake.value = true
+    window.setTimeout(() => {
+      oldPasswordShake.value = false
+    }, 260)
+  }, 0)
+}
+
+function clearOldPasswordError() {
+  oldPasswordError.value = ''
+}
+
+function clearNewPasswordError() {
+  newPasswordError.value = ''
 }
 
 watch(
@@ -46,17 +72,25 @@ async function onConfirm() {
   const nextUsername = username.value.trim()
   const nextNewPassword = newPassword.value.trim()
   const nextOldPassword = oldPassword.value
+  const normalizedOldPassword = nextOldPassword.trim()
+
+  clearOldPasswordError()
+  clearNewPasswordError()
 
   if (props.forceMode && nextNewPassword === '') {
-    toast.error(t('newPasswordRequired'))
+    newPasswordError.value = t('newPasswordRequired')
     return
   }
   if (nextUsername === '' && nextNewPassword === '') {
     toast.error(t('accountEditNeedOneField'))
     return
   }
-  if (nextNewPassword !== '' && nextOldPassword.trim() === '') {
-    toast.error(t('oldPasswordRequired'))
+  if (nextNewPassword !== '' && normalizedOldPassword === '') {
+    oldPasswordError.value = t('oldPasswordRequired')
+    return
+  }
+  if (nextNewPassword !== '' && nextNewPassword === normalizedOldPassword) {
+    newPasswordError.value = t('newPasswordSameAsOld')
     return
   }
 
@@ -71,7 +105,22 @@ async function onConfirm() {
     emit('success')
     emit('update:visible', false)
   } catch (error: any) {
-    toast.error(error?.response?.data?.error || t('accountEditFailed'))
+    const responseStatus = error?.response?.status
+    const responseError = String(error?.response?.data?.error || '')
+    if (
+      responseStatus === 401
+      || (responseStatus === 400 && responseError.includes('旧密码错误'))
+      || responseError.includes('旧密码错误')
+    ) {
+      oldPasswordError.value = t('oldPasswordIncorrect')
+      triggerOldPasswordShake()
+      return
+    }
+    if (responseStatus === 400 && responseError.includes('新密码不能与旧密码相同')) {
+      newPasswordError.value = t('newPasswordSameAsOld')
+      return
+    }
+    toast.error(responseError || t('accountEditFailed'))
   } finally {
     submitting.value = false
   }
@@ -104,32 +153,42 @@ function onCancel() {
       </div>
       <div class="flex flex-col gap-1.5">
         <label class="text-xs font-medium account-field-label">{{ t('usernameOptional') }}</label>
-        <input
+        <AppTextInput
           v-model="username"
-          type="text"
-          class="account-input px-3 py-2.5 text-sm rounded-xl outline-none transition-all duration-150"
+          class="px-3 py-2.5"
           :placeholder="t('usernameOptionalPlaceholder')"
         />
       </div>
 
       <div class="flex flex-col gap-1.5">
         <label class="text-xs font-medium account-field-label">{{ t('oldPassword') }}</label>
-        <input
+        <AppPasswordInput
           v-model="oldPassword"
-          type="password"
-          class="account-input px-3 py-2.5 text-sm rounded-xl outline-none transition-all duration-150"
+          class="px-3 py-2.5"
+          :class="{
+            'account-input-error': !!oldPasswordError,
+            'account-input-shake': oldPasswordShake,
+          }"
           :placeholder="t('oldPasswordPlaceholder')"
+          :show-label="t('showPassword')"
+          :hide-label="t('hidePassword')"
+          @update:model-value="clearOldPasswordError"
         />
+        <p v-if="oldPasswordError" class="account-error-text text-xs">{{ oldPasswordError }}</p>
       </div>
 
       <div class="flex flex-col gap-1.5">
         <label class="text-xs font-medium account-field-label">{{ t('newPassword') }}</label>
-        <input
+        <AppPasswordInput
           v-model="newPassword"
-          type="password"
-          class="account-input px-3 py-2.5 text-sm rounded-xl outline-none transition-all duration-150"
+          class="px-3 py-2.5"
+          :class="{ 'account-input-error': !!newPasswordError }"
           :placeholder="t('newPasswordPlaceholder')"
+          :show-label="t('showPassword')"
+          :hide-label="t('hidePassword')"
+          @update:model-value="clearNewPasswordError"
         />
+        <p v-if="newPasswordError" class="account-error-text text-xs">{{ newPasswordError }}</p>
       </div>
     </div>
   </BaseDialog>
@@ -148,19 +207,40 @@ function onCancel() {
   color: var(--text-muted);
 }
 
-.account-input {
-  background: var(--input-bg);
-  border: 1px solid var(--input-border);
-  color: var(--text-primary);
-  width: 100%;
+.account-error-text {
+  color: #ef4444;
 }
 
-.account-input:focus {
-  border-color: #6366f1;
-  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.12);
+:deep(.account-input-error) {
+  border-color: rgba(239, 68, 68, 0.9) !important;
+  box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.14) !important;
 }
 
-.account-input::placeholder {
-  color: var(--text-muted);
+:deep(.account-input-error:focus) {
+  border-color: rgba(239, 68, 68, 0.95) !important;
+  box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.16) !important;
+}
+
+:deep(.account-input-shake) {
+  animation: account-input-shake 0.24s ease-in-out;
+}
+
+@keyframes account-input-shake {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  20% {
+    transform: translateX(-3px);
+  }
+  40% {
+    transform: translateX(3px);
+  }
+  60% {
+    transform: translateX(-2px);
+  }
+  80% {
+    transform: translateX(2px);
+  }
 }
 </style>

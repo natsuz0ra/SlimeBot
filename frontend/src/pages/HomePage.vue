@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import {
   mdiAlert,
@@ -19,6 +19,7 @@ import {
 import MdiIcon from '@/components/MdiIcon.vue'
 import TypingDots from '@/components/chat/TypingDots.vue'
 import SettingsPanel from '@/components/settings/SettingsPanel.vue'
+import AccountEditDialog from '@/components/settings/AccountEditDialog.vue'
 import ToolCallCard from '@/components/chat/ToolCallCard.vue'
 import BaseDialog from '@/components/ui/BaseDialog.vue'
 import AppSelect from '@/components/ui/AppSelect.vue'
@@ -26,6 +27,7 @@ import SlimeBotLogo from '@/components/ui/SlimeBotLogo.vue'
 import { renderMarkdown } from '@/utils/markdown'
 import { useHomeChatPage } from '@/composables/useHomeChatPage'
 import { useTheme } from '@/composables/useTheme'
+import { useAuthStore } from '@/stores/auth'
 
 const {
   t,
@@ -76,17 +78,29 @@ const {
 } = useHomeChatPage()
 
 const { isDark, toggleTheme } = useTheme()
+const authStore = useAuthStore()
 const route = useRoute()
+const accountDialogVisible = ref(false)
 
 const CURSOR_BLINK_MS = 180
 const CURSOR_BLINK_CYCLES = 2
 const PUNCTUATION_PAUSE_MS = 140
 const TYPING_BASE_MS = 58
 const TYPING_FAST_MS = 42
+const LOGIN_HOME_TRANSITION_TOKEN = 'slimebot:transition:login-home'
+const HOME_ENTER_ANIMATION_MS = 460
+const CHAT_SWITCH_ANIMATION_MS = 210
+const FORCE_PASSWORD_DIALOG_DELAY_MS = 500
 
 const titlePhase = ref<'cursor' | 'typing' | 'done'>('done')
 const displayedWelcomeTitle = ref('')
 const welcomeTimers: number[] = []
+const playHomeLoginEnter = ref(false)
+const playChatContentSwitch = ref(false)
+const chatContentSwitchDirection = ref<'forward' | 'backward'>('forward')
+let homeEnterTimer: number | null = null
+let chatContentSwitchTimer: number | null = null
+let forcePasswordDialogTimer: number | null = null
 
 const fullWelcomeTitle = computed(() => t('welcomeTitle'))
 const isNewChatRoute = computed(() => route.name === 'new-chat' || route.path === '/chat/new_chat')
@@ -113,8 +127,52 @@ function scheduleWelcomeTimeout(callback: () => void, delay: number) {
   welcomeTimers.push(timer)
 }
 
+function clearForcePasswordDialogTimer() {
+  if (typeof forcePasswordDialogTimer === 'number') {
+    window.clearTimeout(forcePasswordDialogTimer)
+    forcePasswordDialogTimer = null
+  }
+}
+
 function shouldReduceMotion() {
   return window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false
+}
+
+function clearChatContentSwitchTimer() {
+  if (typeof chatContentSwitchTimer === 'number') {
+    window.clearTimeout(chatContentSwitchTimer)
+    chatContentSwitchTimer = null
+  }
+}
+
+function resolveChatContentSwitchDirection(previousSessionId: string | undefined, nextSessionId: string | undefined) {
+  if (!previousSessionId || !nextSessionId) return 'forward'
+  const previousIndex = store.sessions.findIndex((item) => item.id === previousSessionId)
+  const nextIndex = store.sessions.findIndex((item) => item.id === nextSessionId)
+  if (previousIndex < 0 || nextIndex < 0 || previousIndex === nextIndex) return 'forward'
+  return nextIndex > previousIndex ? 'forward' : 'backward'
+}
+
+function triggerChatContentSwitch(previousSessionId: string | undefined, nextSessionId: string | undefined) {
+  if (loading.value || shouldReduceMotion()) return
+  chatContentSwitchDirection.value = resolveChatContentSwitchDirection(previousSessionId, nextSessionId)
+  clearChatContentSwitchTimer()
+  playChatContentSwitch.value = false
+  window.requestAnimationFrame(() => {
+    playChatContentSwitch.value = true
+    chatContentSwitchTimer = window.setTimeout(() => {
+      playChatContentSwitch.value = false
+      chatContentSwitchTimer = null
+    }, CHAT_SWITCH_ANIMATION_MS)
+  })
+}
+
+function hasLoginToHomeTransitionToken() {
+  try {
+    return sessionStorage.getItem(LOGIN_HOME_TRANSITION_TOKEN) === '1'
+  } catch {
+    return false
+  }
 }
 
 function getTypingDelay(char: string) {
@@ -189,9 +247,55 @@ watch(fullWelcomeTitle, () => {
   displayedWelcomeTitle.value = fullWelcomeTitle.value
 })
 
+watch(
+  () => store.currentSessionId,
+  (nextSessionId, previousSessionId) => {
+    if (nextSessionId === previousSessionId) return
+    triggerChatContentSwitch(previousSessionId, nextSessionId)
+  },
+)
+
+watch(
+  () => [loading.value, authStore.mustChangePassword] as const,
+  ([isLoading, mustChangePassword]) => {
+    if (isLoading || !mustChangePassword) {
+      clearForcePasswordDialogTimer()
+      accountDialogVisible.value = false
+      return
+    }
+    clearForcePasswordDialogTimer()
+    forcePasswordDialogTimer = window.setTimeout(() => {
+      accountDialogVisible.value = true
+      forcePasswordDialogTimer = null
+    }, FORCE_PASSWORD_DIALOG_DELAY_MS)
+  },
+  { immediate: true },
+)
+
 onBeforeUnmount(() => {
   clearWelcomeTimers()
+  clearChatContentSwitchTimer()
+  clearForcePasswordDialogTimer()
+  if (typeof homeEnterTimer === 'number') {
+    window.clearTimeout(homeEnterTimer)
+    homeEnterTimer = null
+  }
 })
+
+onMounted(() => {
+  if (shouldReduceMotion() || !hasLoginToHomeTransitionToken()) return
+  playHomeLoginEnter.value = true
+  homeEnterTimer = window.setTimeout(() => {
+    playHomeLoginEnter.value = false
+    homeEnterTimer = null
+  }, HOME_ENTER_ANIMATION_MS)
+})
+
+function onAccountUpdated() {
+  clearForcePasswordDialogTimer()
+  authStore.markPasswordChanged()
+  accountDialogVisible.value = false
+}
 
 function onTextareaKeydown(e: KeyboardEvent) {
   if (e.isComposing) return
@@ -209,7 +313,10 @@ function onTextareaInput(e: Event) {
 </script>
 
 <template>
-  <div class="page-shell h-screen flex items-center justify-center p-2 sm:p-3 transition-colors duration-300">
+  <div
+    class="page-shell h-screen flex items-center justify-center p-2 sm:p-3 transition-colors duration-300"
+    :class="{ 'home-login-entering': playHomeLoginEnter }"
+  >
     <!-- 外层卡片容器 -->
     <div
       class="page-card relative w-full h-full rounded-2xl flex overflow-hidden"
@@ -384,8 +491,17 @@ function onTextareaInput(e: Event) {
           </Transition>
         </header>
 
-        <!-- ───── 空会话：居中欢迎 + 输入框 ───── -->
-        <template v-if="isEmptySession">
+        <div
+          class="chat-content-shell"
+          :class="[
+            playChatContentSwitch ? 'chat-content-shell--switching' : '',
+            chatContentSwitchDirection === 'backward'
+              ? 'chat-content-shell--from-left'
+              : 'chat-content-shell--from-right',
+          ]"
+        >
+          <!-- ───── 空会话：居中欢迎 + 输入框 ───── -->
+          <template v-if="isEmptySession">
           <div class="flex-1 flex flex-col items-center justify-center px-4 pb-8">
             <!-- 加载中 -->
             <div v-if="loading" class="text-muted flex items-center gap-2 text-sm mb-8">
@@ -398,7 +514,7 @@ function onTextareaInput(e: Event) {
 
             <template v-else>
               <!-- AI 渐变图标 -->
-              <SlimeBotLogo :size="80" animated class="new-chat-logo mb-2 drop-shadow-lg" />
+              <SlimeBotLogo :size="80" animated class="new-chat-logo mb-1.0 drop-shadow-lg" />
 
               <!-- 欢迎标题 -->
               <h2 class="text-2xl font-bold mb-2 text-center welcome-title" :aria-label="fullWelcomeTitle">
@@ -448,10 +564,10 @@ function onTextareaInput(e: Event) {
               </div>
             </template>
           </div>
-        </template>
+          </template>
 
-        <!-- ───── 有消息：消息列表 + 底部输入框 ───── -->
-        <template v-else>
+          <!-- ───── 有消息：消息列表 + 底部输入框 ───── -->
+          <template v-else>
           <!-- 消息区 -->
           <section
             :ref="setMessagesRef"
@@ -615,7 +731,8 @@ function onTextareaInput(e: Event) {
               </div>
             </div>
           </footer>
-        </template>
+          </template>
+        </div>
       </main>
     </div>
 
@@ -724,6 +841,12 @@ function onTextareaInput(e: Event) {
         </button>
       </div>
     </Transition>
+
+    <AccountEditDialog
+      v-model:visible="accountDialogVisible"
+      :force-mode="true"
+      @success="onAccountUpdated"
+    />
   </div>
 </template>
 

@@ -6,7 +6,7 @@
 .page-card {
   border: 1px solid var(--card-border);
   background: var(--bg-main);
-  box-shadow: 0 25px 50px rgba(0, 0, 0, 0.15);
+  box-shadow: var(--page-card-shadow);
 }
 
 .sidebar-panel {
@@ -35,8 +35,25 @@
   backdrop-filter: blur(12px);
 }
 
+.chat-content-shell {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.chat-content-shell--switching.chat-content-shell--from-right {
+  animation: chat-content-switch-in-right 210ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.chat-content-shell--switching.chat-content-shell--from-left {
+  animation: chat-content-switch-in-left 210ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
 .settings-overlay {
-  background: rgba(0, 0, 0, 0.45);
+  background: var(--overlay-backdrop);
 }
 
 .settings-modal-size {
@@ -361,12 +378,12 @@ textarea {
   background: var(--input-bg);
   border: 1px solid var(--input-border);
   color: var(--text-secondary);
-  box-shadow: 0 4px 10px rgba(15, 23, 42, 0.12);
+  box-shadow: var(--floating-elevation-shadow);
 }
 .scroll-bottom-btn:hover {
   color: var(--text-secondary);
   border-color: var(--input-border);
-  box-shadow: 0 4px 10px rgba(15, 23, 42, 0.12);
+  box-shadow: var(--floating-elevation-shadow);
 }
 .scroll-bottom-arrow {
   display: block;
@@ -409,6 +426,48 @@ textarea:hover::-webkit-scrollbar-thumb {
   animation: welcome-logo-double-blink 2.8s infinite;
 }
 
+.home-login-entering .page-card {
+  animation: home-login-card-in 260ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.home-login-entering .header-bar {
+  animation: home-login-layer-in 240ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation-delay: 70ms;
+}
+
+.home-login-entering .sidebar-panel {
+  animation: home-login-layer-in 260ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation-delay: 140ms;
+}
+
+.home-login-entering .messages-section,
+.home-login-entering .composer-footer {
+  animation: home-login-layer-in 280ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation-delay: 220ms;
+}
+
+@keyframes home-login-card-in {
+  from {
+    opacity: 0.74;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes home-login-layer-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
 @keyframes welcome-logo-float {
   0%,
   100% {
@@ -443,6 +502,28 @@ textarea:hover::-webkit-scrollbar-thumb {
   }
 }
 
+@keyframes chat-content-switch-in-right {
+  from {
+    opacity: 0;
+    transform: translateX(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes chat-content-switch-in-left {
+  from {
+    opacity: 0;
+    transform: translateX(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .new-chat-logo {
     animation: none;
@@ -461,6 +542,19 @@ textarea:hover::-webkit-scrollbar-thumb {
   }
 
   .welcome-cursor {
+    animation: none !important;
+  }
+
+  .home-login-entering .page-card,
+  .home-login-entering .header-bar,
+  .home-login-entering .sidebar-panel,
+  .home-login-entering .messages-section,
+  .home-login-entering .composer-footer {
+    animation: none !important;
+  }
+
+  .chat-content-shell--switching.chat-content-shell--from-right,
+  .chat-content-shell--switching.chat-content-shell--from-left {
     animation: none !important;
   }
 }

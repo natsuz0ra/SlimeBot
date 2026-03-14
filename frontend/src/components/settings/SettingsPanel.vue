@@ -9,10 +9,11 @@ import { lineNumbers } from '@codemirror/view'
 
 import MdiIcon from '@/components/MdiIcon.vue'
 import BaseDialog from '@/components/ui/BaseDialog.vue'
-import AppSelect from '@/components/ui/AppSelect.vue'
+import LanguageSwitcher from '@/components/ui/LanguageSwitcher.vue'
 import AccountEditDialog from '@/components/settings/AccountEditDialog.vue'
-import { llmAPI, mcpAPI, settingAPI, skillsAPI } from '@/api/settings'
+import { llmAPI, mcpAPI, skillsAPI } from '@/api/settings'
 import { useToast } from '@/composables/useToast'
+import { useLanguagePreference, type LanguageCode } from '@/composables/useLanguagePreference'
 import { useAuthStore } from '@/stores/auth'
 import { useChatStore } from '@/stores/chat'
 import { useRouter } from 'vue-router'
@@ -22,19 +23,18 @@ const emit = defineEmits<{
   llmChanged: []
 }>()
 
-const { t, locale } = useI18n()
+const { t } = useI18n()
 const toast = useToast()
 const authStore = useAuthStore()
 const chatStore = useChatStore()
 const router = useRouter()
+const { language, languageOptions, savingLanguage, loadLanguage, changeLanguage } = useLanguagePreference()
 
 const tab = ref<'basic' | 'llm' | 'mcp' | 'skills'>('basic')
-const language = ref<'zh-CN' | 'en-US'>('zh-CN')
 const llmList = ref<any[]>([])
 const mcpList = ref<any[]>([])
 const skillsList = ref<any[]>([])
 const loading = ref(false)
-const savingLanguage = ref(false)
 const llmDialogVisible = ref(false)
 const mcpDialogVisible = ref(false)
 const llmSubmitting = ref(false)
@@ -54,6 +54,12 @@ const mcpEditorExtensions = [lineNumbers(), json(), oneDark]
 
 const llmRows = computed(() => llmList.value || [])
 const mcpRows = computed(() => mcpList.value || [])
+const languageSelectOptions = computed(() =>
+  languageOptions.map((option) => ({
+    value: option.value,
+    label: t(option.labelKey),
+  })),
+)
 const skillsRows = computed(() =>
   [...(skillsList.value || [])].sort((a, b) => {
     const aTime = new Date(a.uploadedAt || 0).getTime()
@@ -66,9 +72,7 @@ const mcpDialogTitle = computed(() => (mcpEditingID.value ? t('editMcp') : t('ad
 async function loadData() {
   loading.value = true
   try {
-    const settings = await settingAPI.get()
-    language.value = settings.language || 'zh-CN'
-    locale.value = language.value
+    await loadLanguage({ allowRemote: true })
     llmList.value = await llmAPI.list()
     mcpList.value = await mcpAPI.list()
     skillsList.value = await skillsAPI.list()
@@ -77,24 +81,8 @@ async function loadData() {
   }
 }
 
-async function onLanguageChange(nextLanguage: 'zh-CN' | 'en-US') {
-  if (savingLanguage.value) return
-  const previousLanguage = locale.value as 'zh-CN' | 'en-US'
-  if (nextLanguage === previousLanguage) return
-
-  language.value = nextLanguage
-  locale.value = nextLanguage
-  savingLanguage.value = true
-  try {
-    await settingAPI.update({ language: nextLanguage })
-    toast.success(t('saveSuccess'))
-  } catch {
-    language.value = previousLanguage
-    locale.value = previousLanguage
-    toast.error(t('languageSaveFailed'))
-  } finally {
-    savingLanguage.value = false
-  }
+async function onLanguageChange(nextLanguage: LanguageCode) {
+  await changeLanguage(nextLanguage, { allowRemote: true, showSuccessToast: true })
 }
 
 function openAccountDialog() {
@@ -102,14 +90,14 @@ function openAccountDialog() {
 }
 
 function logout() {
-  chatStore.disconnectSocket()
+  chatStore.disconnectSocket({ silentConnectionNotice: true })
   chatStore.resetToNewSession()
   authStore.clearAuth()
   void router.replace('/login')
 }
 
 function onAccountUpdated() {
-  logout()
+  accountDialogVisible.value = false
 }
 
 function openLLMDialog() {
@@ -396,10 +384,12 @@ onMounted(loadData)
           </div>
           <div class="settings-card flex items-center justify-between px-4 py-3.5 rounded-xl">
             <span class="text-sm settings-field-label">{{ t('language') }}</span>
-            <AppSelect
+            <LanguageSwitcher
               :model-value="language"
-              :options="[{ value: 'zh-CN', label: t('chinese') }, { value: 'en-US', label: t('english') }]"
+              :options="languageSelectOptions"
               :disabled="savingLanguage"
+              shadow-mode="none"
+              :aria-label="t('selectLanguage')"
               @update:model-value="onLanguageChange($event as any)"
             />
           </div>

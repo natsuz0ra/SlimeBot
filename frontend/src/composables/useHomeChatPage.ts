@@ -23,6 +23,9 @@ export function useHomeChatPage() {
   const loading = ref(false)
   const settingsVisible = ref(false)
   const hasConnectedOnce = ref(false)
+  const showInitialConnectionNotice = ref(false)
+  const suppressConnectionNoticeDisplay = ref(false)
+  const initialConnectionNoticeTimer = ref<number | null>(null)
   const toolDetailVisible = ref(false)
   const toolDetailBatchId = ref('')
   const toolDetailDialogWidth = 'min(688px, calc(100vw - 36px))'
@@ -41,6 +44,7 @@ export function useHomeChatPage() {
   const scrollToBottomEndHandler = ref<(() => void) | null>(null)
   const BOTTOM_STICK_THRESHOLD_PX = 32
   const SCROLL_TO_BOTTOM_PENDING_MAX_MS = 2000
+  const INITIAL_CONNECTION_NOTICE_DELAY_MS = 1500
   const scrollTimers = new Map<HTMLElement, ReturnType<typeof setTimeout>>()
   const scrollHandlers = new Map<HTMLElement, () => void>()
 
@@ -135,7 +139,13 @@ export function useHomeChatPage() {
   const isEmptySession = computed(() => !loading.value && store.messages.length === 0)
   const showScrollToBottom = computed(() => !isEmptySession.value && !autoStickToBottom.value)
   const sendDisabled = computed(() => !hasModel.value || !selectedModelId.value || !inputValue.value.trim() || store.waiting || !store.isSocketReady)
+  const shouldShowConnectionNotice = computed(() => {
+    if (suppressConnectionNoticeDisplay.value) return false
+    if (store.connectionStatus === 'connected') return false
+    return hasConnectedOnce.value || showInitialConnectionNotice.value
+  })
   const networkStatusText = computed(() => {
+    if (!shouldShowConnectionNotice.value) return ''
     if (store.connectionStatus === 'reconnecting') return t('networkReconnecting')
     if (store.connectionStatus === 'disconnected') return t('networkDisconnected')
     return ''
@@ -252,6 +262,23 @@ export function useHomeChatPage() {
 
   function showError(message: string) {
     toast.error(message)
+  }
+
+  function clearInitialConnectionNoticeTimer() {
+    if (initialConnectionNoticeTimer.value !== null) {
+      window.clearTimeout(initialConnectionNoticeTimer.value)
+      initialConnectionNoticeTimer.value = null
+    }
+  }
+
+  function scheduleInitialConnectionNotice() {
+    if (showInitialConnectionNotice.value || initialConnectionNoticeTimer.value !== null) return
+    initialConnectionNoticeTimer.value = window.setTimeout(() => {
+      initialConnectionNoticeTimer.value = null
+      if (hasConnectedOnce.value || suppressConnectionNoticeDisplay.value || store.connectionStatus === 'connected') return
+      showInitialConnectionNotice.value = true
+      showWarning(t(store.connectionStatus === 'reconnecting' ? 'networkReconnecting' : 'networkDisconnected'))
+    }, INITIAL_CONNECTION_NOTICE_DELAY_MS)
   }
 
   function scrollMessagesToBottom(force = false) {
@@ -437,9 +464,23 @@ export function useHomeChatPage() {
     (status, prev) => {
       if (status === 'connected') {
         hasConnectedOnce.value = true
+        suppressConnectionNoticeDisplay.value = false
+        showInitialConnectionNotice.value = false
+        clearInitialConnectionNoticeTimer()
         return
       }
-      if (status === prev || !hasConnectedOnce.value) return
+      if (status === prev) return
+      if (store.consumeSuppressNextConnectionNotice()) {
+        suppressConnectionNoticeDisplay.value = true
+        showInitialConnectionNotice.value = false
+        clearInitialConnectionNoticeTimer()
+        return
+      }
+      if (!hasConnectedOnce.value) {
+        scheduleInitialConnectionNotice()
+        return
+      }
+      if (suppressConnectionNoticeDisplay.value) return
       showWarning(t(status === 'reconnecting' ? 'networkReconnecting' : 'networkDisconnected'))
     },
   )
@@ -493,6 +534,7 @@ export function useHomeChatPage() {
   )
 
   onUnmounted(() => {
+    clearInitialConnectionNoticeTimer()
     clearScrollToBottomPendingTimer()
     clearScrollToBottomEndHandler()
     unbindScrollFade(messagesRef.value)

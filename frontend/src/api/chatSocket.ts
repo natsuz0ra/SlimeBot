@@ -1,3 +1,5 @@
+import { getAuthToken } from '@/utils/authStorage'
+
 type Handlers = {
   onSession: (sessionId: string) => void
   onStart: (sessionId?: string) => void
@@ -68,7 +70,6 @@ export class ChatSocket {
     if (this.ws) {
       this.teardownSocket()
     }
-    this.emitStatus('reconnecting')
     this.openSocket()
   }
 
@@ -102,8 +103,17 @@ export class ChatSocket {
   }
 
   private openSocket() {
+    const token = getAuthToken()
+    if (!token) {
+      this.emitStatus('disconnected', 'missing auth token')
+      this.handlers?.onSocketError?.('missing auth token')
+      return
+    }
+
     const wsBase = import.meta.env.VITE_WS_URL || 'ws://localhost:8080'
-    const url = `${wsBase}/ws/chat`
+    const query = new URLSearchParams({ token })
+    const url = `${wsBase}/ws/chat?${query.toString()}`
+    this.emitStatus('reconnecting')
     this.ws = new WebSocket(url)
 
     this.ws.onopen = () => {

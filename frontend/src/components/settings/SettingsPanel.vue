@@ -9,25 +9,32 @@ import { lineNumbers } from '@codemirror/view'
 
 import MdiIcon from '@/components/MdiIcon.vue'
 import BaseDialog from '@/components/ui/BaseDialog.vue'
-import AppSelect from '@/components/ui/AppSelect.vue'
-import { llmAPI, mcpAPI, settingAPI, skillsAPI } from '@/api/settings'
+import LanguageSwitcher from '@/components/ui/LanguageSwitcher.vue'
+import AccountEditDialog from '@/components/settings/AccountEditDialog.vue'
+import { llmAPI, mcpAPI, skillsAPI } from '@/api/settings'
 import { useToast } from '@/composables/useToast'
+import { useLanguagePreference, type LanguageCode } from '@/composables/useLanguagePreference'
+import { useAuthStore } from '@/stores/auth'
+import { useChatStore } from '@/stores/chat'
+import { useRouter } from 'vue-router'
 
 const emit = defineEmits<{
   close: []
   llmChanged: []
 }>()
 
-const { t, locale } = useI18n()
+const { t } = useI18n()
 const toast = useToast()
+const authStore = useAuthStore()
+const chatStore = useChatStore()
+const router = useRouter()
+const { language, languageOptions, savingLanguage, loadLanguage, changeLanguage } = useLanguagePreference()
 
 const tab = ref<'basic' | 'llm' | 'mcp' | 'skills'>('basic')
-const language = ref<'zh-CN' | 'en-US'>('zh-CN')
 const llmList = ref<any[]>([])
 const mcpList = ref<any[]>([])
 const skillsList = ref<any[]>([])
 const loading = ref(false)
-const savingLanguage = ref(false)
 const llmDialogVisible = ref(false)
 const mcpDialogVisible = ref(false)
 const llmSubmitting = ref(false)
@@ -36,6 +43,7 @@ const mcpEditingID = ref('')
 const skillsUploading = ref(false)
 const skillsDropActive = ref(false)
 const skillsFileInputRef = ref<HTMLInputElement | null>(null)
+const accountDialogVisible = ref(false)
 
 const llmForm = ref({ name: '', baseUrl: '', apiKey: '', model: '' })
 const mcpForm = ref({ name: '', config: '', isEnabled: true })
@@ -46,6 +54,12 @@ const mcpEditorExtensions = [lineNumbers(), json(), oneDark]
 
 const llmRows = computed(() => llmList.value || [])
 const mcpRows = computed(() => mcpList.value || [])
+const languageSelectOptions = computed(() =>
+  languageOptions.map((option) => ({
+    value: option.value,
+    label: t(option.labelKey),
+  })),
+)
 const skillsRows = computed(() =>
   [...(skillsList.value || [])].sort((a, b) => {
     const aTime = new Date(a.uploadedAt || 0).getTime()
@@ -58,9 +72,7 @@ const mcpDialogTitle = computed(() => (mcpEditingID.value ? t('editMcp') : t('ad
 async function loadData() {
   loading.value = true
   try {
-    const settings = await settingAPI.get()
-    language.value = settings.language || 'zh-CN'
-    locale.value = language.value
+    await loadLanguage({ allowRemote: true })
     llmList.value = await llmAPI.list()
     mcpList.value = await mcpAPI.list()
     skillsList.value = await skillsAPI.list()
@@ -69,24 +81,23 @@ async function loadData() {
   }
 }
 
-async function onLanguageChange(nextLanguage: 'zh-CN' | 'en-US') {
-  if (savingLanguage.value) return
-  const previousLanguage = locale.value as 'zh-CN' | 'en-US'
-  if (nextLanguage === previousLanguage) return
+async function onLanguageChange(nextLanguage: LanguageCode) {
+  await changeLanguage(nextLanguage, { allowRemote: true, showSuccessToast: true })
+}
 
-  language.value = nextLanguage
-  locale.value = nextLanguage
-  savingLanguage.value = true
-  try {
-    await settingAPI.update({ language: nextLanguage })
-    toast.success(t('saveSuccess'))
-  } catch {
-    language.value = previousLanguage
-    locale.value = previousLanguage
-    toast.error(t('languageSaveFailed'))
-  } finally {
-    savingLanguage.value = false
-  }
+function openAccountDialog() {
+  accountDialogVisible.value = true
+}
+
+function logout() {
+  chatStore.disconnectSocket({ silentConnectionNotice: true })
+  chatStore.resetToNewSession()
+  authStore.clearAuth()
+  void router.replace('/login')
+}
+
+function onAccountUpdated() {
+  accountDialogVisible.value = false
 }
 
 function openLLMDialog() {
@@ -323,7 +334,7 @@ onMounted(loadData)
     </div>
 
     <!-- 面板主体 -->
-    <div class="flex flex-1 overflow-hidden">
+    <div class="flex flex-1 overflow-hidden settings-body">
       <!-- 左侧 Tab 导航 -->
       <aside class="w-44 flex-shrink-0 p-2.5 flex flex-col gap-1 overflow-y-auto settings-sidebar">
         <button
@@ -349,7 +360,7 @@ onMounted(loadData)
       </aside>
 
       <!-- 右侧内容 -->
-      <section class="flex-1 overflow-y-auto px-5 py-5 relative settings-content">
+      <section class="flex-1 min-w-0 overflow-y-auto px-5 py-5 relative settings-content">
         <!-- 加载遮罩 -->
         <div v-if="loading" class="absolute inset-0 flex items-center justify-center z-10" style="background: rgba(var(--bg-main), 0.7)">
           <svg class="animate-spin w-5 h-5" style="color: #6366f1" fill="none" viewBox="0 0 24 24">
@@ -361,15 +372,34 @@ onMounted(loadData)
         <!-- ── 基础设置 ── -->
         <div v-if="tab === 'basic'">
           <p class="section-label">{{ t('basicSettings') }}</p>
+          <div class="settings-card flex items-center justify-between px-4 py-3.5 rounded-xl mb-2">
+            <span class="text-sm settings-field-label">{{ t('accountEdit') }}</span>
+            <button
+              type="button"
+              class="px-3 py-1.5 text-xs rounded-lg cursor-pointer account-edit-btn"
+              @click="openAccountDialog"
+            >
+              {{ t('accountEditAction') }}
+            </button>
+          </div>
           <div class="settings-card flex items-center justify-between px-4 py-3.5 rounded-xl">
             <span class="text-sm settings-field-label">{{ t('language') }}</span>
-            <AppSelect
+            <LanguageSwitcher
               :model-value="language"
-              :options="[{ value: 'zh-CN', label: t('chinese') }, { value: 'en-US', label: t('english') }]"
+              :options="languageSelectOptions"
               :disabled="savingLanguage"
+              shadow-mode="none"
+              :aria-label="t('selectLanguage')"
               @update:model-value="onLanguageChange($event as any)"
             />
           </div>
+          <button
+            type="button"
+            class="settings-card w-full mt-2 px-4 py-3.5 rounded-xl text-left text-sm cursor-pointer logout-btn"
+            @click="logout"
+          >
+            {{ t('logout') }}
+          </button>
         </div>
 
         <!-- ── LLM 设置 ── -->
@@ -633,6 +663,11 @@ onMounted(loadData)
       </div>
     </div>
   </BaseDialog>
+
+  <AccountEditDialog
+    v-model:visible="accountDialogVisible"
+    @success="onAccountUpdated"
+  />
 </template>
 
 <style scoped>
@@ -742,6 +777,28 @@ onMounted(loadData)
   color: #ef4444;
 }
 
+.account-edit-btn {
+  border: 1px solid var(--input-border);
+  background: var(--input-bg);
+  color: var(--text-secondary);
+}
+
+.account-edit-btn:hover {
+  background: rgba(99, 102, 241, 0.08);
+  color: var(--text-primary);
+}
+
+.logout-btn {
+  color: #ef4444;
+  border: 1px solid rgba(239, 68, 68, 0.18);
+  background: rgba(239, 68, 68, 0.04);
+  transition: all 0.15s;
+}
+
+.logout-btn:hover {
+  background: rgba(239, 68, 68, 0.1);
+}
+
 /* MCP toggle */
 .mcp-toggle-on {
   background: #6366f1;
@@ -822,16 +879,34 @@ onMounted(loadData)
 
 /* Responsive */
 @media (max-width: 640px) {
+  .settings-body {
+    flex-direction: column;
+    min-height: 0;
+  }
+
   .settings-sidebar {
     width: 100% !important;
     flex-direction: row !important;
     overflow-x: auto;
+    overflow-y: hidden;
+    padding: 8px 10px;
+    gap: 6px;
     border-right: none !important;
     border-bottom: 1px solid var(--card-border);
   }
+
   .settings-tab {
-    flex-shrink: 0;
+    width: auto;
+    min-width: max-content;
+    flex: 0 0 auto;
     white-space: nowrap;
+  }
+
+  .settings-content {
+    min-width: 0;
+    min-height: 0;
+    flex: 1 1 auto;
+    padding: 12px 14px;
   }
 }
 </style>

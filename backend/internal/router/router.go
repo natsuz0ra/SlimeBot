@@ -4,11 +4,13 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
+	"slimebot/backend/internal/auth"
 	"slimebot/backend/internal/config"
 	"slimebot/backend/internal/controllers"
+	"slimebot/backend/internal/middleware"
 )
 
-func New(cfg config.Config, httpController *controllers.HTTPController, wsController *controllers.WSController) *gin.Engine {
+func New(cfg config.Config, tokenManager *auth.TokenManager, httpController *controllers.HTTPController, wsController *controllers.WSController) *gin.Engine {
 	r := gin.Default()
 	r.Use(cors(cfg.Frontend))
 
@@ -16,33 +18,41 @@ func New(cfg config.Config, httpController *controllers.HTTPController, wsContro
 		c.JSON(http.StatusOK, gin.H{"status": "ok"})
 	})
 
-	api := r.Group("/api")
+	publicAPI := r.Group("/api")
 	{
-		api.GET("/sessions", httpController.ListSessions)
-		api.POST("/sessions", httpController.CreateSession)
-		api.PATCH("/sessions/:id/name", httpController.RenameSession)
-		api.DELETE("/sessions/:id", httpController.DeleteSession)
-		api.GET("/sessions/:id/messages", httpController.ListMessages)
-		api.PUT("/sessions/:id/model", httpController.SetSessionModel)
-
-		api.GET("/settings", httpController.GetSettings)
-		api.PUT("/settings", httpController.UpdateSettings)
-
-		api.GET("/llm-configs", httpController.ListLLMConfigs)
-		api.POST("/llm-configs", httpController.CreateLLMConfig)
-		api.DELETE("/llm-configs/:id", httpController.DeleteLLMConfig)
-
-		api.GET("/mcp-configs", httpController.ListMCPConfigs)
-		api.POST("/mcp-configs", httpController.CreateMCPConfig)
-		api.PUT("/mcp-configs/:id", httpController.UpdateMCPConfig)
-		api.DELETE("/mcp-configs/:id", httpController.DeleteMCPConfig)
-
-		api.GET("/skills", httpController.ListSkills)
-		api.POST("/skills/upload", httpController.UploadSkills)
-		api.DELETE("/skills/:id", httpController.DeleteSkill)
+		publicAPI.POST("/login", httpController.Login)
 	}
 
-	r.GET("/ws/chat", func(c *gin.Context) {
+	protectedAPI := r.Group("/api")
+	protectedAPI.Use(middleware.RequireJWT(tokenManager))
+	{
+		protectedAPI.PUT("/account", httpController.UpdateAccount)
+
+		protectedAPI.GET("/sessions", httpController.ListSessions)
+		protectedAPI.POST("/sessions", httpController.CreateSession)
+		protectedAPI.PATCH("/sessions/:id/name", httpController.RenameSession)
+		protectedAPI.DELETE("/sessions/:id", httpController.DeleteSession)
+		protectedAPI.GET("/sessions/:id/messages", httpController.ListMessages)
+		protectedAPI.PUT("/sessions/:id/model", httpController.SetSessionModel)
+
+		protectedAPI.GET("/settings", httpController.GetSettings)
+		protectedAPI.PUT("/settings", httpController.UpdateSettings)
+
+		protectedAPI.GET("/llm-configs", httpController.ListLLMConfigs)
+		protectedAPI.POST("/llm-configs", httpController.CreateLLMConfig)
+		protectedAPI.DELETE("/llm-configs/:id", httpController.DeleteLLMConfig)
+
+		protectedAPI.GET("/mcp-configs", httpController.ListMCPConfigs)
+		protectedAPI.POST("/mcp-configs", httpController.CreateMCPConfig)
+		protectedAPI.PUT("/mcp-configs/:id", httpController.UpdateMCPConfig)
+		protectedAPI.DELETE("/mcp-configs/:id", httpController.DeleteMCPConfig)
+
+		protectedAPI.GET("/skills", httpController.ListSkills)
+		protectedAPI.POST("/skills/upload", httpController.UploadSkills)
+		protectedAPI.DELETE("/skills/:id", httpController.DeleteSkill)
+	}
+
+	r.GET("/ws/chat", middleware.RequireJWT(tokenManager), func(c *gin.Context) {
 		wsController.Chat(c.Writer, c.Request)
 	})
 	return r

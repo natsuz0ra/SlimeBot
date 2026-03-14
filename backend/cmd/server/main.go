@@ -4,8 +4,10 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/joho/godotenv"
+	"slimebot/backend/internal/auth"
 	"slimebot/backend/internal/config"
 	"slimebot/backend/internal/controllers"
 	"slimebot/backend/internal/database"
@@ -24,6 +26,12 @@ func main() {
 	}
 
 	cfg := config.Load()
+	if strings.TrimSpace(cfg.JWTSecret) == "" {
+		log.Fatal("JWT_SECRET 未配置，服务启动失败")
+	}
+	if cfg.JWTExpireMinutes <= 0 {
+		log.Fatal("JWT_EXPIRE 必须大于 0（单位：分钟）")
+	}
 	if err := os.MkdirAll(filepath.Dir(cfg.DBPath), os.ModePerm); err != nil {
 		log.Fatalf("创建数据库目录失败: %v", err)
 	}
@@ -37,19 +45,65 @@ func main() {
 	}
 
 	repo := repositories.New(db)
+	if err := ensureDefaultAdmin(repo); err != nil {
+		log.Fatalf("初始化默认账号失败: %v", err)
+	}
+	tokenManager, err := auth.NewTokenManager(cfg.JWTSecret, cfg.JWTExpireMinutes)
+	if err != nil {
+		log.Fatalf("鉴权初始化失败: %v", err)
+	}
 	openaiClient := services.NewOpenAIClient()
 	mcpManager := mcp.NewManager()
 	skillPackageService := services.NewSkillPackageService(repo, cfg.SkillsRoot)
 	skillRuntimeService := services.NewSkillRuntimeService(repo, cfg.SkillsRoot)
 	chatService := services.NewChatService(repo, openaiClient, mcpManager, skillRuntimeService)
 
-	httpController := controllers.NewHTTPController(repo, skillPackageService, skillRuntimeService)
+	httpController := controllers.NewHTTPController(repo, skillPackageService, skillRuntimeService, tokenManager)
 	wsController := controllers.NewWSController(chatService)
-	engine := router.New(cfg, httpController, wsController)
+	engine := router.New(cfg, tokenManager, httpController, wsController)
 
 	addr := ":" + cfg.ServerPort
 	log.Printf("server listening on %s", addr)
 	if err := engine.Run(addr); err != nil {
 		log.Fatalf("服务启动失败: %v", err)
 	}
+}
+
+func ensureDefaultAdmin(repo *repositories.Repository) error {
+	username, err := repo.GetSetting(auth.SettingAuthUsername)
+	if err != nil {
+		return err
+	}
+	passwordHash, err := repo.GetSetting(auth.SettingAuthPasswordHash)
+	if err != nil {
+		return err
+	}
+
+	if strings.TrimSpace(username) == "" || strings.TrimSpace(passwordHash) == "" {
+		defaultHash, hashErr := auth.HashPassword("admin")
+		if hashErr != nil {
+			return hashErr
+		}
+		if err := repo.SetSetting(auth.SettingAuthUsername, "admin"); err != nil {
+			return err
+		}
+		if err := repo.SetSetting(auth.SettingAuthPasswordHash, defaultHash); err != nil {
+			return err
+		}
+		if err := repo.SetSetting(auth.SettingAuthForcePasswordChange, "true"); err != nil {
+			return err
+		}
+		return nil
+	}
+
+	forceFlag, err := repo.GetSetting(auth.SettingAuthForcePasswordChange)
+	if err != nil {
+		return err
+	}
+	if strings.TrimSpace(forceFlag) == "" {
+		if err := repo.SetSetting(auth.SettingAuthForcePasswordChange, "false"); err != nil {
+			return err
+		}
+	}
+	return nil
 }

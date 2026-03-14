@@ -23,6 +23,9 @@ export function useHomeChatPage() {
   const loading = ref(false)
   const settingsVisible = ref(false)
   const hasConnectedOnce = ref(false)
+  const showInitialConnectionNotice = ref(false)
+  const suppressConnectionNoticeDisplay = ref(false)
+  const initialConnectionNoticeTimer = ref<number | null>(null)
   const toolDetailVisible = ref(false)
   const toolDetailBatchId = ref('')
   const toolDetailDialogWidth = 'min(688px, calc(100vw - 36px))'
@@ -35,7 +38,15 @@ export function useHomeChatPage() {
   const selectedModelId = ref('')
   const messagesRef = ref<HTMLElement | null>(null)
   const sidebarListRef = ref<HTMLElement | null>(null)
+  const autoStickToBottom = ref(true)
+  const scrollToBottomPending = ref(false)
+  const scrollToBottomPendingTimer = ref<number | null>(null)
+  const scrollToBottomEndHandler = ref<(() => void) | null>(null)
+  const BOTTOM_STICK_THRESHOLD_PX = 32
+  const SCROLL_TO_BOTTOM_PENDING_MAX_MS = 2000
+  const INITIAL_CONNECTION_NOTICE_DELAY_MS = 1500
   const scrollTimers = new Map<HTMLElement, ReturnType<typeof setTimeout>>()
+  const scrollHandlers = new Map<HTMLElement, () => void>()
 
   function setMessagesRef(el: any) {
     messagesRef.value = (el?.$el ?? el) as HTMLElement | null
@@ -45,9 +56,67 @@ export function useHomeChatPage() {
     sidebarListRef.value = (el?.$el ?? el) as HTMLElement | null
   }
 
-  function bindScrollFade(el: HTMLElement | null) {
+  function isNearBottom(el: HTMLElement, threshold = BOTTOM_STICK_THRESHOLD_PX) {
+    const distanceToBottom = el.scrollHeight - (el.scrollTop + el.clientHeight)
+    return distanceToBottom <= threshold
+  }
+
+  function syncAutoStickToBottom(el: HTMLElement | null = messagesRef.value) {
+    if (!el) {
+      autoStickToBottom.value = true
+      scrollToBottomPending.value = false
+      return
+    }
+    const nearBottom = isNearBottom(el)
+    if (scrollToBottomPending.value) {
+      if (nearBottom) {
+        finishScrollToBottomPending(el)
+      }
+      return
+    }
+    autoStickToBottom.value = nearBottom
+  }
+
+  function clearScrollToBottomPendingTimer() {
+    if (scrollToBottomPendingTimer.value !== null) {
+      window.clearTimeout(scrollToBottomPendingTimer.value)
+      scrollToBottomPendingTimer.value = null
+    }
+  }
+
+  function clearScrollToBottomEndHandler() {
+    const el = messagesRef.value
+    const handler = scrollToBottomEndHandler.value
+    if (!el || !handler) return
+    el.removeEventListener('scrollend', handler as EventListener)
+    scrollToBottomEndHandler.value = null
+  }
+
+  function finishScrollToBottomPending(el: HTMLElement) {
+    clearScrollToBottomPendingTimer()
+    clearScrollToBottomEndHandler()
+    scrollToBottomPending.value = false
+    syncAutoStickToBottom(el)
+  }
+
+  function unbindScrollFade(el: HTMLElement | null) {
     if (!el) return
-    el.addEventListener('scroll', () => {
+    const handler = scrollHandlers.get(el)
+    if (handler) {
+      el.removeEventListener('scroll', handler)
+      scrollHandlers.delete(el)
+    }
+    const prev = scrollTimers.get(el)
+    if (prev) {
+      clearTimeout(prev)
+      scrollTimers.delete(el)
+    }
+  }
+
+  function bindScrollFade(el: HTMLElement | null, onScroll?: () => void) {
+    if (!el) return
+    unbindScrollFade(el)
+    const handler = () => {
       el.classList.add('is-scrolling')
       const prev = scrollTimers.get(el)
       if (prev) clearTimeout(prev)
@@ -58,15 +127,25 @@ export function useHomeChatPage() {
           scrollTimers.delete(el)
         }, 1500),
       )
-    }, { passive: true })
+      onScroll?.()
+    }
+    scrollHandlers.set(el, handler)
+    el.addEventListener('scroll', handler, { passive: true })
   }
 
   const currentSession = computed(() => store.sessions.find((item) => item.id === store.currentSessionId))
   const modelSelectOptions = computed(() => modelOptions.value.map((m) => ({ value: m.id, label: m.name })))
   const hasModel = computed(() => modelOptions.value.length > 0)
   const isEmptySession = computed(() => !loading.value && store.messages.length === 0)
+  const showScrollToBottom = computed(() => !isEmptySession.value && !autoStickToBottom.value)
   const sendDisabled = computed(() => !hasModel.value || !selectedModelId.value || !inputValue.value.trim() || store.waiting || !store.isSocketReady)
+  const shouldShowConnectionNotice = computed(() => {
+    if (suppressConnectionNoticeDisplay.value) return false
+    if (store.connectionStatus === 'connected') return false
+    return hasConnectedOnce.value || showInitialConnectionNotice.value
+  })
   const networkStatusText = computed(() => {
+    if (!shouldShowConnectionNotice.value) return ''
     if (store.connectionStatus === 'reconnecting') return t('networkReconnecting')
     if (store.connectionStatus === 'disconnected') return t('networkDisconnected')
     return ''
@@ -185,16 +264,52 @@ export function useHomeChatPage() {
     toast.error(message)
   }
 
-  function scrollMessagesToBottom() {
-    const el = messagesRef.value
-    if (!el) return
-    el.scrollTop = el.scrollHeight
+  function clearInitialConnectionNoticeTimer() {
+    if (initialConnectionNoticeTimer.value !== null) {
+      window.clearTimeout(initialConnectionNoticeTimer.value)
+      initialConnectionNoticeTimer.value = null
+    }
   }
 
-  function queueScrollMessagesToBottom() {
+  function scheduleInitialConnectionNotice() {
+    if (showInitialConnectionNotice.value || initialConnectionNoticeTimer.value !== null) return
+    initialConnectionNoticeTimer.value = window.setTimeout(() => {
+      initialConnectionNoticeTimer.value = null
+      if (hasConnectedOnce.value || suppressConnectionNoticeDisplay.value || store.connectionStatus === 'connected') return
+      showInitialConnectionNotice.value = true
+      showWarning(t(store.connectionStatus === 'reconnecting' ? 'networkReconnecting' : 'networkDisconnected'))
+    }, INITIAL_CONNECTION_NOTICE_DELAY_MS)
+  }
+
+  function scrollMessagesToBottom(force = false) {
+    const el = messagesRef.value
+    if (!el) return
+    if (!force && !autoStickToBottom.value) return
+    el.scrollTop = el.scrollHeight
+    autoStickToBottom.value = true
+  }
+
+  function queueScrollMessagesToBottom(force = false) {
     void nextTick(() => {
-      scrollMessagesToBottom()
+      scrollMessagesToBottom(force)
     })
+  }
+
+  function scrollToBottomByButton() {
+    const el = messagesRef.value
+    if (!el) return
+    scrollToBottomPending.value = true
+    el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' })
+    clearScrollToBottomPendingTimer()
+    clearScrollToBottomEndHandler()
+    const onScrollEnd = () => {
+      finishScrollToBottomPending(el)
+    }
+    scrollToBottomEndHandler.value = onScrollEnd
+    el.addEventListener('scrollend', onScrollEnd as EventListener, { once: true })
+    scrollToBottomPendingTimer.value = window.setTimeout(() => {
+      finishScrollToBottomPending(el)
+    }, SCROLL_TO_BOTTOM_PENDING_MAX_MS)
   }
 
   async function boot() {
@@ -222,7 +337,7 @@ export function useHomeChatPage() {
         if (first) await store.selectSession(first.id)
       }
       await nextTick()
-      scrollMessagesToBottom()
+      scrollMessagesToBottom(true)
       store.connectSocket()
     } finally {
       loading.value = false
@@ -269,18 +384,22 @@ export function useHomeChatPage() {
   async function pickSession(id: string) {
     await store.selectSession(id)
     await nextTick()
-    scrollMessagesToBottom()
+    scrollMessagesToBottom(true)
     drawerOpen.value = false
   }
 
   async function createSession() {
     store.resetToNewSession()
+    autoStickToBottom.value = true
+    queueScrollMessagesToBottom(true)
     drawerOpen.value = false
     void router.push('/chat/new_chat')
   }
 
   async function sendMessage() {
     if (sendDisabled.value) return
+    autoStickToBottom.value = true
+    queueScrollMessagesToBottom(true)
     const sent = await store.sendMessage(inputValue.value.trim(), selectedModelId.value)
     if (!sent) {
       showWarning(t('sendBlockedOffline'))
@@ -325,11 +444,18 @@ export function useHomeChatPage() {
     },
   )
 
-  watch(messagesRef, (el) => {
-    if (el) bindScrollFade(el)
+  watch(messagesRef, (el, prev) => {
+    if (prev) unbindScrollFade(prev)
+    if (el) {
+      bindScrollFade(el, () => {
+        syncAutoStickToBottom(el)
+      })
+      syncAutoStickToBottom(el)
+    }
   })
 
-  watch(sidebarListRef, (el) => {
+  watch(sidebarListRef, (el, prev) => {
+    if (prev) unbindScrollFade(prev)
     if (el) bindScrollFade(el)
   })
 
@@ -338,9 +464,23 @@ export function useHomeChatPage() {
     (status, prev) => {
       if (status === 'connected') {
         hasConnectedOnce.value = true
+        suppressConnectionNoticeDisplay.value = false
+        showInitialConnectionNotice.value = false
+        clearInitialConnectionNoticeTimer()
         return
       }
-      if (status === prev || !hasConnectedOnce.value) return
+      if (status === prev) return
+      if (store.consumeSuppressNextConnectionNotice()) {
+        suppressConnectionNoticeDisplay.value = true
+        showInitialConnectionNotice.value = false
+        clearInitialConnectionNoticeTimer()
+        return
+      }
+      if (!hasConnectedOnce.value) {
+        scheduleInitialConnectionNotice()
+        return
+      }
+      if (suppressConnectionNoticeDisplay.value) return
       showWarning(t(status === 'reconnecting' ? 'networkReconnecting' : 'networkDisconnected'))
     },
   )
@@ -348,7 +488,8 @@ export function useHomeChatPage() {
   watch(
     () => store.currentSessionId,
     () => {
-      queueScrollMessagesToBottom()
+      autoStickToBottom.value = true
+      queueScrollMessagesToBottom(true)
     },
   )
 
@@ -393,6 +534,17 @@ export function useHomeChatPage() {
   )
 
   onUnmounted(() => {
+    clearInitialConnectionNoticeTimer()
+    clearScrollToBottomPendingTimer()
+    clearScrollToBottomEndHandler()
+    unbindScrollFade(messagesRef.value)
+    unbindScrollFade(sidebarListRef.value)
+    scrollTimers.forEach((timer) => clearTimeout(timer))
+    scrollTimers.clear()
+    scrollHandlers.forEach((handler, el) => {
+      el.removeEventListener('scroll', handler)
+    })
+    scrollHandlers.clear()
     store.disconnectSocket()
     document.removeEventListener('click', onGlobalClick)
   })
@@ -406,6 +558,7 @@ export function useHomeChatPage() {
     inputValue,
     loading,
     isEmptySession,
+    showScrollToBottom,
     settingsVisible,
     toolDetailVisible,
     toolDetailDialogWidth,
@@ -438,6 +591,7 @@ export function useHomeChatPage() {
     pickSession,
     createSession,
     sendMessage,
+    scrollToBottomByButton,
     renameFromFloatingMenu,
     deleteFromFloatingMenu,
     onModelChange,

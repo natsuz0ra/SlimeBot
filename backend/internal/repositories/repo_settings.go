@@ -2,6 +2,7 @@ package repositories
 
 import (
 	"errors"
+	"strconv"
 	"time"
 
 	"gorm.io/gorm"
@@ -23,4 +24,19 @@ func (r *Repository) SetSetting(key, value string) error {
 		Where(models.AppSetting{Key: key}).
 		Assign(models.AppSetting{Value: value, UpdatedAt: time.Now()}).
 		FirstOrCreate(&setting).Error
+}
+
+func (r *Repository) GetSettingBool(key string, fallback bool) (bool, error) {
+	raw, err := r.GetSetting(key)
+	if err != nil {
+		return fallback, err
+	}
+	if raw == "" {
+		return fallback, nil
+	}
+	parsed, parseErr := strconv.ParseBool(raw)
+	if parseErr != nil {
+		return fallback, nil
+	}
+	return parsed, nil
 }

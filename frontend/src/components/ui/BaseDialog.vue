@@ -12,6 +12,10 @@ const props = withDefaults(defineProps<{
   confirmDanger?: boolean
   width?: string
   hideFooter?: boolean
+  showClose?: boolean
+  showCancel?: boolean
+  closeOnMask?: boolean
+  closeOnEsc?: boolean
 }>(), {
   confirmText: '确认',
   cancelText: '取消',
@@ -19,6 +23,10 @@ const props = withDefaults(defineProps<{
   confirmDanger: false,
   width: '480px',
   hideFooter: false,
+  showClose: true,
+  showCancel: true,
+  closeOnMask: true,
+  closeOnEsc: true,
 })
 
 const emit = defineEmits<{
@@ -37,7 +45,7 @@ function onConfirm() {
 }
 
 function onKeydown(e: KeyboardEvent) {
-  if (e.key === 'Escape' && props.visible) close()
+  if (e.key === 'Escape' && props.visible && props.closeOnEsc) close()
 }
 
 onMounted(() => document.addEventListener('keydown', onKeydown))
@@ -51,7 +59,7 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown))
         v-if="visible"
         class="fixed inset-0 z-[200] flex items-center justify-center p-4"
         style="background: rgba(0,0,0,0.45); backdrop-filter: blur(4px)"
-        @click.self="close"
+        @click.self="props.closeOnMask ? close() : null"
       >
         <div
           class="dialog-panel relative flex flex-col overflow-hidden rounded-2xl"
@@ -59,9 +67,10 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown))
           @click.stop
         >
           <!-- 头部 -->
-          <div class="flex items-center justify-between px-5 py-4 dialog-header">
-            <span class="text-sm font-semibold dialog-title">{{ title }}</span>
+          <div class="flex items-center justify-between px-5 py-3 dialog-header">
+            <span class="text-base font-semibold dialog-title">{{ title }}</span>
             <button
+              v-if="showClose"
               type="button"
               class="w-7 h-7 flex items-center justify-center rounded-lg transition-all duration-150 cursor-pointer dialog-close-btn"
               @click="close"
@@ -76,8 +85,9 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown))
           </div>
 
           <!-- 底部 -->
-          <div v-if="!hideFooter" class="flex items-center justify-end gap-2 px-5 py-4 dialog-footer">
+          <div v-if="!hideFooter" class="flex items-center justify-end gap-2 px-5 py-3 dialog-footer">
             <button
+              v-if="showCancel"
               type="button"
               class="px-4 py-2 text-sm rounded-xl transition-all duration-150 cursor-pointer dialog-cancel-btn"
               @click="close"
@@ -111,10 +121,6 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown))
   box-shadow: 0 25px 60px rgba(0, 0, 0, 0.35), 0 0 0 1px rgba(99, 102, 241, 0.08);
 }
 
-.dialog-header {
-  border-bottom: 1px solid var(--card-border);
-}
-
 .dialog-title {
   color: var(--text-primary);
 }
@@ -125,10 +131,6 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown))
 .dialog-close-btn:hover {
   background: rgba(99, 102, 241, 0.08);
   color: var(--text-primary);
-}
-
-.dialog-footer {
-  border-top: 1px solid var(--card-border);
 }
 
 .dialog-cancel-btn {

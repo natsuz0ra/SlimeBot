@@ -36,6 +36,19 @@ const md = new MarkdownIt({
   },
 })
 
+const defaultLinkOpenRule =
+  md.renderer.rules.link_open ??
+  ((tokens, idx, options, _env, self) => self.renderToken(tokens, idx, options))
+
+md.renderer.rules.link_open = (tokens, idx, options, env, self) => {
+  const linkToken = tokens[idx]
+  if (linkToken) {
+    linkToken.attrSet('target', '_blank')
+    linkToken.attrSet('rel', 'noopener noreferrer nofollow')
+  }
+  return defaultLinkOpenRule(tokens, idx, options, env, self)
+}
+
 /**
  * Inserts zero-width spaces between CJK/fullwidth characters and emphasis markers
  * to work around markdown-it's CommonMark emphasis parsing limitations with CJK punctuation.
@@ -50,5 +63,6 @@ export function renderMarkdown(content: string): string {
   const raw = md.render(preprocessCJKEmphasis(content || ''))
   return DOMPurify.sanitize(raw, {
     USE_PROFILES: { html: true },
+    ADD_ATTR: ['target', 'rel'],
   })
 }

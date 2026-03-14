@@ -40,6 +40,7 @@ export const useChatStore = defineStore('chat', () => {
   const streamingStarted = ref(false)
   const connectionStatus = ref<ConnectionStatus>('disconnected')
   const connectionError = ref('')
+  const suppressNextConnectionNotice = ref(false)
   const isSocketReady = computed(() => connectionStatus.value === 'connected')
 
   const replyBatches = ref<AssistantReplyBatch[]>([])
@@ -172,8 +173,9 @@ export const useChatStore = defineStore('chat', () => {
   }
 
   async function selectSession(id: string) {
+    const nextMessages = await sessionAPI.history(id)
     currentSessionId.value = id
-    messages.value = await sessionAPI.history(id)
+    messages.value = nextMessages
     resetSessionRuntimeState()
   }
 
@@ -380,11 +382,24 @@ export const useChatStore = defineStore('chat', () => {
     ws.sendToolApproval(toolCallId, approved)
   }
 
-  function disconnectSocket() {
+  function disconnectSocket(options?: { silentConnectionNotice?: boolean }) {
+    if (options?.silentConnectionNotice) {
+      markSuppressNextConnectionNotice()
+    }
     waiting.value = false
     streamingStarted.value = false
     ws.close()
     currentBatchId.value = ''
+  }
+
+  function markSuppressNextConnectionNotice() {
+    suppressNextConnectionNotice.value = true
+  }
+
+  function consumeSuppressNextConnectionNotice() {
+    const shouldSuppress = suppressNextConnectionNotice.value
+    suppressNextConnectionNotice.value = false
+    return shouldSuppress
   }
 
   return {
@@ -408,5 +423,6 @@ export const useChatStore = defineStore('chat', () => {
     sendMessage,
     approveToolCall,
     disconnectSocket,
+    consumeSuppressNextConnectionNotice,
   }
 })

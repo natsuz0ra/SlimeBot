@@ -1,8 +1,6 @@
 <p align="center">
-  <img src="frontend/public/slime-icon.svg" alt="SlimeBot Logo" width="96" />
+  <img src="assets/title.png" alt="SlimeBot Logo" width="420" />
 </p>
-
-<h1 align="center">SlimeBot</h1>
 
 这是个人练手用的 Agent Demo 项目，目标是实现一个可持续扩展的 AI 会话应用雏形。
 
@@ -92,6 +90,8 @@ npm run dev
 - `DB_PATH`：SQLite 文件路径，默认 `./storage/data.db`
 - `FRONTEND_ORIGIN`：允许跨域的前端地址，默认 `http://localhost:5173`
 - `WEB_SEARCH_API_KEY`：tavily网络搜索api_key
+- `JWT_SECRET`：JWT 签名密钥（必填，未配置将启动失败）
+- `JWT_EXPIRE`：JWT 过期时间（单位：分钟，默认 `21600` 即 15 天）
 
 示例：
 
@@ -99,6 +99,8 @@ npm run dev
 SERVER_PORT=8080
 DB_PATH=./storage/data.db
 FRONTEND_ORIGIN=http://localhost:5173
+JWT_SECRET=CHANGE_ME_TO_A_RANDOM_SECRET
+JWT_EXPIRE=21600
 ```
 
 ### 前端配置：`frontend/.env`

@@ -151,7 +151,7 @@ html, body {
 }
 .bubble-markdown a {
   color: #6366f1;
-  text-decoration: underline;
+  text-decoration: none;
   word-break: break-all;
 }
 .dark .bubble-markdown a { color: #a5b4fc; }

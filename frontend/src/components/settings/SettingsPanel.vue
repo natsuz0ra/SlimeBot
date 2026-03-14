@@ -323,7 +323,7 @@ onMounted(loadData)
     </div>
 
     <!-- 面板主体 -->
-    <div class="flex flex-1 overflow-hidden">
+    <div class="flex flex-1 overflow-hidden settings-body">
       <!-- 左侧 Tab 导航 -->
       <aside class="w-44 flex-shrink-0 p-2.5 flex flex-col gap-1 overflow-y-auto settings-sidebar">
         <button
@@ -349,7 +349,7 @@ onMounted(loadData)
       </aside>
 
       <!-- 右侧内容 -->
-      <section class="flex-1 overflow-y-auto px-5 py-5 relative settings-content">
+      <section class="flex-1 min-w-0 overflow-y-auto px-5 py-5 relative settings-content">
         <!-- 加载遮罩 -->
         <div v-if="loading" class="absolute inset-0 flex items-center justify-center z-10" style="background: rgba(var(--bg-main), 0.7)">
           <svg class="animate-spin w-5 h-5" style="color: #6366f1" fill="none" viewBox="0 0 24 24">
@@ -822,16 +822,34 @@ onMounted(loadData)
 
 /* Responsive */
 @media (max-width: 640px) {
+  .settings-body {
+    flex-direction: column;
+    min-height: 0;
+  }
+
   .settings-sidebar {
     width: 100% !important;
     flex-direction: row !important;
     overflow-x: auto;
+    overflow-y: hidden;
+    padding: 8px 10px;
+    gap: 6px;
     border-right: none !important;
     border-bottom: 1px solid var(--card-border);
   }
+
   .settings-tab {
-    flex-shrink: 0;
+    width: auto;
+    min-width: max-content;
+    flex: 0 0 auto;
     white-space: nowrap;
+  }
+
+  .settings-content {
+    min-width: 0;
+    min-height: 0;
+    flex: 1 1 auto;
+    padding: 12px 14px;
   }
 }
 </style>

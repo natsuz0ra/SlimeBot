@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { computed, onBeforeUnmount, ref, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import {
   mdiAlert,
   mdiChevronDown,
@@ -34,6 +36,7 @@ const {
   inputValue,
   loading,
   isEmptySession,
+  showScrollToBottom,
   settingsVisible,
   toolDetailVisible,
   toolDetailDialogWidth,
@@ -66,14 +69,132 @@ const {
   pickSession,
   createSession,
   sendMessage,
+  scrollToBottomByButton,
   renameFromFloatingMenu,
   deleteFromFloatingMenu,
   onModelChange,
 } = useHomeChatPage()
 
 const { isDark, toggleTheme } = useTheme()
+const route = useRoute()
+
+const CURSOR_BLINK_MS = 180
+const CURSOR_BLINK_CYCLES = 2
+const PUNCTUATION_PAUSE_MS = 140
+const TYPING_BASE_MS = 58
+const TYPING_FAST_MS = 42
+
+const titlePhase = ref<'cursor' | 'typing' | 'done'>('done')
+const displayedWelcomeTitle = ref('')
+const welcomeTimers: number[] = []
+
+const fullWelcomeTitle = computed(() => t('welcomeTitle'))
+const isNewChatRoute = computed(() => route.name === 'new-chat' || route.path === '/chat/new_chat')
+const showTypeCursor = computed(() => titlePhase.value !== 'done')
+const shouldAnimateWelcomeTitle = computed(() => isNewChatRoute.value && isEmptySession.value)
+const activeAssistantMessageId = computed(() => {
+  const batchId = store.currentBatchId
+  if (!batchId) return ''
+  const batch = store.replyBatches.find((item) => item.id === batchId)
+  return batch?.assistantMessageId || ''
+})
+
+function clearWelcomeTimers() {
+  while (welcomeTimers.length > 0) {
+    const timer = welcomeTimers.pop()
+    if (typeof timer === 'number') {
+      window.clearTimeout(timer)
+    }
+  }
+}
+
+function scheduleWelcomeTimeout(callback: () => void, delay: number) {
+  const timer = window.setTimeout(callback, delay)
+  welcomeTimers.push(timer)
+}
+
+function shouldReduceMotion() {
+  return window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false
+}
+
+function getTypingDelay(char: string) {
+  if ('，。！？；：,.!?;:'.includes(char)) {
+    return PUNCTUATION_PAUSE_MS
+  }
+  return /[a-zA-Z0-9]/.test(char) ? TYPING_FAST_MS : TYPING_BASE_MS
+}
+
+function runWelcomeTypewriter() {
+  clearWelcomeTimers()
+  const title = fullWelcomeTitle.value
+
+  if (!title) {
+    titlePhase.value = 'done'
+    displayedWelcomeTitle.value = ''
+    return
+  }
+
+  if (shouldReduceMotion()) {
+    titlePhase.value = 'done'
+    displayedWelcomeTitle.value = title
+    return
+  }
+
+  displayedWelcomeTitle.value = ''
+  titlePhase.value = 'cursor'
+
+  const cursorDuration = CURSOR_BLINK_MS * CURSOR_BLINK_CYCLES * 2
+  scheduleWelcomeTimeout(() => {
+    titlePhase.value = 'typing'
+    let currentIndex = 0
+
+    const typeNext = () => {
+      if (currentIndex >= title.length) {
+        titlePhase.value = 'done'
+        return
+      }
+      const char = title[currentIndex]
+      if (typeof char !== 'string') {
+        titlePhase.value = 'done'
+        return
+      }
+      displayedWelcomeTitle.value += char
+      currentIndex += 1
+      scheduleWelcomeTimeout(typeNext, getTypingDelay(char))
+    }
+
+    typeNext()
+  }, cursorDuration)
+}
+
+function isChatAssistantAvatarAnimated(messageId: string) {
+  return store.waiting && activeAssistantMessageId.value !== '' && activeAssistantMessageId.value === messageId
+}
+
+watch(shouldAnimateWelcomeTitle, (active) => {
+  if (active) {
+    runWelcomeTypewriter()
+    return
+  }
+  clearWelcomeTimers()
+  titlePhase.value = 'done'
+  displayedWelcomeTitle.value = fullWelcomeTitle.value
+}, { immediate: true })
+
+watch(fullWelcomeTitle, () => {
+  if (shouldAnimateWelcomeTitle.value) {
+    runWelcomeTypewriter()
+    return
+  }
+  displayedWelcomeTitle.value = fullWelcomeTitle.value
+})
+
+onBeforeUnmount(() => {
+  clearWelcomeTimers()
+})
 
 function onTextareaKeydown(e: KeyboardEvent) {
+  if (e.isComposing) return
   if (e.key === 'Enter' && !e.shiftKey) {
     e.preventDefault()
     sendMessage()
@@ -88,34 +209,31 @@ function onTextareaInput(e: Event) {
 </script>
 
 <template>
-  <div class="h-screen flex items-center justify-center p-2 sm:p-3 transition-colors duration-300" style="background: var(--bg-base)">
+  <div class="page-shell h-screen flex items-center justify-center p-2 sm:p-3 transition-colors duration-300">
     <!-- 外层卡片容器 -->
     <div
-      class="relative w-full h-full rounded-2xl flex overflow-hidden"
-      style="border: 1px solid var(--card-border); background: var(--bg-main); box-shadow: 0 25px 50px rgba(0,0,0,0.15)"
+      class="page-card relative w-full h-full rounded-2xl flex overflow-hidden"
     >
 
       <!-- ───── 侧边栏 ───── -->
       <Transition name="sidebar">
         <aside
           v-if="drawerOpen"
-          class="absolute inset-y-0 left-0 w-64 flex flex-col z-30 backdrop-blur-xl"
-          style="background: var(--sidebar-bg); border-right: 1px solid var(--sidebar-border)"
+          class="sidebar-panel absolute inset-y-0 left-0 w-64 flex flex-col z-30 backdrop-blur-xl"
         >
           <!-- 侧边栏顶部：Logo + 新建按钮 -->
-          <div class="flex items-center justify-between px-4 h-14" style="border-bottom: 1px solid var(--sidebar-border)">
+          <div class="sidebar-header flex items-center justify-between px-4 h-14">
             <!-- Logo -->
             <div class="flex items-center gap-2.5">
               <SlimeBotLogo :size="36" />
-              <span class="text-lg font-semibold tracking-wide brand-tech-font" style="color: var(--text-primary)">SlimeBot</span>
+              <span class="text-primary text-lg font-semibold tracking-wide brand-tech-font">SlimeBot</span>
             </div>
 
             <div class="flex items-center gap-1">
               <!-- 新建会话 -->
               <button
                 type="button"
-                class="w-8 h-8 flex items-center justify-center rounded-lg transition-all duration-150 cursor-pointer group"
-                style="color: var(--text-muted)"
+                class="icon-muted w-8 h-8 flex items-center justify-center rounded-lg transition-all duration-150 cursor-pointer group"
                 @click="createSession"
               >
                 <MdiIcon :path="mdiPlus" :size="20" class="group-hover:scale-110 transition-transform duration-150" />
@@ -123,8 +241,7 @@ function onTextareaInput(e: Event) {
               <!-- 关闭侧边栏 -->
               <button
                 type="button"
-                class="w-8 h-8 flex items-center justify-center rounded-lg transition-all duration-150 cursor-pointer"
-                style="color: var(--text-muted)"
+                class="icon-muted w-8 h-8 flex items-center justify-center rounded-lg transition-all duration-150 cursor-pointer"
                 @click="drawerOpen = false"
               >
                 <MdiIcon :path="mdiClose" :size="20" />
@@ -146,15 +263,13 @@ function onTextareaInput(e: Event) {
               <!-- 激活指示条 -->
               <span
                 v-if="item.id === store.currentSessionId"
-                class="absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-5 rounded-r-full"
-                style="background: #6366f1"
+                class="session-active-indicator absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-5 rounded-r-full"
               />
-              <span class="flex-1 truncate text-sm" style="color: var(--text-primary)">{{ item.name }}</span>
+              <span class="text-primary flex-1 truncate text-sm">{{ item.name }}</span>
               <button
                 type="button"
-                class="w-6 h-6 flex items-center justify-center rounded-md transition-colors duration-150 cursor-pointer opacity-0 group-hover:opacity-100 flex-shrink-0"
+                class="icon-muted w-6 h-6 flex items-center justify-center rounded-md transition-colors duration-150 cursor-pointer opacity-0 group-hover:opacity-100 flex-shrink-0"
                 :class="item.id === store.currentSessionId ? '!opacity-100' : ''"
-                style="color: var(--text-muted)"
                 @click.stop="toggleSessionMenu(item.id, $event as MouseEvent)"
               >
                 <MdiIcon :path="mdiDotsHorizontal" :size="15" />
@@ -163,13 +278,12 @@ function onTextareaInput(e: Event) {
           </div>
 
           <!-- 侧边栏底部：主题切换 + 设置 -->
-          <div class="p-2" style="border-top: 1px solid var(--sidebar-border)">
+          <div class="sidebar-footer p-2">
             <div class="flex items-center gap-1">
               <!-- 主题切换 -->
               <button
                 type="button"
-                class="w-9 h-9 flex items-center justify-center rounded-xl transition-all duration-150 cursor-pointer flex-shrink-0"
-                style="color: var(--text-muted)"
+                class="icon-muted w-9 h-9 flex items-center justify-center rounded-xl transition-all duration-150 cursor-pointer flex-shrink-0"
                 @click="toggleTheme"
               >
                 <MdiIcon :path="isDark ? mdiWeatherSunny : mdiWeatherNight" :size="20" />
@@ -177,8 +291,7 @@ function onTextareaInput(e: Event) {
               <!-- 设置 -->
               <button
                 type="button"
-                class="flex-1 flex items-center gap-2.5 px-3 h-9 rounded-xl text-sm transition-all duration-150 cursor-pointer"
-                style="color: var(--text-secondary)"
+                class="settings-action-btn flex-1 flex items-center gap-2.5 px-3 h-9 rounded-xl text-sm transition-all duration-150 cursor-pointer"
                 @click="settingsVisible = true"
               >
                 <MdiIcon :path="mdiCogOutline" :size="19" />
@@ -193,8 +306,7 @@ function onTextareaInput(e: Event) {
       <Transition name="mask-fade">
         <div
           v-if="drawerOpen"
-          class="absolute inset-0 z-20"
-          style="background: rgba(0,0,0,0.35)"
+          class="sidebar-mask absolute inset-0 z-20"
           @click="drawerOpen = false"
         />
       </Transition>
@@ -204,14 +316,12 @@ function onTextareaInput(e: Event) {
 
         <!-- 顶栏 -->
         <header
-          class="relative z-30 flex items-center justify-center h-14 flex-shrink-0 backdrop-blur-sm"
-          style="background: var(--header-bg); border-bottom: 1px solid var(--card-border)"
+          class="header-bar relative z-30 flex items-center justify-center h-14 flex-shrink-0 backdrop-blur-sm"
         >
           <!-- 左侧菜单按钮 -->
           <button
             type="button"
-            class="absolute left-3 w-9 h-9 flex items-center justify-center rounded-xl transition-all duration-150 cursor-pointer"
-            style="color: var(--text-muted)"
+            class="icon-muted absolute left-3 w-9 h-9 flex items-center justify-center rounded-xl transition-all duration-150 cursor-pointer"
             @click.stop="toggleSidebar"
           >
             <MdiIcon :path="mdiMenu" :size="19" />
@@ -224,13 +334,12 @@ function onTextareaInput(e: Event) {
             class="flex items-center gap-1.5 px-3 py-1.5 rounded-xl transition-all duration-150 cursor-pointer max-w-[260px] header-title-btn"
             @click.stop="topMenuVisible = !topMenuVisible"
           >
-            <span class="text-sm font-semibold truncate" style="color: var(--text-primary)">{{ currentSession.name }}</span>
+            <span class="text-primary text-sm font-semibold truncate">{{ currentSession.name }}</span>
             <MdiIcon
               :path="mdiChevronDown"
               :size="14"
-              class="flex-shrink-0 transition-transform duration-200"
+              class="icon-muted flex-shrink-0 transition-transform duration-200"
               :class="topMenuVisible ? 'rotate-180' : ''"
-              style="color: var(--text-muted)"
             />
           </button>
 
@@ -279,8 +388,8 @@ function onTextareaInput(e: Event) {
         <template v-if="isEmptySession">
           <div class="flex-1 flex flex-col items-center justify-center px-4 pb-8">
             <!-- 加载中 -->
-            <div v-if="loading" class="flex items-center gap-2 text-sm mb-8" style="color: var(--text-muted)">
-              <svg class="animate-spin w-4 h-4" style="color: #6366f1" fill="none" viewBox="0 0 24 24">
+            <div v-if="loading" class="text-muted flex items-center gap-2 text-sm mb-8">
+              <svg class="loading-spinner-accent animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24">
                 <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" />
                 <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
               </svg>
@@ -289,25 +398,34 @@ function onTextareaInput(e: Event) {
 
             <template v-else>
               <!-- AI 渐变图标 -->
-              <img src="/slime-icon.svg" alt="SlimeBot AI" class="w-20 h-20 mb-2 object-contain drop-shadow-lg" />
+              <SlimeBotLogo :size="80" animated class="new-chat-logo mb-2 drop-shadow-lg" />
 
               <!-- 欢迎标题 -->
-              <h2 class="text-2xl font-bold mb-2 text-center welcome-title">{{ t('welcomeTitle') }}</h2>
-              <p class="text-sm mb-6 text-center" style="color: var(--text-muted)">{{ t('welcomeSubtitle') }}</p>
+              <h2 class="text-2xl font-bold mb-2 text-center welcome-title" :aria-label="fullWelcomeTitle">
+                {{ displayedWelcomeTitle }}
+                <span
+                  v-if="showTypeCursor"
+                  class="welcome-cursor"
+                  :class="titlePhase === 'cursor' ? 'welcome-cursor-pre' : 'welcome-cursor-typing'"
+                  aria-hidden="true"
+                >
+                  |
+                </span>
+              </h2>
+              <p class="text-muted text-sm mb-6 text-center">{{ t('welcomeSubtitle') }}</p>
 
               <!-- 居中输入框 -->
               <div class="w-full max-w-[640px]">
                 <div class="input-container rounded-2xl overflow-hidden">
                   <textarea
                     v-model="inputValue"
-                    class="w-full resize-none border-0 outline-none bg-transparent px-4 pt-3.5 pb-12 text-sm leading-relaxed min-h-[88px] max-h-[260px] overflow-y-auto"
-                    style="color: var(--text-primary)"
+                    class="textarea-primary w-full resize-none border-0 outline-none bg-transparent px-4 pt-3.5 pb-12 text-sm leading-relaxed min-h-[112px] max-h-[260px] overflow-y-auto"
                     :placeholder="t('inputPlaceholder')"
                     rows="1"
                     @keydown="onTextareaKeydown"
                     @input="onTextareaInput"
                   />
-                  <div class="absolute bottom-3 left-3 right-3 flex items-center justify-between gap-2">
+                  <div class="absolute bottom-2 left-3 right-3 flex items-center justify-between gap-2">
                     <AppSelect
                       :model-value="selectedModelId"
                       :options="modelSelectOptions"
@@ -337,15 +455,15 @@ function onTextareaInput(e: Event) {
           <!-- 消息区 -->
           <section
             :ref="setMessagesRef"
-            class="scroll-area flex-1 overflow-y-auto px-4 py-6"
-            style="background: var(--bg-main)"
+            class="messages-section scroll-area flex-1 overflow-y-auto px-4 py-6"
           >
             <div class="flex flex-col gap-5 max-w-[720px] mx-auto">
               <div
                 v-for="item in store.messages"
                 :key="item.id"
-                class="flex gap-3 message-animate"
+                class="flex message-animate"
                 :class="[
+                  item.role === 'assistant' ? 'gap-2' : 'gap-3',
                   item.role === 'user' ? 'flex-row-reverse' : 'flex-row',
                   item.role === 'user' && store.isFailedUserMessage(item.id)
                     ? 'items-end'
@@ -359,15 +477,19 @@ function onTextareaInput(e: Event) {
                   v-if="item.role === 'assistant'"
                   class="flex-shrink-0 w-10 h-10 flex items-center justify-center"
                 >
-                  <img src="/slime-icon.svg" alt="SlimeBot AI" class="w-10 h-10 object-contain" />
+                  <SlimeBotLogo
+                    :size="40"
+                    :animated="isChatAssistantAvatarAnimated(item.id)"
+                    class="w-10 h-10 object-contain"
+                    :class="isChatAssistantAvatarAnimated(item.id) ? 'chat-ai-avatar-animated' : 'chat-ai-avatar'"
+                  />
                 </div>
 
                 <!-- 失败图标（用户消息） -->
                 <div
                   v-if="item.role === 'user' && store.isFailedUserMessage(item.id)"
-                  class="flex-shrink-0"
+                  class="failed-user-icon flex-shrink-0"
                   :title="t('sendBlockedOffline')"
-                  style="color: #ef4444"
                 >
                   <MdiIcon :path="mdiAlert" :size="15" />
                 </div>
@@ -406,7 +528,7 @@ function onTextareaInput(e: Event) {
                       class="flex flex-col gap-2 mb-3"
                     >
                       <template v-for="entry in getReplyTimeline(item.id)" :key="entry.id">
-                        <div v-if="entry.kind === 'text'" class="bubble-markdown" style="color: var(--text-primary)" v-html="renderMarkdown(entry.content)" />
+                        <div v-if="entry.kind === 'text'" class="bubble-markdown text-primary" v-html="renderMarkdown(entry.content)" />
                         <div v-else-if="entry.kind === 'tool_start'" class="w-full">
                           <ToolCallCard
                             v-if="getReplyToolItem(item.id, entry.toolCallId)"
@@ -416,7 +538,7 @@ function onTextareaInput(e: Event) {
                             @reject="store.approveToolCall($event, false)"
                           />
                         </div>
-                        <div v-else class="text-xs py-0.5" style="color: var(--text-muted)">
+                        <div v-else class="text-muted text-xs py-0.5">
                           {{ t('toolExecutionFinished') }}
                         </div>
                       </template>
@@ -425,8 +547,7 @@ function onTextareaInput(e: Event) {
                     <!-- 普通消息内容 -->
                     <div
                       v-if="getReplyToolCount(item.id) === 0 || isReplyToolCollapsed(item.id)"
-                      class="bubble-markdown"
-                      style="color: var(--text-primary)"
+                      class="bubble-markdown text-primary"
                       v-html="renderMarkdown(item.content)"
                     />
 
@@ -442,23 +563,37 @@ function onTextareaInput(e: Event) {
             </div>
           </section>
 
+          <Transition name="scroll-bottom-fade">
+            <div
+              v-if="showScrollToBottom"
+              class="pointer-events-none absolute right-6 bottom-[132px] z-20"
+            >
+              <button
+                type="button"
+                class="scroll-bottom-btn pointer-events-auto w-10 h-10 rounded-full inline-flex items-center justify-center cursor-pointer"
+                aria-label="Scroll to bottom"
+                @click="scrollToBottomByButton"
+              >
+                <span class="scroll-bottom-arrow" aria-hidden="true">↓</span>
+              </button>
+            </div>
+          </Transition>
+
           <!-- 底部输入区 -->
           <footer
-            class="flex-shrink-0 px-4 py-3"
-            style="background: var(--header-bg); border-top: 1px solid var(--card-border); backdrop-filter: blur(12px)"
+            class="composer-footer flex-shrink-0 px-4 py-3"
           >
             <div class="max-w-[680px] mx-auto">
               <div class="relative input-container rounded-2xl overflow-hidden">
                 <textarea
                   v-model="inputValue"
-                  class="w-full resize-none border-0 outline-none bg-transparent px-4 pt-3.5 pb-12 text-sm leading-relaxed min-h-[88px] max-h-[260px] overflow-y-auto"
-                  style="color: var(--text-primary)"
+                  class="textarea-primary w-full resize-none border-0 outline-none bg-transparent px-4 pt-3.5 pb-12 text-sm leading-relaxed min-h-[112px] max-h-[260px] overflow-y-auto"
                   :placeholder="t('inputPlaceholder')"
                   rows="1"
                   @keydown="onTextareaKeydown"
                   @input="onTextareaInput"
                 />
-                <div class="absolute bottom-3 left-3 right-3 flex items-center justify-between gap-2">
+                <div class="absolute bottom-2 left-3 right-3 flex items-center justify-between gap-2">
                   <AppSelect
                     :model-value="selectedModelId"
                     :options="modelSelectOptions"
@@ -511,7 +646,7 @@ function onTextareaInput(e: Event) {
       width="360px"
       @confirm="confirmDeleteSession"
     >
-      <p class="text-sm" style="color: var(--text-secondary)">{{ t('confirmDelete') }}</p>
+      <p class="text-secondary text-sm">{{ t('confirmDelete') }}</p>
     </BaseDialog>
 
     <!-- ───── 工具调用详情弹窗 ───── -->
@@ -531,12 +666,12 @@ function onTextareaInput(e: Event) {
             @approve="store.approveToolCall($event, true)"
             @reject="store.approveToolCall($event, false)"
           />
-          <div v-else-if="entry.kind === 'tool_result'" class="text-xs py-0.5" style="color: var(--text-muted)">
+          <div v-else-if="entry.kind === 'tool_result'" class="text-muted text-xs py-0.5">
             {{ t('toolExecutionFinished') }}
           </div>
         </template>
       </div>
-      <div class="flex justify-end mt-4 pt-3" style="border-top: 1px solid var(--card-border)">
+      <div class="dialog-footer-separator flex justify-end mt-4 pt-3">
         <button
           type="button"
           class="px-4 py-1.5 text-sm rounded-xl transition-all duration-150 cursor-pointer dialog-cancel-btn"
@@ -551,13 +686,11 @@ function onTextareaInput(e: Event) {
     <Transition name="overlay-fade">
       <div
         v-if="settingsVisible"
-        class="fixed inset-0 z-[100] flex items-center justify-center p-4 sm:p-6"
-        style="background: rgba(0,0,0,0.45)"
+        class="settings-overlay fixed inset-0 z-[100] flex items-center justify-center p-4 sm:p-6"
         @click.self="settingsVisible = false"
       >
         <div
-          class="w-full rounded-2xl overflow-hidden settings-modal"
-          style="max-width: min(86vw, 1080px); height: min(80vh, 760px)"
+          class="settings-modal settings-modal-size w-full rounded-2xl overflow-hidden"
           @click.stop
         >
           <SettingsPanel @close="settingsVisible = false" @llm-changed="refreshModelOptions" />
@@ -569,8 +702,8 @@ function onTextareaInput(e: Event) {
     <Transition name="session-menu-pop">
       <div
         v-if="activeSessionMenu"
-        class="fixed z-[80] w-40 rounded-xl py-1 overflow-hidden"
-        :style="{ left: `${activeSessionMenu.x}px`, top: `${activeSessionMenu.y}px`, background: 'var(--menu-bg)', border: '1px solid var(--menu-border)', boxShadow: 'var(--menu-shadow)' }"
+        class="floating-session-menu fixed z-[80] w-40 rounded-xl py-1 overflow-hidden"
+        :style="{ left: `${activeSessionMenu.x}px`, top: `${activeSessionMenu.y}px` }"
         @click.stop
       >
         <button
@@ -596,141 +729,4 @@ function onTextareaInput(e: Event) {
 
 <style scoped>
 @import './home-page.css';
-
-/* ── 会话项 ── */
-.session-item {
-  color: var(--text-secondary);
-}
-.session-item:hover {
-  background: rgba(99, 102, 241, 0.08);
-  color: var(--text-primary);
-}
-.session-item-active {
-  background: rgba(99, 102, 241, 0.12);
-  color: var(--text-primary);
-}
-
-/* ── 顶栏标题按钮 ── */
-.header-title-btn:hover {
-  background: rgba(99, 102, 241, 0.08);
-}
-
-/* ── 菜单项 ── */
-.menu-item {
-  color: var(--text-secondary);
-}
-.menu-item:hover {
-  background: rgba(99, 102, 241, 0.08);
-  color: var(--text-primary);
-}
-.menu-item-danger {
-  color: #ef4444;
-}
-.menu-item-danger:hover {
-  background: rgba(239, 68, 68, 0.08);
-}
-
-/* ── 状态 badge ── */
-.status-warning {
-  background: rgba(245, 158, 11, 0.12);
-  color: #f59e0b;
-  border: 1px solid rgba(245, 158, 11, 0.2);
-}
-.status-error {
-  background: rgba(239, 68, 68, 0.12);
-  color: #ef4444;
-  border: 1px solid rgba(239, 68, 68, 0.2);
-}
-
-/* ── 欢迎标题渐变 ── */
-.welcome-title {
-  background: linear-gradient(135deg, #6366f1 0%, #a78bfa 50%, #818cf8 100%);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
-}
-
-/* ── 输入框容器 ── */
-.input-container {
-  position: relative;
-  background: var(--input-bg);
-  border: 1px solid var(--input-border);
-  transition: border-color 0.2s ease, box-shadow 0.2s ease;
-}
-.input-container:focus-within {
-  border-color: #6366f1;
-  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.12);
-}
-
-textarea::placeholder {
-  color: var(--text-muted);
-}
-
-/* ── 发送按钮 ── */
-.send-btn {
-  background: linear-gradient(135deg, #10b981 0%, #059669 100%);
-  color: white;
-  box-shadow: 0 2px 8px rgba(16, 185, 129, 0.35);
-}
-.send-btn:hover {
-  box-shadow: 0 4px 12px rgba(16, 185, 129, 0.45);
-  transform: scale(1.05);
-}
-.send-btn-disabled {
-  background: rgba(99, 102, 241, 0.08);
-  color: var(--text-muted);
-  cursor: not-allowed;
-}
-
-/* ── 用户气泡 ── */
-.user-bubble {
-  background: var(--user-bubble-bg);
-  color: var(--user-bubble-text);
-  box-shadow: 0 2px 12px rgba(99, 102, 241, 0.25);
-}
-
-/* ── 错误消息气泡 ── */
-.error-bubble {
-  background: rgba(239, 68, 68, 0.08);
-  border: 1px solid rgba(239, 68, 68, 0.2);
-  color: #ef4444;
-}
-
-/* ── 工具调用摘要按钮 ── */
-.tool-summary-btn {
-  background: rgba(99, 102, 241, 0.08);
-  border: 1px solid rgba(99, 102, 241, 0.2);
-  color: #6366f1;
-}
-.tool-summary-btn:hover {
-  background: rgba(99, 102, 241, 0.14);
-}
-
-/* ── 设置弹窗 ── */
-.settings-modal {
-  background: var(--bg-main);
-  border: 1px solid var(--card-border);
-  box-shadow: 0 25px 60px rgba(0, 0, 0, 0.3);
-}
-
-/* ── Dialog 输入框 ── */
-.dialog-input {
-  background: var(--input-bg);
-  border: 1px solid var(--input-border);
-  color: var(--text-primary);
-}
-.dialog-input:focus {
-  border-color: #6366f1;
-  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.12);
-}
-
-/* ── Dialog 取消按钮 ── */
-.dialog-cancel-btn {
-  background: var(--input-bg);
-  border: 1px solid var(--input-border);
-  color: var(--text-secondary);
-}
-.dialog-cancel-btn:hover {
-  background: rgba(99, 102, 241, 0.08);
-}
 </style>

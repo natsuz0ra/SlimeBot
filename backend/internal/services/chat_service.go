@@ -96,7 +96,7 @@ func (s *ChatService) loadSystemPrompt() (string, error) {
 	}
 
 	serviceDir := filepath.Dir(currentFile)
-	projectRoot := filepath.Clean(filepath.Join(serviceDir, "..", ".."))
+	projectRoot := filepath.Clean(filepath.Join(serviceDir, "..", "..", "prompts"))
 
 	var (
 		raw []byte

@@ -1,4 +1,8 @@
-# SlimeBot
+<p align="center">
+  <img src="frontend/public/slime-icon.svg" alt="SlimeBot Logo" width="96" />
+</p>
+
+<h1 align="center">SlimeBot</h1>
 
 这是个人练手用的 Agent Demo 项目，目标是实现一个可持续扩展的 AI 会话应用雏形。
 

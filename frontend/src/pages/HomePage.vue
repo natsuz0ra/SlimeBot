@@ -21,6 +21,7 @@ import TypingDots from '@/components/chat/TypingDots.vue'
 import SettingsPanel from '@/components/settings/SettingsPanel.vue'
 import AccountEditDialog from '@/components/settings/AccountEditDialog.vue'
 import ToolCallCard from '@/components/chat/ToolCallCard.vue'
+import ToolExecutionDetailDialog from '@/components/chat/ToolExecutionDetailDialog.vue'
 import BaseDialog from '@/components/ui/BaseDialog.vue'
 import AppSelect from '@/components/ui/AppSelect.vue'
 import SlimeBotLogo from '@/components/ui/SlimeBotLogo.vue'
@@ -626,10 +627,12 @@ function onTextareaInput(e: Event) {
                 >
                   <template v-if="item.role === 'assistant'">
                     <!-- 工具调用摘要按钮 -->
-                    <div v-if="getReplyToolCount(item.id) > 0" class="mb-3">
+                    <div v-if="getReplyToolCount(item.id) > 0" class="assistant-tool-summary-row mb-2.5">
                       <button
                         type="button"
                         class="tool-summary-btn inline-flex items-center gap-2 px-3 py-1.5 text-xs rounded-full transition-all duration-150 cursor-pointer max-w-full"
+                        aria-haspopup="dialog"
+                        :aria-label="`${t('toolExecutionDetailTitle')} - ${getReplyToolSummary(item.id)}`"
                         @click="openToolDetail(item.id)"
                       >
                         <svg class="w-3.5 h-3.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
@@ -769,34 +772,14 @@ function onTextareaInput(e: Event) {
     </BaseDialog>
 
     <!-- ───── 工具调用详情弹窗 ───── -->
-    <BaseDialog
+    <ToolExecutionDetailDialog
       v-model:visible="toolDetailVisible"
-      :title="t('toolExecutionDetailTitle')"
-      :cancel-text="t('close')"
       :width="toolDetailDialogWidth"
-      hide-footer
-    >
-      <div class="flex flex-col gap-3 max-h-[60vh] overflow-y-auto pr-1">
-        <template v-for="entry in toolDetailToolTimeline" :key="entry.id">
-          <ToolCallCard
-            v-if="entry.kind === 'tool_start' && toolDetailItems.find((tc) => tc.toolCallId === entry.toolCallId)"
-            :item="toolDetailItems.find((tc) => tc.toolCallId === entry.toolCallId)!"
-            :show-preamble="true"
-            @approve="store.approveToolCall($event, true)"
-            @reject="store.approveToolCall($event, false)"
-          />
-        </template>
-      </div>
-      <div class="dialog-footer-separator flex justify-end mt-4 pt-3">
-        <button
-          type="button"
-          class="px-4 py-1.5 text-sm rounded-xl transition-all duration-150 cursor-pointer dialog-cancel-btn"
-          @click="toolDetailVisible = false"
-        >
-          {{ t('close') }}
-        </button>
-      </div>
-    </BaseDialog>
+      :items="toolDetailItems"
+      :tool-timeline="toolDetailToolTimeline"
+      @approve="store.approveToolCall($event, true)"
+      @reject="store.approveToolCall($event, false)"
+    />
 
     <!-- ───── 设置弹窗 ───── -->
     <Transition name="overlay-fade">

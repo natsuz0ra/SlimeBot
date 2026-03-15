@@ -1,14 +1,18 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { mdiCheck, mdiClose, mdiConsoleLine, mdiWeb } from '@mdi/js'
 import { useI18n } from 'vue-i18n'
 import MdiIcon from '@/components/MdiIcon.vue'
 import type { ToolCallItem } from '@/api/chat'
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   item: ToolCallItem & { preamble?: string }
   showPreamble?: boolean
-}>()
+  dense?: boolean
+}>(), {
+  showPreamble: false,
+  dense: false,
+})
 
 const emit = defineEmits<{
   approve: [toolCallId: string]
@@ -16,6 +20,7 @@ const emit = defineEmits<{
 }>()
 
 const { t } = useI18n()
+const isOutputExpanded = ref(false)
 
 const toolIcon = computed(() => {
   if (props.item.toolName === 'exec') return mdiConsoleLine
@@ -55,12 +60,12 @@ const statusDotClass = computed(() => {
 
 const statusTextClass = computed(() => {
   switch (props.item.status) {
-    case 'pending': return 'status-text-pending'
-    case 'executing': return 'status-text-executing'
-    case 'completed': return 'status-text-success'
+    case 'pending': return 'tool-status-text tool-status-text-pending'
+    case 'executing': return 'tool-status-text tool-status-text-executing'
+    case 'completed': return 'tool-status-text tool-status-text-success'
     case 'rejected':
-    case 'error': return 'status-text-error'
-    default: return 'status-text-default'
+    case 'error': return 'tool-status-text tool-status-text-error'
+    default: return 'tool-status-text tool-status-text-default'
   }
 })
 
@@ -73,56 +78,88 @@ const paramsDisplay = computed(() => {
 const showActions = computed(() => props.item.status === 'pending')
 const showResult = computed(() => props.item.status === 'completed' || props.item.status === 'error')
 const shouldShowPreamble = computed(() => !!props.showPreamble && !!props.item.preamble)
+const outputPanelId = computed(() => `tool-output-${props.item.toolCallId}`)
+
+function onOutputToggle(event: Event) {
+  const target = event.currentTarget as HTMLDetailsElement | null
+  isOutputExpanded.value = !!target?.open
+}
 </script>
 
 <template>
-  <div class="tool-card w-full rounded-xl px-4 py-3 text-sm overflow-hidden">
-    <!-- 头部 -->
-    <div class="flex items-center flex-wrap gap-2">
-      <!-- 工具图标 + 名称 -->
-      <div class="flex items-center gap-1.5">
-        <MdiIcon :path="toolIcon" :size="14" class="tool-icon flex-shrink-0" />
-        <span class="tool-label font-medium text-xs">{{ toolLabel }}</span>
+  <article :class="['tool-card w-full rounded-xl text-sm', { 'tool-card--dense': dense }]">
+    <header class="tool-header">
+      <div class="tool-header-main">
+        <div class="tool-meta">
+          <MdiIcon :path="toolIcon" :size="14" class="tool-icon flex-shrink-0" />
+          <span class="tool-label">{{ toolLabel }}</span>
+          <code
+            v-if="item.command"
+            class="tool-command"
+            :title="item.command"
+          >
+            {{ item.command }}
+          </code>
+        </div>
+
+        <div class="tool-status ml-auto">
+          <span
+            class="tool-status-dot"
+            :class="[statusDotClass, item.status === 'executing' ? 'status-dot-pulse' : '']"
+          />
+          <span :class="statusTextClass">{{ statusLabel }}</span>
+          <svg
+            v-if="item.status === 'executing'"
+            class="animate-spin-icon w-3.5 h-3.5 flex-shrink-0 tool-status-spinner"
+            fill="none"
+            viewBox="0 0 24 24"
+            aria-hidden="true"
+          >
+            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" />
+            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
+          </svg>
+        </div>
       </div>
+    </header>
 
-      <!-- 命令 -->
-      <code v-if="item.command" class="tool-command text-xs font-mono break-all flex-1 min-w-0 truncate">{{ item.command }}</code>
+    <section v-if="paramsDisplay || showResult" class="tool-section mt-2">
+      <template v-if="paramsDisplay">
+        <p class="tool-section-title">{{ t('toolCallParams') }}</p>
+        <pre class="tool-params">{{ paramsDisplay }}</pre>
+      </template>
 
-      <!-- 状态 badge -->
-      <div class="ml-auto flex items-center gap-1.5 flex-shrink-0">
-        <span
-          class="w-1.5 h-1.5 rounded-full flex-shrink-0"
-          :class="[statusDotClass, item.status === 'executing' ? 'status-dot-pulse' : '']"
-        />
-        <span class="text-xs font-medium" :class="statusTextClass">{{ statusLabel }}</span>
-        <svg
-          v-if="item.status === 'executing'"
-          class="animate-spin-icon w-3 h-3 flex-shrink-0"
-          :class="statusTextClass"
-          fill="none"
-          viewBox="0 0 24 24"
-        >
-          <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" />
-          <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
-        </svg>
+      <div v-if="showResult" class="tool-result-block">
+        <details v-if="item.output" class="tool-output-details text-xs" @toggle="onOutputToggle">
+          <summary
+            class="tool-result-summary"
+            :aria-expanded="isOutputExpanded ? 'true' : 'false'"
+            :aria-controls="outputPanelId"
+          >
+            <span class="tool-result-label">{{ t('toolCallResult') }}</span>
+            <span class="tool-output-summary">{{ t('toolCallOutput') }}</span>
+          </summary>
+          <pre :id="outputPanelId" class="tool-output sb-scrollbar">{{ item.output }}</pre>
+        </details>
+
+        <div v-else class="tool-result-summary tool-result-summary--plain" aria-live="polite">
+          <span class="tool-result-label">{{ t('toolCallResult') }}</span>
+        </div>
+
+        <div v-if="item.error" class="tool-error">{{ item.error }}</div>
       </div>
-    </div>
+    </section>
 
-    <!-- 参数 -->
-    <div v-if="paramsDisplay" class="mt-2.5">
-      <pre class="tool-params text-xs font-mono rounded-lg px-3 py-2.5 whitespace-pre-wrap break-all leading-relaxed">{{ paramsDisplay }}</pre>
-    </div>
-
-    <!-- 前言 -->
-    <div v-if="shouldShowPreamble" class="mt-2 text-xs leading-relaxed whitespace-pre-wrap break-words tool-preamble">
+    <section v-if="shouldShowPreamble" class="tool-section mt-2.5">
+      <p class="tool-section-title">{{ t('toolCallPreamble') }}</p>
+      <div class="tool-preamble">
       {{ item.preamble }}
-    </div>
+      </div>
+    </section>
 
-    <!-- 操作按钮（待审批） -->
-    <div v-if="showActions" class="flex items-center gap-2 mt-3">
+    <section v-if="showActions" class="tool-actions">
       <button
         type="button"
-        class="approve-btn flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg transition-all duration-150 cursor-pointer"
+        class="tool-action-btn approve-btn"
         @click="emit('approve', item.toolCallId)"
       >
         <MdiIcon :path="mdiCheck" :size="11" />
@@ -130,133 +167,348 @@ const shouldShowPreamble = computed(() => !!props.showPreamble && !!props.item.p
       </button>
       <button
         type="button"
-        class="reject-btn flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg transition-all duration-150 cursor-pointer"
+        class="tool-action-btn reject-btn"
         @click="emit('reject', item.toolCallId)"
       >
         <MdiIcon :path="mdiClose" :size="11" />
         {{ t('toolCallReject') }}
       </button>
-    </div>
+    </section>
 
-    <!-- 执行结果 -->
-    <div v-if="showResult" class="mt-2.5">
-      <div v-if="item.error" class="text-xs mb-1.5 tool-error">{{ item.error }}</div>
-      <details v-if="item.output" class="text-xs">
-        <summary class="tool-output-summary cursor-pointer select-none transition-colors duration-150 text-xs font-medium">
-          {{ t('toolCallOutput') }}
-        </summary>
-        <pre class="mt-2 px-3 py-2.5 tool-output rounded-lg text-xs font-mono whitespace-pre-wrap break-all leading-relaxed max-h-56 overflow-y-auto">{{ item.output }}</pre>
-      </details>
-    </div>
-  </div>
+  </article>
 </template>
 
 <style scoped>
 .tool-card {
   background: var(--card-bg);
-  border: 1px solid var(--card-border);
+  border: 1px solid var(--tool-card-border);
   box-shadow: var(--floating-elevation-shadow);
+  padding: 10px 12px;
+  overflow: visible;
+  transition: border-color 180ms ease, background-color 180ms ease, box-shadow 180ms ease, transform 180ms ease;
+}
+
+.tool-card:hover {
+  border-color: var(--tool-card-border-hover);
+  box-shadow: var(--tool-card-shadow-hover);
 }
 
 .tool-icon {
-  color: var(--text-secondary);
+  color: var(--tool-meta-icon);
 }
 
 .tool-label {
-  color: var(--text-primary);
+  color: var(--tool-meta-text);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1;
+}
+
+.tool-header {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  min-width: 0;
+}
+
+.tool-header-main {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.tool-meta {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  flex: 1 1 auto;
+  max-width: calc(100% - 110px);
 }
 
 .tool-command {
-  color: var(--text-secondary);
-  background: rgba(99, 102, 241, 0.08);
-  border: 1px solid rgba(99, 102, 241, 0.18);
-  border-radius: 8px;
-  padding: 2px 8px;
+  display: inline-block;
+  max-width: min(48%, 320px);
+  color: var(--tool-command-text);
+  background: var(--tool-command-bg);
+  border: 1px solid var(--tool-command-border);
+  border-radius: 7px;
+  padding: 1px 6px;
+  font-size: 10px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-/* Status dots */
-.status-dot-pending { background: #f59e0b; }
-.status-dot-executing { background: #6366f1; }
-.status-dot-success { background: #10b981; }
-.status-dot-error { background: #ef4444; }
+.tool-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  white-space: nowrap;
+}
+
+.tool-status-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  flex-shrink: 0;
+}
+
+.status-dot-pending { background: var(--tool-pending-dot); }
+.status-dot-executing { background: var(--tool-running-dot); }
+.status-dot-success { background: var(--tool-success-dot); }
+.status-dot-error { background: var(--tool-error-dot); }
 .status-dot-default { background: var(--text-muted); }
+
 .status-dot-pulse {
   animation: tool-dot-pulse 1.2s ease-in-out infinite;
 }
 
-/* Status text */
-.status-text-pending { color: #f59e0b; }
-.status-text-executing { color: #6366f1; }
-.status-text-success { color: #10b981; }
-.status-text-error { color: #ef4444; }
-.status-text-default { color: var(--text-muted); }
+.tool-status-text {
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1;
+}
 
-/* Params block */
+.tool-status-text-pending { color: var(--tool-pending-text); }
+.tool-status-text-executing { color: var(--tool-running-text); }
+.tool-status-text-success { color: var(--tool-success-text); }
+.tool-status-text-error { color: var(--tool-error-text); }
+.tool-status-text-default { color: var(--text-muted); }
+
+.tool-status-spinner {
+  color: var(--tool-running-text);
+}
+
+.tool-section {
+  border: 1px solid var(--tool-section-border);
+  border-radius: 8px;
+  padding: 8px;
+  background: var(--tool-section-bg);
+}
+
+.tool-card--dense {
+  padding: 8px 10px;
+}
+
+.tool-card--dense .tool-header {
+  gap: 0;
+}
+
+.tool-card--dense .tool-header-main {
+  gap: 6px;
+}
+
+.tool-card--dense .tool-label,
+.tool-card--dense .tool-status-text {
+  font-size: 11px;
+}
+
+.tool-card--dense .tool-command {
+  font-size: 10px;
+  padding: 1px 5px;
+}
+
+.tool-card--dense .tool-section {
+  border-radius: 7px;
+  padding: 7px;
+}
+
+.tool-card--dense .tool-section-title {
+  margin-bottom: 5px;
+  font-size: 10px;
+}
+
+.tool-card--dense .tool-params,
+.tool-card--dense .tool-preamble,
+.tool-card--dense .tool-error,
+.tool-card--dense .tool-output,
+.tool-card--dense .tool-output-summary {
+  font-size: 11px;
+}
+
+.tool-card--dense .tool-params,
+.tool-card--dense .tool-output {
+  padding: 8px;
+}
+
+.tool-card--dense .tool-actions {
+  margin-top: 8px;
+  gap: 6px;
+}
+
+.tool-card--dense .tool-action-btn {
+  min-height: 28px;
+  font-size: 11px;
+  padding: 5px 10px;
+}
+
+.tool-section-title {
+  margin: 0 0 6px 0;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: var(--tool-summary-text);
+  text-transform: uppercase;
+}
+
 .tool-params {
-  background: var(--input-bg);
-  color: var(--text-primary);
-  border: 1px solid var(--input-border);
+  margin: 0;
+  background: #000000;
+  color: var(--tool-detail-body-text);
+  border: 1px solid var(--tool-section-border);
+  border-radius: 7px;
+  padding: 8px;
+  font-size: 12px;
+  line-height: 1.45;
+  scrollbar-width: thin;
+  max-height: 176px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 .tool-preamble {
-  color: var(--text-secondary);
+  color: var(--tool-content-text);
+  font-size: 12px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
-/* Approve / reject buttons */
+.tool-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.tool-action-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 30px;
+  padding: 6px 12px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 180ms ease, color 180ms ease, box-shadow 180ms ease, border-color 180ms ease;
+}
+
 .approve-btn {
-  background: rgba(16, 185, 129, 0.1);
-  border: 1px solid rgba(16, 185, 129, 0.3);
-  color: #10b981;
+  background: var(--tool-success-bg);
+  border: 1px solid var(--tool-success-border);
+  color: var(--tool-success-text);
 }
 .approve-btn:hover {
-  background: rgba(16, 185, 129, 0.18);
-  box-shadow: 0 2px 8px rgba(16, 185, 129, 0.2);
+  background: var(--tool-success-bg-hover);
+  box-shadow: 0 2px 8px rgba(16, 185, 129, 0.22);
 }
 
 .reject-btn {
-  background: rgba(239, 68, 68, 0.08);
-  border: 1px solid rgba(239, 68, 68, 0.25);
-  color: #ef4444;
+  background: var(--tool-error-bg);
+  border: 1px solid var(--tool-error-border);
+  color: var(--tool-error-text);
 }
 .reject-btn:hover {
-  background: rgba(239, 68, 68, 0.14);
+  background: var(--tool-error-bg-hover);
   box-shadow: 0 2px 8px rgba(239, 68, 68, 0.18);
-}
-
-.approve-btn,
-.reject-btn {
-  transition: background-color 180ms ease, color 180ms ease, box-shadow 180ms ease, border-color 180ms ease;
 }
 
 .approve-btn:focus-visible,
 .reject-btn:focus-visible {
-  outline: 2px solid #6366f1;
+  outline: 2px solid var(--focus-ring);
   outline-offset: 2px;
 }
 
-/* Output */
 .tool-error {
-  color: #ef4444;
+  margin-top: 6px;
+  margin-bottom: 0;
+  color: var(--tool-error-text);
+  font-size: 12px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.tool-result-block {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--tool-section-border);
+}
+
+.tool-result-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  list-style: none;
+  cursor: pointer;
+}
+
+.tool-result-summary::-webkit-details-marker {
+  display: none;
+}
+
+.tool-result-summary--plain {
+  cursor: default;
+}
+
+.tool-result-label {
+  color: var(--tool-summary-text);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
 }
 
 .tool-output-summary {
-  color: var(--text-secondary);
+  display: inline-flex;
+  align-items: center;
+  color: var(--tool-summary-text);
+  background: var(--tool-summary-bg);
+  border: 1px solid var(--tool-summary-border);
+  border-radius: 6px;
+  padding: 2px 8px;
+  user-select: none;
+  transition: color 150ms ease, border-color 150ms ease, background-color 150ms ease;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.25;
 }
-.tool-output-summary:hover {
-  color: var(--text-primary);
+
+.tool-result-summary:hover .tool-output-summary {
+  color: var(--tool-content-text);
+  border-color: var(--tool-card-border-hover);
+}
+
+.tool-output-details {
+  margin: 0;
 }
 
 .tool-output {
-  background: var(--bg-main);
-  color: var(--text-primary);
-  border: 1px solid var(--card-border);
-  scrollbar-width: thin;
+  margin-top: 6px;
+  padding: 8px;
+  background: #000000;
+  color: var(--tool-detail-body-text);
+  border: 1px solid var(--tool-section-border);
+  border-radius: 7px;
+  font-size: 12px;
+  line-height: 1.45;
+  max-height: 224px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
-.tool-output-summary:focus-visible {
-  outline: 2px solid #6366f1;
+.tool-result-summary:focus-visible {
+  outline: 2px solid var(--focus-ring);
   outline-offset: 2px;
-  border-radius: 4px;
+  border-radius: 6px;
 }
 
 @keyframes tool-dot-pulse {
@@ -273,6 +525,37 @@ const shouldShowPreamble = computed(() => !!props.showPreamble && !!props.item.p
 @media (prefers-reduced-motion: reduce) {
   .status-dot-pulse {
     animation: none;
+  }
+
+  .tool-card {
+    transition: none;
+  }
+}
+
+@media (max-width: 640px) {
+  .tool-card {
+    padding: 8px 10px;
+  }
+
+  .tool-header-main {
+    align-items: flex-start;
+    gap: 8px;
+  }
+
+  .tool-meta {
+    max-width: calc(100% - 80px);
+  }
+
+  .tool-command {
+    max-width: 42%;
+  }
+
+  .tool-actions {
+    flex-wrap: wrap;
+  }
+
+  .tool-action-btn {
+    flex: 1 1 auto;
   }
 }
 </style>

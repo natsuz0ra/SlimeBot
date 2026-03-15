@@ -40,6 +40,37 @@ html, body {
   background: var(--bg-main);
 }
 
+/* Shared scrollbar style for reusable scroll containers */
+.sb-scrollbar::-webkit-scrollbar {
+  width: 4px;
+}
+.sb-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+.sb-scrollbar::-webkit-scrollbar-thumb {
+  background: transparent;
+  border-radius: 4px;
+  transition: background 0.25s;
+}
+.sb-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+}
+.sb-scrollbar:hover::-webkit-scrollbar-thumb,
+.sb-scrollbar.is-scrolling::-webkit-scrollbar-thumb {
+  background: var(--scrollbar-thumb);
+}
+.sb-scrollbar:hover::-webkit-scrollbar-thumb:hover {
+  background: var(--scrollbar-thumb-hover);
+}
+.sb-scrollbar:hover,
+.sb-scrollbar.is-scrolling {
+  scrollbar-color: var(--scrollbar-thumb) transparent;
+}
+.sb-scrollbar:hover:active {
+  scrollbar-color: var(--scrollbar-thumb-hover) transparent;
+}
+
 /* ─── Dark mode CSS variables ─── */
 :root {
   --theme-transition-duration: 220ms;
@@ -71,6 +102,40 @@ html, body {
   --top-menu-bg-fallback: rgba(255, 255, 255, 0.98);
   --top-menu-border: rgba(255, 255, 255, 0.55);
   --top-menu-shadow: 0 14px 36px rgba(2, 6, 23, 0.14), 0 4px 14px rgba(99, 102, 241, 0.14), inset 0 1px 0 rgba(255, 255, 255, 0.45);
+  --focus-ring: #6366f1;
+  --tool-card-border: rgba(99, 102, 241, 0.14);
+  --tool-card-border-hover: rgba(99, 102, 241, 0.28);
+  --tool-card-shadow-hover: 0 8px 18px rgba(99, 102, 241, 0.14);
+  --tool-section-bg: rgba(99, 102, 241, 0.04);
+  --tool-section-border: rgba(99, 102, 241, 0.14);
+  --tool-section-title: #6366f1;
+  --tool-detail-label-text: #a5b4fc;
+  --tool-detail-body-text: #e2d9ff;
+  --tool-meta-icon: #5b5a85;
+  --tool-meta-text: #1e1b4b;
+  --tool-content-text: #2e2a64;
+  --tool-command-bg: rgba(99, 102, 241, 0.08);
+  --tool-command-border: rgba(99, 102, 241, 0.18);
+  --tool-command-text: #4f46e5;
+  --tool-summary-bg: rgba(99, 102, 241, 0.08);
+  --tool-summary-border: rgba(99, 102, 241, 0.2);
+  --tool-summary-text: #6366f1;
+  --tool-running-bg: rgba(99, 102, 241, 0.12);
+  --tool-running-border: rgba(99, 102, 241, 0.26);
+  --tool-running-text: #4f46e5;
+  --tool-running-dot: #6366f1;
+  --tool-pending-dot: #f59e0b;
+  --tool-pending-text: #b45309;
+  --tool-success-bg: rgba(16, 185, 129, 0.12);
+  --tool-success-bg-hover: rgba(16, 185, 129, 0.18);
+  --tool-success-border: rgba(16, 185, 129, 0.32);
+  --tool-success-text: #047857;
+  --tool-success-dot: #10b981;
+  --tool-error-bg: rgba(239, 68, 68, 0.1);
+  --tool-error-bg-hover: rgba(239, 68, 68, 0.16);
+  --tool-error-border: rgba(239, 68, 68, 0.3);
+  --tool-error-text: #b91c1c;
+  --tool-error-dot: #ef4444;
 }
 
 .dark {
@@ -101,6 +166,40 @@ html, body {
   --top-menu-bg-fallback: rgba(24, 24, 48, 0.95);
   --top-menu-border: rgba(255, 255, 255, 0.16);
   --top-menu-shadow: 0 16px 40px rgba(0, 0, 0, 0.45), 0 4px 16px rgba(0, 0, 0, 0.28), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  --focus-ring: #818cf8;
+  --tool-card-border: rgba(129, 140, 248, 0.26);
+  --tool-card-border-hover: rgba(165, 180, 252, 0.42);
+  --tool-card-shadow-hover: 0 10px 22px rgba(0, 0, 0, 0.32);
+  --tool-section-bg: rgba(255, 255, 255, 0.03);
+  --tool-section-border: rgba(255, 255, 255, 0.12);
+  --tool-section-title: #a5b4fc;
+  --tool-detail-label-text: #c4b5fd;
+  --tool-detail-body-text: #f0ebff;
+  --tool-meta-icon: #a5b4fc;
+  --tool-meta-text: #f1f0ff;
+  --tool-content-text: #d8d6fb;
+  --tool-command-bg: rgba(129, 140, 248, 0.18);
+  --tool-command-border: rgba(129, 140, 248, 0.3);
+  --tool-command-text: #c7d2fe;
+  --tool-summary-bg: rgba(129, 140, 248, 0.16);
+  --tool-summary-border: rgba(165, 180, 252, 0.32);
+  --tool-summary-text: #dbe3ff;
+  --tool-running-bg: rgba(129, 140, 248, 0.2);
+  --tool-running-border: rgba(165, 180, 252, 0.36);
+  --tool-running-text: #c7d2fe;
+  --tool-running-dot: #818cf8;
+  --tool-pending-dot: #f59e0b;
+  --tool-pending-text: #fbbf24;
+  --tool-success-bg: rgba(16, 185, 129, 0.18);
+  --tool-success-bg-hover: rgba(16, 185, 129, 0.24);
+  --tool-success-border: rgba(16, 185, 129, 0.34);
+  --tool-success-text: #6ee7b7;
+  --tool-success-dot: #34d399;
+  --tool-error-bg: rgba(239, 68, 68, 0.16);
+  --tool-error-bg-hover: rgba(239, 68, 68, 0.22);
+  --tool-error-border: rgba(248, 113, 113, 0.34);
+  --tool-error-text: #fca5a5;
+  --tool-error-dot: #f87171;
 }
 
 html.theme-switching *,

@@ -35,6 +35,8 @@ const emit = defineEmits<{
   cancel: []
 }>()
 
+const titleId = `dialog-title-${Math.random().toString(36).slice(2, 10)}`
+
 function close() {
   emit('update:visible', false)
   emit('cancel')
@@ -64,11 +66,14 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown))
         <div
           class="dialog-panel relative flex flex-col overflow-hidden rounded-2xl"
           :style="{ width: '100%', maxWidth: width, maxHeight: '90vh' }"
+          role="dialog"
+          aria-modal="true"
+          :aria-labelledby="title ? titleId : undefined"
           @click.stop
         >
           <!-- 头部 -->
           <div class="flex items-center justify-between px-5 py-3 dialog-header">
-            <span class="text-base font-semibold dialog-title">{{ title }}</span>
+            <span :id="titleId" class="text-base font-semibold dialog-title">{{ title }}</span>
             <button
               v-if="showClose"
               type="button"

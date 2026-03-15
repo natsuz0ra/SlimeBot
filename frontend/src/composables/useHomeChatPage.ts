@@ -159,9 +159,16 @@ export function useHomeChatPage() {
   }
 
   function getToolCallDesc(toolCall: ToolCallItem) {
-    const entries = Object.entries(toolCall.params || {})
-    if (entries.length === 0) return toolCall.command || ''
-    return entries
+    const params = toolCall.params || {}
+    const nonEmptyEntries = Object.entries(params).filter(([, value]) => String(value ?? '').trim() !== '')
+
+    if (toolCall.toolName === 'web_search') {
+      const query = String(params.query ?? '').trim()
+      if (query !== '') return `query: ${query}`
+    }
+
+    if (nonEmptyEntries.length === 0) return toolCall.command || ''
+    return nonEmptyEntries
       .map(([key, value]) => `${key}: ${String(value)}`)
       .join(' | ')
   }
@@ -176,7 +183,11 @@ export function useHomeChatPage() {
 
     const runningCall = [...batch.toolCalls].reverse().find((item) => item.status === 'pending' || item.status === 'executing')
     if (runningCall) {
-      return t('toolExecutionRunning', { command: runningCall.toolName, desc: getToolCallDesc(runningCall) })
+      const desc = getToolCallDesc(runningCall).trim()
+      if (desc !== '') {
+        return t('toolExecutionRunning', { command: runningCall.toolName, desc })
+      }
+      return t('toolExecutionRunningNoDesc', { command: runningCall.toolName })
     }
 
     const latest = batch.toolCalls[count - 1]

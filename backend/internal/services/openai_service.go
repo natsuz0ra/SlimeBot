@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -108,7 +109,8 @@ func (c *OpenAIClient) StreamChatWithTools(
 		option.WithHTTPClient(c.Client),
 	)
 
-	requestMessages := buildRequestMessages(messages)
+	supportDeveloperRole := supportsDeveloperRole(baseURL)
+	requestMessages := buildRequestMessages(messages, supportDeveloperRole)
 	if len(requestMessages) == 0 {
 		return nil, fmt.Errorf("请求消息为空")
 	}
@@ -175,7 +177,25 @@ func (c *OpenAIClient) StreamChatWithTools(
 	return &StreamResult{Type: StreamResultText}, nil
 }
 
-func buildRequestMessages(messages []ChatMessage) []openai.ChatCompletionMessageParamUnion {
+func supportsDeveloperRole(baseURL string) bool {
+	parsed, err := url.Parse(strings.TrimSpace(baseURL))
+	if err != nil {
+		// URL 解析失败时保持原行为，避免误伤其他兼容供应商。
+		return true
+	}
+
+	host := strings.ToLower(parsed.Hostname())
+	path := strings.ToLower(strings.TrimSpace(parsed.Path))
+	if strings.Contains(host, "dashscope.aliyuncs.com") {
+		return false
+	}
+	if strings.Contains(host, "aliyuncs.com") && strings.Contains(path, "/compatible-mode/") {
+		return false
+	}
+	return true
+}
+
+func buildRequestMessages(messages []ChatMessage, supportDeveloperRole bool) []openai.ChatCompletionMessageParamUnion {
 	var result []openai.ChatCompletionMessageParamUnion
 	for _, msg := range messages {
 		content := strings.TrimSpace(msg.Content)
@@ -221,7 +241,12 @@ func buildRequestMessages(messages []ChatMessage) []openai.ChatCompletionMessage
 			if content == "" {
 				continue
 			}
-			result = append(result, openai.DeveloperMessage(content))
+			if supportDeveloperRole {
+				result = append(result, openai.DeveloperMessage(content))
+			} else {
+				// 对不支持 developer 的兼容端点降级为 system，保留指令语义。
+				result = append(result, openai.SystemMessage(content))
+			}
 		default:
 			if content == "" {
 				continue

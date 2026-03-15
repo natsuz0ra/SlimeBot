@@ -36,7 +36,7 @@ type ChatStreamResult struct {
 func NewChatService(repo *repositories.Repository, openai *OpenAIClient, mcpManager *mcp.Manager, skillRuntime *SkillRuntimeService, memory *MemoryService) *ChatService {
 	return &ChatService{
 		repo:         repo,
-		agent:        NewAgentService(openai, mcpManager, skillRuntime),
+		agent:        NewAgentService(openai, mcpManager, skillRuntime, memory),
 		skillRuntime: skillRuntime,
 		memory:       memory,
 	}
@@ -333,7 +333,7 @@ func (s *ChatService) HandleChatStream(
 	}
 
 	activatedSkills := make(map[string]struct{})
-	answer, err := s.agent.RunAgentLoop(ctx, modelConfig, contextMessages, enabledMCPConfigs, activatedSkills, agentCallbacks)
+	answer, err := s.agent.RunAgentLoop(ctx, modelConfig, sessionID, contextMessages, enabledMCPConfigs, activatedSkills, agentCallbacks)
 	if err != nil && answer == "" {
 		return nil, err
 	}

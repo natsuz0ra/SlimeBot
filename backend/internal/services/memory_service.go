@@ -45,6 +45,13 @@ type MemoryDecision struct {
 	Reason     string   `json:"reason"`
 }
 
+type MemoryQueryResult struct {
+	Query    string
+	Keywords []string
+	Hits     []repositories.SessionMemorySearchHit
+	Output   string
+}
+
 type MemoryService struct {
 	repo        *repositories.Repository
 	openai      *OpenAIClient
@@ -142,6 +149,64 @@ func (m *MemoryService) FormatMemoryContext(summary string, hits []repositories.
 		}
 		b.WriteString("</retrieved_memories>")
 	}
+	return strings.TrimSpace(b.String())
+}
+
+func (m *MemoryService) QueryForAgent(sessionID string, query string, topK int) (MemoryQueryResult, error) {
+	result := MemoryQueryResult{
+		Query: strings.TrimSpace(query),
+	}
+	if result.Query == "" {
+		return result, fmt.Errorf("memory_query 参数 query 不能为空")
+	}
+	if topK <= 0 {
+		topK = 3
+	}
+	if topK > 5 {
+		topK = 5
+	}
+
+	result.Keywords = m.TokenizeKeywords(result.Query)
+	if len(result.Keywords) == 0 {
+		result.Output = "<memory_query_result>\n未提取到可检索关键词，请改写 query 后重试。\n</memory_query_result>"
+		return result, nil
+	}
+
+	hits, err := m.RetrieveMemories(result.Keywords, strings.TrimSpace(sessionID), topK)
+	if err != nil {
+		return result, err
+	}
+	result.Hits = hits
+	result.Output = m.buildMemoryQueryOutput(result.Query, result.Keywords, hits)
+	return result, nil
+}
+
+func (m *MemoryService) buildMemoryQueryOutput(query string, keywords []string, hits []repositories.SessionMemorySearchHit) string {
+	var b strings.Builder
+	b.WriteString("<memory_query_result>\n")
+	b.WriteString("query: ")
+	b.WriteString(strings.TrimSpace(query))
+	b.WriteString("\n")
+	b.WriteString("keywords: ")
+	if len(keywords) == 0 {
+		b.WriteString("(none)")
+	} else {
+		b.WriteString(strings.Join(keywords, ", "))
+	}
+	b.WriteString("\n")
+	b.WriteString(fmt.Sprintf("hit_count: %d\n", len(hits)))
+	if len(hits) == 0 {
+		b.WriteString("未检索到相关记忆。\n")
+		b.WriteString("</memory_query_result>")
+		return b.String()
+	}
+	for idx, hit := range hits {
+		b.WriteString(fmt.Sprintf("- [%d] session_id=%s score=%.1f matched=%s\n", idx+1, hit.Memory.SessionID, hit.Score, strings.Join(hit.MatchedKeywords, ",")))
+		b.WriteString("  summary: ")
+		b.WriteString(strings.TrimSpace(hit.Memory.Summary))
+		b.WriteString("\n")
+	}
+	b.WriteString("</memory_query_result>")
 	return strings.TrimSpace(b.String())
 }
 

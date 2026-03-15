@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"strconv"
 	"strings"
 	"time"
 
@@ -14,9 +15,10 @@ import (
 )
 
 const (
-	agentMaxIterations   = 10
-	agentApprovalTimeout = 120 * time.Second
-	maxToolNameLen       = 64
+	agentMaxIterations    = 10
+	agentApprovalTimeout  = 120 * time.Second
+	maxToolNameLen        = 64
+	memoryToolDefaultTopK = 3
 )
 
 // ApprovalRequest 发送给前端的工具调用审批请求
@@ -63,10 +65,11 @@ type AgentService struct {
 	openai       *OpenAIClient
 	mcp          *mcp.Manager
 	skillRuntime *SkillRuntimeService
+	memory       *MemoryService
 }
 
-func NewAgentService(openai *OpenAIClient, mcpManager *mcp.Manager, skillRuntime *SkillRuntimeService) *AgentService {
-	return &AgentService{openai: openai, mcp: mcpManager, skillRuntime: skillRuntime}
+func NewAgentService(openai *OpenAIClient, mcpManager *mcp.Manager, skillRuntime *SkillRuntimeService, memory *MemoryService) *AgentService {
+	return &AgentService{openai: openai, mcp: mcpManager, skillRuntime: skillRuntime, memory: memory}
 }
 
 // BuildToolDefs 从全局工具注册中心生成 OpenAI function call 的工具定义列表。
@@ -115,6 +118,29 @@ func BuildToolDefs() []ToolDef {
 func (a *AgentService) buildRuntimeToolDefs(ctx context.Context, configs []models.MCPConfig) ([]ToolDef, map[string]mcp.ToolMeta, error) {
 	defs := BuildToolDefs()
 	metaByFunc := make(map[string]mcp.ToolMeta)
+	if a.memory != nil {
+		defs = append(defs, ToolDef{
+			Name:        "memory__query",
+			Description: "[memory] 按需检索历史记忆。仅在回答依赖历史偏好、历史决策或跨会话约束时调用。",
+			Parameters: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"query": map[string]any{
+						"type":        "string",
+						"description": "本次需要检索的记忆主题或问题",
+					},
+					"top_k": map[string]any{
+						"type":        "integer",
+						"description": "返回条数，默认 3，最大 5",
+						"default":     memoryToolDefaultTopK,
+						"minimum":     1,
+						"maximum":     5,
+					},
+				},
+				"required": []string{"query"},
+			},
+		})
+	}
 	if a.skillRuntime != nil {
 		skills, err := a.skillRuntime.ListSkills()
 		if err != nil {
@@ -166,6 +192,7 @@ func (a *AgentService) buildRuntimeToolDefs(ctx context.Context, configs []model
 func (a *AgentService) RunAgentLoop(
 	ctx context.Context,
 	modelConfig ModelRuntimeConfig,
+	sessionID string,
 	contextMessages []ChatMessage,
 	mcpConfigs []models.MCPConfig,
 	activatedSkills map[string]struct{},
@@ -179,6 +206,7 @@ func (a *AgentService) RunAgentLoop(
 	copy(messages, contextMessages)
 
 	var finalAnswer strings.Builder
+	memoryToolUsed := false
 
 	for i := 0; i < agentMaxIterations; i++ {
 		log.Printf("agent_iteration iteration=%d messages=%d", i+1, len(messages))
@@ -311,6 +339,21 @@ func (a *AgentService) RunAgentLoop(
 						execResult = &tools.ExecuteResult{Output: callResult.Output, Error: callResult.Error}
 					}
 				}
+			} else if toolName == "memory" && command == "query" {
+				if memoryToolUsed {
+					execResult = &tools.ExecuteResult{Error: "memory__query 在单轮回答中最多调用 1 次"}
+				} else if a.memory == nil {
+					execResult = &tools.ExecuteResult{Error: "memory service 未启用"}
+				} else {
+					memoryToolUsed = true
+					topK := parseOptionalInt(params["top_k"], memoryToolDefaultTopK)
+					queryResult, queryErr := a.memory.QueryForAgent(sessionID, params["query"], topK)
+					if queryErr != nil {
+						execResult = &tools.ExecuteResult{Output: queryResult.Output, Error: queryErr.Error()}
+					} else {
+						execResult = &tools.ExecuteResult{Output: queryResult.Output}
+					}
+				}
 			} else {
 				execResult = executeToolCall(toolName, command, params)
 			}
@@ -388,6 +431,18 @@ func parseToolCallArgsAny(arguments string) (map[string]any, error) {
 		return nil, fmt.Errorf("JSON 解析失败: %w", err)
 	}
 	return raw, nil
+}
+
+func parseOptionalInt(raw string, defaultValue int) int {
+	value := strings.TrimSpace(raw)
+	if value == "" {
+		return defaultValue
+	}
+	parsed, err := strconv.Atoi(value)
+	if err != nil {
+		return defaultValue
+	}
+	return parsed
 }
 
 func executeToolCall(toolName, command string, params map[string]string) *tools.ExecuteResult {

@@ -20,6 +20,18 @@ type Message struct {
 	CreatedAt time.Time `gorm:"index" json:"createdAt"`
 }
 
+// SessionMemory 维护会话级摘要与关键词，用于上下文压缩与全局记忆检索。
+type SessionMemory struct {
+	ID                 string    `gorm:"primaryKey;size:36" json:"id"`
+	SessionID          string    `gorm:"size:36;not null;uniqueIndex" json:"sessionId"`
+	Summary            string    `gorm:"type:text;not null" json:"summary"`
+	KeywordsJSON       string    `gorm:"type:text;not null" json:"keywordsJson"`
+	KeywordsText       string    `gorm:"type:text;not null" json:"keywordsText"`
+	SourceMessageCount int       `gorm:"not null;default:0" json:"sourceMessageCount"`
+	CreatedAt          time.Time `json:"createdAt"`
+	UpdatedAt          time.Time `gorm:"index" json:"updatedAt"`
+}
+
 // ToolCallRecord 持久化一次工具调用完整链路，支持历史会话回放工具详情。
 type ToolCallRecord struct {
 	ID                 string     `gorm:"primaryKey;size:36" json:"id"`

@@ -19,6 +19,7 @@ type ChatService struct {
 	repo         *repositories.Repository
 	agent        *AgentService
 	skillRuntime *SkillRuntimeService
+	memory       *MemoryService
 }
 
 const contextHistoryLimit = 20
@@ -32,11 +33,12 @@ type ChatStreamResult struct {
 	PushError    string
 }
 
-func NewChatService(repo *repositories.Repository, openai *OpenAIClient, mcpManager *mcp.Manager, skillRuntime *SkillRuntimeService) *ChatService {
+func NewChatService(repo *repositories.Repository, openai *OpenAIClient, mcpManager *mcp.Manager, skillRuntime *SkillRuntimeService, memory *MemoryService) *ChatService {
 	return &ChatService{
 		repo:         repo,
 		agent:        NewAgentService(openai, mcpManager, skillRuntime),
 		skillRuntime: skillRuntime,
+		memory:       memory,
 	}
 }
 
@@ -53,7 +55,7 @@ func (s *ChatService) EnsureSession(sessionID string) (*models.Session, error) {
 	return s.repo.CreateSession("新会话")
 }
 
-func (s *ChatService) BuildContextMessages(sessionID string, userInput string) ([]ChatMessage, error) {
+func (s *ChatService) BuildContextMessages(ctx context.Context, sessionID string, modelConfig ModelRuntimeConfig) ([]ChatMessage, error) {
 	buildStart := time.Now()
 	systemPrompt, err := s.loadSystemPrompt()
 	if err != nil {
@@ -77,15 +79,79 @@ func (s *ChatService) BuildContextMessages(sessionID string, userInput string) (
 	if err != nil {
 		return nil, err
 	}
+
 	msgs := []ChatMessage{{Role: "system", Content: systemPrompt}}
+	compressEnabled := false
+	var memoryKeywords []string
+	var memoryHitCount int
+	if s.memory != nil {
+		shouldCompress, messageCount, countErr := s.memory.ShouldCompressContext(sessionID)
+		if countErr != nil {
+			log.Printf("chat_context_memory_skip session=%s reason=count_failed err=%v", sessionID, countErr)
+		} else if shouldCompress {
+			compressEnabled = true
+
+			sessionSummary := ""
+			if memoryItem, memoryErr := s.repo.GetSessionMemory(sessionID); memoryErr != nil {
+				log.Printf("chat_context_memory_skip session=%s reason=get_summary_failed err=%v", sessionID, memoryErr)
+			} else if memoryItem != nil {
+				sessionSummary = strings.TrimSpace(memoryItem.Summary)
+			}
+
+			lastUserInput := ""
+			for idx := len(history) - 1; idx >= 0; idx-- {
+				if strings.EqualFold(strings.TrimSpace(history[idx].Role), "user") {
+					lastUserInput = strings.TrimSpace(history[idx].Content)
+					break
+				}
+			}
+
+			decision, decideErr := s.memory.DecideMemoryQuery(ctx, modelConfig, lastUserInput, sessionSummary)
+			if decideErr != nil {
+				log.Printf("chat_context_memory_skip session=%s reason=decision_failed err=%v", sessionID, decideErr)
+			} else if decision.NeedMemory {
+				memoryKeywords = decision.Keywords
+			}
+
+			var memoryHits []repositories.SessionMemorySearchHit
+			if len(memoryKeywords) > 0 {
+				hits, retrieveErr := s.memory.RetrieveMemories(memoryKeywords, sessionID, memorySearchTopK)
+				if retrieveErr != nil {
+					log.Printf("chat_context_memory_skip session=%s reason=retrieve_failed err=%v", sessionID, retrieveErr)
+				} else {
+					memoryHits = hits
+					memoryHitCount = len(hits)
+				}
+			}
+
+			memoryContext := s.memory.FormatMemoryContext(sessionSummary, memoryHits)
+			if memoryContext != "" {
+				msgs = append(msgs, ChatMessage{
+					Role: "developer",
+					Content: "以下是系统提供的 memory_context，请优先用于理解历史偏好、约束与长期任务；" +
+						"若与用户当前输入冲突，以用户当前输入为准。\n\n<memory_context>\n" +
+						memoryContext +
+						"\n</memory_context>",
+				})
+			}
+
+			compactHistory, compactErr := s.memory.BuildCompactHistory(sessionID)
+			if compactErr != nil {
+				log.Printf("chat_context_memory_skip session=%s reason=compact_history_failed err=%v", sessionID, compactErr)
+			} else if len(compactHistory) > 0 {
+				history = compactHistory
+			}
+			log.Printf("chat_context_compressed session=%s message_count=%d keywords=%d hits=%d", sessionID, messageCount, len(memoryKeywords), memoryHitCount)
+		}
+	}
+
 	for _, item := range history {
 		msgs = append(msgs, ChatMessage{
 			Role:    item.Role,
 			Content: item.Content,
 		})
 	}
-	msgs = append(msgs, ChatMessage{Role: "user", Content: strings.TrimSpace(userInput)})
-	log.Printf("chat_context_ready session=%s history=%d cost_ms=%d", sessionID, len(history), time.Since(buildStart).Milliseconds())
+	log.Printf("chat_context_ready session=%s history=%d compressed=%t cost_ms=%d", sessionID, len(history), compressEnabled, time.Since(buildStart).Milliseconds())
 	return msgs, nil
 }
 
@@ -152,6 +218,11 @@ func (s *ChatService) HandleChatStream(
 	if err != nil {
 		return nil, err
 	}
+	modelConfig := ModelRuntimeConfig{
+		BaseURL: llmConfig.BaseURL,
+		APIKey:  llmConfig.APIKey,
+		Model:   llmConfig.Model,
+	}
 
 	session, err := s.repo.GetSessionByID(sessionID)
 	if err != nil {
@@ -165,7 +236,7 @@ func (s *ChatService) HandleChatStream(
 		return nil, err
 	}
 
-	contextMessages, err := s.BuildContextMessages(sessionID, content)
+	contextMessages, err := s.BuildContextMessages(ctx, sessionID, modelConfig)
 	if err != nil {
 		return nil, err
 	}
@@ -261,12 +332,6 @@ func (s *ChatService) HandleChatStream(
 		},
 	}
 
-	modelConfig := ModelRuntimeConfig{
-		BaseURL: llmConfig.BaseURL,
-		APIKey:  llmConfig.APIKey,
-		Model:   llmConfig.Model,
-	}
-
 	activatedSkills := make(map[string]struct{})
 	answer, err := s.agent.RunAgentLoop(ctx, modelConfig, contextMessages, enabledMCPConfigs, activatedSkills, agentCallbacks)
 	if err != nil && answer == "" {
@@ -300,6 +365,9 @@ func (s *ChatService) HandleChatStream(
 	}
 	if err := s.repo.BindToolCallsToAssistantMessage(sessionID, requestID, assistantMessage.ID); err != nil {
 		return nil, err
+	}
+	if s.memory != nil {
+		s.memory.UpdateSummaryAsync(modelConfig, sessionID)
 	}
 
 	result := &ChatStreamResult{Answer: finalAnswer}

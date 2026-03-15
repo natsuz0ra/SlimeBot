@@ -23,6 +23,7 @@ func NewSQLite(dbPath string) (*gorm.DB, error) {
 	if err := db.AutoMigrate(
 		&models.Session{},
 		&models.Message{},
+		&models.SessionMemory{},
 		&models.ToolCallRecord{},
 		&models.AppSetting{},
 		&models.LLMConfig{},

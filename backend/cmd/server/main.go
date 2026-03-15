@@ -56,7 +56,8 @@ func main() {
 	mcpManager := mcp.NewManager()
 	skillPackageService := services.NewSkillPackageService(repo, cfg.SkillsRoot)
 	skillRuntimeService := services.NewSkillRuntimeService(repo, cfg.SkillsRoot)
-	chatService := services.NewChatService(repo, openaiClient, mcpManager, skillRuntimeService)
+	memoryService := services.NewMemoryService(repo, openaiClient)
+	chatService := services.NewChatService(repo, openaiClient, mcpManager, skillRuntimeService, memoryService)
 
 	httpController := controllers.NewHTTPController(repo, skillPackageService, skillRuntimeService, tokenManager)
 	wsController := controllers.NewWSController(chatService)

@@ -28,6 +28,7 @@ type sessionToolCallHistory struct {
 	FinishedAt       string            `json:"finishedAt,omitempty"`
 }
 
+// parseToolCallParams 解析 tool_call 参数 JSON；异常时回退为空对象避免前端崩溃。
 func parseToolCallParams(raw string) map[string]string {
 	trimmed := strings.TrimSpace(raw)
 	if trimmed == "" {
@@ -40,15 +41,17 @@ func parseToolCallParams(raw string) map[string]string {
 	return params
 }
 
+// ListSessions 返回当前用户的会话列表。
 func (h *HTTPController) ListSessions(c *gin.Context) {
 	sessions, err := h.repo.ListSessions()
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		jsonInternalError(c, err)
 		return
 	}
 	c.JSON(http.StatusOK, sessions)
 }
 
+// CreateSession 创建会话；未传 name 时使用默认名称。
 func (h *HTTPController) CreateSession(c *gin.Context) {
 	var req struct {
 		Name string `json:"name"`
@@ -60,47 +63,49 @@ func (h *HTTPController) CreateSession(c *gin.Context) {
 	}
 	session, err := h.repo.CreateSession(name)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		jsonInternalError(c, err)
 		return
 	}
 	c.JSON(http.StatusOK, session)
 }
 
+// RenameSession 修改指定会话名称。
 func (h *HTTPController) RenameSession(c *gin.Context) {
 	id := c.Param("id")
 	var req struct {
 		Name string `json:"name" binding:"required"`
 	}
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "name 必填"})
+	if !bindJSONOrBadRequest(c, &req, "name 必填") {
 		return
 	}
 	if err := h.repo.RenameSessionByUser(id, strings.TrimSpace(req.Name)); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		jsonInternalError(c, err)
 		return
 	}
 	c.Status(http.StatusNoContent)
 }
 
+// DeleteSession 删除指定会话及其关联数据。
 func (h *HTTPController) DeleteSession(c *gin.Context) {
 	id := c.Param("id")
 	if err := h.repo.DeleteSession(id); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		jsonInternalError(c, err)
 		return
 	}
 	c.Status(http.StatusNoContent)
 }
 
+// ListMessages 返回会话消息，并附带 assistant 消息关联的工具调用历史。
 func (h *HTTPController) ListMessages(c *gin.Context) {
 	sessionID := c.Param("id")
 	messages, err := h.repo.ListSessionMessages(sessionID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		jsonInternalError(c, err)
 		return
 	}
 	records, err := h.repo.ListSessionToolCallRecords(sessionID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		jsonInternalError(c, err)
 		return
 	}
 
@@ -132,17 +137,17 @@ func (h *HTTPController) ListMessages(c *gin.Context) {
 	})
 }
 
+// SetSessionModel 设置会话默认模型配置。
 func (h *HTTPController) SetSessionModel(c *gin.Context) {
 	id := c.Param("id")
 	var req struct {
 		ModelConfigID string `json:"modelConfigId" binding:"required"`
 	}
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "modelConfigId 必填"})
+	if !bindJSONOrBadRequest(c, &req, "modelConfigId 必填") {
 		return
 	}
 	if err := h.repo.SetSessionModel(id, req.ModelConfigID); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		jsonInternalError(c, err)
 		return
 	}
 	c.Status(http.StatusNoContent)

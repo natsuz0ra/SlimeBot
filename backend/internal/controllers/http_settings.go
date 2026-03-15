@@ -4,49 +4,38 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
+	"slimebot/backend/internal/services"
 )
 
+// GetSettings 返回当前全局设置（含默认值回填后的结果）。
 func (h *HTTPController) GetSettings(c *gin.Context) {
-	language, err := h.repo.GetSetting("language")
+	settings, err := h.settings.Get()
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-	if language == "" {
-		language = "zh-CN"
-	}
-
-	defaultModel, err := h.repo.GetSetting("defaultModel")
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		jsonInternalError(c, err)
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{
-		"language":     language,
-		"defaultModel": defaultModel,
+		"language":     settings.Language,
+		"defaultModel": settings.DefaultModel,
 	})
 }
 
+// UpdateSettings 按字段增量更新全局设置。
 func (h *HTTPController) UpdateSettings(c *gin.Context) {
 	var req struct {
 		Language     string `json:"language"`
 		DefaultModel string `json:"defaultModel"`
 	}
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "参数格式错误"})
+	if !bindJSONOrBadRequest(c, &req, "参数格式错误") {
 		return
 	}
-	if req.Language != "" {
-		if err := h.repo.SetSetting("language", req.Language); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-			return
-		}
-	}
-	if req.DefaultModel != "" {
-		if err := h.repo.SetSetting("defaultModel", req.DefaultModel); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-			return
-		}
+	err := h.settings.Update(services.UpdateSettingsInput{
+		Language:     req.Language,
+		DefaultModel: req.DefaultModel,
+	})
+	if err != nil {
+		jsonInternalError(c, err)
+		return
 	}
 	c.Status(http.StatusNoContent)
 }

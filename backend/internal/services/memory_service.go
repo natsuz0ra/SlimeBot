@@ -2,16 +2,11 @@ package services
 
 import (
 	"context"
-	"encoding/json"
-	"errors"
 	"fmt"
 	"log"
-	"net"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
-	"unicode"
 
 	"github.com/go-ego/gse"
 	"slimebot/backend/internal/models"
@@ -36,8 +31,6 @@ var defaultMemoryStopWords = map[string]struct{}{
 	"你": {}, "我": {}, "他": {}, "她": {}, "它": {}, "我们": {}, "你们": {}, "他们": {}, "以及": {}, "并且": {}, "或者": {},
 	"一个": {}, "一些": {}, "可以": {}, "需要": {}, "然后": {}, "就是": {}, "这里": {}, "这个": {}, "那个": {},
 }
-
-var nonWordRuneRegex = regexp.MustCompile(`[^\p{L}\p{N}_\-]+`)
 
 type MemoryDecision struct {
 	NeedMemory bool     `json:"need_memory"`
@@ -79,6 +72,7 @@ func NewMemoryService(repo *repositories.Repository, openai *OpenAIClient) *Memo
 	return service
 }
 
+// ShouldCompressContext 根据消息数量判断是否进入记忆压缩策略。
 func (m *MemoryService) ShouldCompressContext(sessionID string) (bool, int64, error) {
 	total, err := m.repo.CountSessionMessages(sessionID)
 	if err != nil {
@@ -87,6 +81,7 @@ func (m *MemoryService) ShouldCompressContext(sessionID string) (bool, int64, er
 	return total >= compressHistoryThreshold, total, nil
 }
 
+// DecideMemoryQuery 通过小模型决策当前提问是否需要检索历史记忆。
 func (m *MemoryService) DecideMemoryQuery(ctx context.Context, modelConfig ModelRuntimeConfig, userInput string, summary string) (MemoryDecision, error) {
 	systemPrompt := `你是“记忆检索决策器”。请根据用户当前输入和会话摘要，判断是否需要检索历史记忆来回答问题。
 仅返回 JSON，不要输出任何额外文本。
@@ -125,6 +120,7 @@ JSON 格式：
 	return decision, nil
 }
 
+// RetrieveMemories 根据关键词检索跨会话记忆，并可排除当前会话。
 func (m *MemoryService) RetrieveMemories(keywords []string, excludeSessionID string, limit int) ([]repositories.SessionMemorySearchHit, error) {
 	if limit <= 0 {
 		limit = memorySearchTopK
@@ -132,6 +128,7 @@ func (m *MemoryService) RetrieveMemories(keywords []string, excludeSessionID str
 	return m.repo.SearchMemoriesByKeywords(m.TokenizeKeywords(strings.Join(keywords, " ")), limit, excludeSessionID)
 }
 
+// FormatMemoryContext 将摘要与检索命中组织为可直接注入提示词的块结构。
 func (m *MemoryService) FormatMemoryContext(summary string, hits []repositories.SessionMemorySearchHit) string {
 	var b strings.Builder
 	if strings.TrimSpace(summary) != "" {
@@ -152,6 +149,7 @@ func (m *MemoryService) FormatMemoryContext(summary string, hits []repositories.
 	return strings.TrimSpace(b.String())
 }
 
+// QueryForAgent 是 memory 工具入口，返回标准化的检索结果文本。
 func (m *MemoryService) QueryForAgent(sessionID string, query string, topK int) (MemoryQueryResult, error) {
 	result := MemoryQueryResult{
 		Query: strings.TrimSpace(query),
@@ -210,10 +208,12 @@ func (m *MemoryService) buildMemoryQueryOutput(query string, keywords []string, 
 	return strings.TrimSpace(b.String())
 }
 
+// BuildCompactHistory 返回用于上下文压缩的近期消息切片。
 func (m *MemoryService) BuildCompactHistory(sessionID string) ([]models.Message, error) {
 	return m.repo.ListRecentSessionMessages(sessionID, compactRawHistoryLimit)
 }
 
+// UpdateSummaryAsync 异步触发摘要更新，并保证同一会话串行执行。
 func (m *MemoryService) UpdateSummaryAsync(modelConfig ModelRuntimeConfig, sessionID string) {
 	sessionID = strings.TrimSpace(sessionID)
 	if sessionID == "" {
@@ -238,6 +238,7 @@ func (m *MemoryService) UpdateSummaryAsync(modelConfig ModelRuntimeConfig, sessi
 	go m.runSummaryWorker(modelConfig, sessionID)
 }
 
+// runSummaryWorker 串行消费同会话的摘要更新任务，合并并发触发。
 func (m *MemoryService) runSummaryWorker(modelConfig ModelRuntimeConfig, sessionID string) {
 	defer func() {
 		if recovered := recover(); recovered != nil {
@@ -268,6 +269,7 @@ func (m *MemoryService) runSummaryWorker(modelConfig ModelRuntimeConfig, session
 	}
 }
 
+// runSummaryOnce 执行一次完整摘要更新：读取近期消息 -> 生成摘要 -> 持久化。
 func (m *MemoryService) runSummaryOnce(modelConfig ModelRuntimeConfig, sessionID string) {
 	startAt := time.Now()
 
@@ -342,6 +344,7 @@ func (m *MemoryService) runSummaryOnce(modelConfig ModelRuntimeConfig, sessionID
 	)
 }
 
+// MergeSummary 合并历史摘要与近期消息，生成新的会话记忆摘要。
 func (m *MemoryService) MergeSummary(ctx context.Context, modelConfig ModelRuntimeConfig, oldSummary string, recent []models.Message) (string, int, time.Duration, error) {
 	systemPrompt := `你是会话摘要器。请将“历史摘要”和“最新对话片段”融合成新的高质量记忆摘要。
 输出要求：
@@ -366,6 +369,7 @@ func (m *MemoryService) MergeSummary(ctx context.Context, modelConfig ModelRunti
 	return summary, attempts, elapsed, nil
 }
 
+// chatOnce 以流式接口调用模型并收集完整文本输出。
 func (m *MemoryService) chatOnce(ctx context.Context, modelConfig ModelRuntimeConfig, messages []ChatMessage) (string, error) {
 	var builder strings.Builder
 	err := m.openai.StreamChat(ctx, modelConfig, messages, func(chunk string) error {
@@ -378,6 +382,7 @@ func (m *MemoryService) chatOnce(ctx context.Context, modelConfig ModelRuntimeCo
 	return builder.String(), nil
 }
 
+// TokenizeKeywords 将输入分词去重并过滤停用词，产出检索关键词。
 func (m *MemoryService) TokenizeKeywords(text string) []string {
 	m.segOnce.Do(func() {
 		// 使用嵌入词典快速初始化，避免每次分词重复加载。
@@ -411,68 +416,6 @@ func (m *MemoryService) TokenizeKeywords(text string) []string {
 	return result
 }
 
-func parseMemoryDecision(raw string) (MemoryDecision, error) {
-	text := strings.TrimSpace(raw)
-	if text == "" {
-		return MemoryDecision{}, fmt.Errorf("记忆决策为空")
-	}
-	text = strings.TrimPrefix(text, "```json")
-	text = strings.TrimPrefix(text, "```")
-	text = strings.TrimSuffix(text, "```")
-	text = strings.TrimSpace(text)
-
-	start := strings.Index(text, "{")
-	end := strings.LastIndex(text, "}")
-	if start < 0 || end <= start {
-		return MemoryDecision{}, fmt.Errorf("记忆决策 JSON 格式错误")
-	}
-	jsonText := text[start : end+1]
-
-	var decision MemoryDecision
-	if err := json.Unmarshal([]byte(jsonText), &decision); err != nil {
-		return MemoryDecision{}, err
-	}
-	return decision, nil
-}
-
-func flattenMessages(messages []models.Message) string {
-	var b strings.Builder
-	for _, item := range messages {
-		role := strings.TrimSpace(item.Role)
-		if role == "" {
-			role = "unknown"
-		}
-		b.WriteString(role)
-		b.WriteString(": ")
-		b.WriteString(strings.TrimSpace(item.Content))
-		b.WriteString("\n")
-	}
-	return strings.TrimSpace(b.String())
-}
-
-func splitByUnicodeWord(text string) []string {
-	fields := strings.FieldsFunc(text, func(r rune) bool {
-		return !unicode.IsLetter(r) && !unicode.IsNumber(r) && r != '_' && r != '-'
-	})
-	return fields
-}
-
-func normalizeToken(token string) string {
-	normalized := strings.ToLower(strings.TrimSpace(token))
-	if normalized == "" {
-		return ""
-	}
-	normalized = nonWordRuneRegex.ReplaceAllString(normalized, "")
-	if normalized == "" {
-		return ""
-	}
-	runeCount := len([]rune(normalized))
-	if runeCount <= 1 {
-		return ""
-	}
-	return normalized
-}
-
 func (m *MemoryService) chatOnceWithRetry(
 	parent context.Context,
 	modelConfig ModelRuntimeConfig,
@@ -480,6 +423,7 @@ func (m *MemoryService) chatOnceWithRetry(
 	timeout time.Duration,
 	stage string,
 ) (string, int, time.Duration, error) {
+	// memory 阶段只允许有限重试，避免后台任务长期阻塞。
 	startAt := time.Now()
 	var lastErr error
 	attempts := 0
@@ -519,59 +463,4 @@ func (m *MemoryService) chatOnceWithRetry(
 	}
 
 	return "", attempts, time.Since(startAt), lastErr
-}
-
-func isRetryableMemoryError(err error) bool {
-	if err == nil {
-		return false
-	}
-	if errors.Is(err, context.Canceled) {
-		return false
-	}
-	if errors.Is(err, context.DeadlineExceeded) {
-		return true
-	}
-
-	var netErr net.Error
-	if errors.As(err, &netErr) {
-		return netErr.Timeout() || netErr.Temporary()
-	}
-
-	text := strings.ToLower(err.Error())
-	return strings.Contains(text, "deadline exceeded") ||
-		strings.Contains(text, "timeout") ||
-		strings.Contains(text, "i/o timeout") ||
-		strings.Contains(text, "connection reset") ||
-		strings.Contains(text, "broken pipe") ||
-		strings.Contains(text, "eof")
-}
-
-func classifyMemoryError(err error) string {
-	if err == nil {
-		return "none"
-	}
-	if errors.Is(err, context.DeadlineExceeded) {
-		return "deadline_exceeded"
-	}
-	if errors.Is(err, context.Canceled) {
-		return "canceled"
-	}
-
-	var netErr net.Error
-	if errors.As(err, &netErr) {
-		if netErr.Timeout() {
-			return "network_timeout"
-		}
-		return "network_error"
-	}
-
-	text := strings.ToLower(err.Error())
-	switch {
-	case strings.Contains(text, "deadline exceeded"), strings.Contains(text, "timeout"), strings.Contains(text, "i/o timeout"):
-		return "deadline_exceeded"
-	case strings.Contains(text, "connection reset"), strings.Contains(text, "broken pipe"), strings.Contains(text, "eof"):
-		return "network_error"
-	default:
-		return "unknown"
-	}
 }

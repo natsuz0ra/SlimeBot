@@ -92,27 +92,7 @@ func (c *httpClient) ListTools(ctx context.Context) ([]Tool, error) {
 	if err != nil {
 		return nil, err
 	}
-
-	toolItems, _ := result["tools"].([]any)
-	tools := make([]Tool, 0, len(toolItems))
-	for _, item := range toolItems {
-		obj, ok := item.(map[string]any)
-		if !ok {
-			continue
-		}
-		name, _ := obj["name"].(string)
-		if strings.TrimSpace(name) == "" {
-			continue
-		}
-		description, _ := obj["description"].(string)
-		inputSchema, _ := obj["inputSchema"].(map[string]any)
-		tools = append(tools, Tool{
-			Name:        name,
-			Description: description,
-			InputSchema: inputSchema,
-		})
-	}
-	return tools, nil
+	return parseTools(result), nil
 }
 
 // CallTool 调用指定工具并返回标准化调用结果。
@@ -129,34 +109,3 @@ func (c *httpClient) CallTool(ctx context.Context, name string, arguments map[st
 
 // Close 关闭 HTTP 客户端。HTTP 为无状态连接，此处无需额外资源回收。
 func (c *httpClient) Close() error { return nil }
-
-// parseCallResult 解析 MCP tools/call 的 result 字段并映射为统一返回结构。
-func parseCallResult(result map[string]any) *CallResult {
-	var out strings.Builder
-	if contents, ok := result["content"].([]any); ok {
-		for _, c := range contents {
-			item, ok := c.(map[string]any)
-			if !ok {
-				continue
-			}
-			text, _ := item["text"].(string)
-			if text == "" {
-				continue
-			}
-			if out.Len() > 0 {
-				out.WriteString("\n")
-			}
-			out.WriteString(text)
-		}
-	}
-
-	callErr := ""
-	// 当 isError=true 时，保持 output 文本原样并同步映射到 Error 字段。
-	if isError, _ := result["isError"].(bool); isError {
-		callErr = out.String()
-	}
-	return &CallResult{
-		Output: out.String(),
-		Error:  callErr,
-	}
-}

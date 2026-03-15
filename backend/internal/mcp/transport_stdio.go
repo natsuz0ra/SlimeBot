@@ -155,22 +155,7 @@ func (c *stdioClient) ListTools(ctx context.Context) ([]Tool, error) {
 	if err != nil {
 		return nil, err
 	}
-	toolItems, _ := result["tools"].([]any)
-	tools := make([]Tool, 0, len(toolItems))
-	for _, item := range toolItems {
-		obj, ok := item.(map[string]any)
-		if !ok {
-			continue
-		}
-		name, _ := obj["name"].(string)
-		if strings.TrimSpace(name) == "" {
-			continue
-		}
-		description, _ := obj["description"].(string)
-		inputSchema, _ := obj["inputSchema"].(map[string]any)
-		tools = append(tools, Tool{Name: name, Description: description, InputSchema: inputSchema})
-	}
-	return tools, nil
+	return parseTools(result), nil
 }
 
 // CallTool 调用指定工具并返回标准化调用结果。

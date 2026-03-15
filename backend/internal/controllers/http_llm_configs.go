@@ -7,37 +7,39 @@ import (
 	"slimebot/backend/internal/models"
 )
 
+// ListLLMConfigs 列出全部模型配置。
 func (h *HTTPController) ListLLMConfigs(c *gin.Context) {
 	items, err := h.repo.ListLLMConfigs()
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		jsonInternalError(c, err)
 		return
 	}
 	c.JSON(http.StatusOK, items)
 }
 
+// CreateLLMConfig 创建模型配置并校验核心字段。
 func (h *HTTPController) CreateLLMConfig(c *gin.Context) {
 	var req models.LLMConfig
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "参数格式错误"})
+	if !bindJSONOrBadRequest(c, &req, "参数格式错误") {
 		return
 	}
 	if req.Name == "" || req.BaseURL == "" || req.APIKey == "" || req.Model == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "name/baseUrl/apiKey/model 均必填"})
+		jsonError(c, http.StatusBadRequest, "name/baseUrl/apiKey/model 均必填")
 		return
 	}
 	item, err := h.repo.CreateLLMConfig(req)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		jsonInternalError(c, err)
 		return
 	}
 	c.JSON(http.StatusOK, item)
 }
 
+// DeleteLLMConfig 删除指定模型配置。
 func (h *HTTPController) DeleteLLMConfig(c *gin.Context) {
 	id := c.Param("id")
 	if err := h.repo.DeleteLLMConfig(id); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		jsonInternalError(c, err)
 		return
 	}
 	c.Status(http.StatusNoContent)

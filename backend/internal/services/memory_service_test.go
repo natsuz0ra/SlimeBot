@@ -8,10 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"gorm.io/driver/sqlite"
-	"gorm.io/gorm"
-	"slimebot/backend/internal/models"
 	"slimebot/backend/internal/repositories"
+	"slimebot/backend/internal/testutil"
 )
 
 func TestParseMemoryDecision_WithCodeFence(t *testing.T) {
@@ -255,23 +253,5 @@ func TestChatServiceBuildContextMessages_NoDuplicateUserMessage(t *testing.T) {
 
 func newTestRepo(t *testing.T) *repositories.Repository {
 	t.Helper()
-
-	dsn := fmt.Sprintf("file:test_%d?mode=memory&cache=shared", time.Now().UnixNano())
-	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
-	if err != nil {
-		t.Fatalf("open sqlite failed: %v", err)
-	}
-	if err := db.AutoMigrate(
-		&models.Session{},
-		&models.Message{},
-		&models.SessionMemory{},
-		&models.ToolCallRecord{},
-		&models.AppSetting{},
-		&models.LLMConfig{},
-		&models.MCPConfig{},
-		&models.Skill{},
-	); err != nil {
-		t.Fatalf("auto migrate failed: %v", err)
-	}
-	return repositories.New(db)
+	return repositories.New(testutil.NewSQLiteDB(t, "services_test"))
 }

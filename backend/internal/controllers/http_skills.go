@@ -8,6 +8,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+// ListSkills 返回已安装技能包列表。
 func (h *HTTPController) ListSkills(c *gin.Context) {
 	items, err := h.repo.ListSkills()
 	if err != nil {
@@ -17,6 +18,7 @@ func (h *HTTPController) ListSkills(c *gin.Context) {
 	c.JSON(http.StatusOK, items)
 }
 
+// UploadSkills 批量上传并安装技能 zip，返回成功与失败明细。
 func (h *HTTPController) UploadSkills(c *gin.Context) {
 	if h.skillPackage == nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "skills 上传服务未初始化"})
@@ -51,6 +53,7 @@ func (h *HTTPController) UploadSkills(c *gin.Context) {
 		Success: make([]any, 0, len(files)),
 		Failed:  make([]failedItem, 0),
 	}
+	// 按文件逐个安装，确保单个失败不会影响整批处理。
 	for _, fh := range files {
 		f, openErr := fh.Open()
 		if openErr != nil {
@@ -81,6 +84,7 @@ func (h *HTTPController) UploadSkills(c *gin.Context) {
 		return
 	}
 
+	// 部分成功使用 207，便于前端提示“有失败项”。
 	status := http.StatusOK
 	if len(resp.Failed) > 0 {
 		status = http.StatusMultiStatus
@@ -88,6 +92,7 @@ func (h *HTTPController) UploadSkills(c *gin.Context) {
 	c.JSON(status, resp)
 }
 
+// DeleteSkill 删除指定技能；优先走 runtime 以保持运行态一致。
 func (h *HTTPController) DeleteSkill(c *gin.Context) {
 	id := strings.TrimSpace(c.Param("id"))
 	if id == "" {

@@ -115,6 +115,7 @@ func BuildToolDefs() []ToolDef {
 	return defs
 }
 
+// buildRuntimeToolDefs 汇总运行时可见工具（内建 + skill + MCP）并返回名称映射。
 func (a *AgentService) buildRuntimeToolDefs(ctx context.Context, configs []models.MCPConfig) ([]ToolDef, map[string]mcp.ToolMeta, error) {
 	defs := BuildToolDefs()
 	metaByFunc := make(map[string]mcp.ToolMeta)
@@ -230,15 +231,8 @@ func (a *AgentService) RunAgentLoop(
 		preamble := strings.TrimSpace(result.AssistantMessage.Content)
 
 		for _, tc := range result.ToolCalls {
-			toolName, command, err := parseToolCallName(tc.Name)
-			isMCP := false
-			mcpMeta, hasMCPMeta := mcpToolMeta[tc.Name]
-			if hasMCPMeta {
-				toolName = mcpMeta.ServerAlias
-				command = mcpMeta.ToolName
-				isMCP = true
-			}
-			if err != nil && !isMCP {
+			invocation, err := resolveToolInvocation(tc, mcpToolMeta)
+			if err != nil {
 				messages = append(messages, ChatMessage{
 					Role:       "tool",
 					ToolCallID: tc.ID,
@@ -276,115 +270,44 @@ func (a *AgentService) RunAgentLoop(
 				continue
 			}
 
-			// 通知前端，等待审批
-			requiresApproval := requiresToolApproval(toolName, isMCP)
 			if err := callbacks.OnToolCallStart(ApprovalRequest{
 				ToolCallID:       tc.ID,
-				ToolName:         toolName,
-				Command:          command,
+				ToolName:         invocation.toolName,
+				Command:          invocation.command,
 				Params:           params,
-				RequiresApproval: requiresApproval,
+				RequiresApproval: invocation.requiresApproval,
 				Preamble:         preamble,
 			}); err != nil {
 				return "", fmt.Errorf("推送工具调用审批请求失败: %w", err)
 			}
 
-			if requiresApproval {
-				approvalCtx, cancel := context.WithTimeout(ctx, agentApprovalTimeout)
-				approval, err := callbacks.WaitApproval(approvalCtx, tc.ID)
-				cancel()
-
-				if err != nil {
-					messages = append(messages, ChatMessage{
-						Role:       "tool",
-						ToolCallID: tc.ID,
-						Content:    "用户审批超时或发生错误，工具调用已取消。",
-					})
-					if cbErr := callbacks.OnToolCallResult(ToolCallResult{
-						ToolCallID: tc.ID, ToolName: toolName, Command: command, RequiresApproval: requiresApproval, Status: "error",
-						Error: "审批超时",
-					}); cbErr != nil {
-						log.Printf("推送工具结果失败: %v", cbErr)
-					}
-					continue
-				}
-
-				if !approval.Approved {
-					messages = append(messages, ChatMessage{
-						Role:       "tool",
-						ToolCallID: tc.ID,
-						Content:    "用户拒绝了此工具调用，请换一种方式回答或告知用户需要授权才能完成此操作。",
-					})
-					if cbErr := callbacks.OnToolCallResult(ToolCallResult{
-						ToolCallID: tc.ID, ToolName: toolName, Command: command, RequiresApproval: requiresApproval, Status: "rejected",
-						Error: "用户拒绝执行",
-					}); cbErr != nil {
-						log.Printf("推送工具结果失败: %v", cbErr)
-					}
-					continue
-				}
+			approved, rejectionMessage := waitApprovalIfNeeded(ctx, callbacks, tc, invocation, params, preamble)
+			if !approved {
+				messages = append(messages, ChatMessage{
+					Role:       "tool",
+					ToolCallID: tc.ID,
+					Content:    rejectionMessage,
+				})
+				continue
 			}
 
 			// 执行工具
-			var execResult *tools.ExecuteResult
-			if isMCP {
-				argsAny, parseErr := parseToolCallArgsAny(tc.Arguments)
-				if parseErr != nil {
-					execResult = &tools.ExecuteResult{Error: parseErr.Error()}
-				} else {
-					callResult, callErr := a.mcp.Execute(ctx, mcpConfigs, toolName, command, argsAny)
-					if callErr != nil {
-						execResult = &tools.ExecuteResult{Error: callErr.Error()}
-					} else {
-						execResult = &tools.ExecuteResult{Output: callResult.Output, Error: callResult.Error}
-					}
-				}
-			} else if toolName == "memory" && command == "query" {
-				if memoryToolUsed {
-					execResult = &tools.ExecuteResult{Error: "memory__query 在单轮回答中最多调用 1 次"}
-				} else if a.memory == nil {
-					execResult = &tools.ExecuteResult{Error: "memory service 未启用"}
-				} else {
-					memoryToolUsed = true
-					topK := parseOptionalInt(params["top_k"], memoryToolDefaultTopK)
-					queryResult, queryErr := a.memory.QueryForAgent(sessionID, params["query"], topK)
-					if queryErr != nil {
-						execResult = &tools.ExecuteResult{Output: queryResult.Output, Error: queryErr.Error()}
-					} else {
-						execResult = &tools.ExecuteResult{Output: queryResult.Output}
-					}
-				}
-			} else {
-				execResult = executeToolCall(toolName, command, params)
-			}
-
-			resultStatus := "completed"
-			if execResult.Error != "" {
-				resultStatus = "error"
-			}
-			if cbErr := callbacks.OnToolCallResult(ToolCallResult{
+			execResult := a.executeInvocation(ctx, tc, invocation, params, sessionID, mcpConfigs, &memoryToolUsed)
+			resultStatus := buildToolResultStatus(execResult)
+			notifyToolResult(callbacks, ToolCallResult{
 				ToolCallID:       tc.ID,
-				ToolName:         toolName,
-				Command:          command,
-				RequiresApproval: requiresApproval,
+				ToolName:         invocation.toolName,
+				Command:          invocation.command,
+				RequiresApproval: invocation.requiresApproval,
 				Status:           resultStatus,
 				Output:           execResult.Output,
 				Error:            execResult.Error,
-			}); cbErr != nil {
-				log.Printf("推送工具结果失败: %v", cbErr)
-			}
-
-			var resultContent string
-			if execResult.Error != "" {
-				resultContent = fmt.Sprintf("执行结果:\n%s\n错误: %s", execResult.Output, execResult.Error)
-			} else {
-				resultContent = fmt.Sprintf("执行结果:\n%s", execResult.Output)
-			}
+			})
 
 			messages = append(messages, ChatMessage{
 				Role:       "tool",
 				ToolCallID: tc.ID,
-				Content:    resultContent,
+				Content:    buildToolResultContent(execResult),
 			})
 		}
 	}
@@ -422,6 +345,7 @@ func parseToolCallArgs(arguments string) (map[string]string, error) {
 	return result, nil
 }
 
+// parseToolCallArgsAny 保留参数原始类型，用于 MCP 工具调用。
 func parseToolCallArgsAny(arguments string) (map[string]any, error) {
 	if strings.TrimSpace(arguments) == "" {
 		return map[string]any{}, nil
@@ -433,6 +357,7 @@ func parseToolCallArgsAny(arguments string) (map[string]any, error) {
 	return raw, nil
 }
 
+// parseOptionalInt 解析可选整数参数；失败时回落默认值。
 func parseOptionalInt(raw string, defaultValue int) int {
 	value := strings.TrimSpace(raw)
 	if value == "" {
@@ -445,6 +370,7 @@ func parseOptionalInt(raw string, defaultValue int) int {
 	return parsed
 }
 
+// executeToolCall 执行内建工具命令并统一错误返回格式。
 func executeToolCall(toolName, command string, params map[string]string) *tools.ExecuteResult {
 	t, ok := tools.Get(toolName)
 	if !ok {
@@ -457,6 +383,7 @@ func executeToolCall(toolName, command string, params map[string]string) *tools.
 	return result
 }
 
+// requiresToolApproval 定义工具审批策略（当前仅 exec 需要审批）。
 func requiresToolApproval(toolName string, isMCP bool) bool {
 	if isMCP {
 		return false

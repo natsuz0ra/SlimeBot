@@ -1,13 +1,9 @@
 package repositories
 
 import (
-	"fmt"
 	"testing"
-	"time"
 
-	"gorm.io/driver/sqlite"
-	"gorm.io/gorm"
-	"slimebot/backend/internal/models"
+	"slimebot/backend/internal/testutil"
 )
 
 func TestUpsertSessionMemoryIfNewer_MonotonicBySourceMessageCount(t *testing.T) {
@@ -80,23 +76,5 @@ func TestUpsertSessionMemoryIfNewer_MonotonicBySourceMessageCount(t *testing.T) 
 
 func newSessionMemoryRepo(t *testing.T) *Repository {
 	t.Helper()
-
-	dsn := fmt.Sprintf("file:memory_repo_%d?mode=memory&cache=shared", time.Now().UnixNano())
-	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
-	if err != nil {
-		t.Fatalf("open sqlite failed: %v", err)
-	}
-	if err := db.AutoMigrate(
-		&models.Session{},
-		&models.Message{},
-		&models.SessionMemory{},
-		&models.ToolCallRecord{},
-		&models.AppSetting{},
-		&models.LLMConfig{},
-		&models.MCPConfig{},
-		&models.Skill{},
-	); err != nil {
-		t.Fatalf("auto migrate failed: %v", err)
-	}
-	return New(db)
+	return New(testutil.NewSQLiteDB(t, "memory_repo"))
 }

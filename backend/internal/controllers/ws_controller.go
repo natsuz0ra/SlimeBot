@@ -113,7 +113,19 @@ func (w *WSController) Chat(wr http.ResponseWriter, req *http.Request) {
 		}
 	}
 
-	// 单写协程：保证 websocket 写操作串行化
+	w.startWriteLoop(sessionCtx, cancelSession, conn, writeCh)
+	w.startReadLoop(sessionCtx, cancelSession, conn, enqueue, chatCh, broker)
+	w.runChatLoop(sessionCtx, enqueue, chatCh, broker)
+}
+
+// startWriteLoop 启动单独写协程，确保 websocket 发送顺序一致。
+func (w *WSController) startWriteLoop(
+	sessionCtx context.Context,
+	cancelSession context.CancelFunc,
+	conn *websocket.Conn,
+	writeCh <-chan map[string]any,
+) {
+	// 单写协程：保证 websocket 写操作串行化。
 	go func() {
 		for {
 			select {
@@ -127,9 +139,18 @@ func (w *WSController) Chat(wr http.ResponseWriter, req *http.Request) {
 			}
 		}
 	}()
+}
 
+// startReadLoop 解析客户端协议消息，并分流到聊天队列或审批通道。
+func (w *WSController) startReadLoop(
+	sessionCtx context.Context,
+	cancelSession context.CancelFunc,
+	conn *websocket.Conn,
+	enqueue func(map[string]any) bool,
+	chatCh chan<- chatIncoming,
+	broker *approvalBroker,
+) {
 	// 读协程负责协议解包与分流；实际聊天处理在主循环串行执行。
-	// 读协程：处理 ping/chat/tool_approve 消息
 	go func() {
 		for {
 			_, payload, err := conn.ReadMessage()
@@ -153,7 +174,6 @@ func (w *WSController) Chat(wr http.ResponseWriter, req *http.Request) {
 					cancelSession()
 					return
 				}
-
 			case "tool_approve":
 				if incoming.ToolCallID != "" && incoming.Approved != nil {
 					broker.Resolve(incoming.ToolCallID, services.ApprovalResponse{
@@ -161,7 +181,6 @@ func (w *WSController) Chat(wr http.ResponseWriter, req *http.Request) {
 						Approved:   *incoming.Approved,
 					})
 				}
-
 			case "chat", "":
 				if strings.TrimSpace(incoming.Content) == "" {
 					continue
@@ -171,7 +190,6 @@ func (w *WSController) Chat(wr http.ResponseWriter, req *http.Request) {
 					return
 				case chatCh <- incoming:
 				}
-
 			default:
 				if !enqueue(map[string]any{"type": "error", "error": "不支持的消息类型"}) {
 					cancelSession()
@@ -180,170 +198,180 @@ func (w *WSController) Chat(wr http.ResponseWriter, req *http.Request) {
 			}
 		}
 	}()
+}
 
-	// 聊天处理循环
+// runChatLoop 串行消费 chat 消息，避免同连接内并发处理导致状态错乱。
+func (w *WSController) runChatLoop(
+	sessionCtx context.Context,
+	enqueue func(map[string]any) bool,
+	chatCh <-chan chatIncoming,
+	broker *approvalBroker,
+) {
 	for {
 		select {
 		case <-sessionCtx.Done():
 			return
 		case incoming := <-chatCh:
-			receivedAt := time.Now()
-			sessionID := strings.TrimSpace(incoming.SessionID)
-			if sessionID == "" {
-				if !enqueue(map[string]any{
-					"type":      "error",
-					"sessionId": "",
-					"error":     errors.New("sessionId is required").Error(),
-				}) {
-					return
-				}
-				continue
-			}
-			session, err := w.chatService.EnsureSession(sessionID)
-			if err != nil {
-				if !enqueue(map[string]any{
-					"type":      "error",
-					"sessionId": sessionID,
-					"error":     err.Error(),
-				}) {
-					return
-				}
-				continue
-			}
-
-			if !enqueue(map[string]any{"type": "session", "sessionId": session.ID}) {
+			if !w.handleChatIncoming(sessionCtx, enqueue, broker, incoming) {
 				return
 			}
-			// 先发 start，再逐块下发 chunk，前端据此进入流式渲染状态。
-			if !enqueue(map[string]any{"type": "start", "sessionId": session.ID}) {
-				return
-			}
-			startSentAt := time.Now()
-			var firstChunkSentAt time.Time
-			requestID := uuid.NewString()
-
-			chatCtx, cancel := context.WithTimeout(sessionCtx, 300*time.Second)
-
-			callbacks := services.AgentCallbacks{
-				OnChunk: func(chunk string) error {
-					// 首块到达时间用于统计首包延迟。
-					if firstChunkSentAt.IsZero() && chunk != "" {
-						firstChunkSentAt = time.Now()
-					}
-					if !enqueue(map[string]any{
-						"type":      "chunk",
-						"sessionId": session.ID,
-						"content":   chunk,
-					}) {
-						return context.Canceled
-					}
-					return nil
-				},
-				OnToolCallStart: func(req services.ApprovalRequest) error {
-					// 通知前端进入工具审批流程。
-					if !enqueue(map[string]any{
-						"type":             "tool_call_start",
-						"sessionId":        session.ID,
-						"toolCallId":       req.ToolCallID,
-						"toolName":         req.ToolName,
-						"command":          req.Command,
-						"params":           req.Params,
-						"requiresApproval": req.RequiresApproval,
-						"preamble":         req.Preamble,
-					}) {
-						return context.Canceled
-					}
-					return nil
-				},
-				WaitApproval: func(ctx context.Context, toolCallID string) (*services.ApprovalResponse, error) {
-					// 将工具调用挂起，等待前端回传 tool_approve 结果。
-					ch := broker.Register(toolCallID)
-					defer broker.Remove(toolCallID)
-					select {
-					case <-ctx.Done():
-						return nil, ctx.Err()
-					case resp := <-ch:
-						return &resp, nil
-					}
-				},
-				OnToolCallResult: func(result services.ToolCallResult) error {
-					// 回传工具执行结果，便于前端展示中间产物。
-					if !enqueue(map[string]any{
-						"type":             "tool_call_result",
-						"sessionId":        session.ID,
-						"toolCallId":       result.ToolCallID,
-						"toolName":         result.ToolName,
-						"command":          result.Command,
-						"requiresApproval": result.RequiresApproval,
-						"status":           result.Status,
-						"output":           result.Output,
-						"error":            result.Error,
-					}) {
-						return context.Canceled
-					}
-					return nil
-				},
-			}
-
-			streamResult, err := w.chatService.HandleChatStream(chatCtx, session.ID, requestID, incoming.Content, incoming.ModelID, callbacks)
-			cancel()
-
-			if err != nil {
-				if !enqueue(map[string]any{
-					"type":      "error",
-					"sessionId": session.ID,
-					"error":     err.Error(),
-				}) {
-					return
-				}
-				continue
-			}
-
-			if streamResult != nil && streamResult.TitleUpdated {
-				// 标题有更新时，单独推送会话标题事件以刷新列表展示。
-				if !enqueue(map[string]any{
-					"type":      "session_title",
-					"sessionId": session.ID,
-					"title":     streamResult.Title,
-				}) {
-					return
-				}
-			}
-			if streamResult != nil && streamResult.PushFailed {
-				// 上游推送失败但消息已落库，前端收到提示后可引导用户重连。
-				if !enqueue(map[string]any{
-					"type":      "error",
-					"sessionId": session.ID,
-					"error":     "推送中断，消息已保存",
-				}) {
-					return
-				}
-			}
-			donePayload := map[string]any{"type": "done", "sessionId": session.ID}
-			if streamResult != nil {
-				donePayload["answer"] = streamResult.Answer
-			}
-			if !enqueue(donePayload) {
-				return
-			}
-			doneSentAt := time.Now()
-
-			startToFirstChunkMs := int64(-1)
-			firstChunkToDoneMs := int64(-1)
-			if !firstChunkSentAt.IsZero() {
-				startToFirstChunkMs = firstChunkSentAt.Sub(startSentAt).Milliseconds()
-				firstChunkToDoneMs = doneSentAt.Sub(firstChunkSentAt).Milliseconds()
-			}
-			log.Printf(
-				// 记录端到端关键阶段耗时，便于定位首包慢或尾包慢问题。
-				"ws_chat_timing session=%s receive_to_start_ms=%d start_to_first_chunk_ms=%d first_chunk_to_done_ms=%d total_ms=%d",
-				session.ID,
-				startSentAt.Sub(receivedAt).Milliseconds(),
-				startToFirstChunkMs,
-				firstChunkToDoneMs,
-				doneSentAt.Sub(receivedAt).Milliseconds(),
-			)
 		}
+	}
+}
+
+// handleChatIncoming 处理单条 chat 请求并完成流式输出与收尾事件下发。
+func (w *WSController) handleChatIncoming(
+	sessionCtx context.Context,
+	enqueue func(map[string]any) bool,
+	broker *approvalBroker,
+	incoming chatIncoming,
+) bool {
+	receivedAt := time.Now()
+	sessionID := strings.TrimSpace(incoming.SessionID)
+	if sessionID == "" {
+		return enqueue(map[string]any{
+			"type":      "error",
+			"sessionId": "",
+			"error":     errors.New("sessionId is required").Error(),
+		})
+	}
+
+	session, err := w.chatService.EnsureSession(sessionID)
+	if err != nil {
+		return enqueue(map[string]any{
+			"type":      "error",
+			"sessionId": sessionID,
+			"error":     err.Error(),
+		})
+	}
+	if !enqueue(map[string]any{"type": "session", "sessionId": session.ID}) {
+		return false
+	}
+	if !enqueue(map[string]any{"type": "start", "sessionId": session.ID}) {
+		return false
+	}
+
+	startSentAt := time.Now()
+	var firstChunkSentAt time.Time
+	requestID := uuid.NewString()
+	chatCtx, cancel := context.WithTimeout(sessionCtx, 300*time.Second)
+	callbacks := w.buildCallbacks(enqueue, broker, session.ID, &firstChunkSentAt)
+	streamResult, err := w.chatService.HandleChatStream(chatCtx, session.ID, requestID, incoming.Content, incoming.ModelID, callbacks)
+	cancel()
+
+	if err != nil {
+		return enqueue(map[string]any{
+			"type":      "error",
+			"sessionId": session.ID,
+			"error":     err.Error(),
+		})
+	}
+	if streamResult != nil && streamResult.TitleUpdated {
+		if !enqueue(map[string]any{
+			"type":      "session_title",
+			"sessionId": session.ID,
+			"title":     streamResult.Title,
+		}) {
+			return false
+		}
+	}
+	if streamResult != nil && streamResult.PushFailed {
+		if !enqueue(map[string]any{
+			"type":      "error",
+			"sessionId": session.ID,
+			"error":     "推送中断，消息已保存",
+		}) {
+			return false
+		}
+	}
+	donePayload := map[string]any{"type": "done", "sessionId": session.ID}
+	if streamResult != nil {
+		donePayload["answer"] = streamResult.Answer
+	}
+	if !enqueue(donePayload) {
+		return false
+	}
+
+	doneSentAt := time.Now()
+	startToFirstChunkMs := int64(-1)
+	firstChunkToDoneMs := int64(-1)
+	if !firstChunkSentAt.IsZero() {
+		startToFirstChunkMs = firstChunkSentAt.Sub(startSentAt).Milliseconds()
+		firstChunkToDoneMs = doneSentAt.Sub(firstChunkSentAt).Milliseconds()
+	}
+	log.Printf(
+		"ws_chat_timing session=%s receive_to_start_ms=%d start_to_first_chunk_ms=%d first_chunk_to_done_ms=%d total_ms=%d",
+		session.ID,
+		startSentAt.Sub(receivedAt).Milliseconds(),
+		startToFirstChunkMs,
+		firstChunkToDoneMs,
+		doneSentAt.Sub(receivedAt).Milliseconds(),
+	)
+	return true
+}
+
+// buildCallbacks 构建 chatService 所需回调，桥接为 websocket 协议事件。
+func (w *WSController) buildCallbacks(
+	enqueue func(map[string]any) bool,
+	broker *approvalBroker,
+	sessionID string,
+	firstChunkSentAt *time.Time,
+) services.AgentCallbacks {
+	return services.AgentCallbacks{
+		OnChunk: func(chunk string) error {
+			if firstChunkSentAt != nil && firstChunkSentAt.IsZero() && chunk != "" {
+				*firstChunkSentAt = time.Now()
+			}
+			if !enqueue(map[string]any{
+				"type":      "chunk",
+				"sessionId": sessionID,
+				"content":   chunk,
+			}) {
+				return context.Canceled
+			}
+			return nil
+		},
+		OnToolCallStart: func(req services.ApprovalRequest) error {
+			if !enqueue(map[string]any{
+				"type":             "tool_call_start",
+				"sessionId":        sessionID,
+				"toolCallId":       req.ToolCallID,
+				"toolName":         req.ToolName,
+				"command":          req.Command,
+				"params":           req.Params,
+				"requiresApproval": req.RequiresApproval,
+				"preamble":         req.Preamble,
+			}) {
+				return context.Canceled
+			}
+			return nil
+		},
+		WaitApproval: func(ctx context.Context, toolCallID string) (*services.ApprovalResponse, error) {
+			ch := broker.Register(toolCallID)
+			defer broker.Remove(toolCallID)
+			select {
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			case resp := <-ch:
+				return &resp, nil
+			}
+		},
+		OnToolCallResult: func(result services.ToolCallResult) error {
+			if !enqueue(map[string]any{
+				"type":             "tool_call_result",
+				"sessionId":        sessionID,
+				"toolCallId":       result.ToolCallID,
+				"toolName":         result.ToolName,
+				"command":          result.Command,
+				"requiresApproval": result.RequiresApproval,
+				"status":           result.Status,
+				"output":           result.Output,
+				"error":            result.Error,
+			}) {
+				return context.Canceled
+			}
+			return nil
+		},
 	}
 }
 

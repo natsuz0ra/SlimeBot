@@ -254,7 +254,7 @@ func (w *WSController) handleChatIncoming(
 	startSentAt := time.Now()
 	var firstChunkSentAt time.Time
 	requestID := uuid.NewString()
-	chatCtx, cancel := context.WithTimeout(sessionCtx, 300*time.Second)
+	chatCtx, cancel := context.WithTimeout(sessionCtx, 600*time.Second)
 	callbacks := w.buildCallbacks(enqueue, broker, session.ID, &firstChunkSentAt)
 	streamResult, err := w.chatService.HandleChatStream(chatCtx, session.ID, requestID, incoming.Content, incoming.ModelID, callbacks)
 	cancel()

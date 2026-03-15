@@ -125,7 +125,7 @@ function onOutputToggle(event: Event) {
     <section v-if="paramsDisplay || showResult" class="tool-section mt-2">
       <template v-if="paramsDisplay">
         <p class="tool-section-title">{{ t('toolCallParams') }}</p>
-        <pre class="tool-params">{{ paramsDisplay }}</pre>
+        <pre class="tool-params sb-scrollbar">{{ paramsDisplay }}</pre>
       </template>
 
       <div v-if="showResult" class="tool-result-block">
@@ -138,6 +138,7 @@ function onOutputToggle(event: Event) {
             <span class="tool-result-label">{{ t('toolCallResult') }}</span>
             <span class="tool-output-summary">{{ t('toolCallOutput') }}</span>
           </summary>
+          <!-- Keep scrollbar visual style consistent with detail dialog via global sb-scrollbar -->
           <pre :id="outputPanelId" class="tool-output sb-scrollbar">{{ item.output }}</pre>
         </details>
 

@@ -20,6 +20,14 @@ type resolvedToolInvocation struct {
 
 // resolveToolInvocation 将模型返回的函数名解析成统一工具调用描述。
 func resolveToolInvocation(tc ToolCallInfo, mcpToolMeta map[string]mcp.ToolMeta) (resolvedToolInvocation, error) {
+	if tc.Name == "activate_skill" {
+		return resolvedToolInvocation{
+			toolName:         "activate_skill",
+			command:          "activate",
+			isMCP:            false,
+			requiresApproval: false,
+		}, nil
+	}
 	toolName, command, err := parseToolCallName(tc.Name)
 	if mcpMeta, ok := mcpToolMeta[tc.Name]; ok {
 		return resolvedToolInvocation{

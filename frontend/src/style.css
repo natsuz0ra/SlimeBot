@@ -43,18 +43,19 @@ html, body {
 /* Shared scrollbar style for reusable scroll containers */
 .sb-scrollbar::-webkit-scrollbar {
   width: 4px;
+  height: 4px;
 }
 .sb-scrollbar::-webkit-scrollbar-track {
   background: transparent;
 }
 .sb-scrollbar::-webkit-scrollbar-thumb {
-  background: transparent;
+  background: var(--scrollbar-thumb);
   border-radius: 4px;
   transition: background 0.25s;
 }
 .sb-scrollbar {
   scrollbar-width: thin;
-  scrollbar-color: transparent transparent;
+  scrollbar-color: var(--scrollbar-thumb) transparent;
 }
 .sb-scrollbar:hover::-webkit-scrollbar-thumb,
 .sb-scrollbar.is-scrolling::-webkit-scrollbar-thumb {
@@ -255,10 +256,27 @@ html.theme-switching *::after {
   white-space: pre;
   font-size: 13px;
   border: 1px solid rgba(99, 102, 241, 0.2);
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar-thumb) transparent;
 }
 .dark .bubble-markdown pre {
   background: rgba(0, 0, 0, 0.4);
   border-color: rgba(99, 102, 241, 0.15);
+}
+.bubble-markdown pre::-webkit-scrollbar {
+  width: 4px;
+  height: 4px;
+}
+.bubble-markdown pre::-webkit-scrollbar-track {
+  background: transparent;
+}
+.bubble-markdown pre::-webkit-scrollbar-thumb {
+  background: var(--scrollbar-thumb);
+  border-radius: 4px;
+  transition: background 0.25s;
+}
+.bubble-markdown pre:hover::-webkit-scrollbar-thumb {
+  background: var(--scrollbar-thumb-hover);
 }
 .bubble-markdown pre > code { display: block; }
 .bubble-markdown code {

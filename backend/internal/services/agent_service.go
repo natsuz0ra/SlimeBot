@@ -15,7 +15,7 @@ import (
 )
 
 const (
-	agentMaxIterations    = 10
+	agentMaxIterations    = 50
 	agentApprovalTimeout  = 120 * time.Second
 	maxToolNameLen        = 64
 	memoryToolDefaultTopK = 3

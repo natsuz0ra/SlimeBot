@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"time"
 
 	"slimebot/backend/internal/mcp"
@@ -20,6 +21,8 @@ type ChatService struct {
 	agent        *AgentService
 	skillRuntime *SkillRuntimeService
 	memory       *MemoryService
+	skillsMu     sync.Mutex
+	skillsBySess map[string]map[string]struct{}
 }
 
 const contextHistoryLimit = 20
@@ -40,6 +43,43 @@ func NewChatService(repo *repositories.Repository, openai *OpenAIClient, mcpMana
 		agent:        NewAgentService(openai, mcpManager, skillRuntime, memory),
 		skillRuntime: skillRuntime,
 		memory:       memory,
+		skillsBySess: make(map[string]map[string]struct{}),
+	}
+}
+
+func (s *ChatService) getSessionActivatedSkills(sessionID string) map[string]struct{} {
+	if strings.TrimSpace(sessionID) == "" {
+		return map[string]struct{}{}
+	}
+	s.skillsMu.Lock()
+	defer s.skillsMu.Unlock()
+	if s.skillsBySess == nil {
+		s.skillsBySess = make(map[string]map[string]struct{})
+	}
+	current := s.skillsBySess[sessionID]
+	copyMap := make(map[string]struct{}, len(current))
+	for name := range current {
+		copyMap[name] = struct{}{}
+	}
+	return copyMap
+}
+
+func (s *ChatService) mergeSessionActivatedSkills(sessionID string, activated map[string]struct{}) {
+	if strings.TrimSpace(sessionID) == "" || len(activated) == 0 {
+		return
+	}
+	s.skillsMu.Lock()
+	defer s.skillsMu.Unlock()
+	if s.skillsBySess == nil {
+		s.skillsBySess = make(map[string]map[string]struct{})
+	}
+	existing := s.skillsBySess[sessionID]
+	if existing == nil {
+		existing = make(map[string]struct{}, len(activated))
+		s.skillsBySess[sessionID] = existing
+	}
+	for name := range activated {
+		existing[name] = struct{}{}
 	}
 }
 
@@ -332,8 +372,9 @@ func (s *ChatService) HandleChatStream(
 		},
 	}
 
-	activatedSkills := make(map[string]struct{})
+	activatedSkills := s.getSessionActivatedSkills(sessionID)
 	answer, err := s.agent.RunAgentLoop(ctx, modelConfig, sessionID, contextMessages, enabledMCPConfigs, activatedSkills, agentCallbacks)
+	s.mergeSessionActivatedSkills(sessionID, activatedSkills)
 	if err != nil && answer == "" {
 		return nil, err
 	}

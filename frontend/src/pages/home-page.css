@@ -366,28 +366,22 @@ textarea {
 }
 
 /* ── 滚动条样式（可复用） ── */
-.scroll-area::-webkit-scrollbar,
-.sb-scrollbar::-webkit-scrollbar {
+.scroll-area::-webkit-scrollbar {
   width: 4px;
 }
-.scroll-area::-webkit-scrollbar-track,
-.sb-scrollbar::-webkit-scrollbar-track {
+.scroll-area::-webkit-scrollbar-track {
   background: transparent;
 }
-.scroll-area::-webkit-scrollbar-thumb,
-.sb-scrollbar::-webkit-scrollbar-thumb {
+.scroll-area::-webkit-scrollbar-thumb {
   background: transparent;
   border-radius: 4px;
   transition: background 0.25s;
 }
 .scroll-area:hover::-webkit-scrollbar-thumb,
-.scroll-area.is-scrolling::-webkit-scrollbar-thumb,
-.sb-scrollbar:hover::-webkit-scrollbar-thumb,
-.sb-scrollbar.is-scrolling::-webkit-scrollbar-thumb {
+.scroll-area.is-scrolling::-webkit-scrollbar-thumb {
   background: var(--scrollbar-thumb);
 }
-.scroll-area:hover::-webkit-scrollbar-thumb:hover,
-.sb-scrollbar:hover::-webkit-scrollbar-thumb:hover {
+.scroll-area:hover::-webkit-scrollbar-thumb:hover {
   background: var(--scrollbar-thumb-hover);
 }
 

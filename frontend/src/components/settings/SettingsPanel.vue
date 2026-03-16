@@ -682,7 +682,6 @@ onMounted(loadData)
             <img src="/im_icon/telegram.svg" alt="telegram" class="w-5 h-5 flex-shrink-0" />
             <div class="flex-1 min-w-0">
               <div class="text-sm font-medium settings-item-name">{{ t('telegram') }}</div>
-              <div class="text-xs settings-item-sub mt-0.5">{{ t('messagePlatformBindDesc') }}</div>
             </div>
             <template v-if="telegramConfig">
               <button

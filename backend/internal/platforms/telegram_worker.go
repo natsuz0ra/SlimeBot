@@ -14,7 +14,7 @@ import (
 const (
 	// 轮询参数固定在代码常量中，避免运行时配置漂移影响行为。
 	telegramPollTimeoutSeconds = 25
-	telegramIdleWaitInterval   = 2 * time.Second
+	telegramIdleWaitInterval   = 60 * time.Second
 	telegramErrorBackoff       = 5 * time.Second
 	telegramPlatformName       = "telegram"
 )

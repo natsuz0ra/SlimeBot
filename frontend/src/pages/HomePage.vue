@@ -544,19 +544,16 @@ function onTextareaInput(e: Event) {
               <SlimeBotLogo :size="80" animated class="new-chat-logo mb-1.0 drop-shadow-lg" />
 
               <!-- 欢迎标题 -->
-              <h2 class="text-2xl font-bold mb-2 text-center welcome-title">
-                <template v-if="isMessagePlatformSession">{{ t('messagePlatformEmptyTitle') }}</template>
-                <template v-else>
-                  {{ displayedWelcomeTitle }}
-                  <span
-                    v-if="showTypeCursor"
-                    class="welcome-cursor"
-                    :class="titlePhase === 'cursor' ? 'welcome-cursor-pre' : 'welcome-cursor-typing'"
-                    aria-hidden="true"
-                  >
-                    |
-                  </span>
-                </template>
+              <h2 v-if="!isMessagePlatformSession" class="text-2xl font-bold mb-2 text-center welcome-title">
+                {{ displayedWelcomeTitle }}
+                <span
+                  v-if="showTypeCursor"
+                  class="welcome-cursor"
+                  :class="titlePhase === 'cursor' ? 'welcome-cursor-pre' : 'welcome-cursor-typing'"
+                  aria-hidden="true"
+                >
+                  |
+                </span>
               </h2>
               <p class="text-muted text-sm mb-6 text-center">
                 {{ isMessagePlatformSession ? t('messagePlatformEmptySubtitle') : t('welcomeSubtitle') }}

@@ -1,4 +1,4 @@
-package controllers
+package controller
 
 import (
 	"encoding/json"
@@ -7,10 +7,9 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
-	"slimebot/backend/internal/models"
+	"slimebot/backend/internal/consts"
+	"slimebot/backend/internal/services"
 )
-
-const telegramPlatformName = "telegram"
 
 type telegramAuthConfig struct {
 	BotToken string `json:"botToken"`
@@ -26,7 +25,7 @@ func validatePlatformAuthConfig(platform string, raw string) error {
 	if err := json.Unmarshal([]byte(trimmed), &asObject); err != nil {
 		return err
 	}
-	if strings.EqualFold(platform, telegramPlatformName) {
+	if strings.EqualFold(platform, consts.TelegramPlatformName) {
 		var cfg telegramAuthConfig
 		if err := json.Unmarshal([]byte(trimmed), &cfg); err != nil {
 			return err
@@ -40,7 +39,7 @@ func validatePlatformAuthConfig(platform string, raw string) error {
 
 // ListMessagePlatformConfigs 列出全部消息平台配置。
 func (h *HTTPController) ListMessagePlatformConfigs(c *gin.Context) {
-	items, err := h.repo.ListMessagePlatformConfigs()
+	items, err := h.platforms.List()
 	if err != nil {
 		jsonInternalError(c, err)
 		return
@@ -50,22 +49,32 @@ func (h *HTTPController) ListMessagePlatformConfigs(c *gin.Context) {
 
 // CreateMessagePlatformConfig 创建消息平台配置并校验鉴权结构。
 func (h *HTTPController) CreateMessagePlatformConfig(c *gin.Context) {
-	var req models.MessagePlatformConfig
-	if !bindJSONOrBadRequest(c, &req, "参数格式错误") {
+	var req struct {
+		Platform       string `json:"platform"`
+		DisplayName    string `json:"displayName"`
+		AuthConfigJSON string `json:"authConfigJson"`
+		IsEnabled      bool   `json:"isEnabled"`
+	}
+	if !bindJSONOrBadRequest(c, &req, "Invalid request payload format.") {
 		return
 	}
 	req.Platform = strings.ToLower(strings.TrimSpace(req.Platform))
 	req.DisplayName = strings.TrimSpace(req.DisplayName)
 	req.AuthConfigJSON = strings.TrimSpace(req.AuthConfigJSON)
 	if req.Platform == "" || req.DisplayName == "" || req.AuthConfigJSON == "" {
-		jsonError(c, http.StatusBadRequest, "platform/displayName/authConfigJson 必填")
+		jsonError(c, http.StatusBadRequest, "platform, displayName, and authConfigJson are required.")
 		return
 	}
 	if err := validatePlatformAuthConfig(req.Platform, req.AuthConfigJSON); err != nil {
-		jsonError(c, http.StatusBadRequest, "authConfigJson 格式错误或缺少必填字段")
+		jsonError(c, http.StatusBadRequest, "authConfigJson is invalid or missing required fields.")
 		return
 	}
-	item, err := h.repo.CreateMessagePlatformConfig(req)
+	item, err := h.platforms.Create(services.MessagePlatformConfigInput{
+		Platform:       req.Platform,
+		DisplayName:    req.DisplayName,
+		AuthConfigJSON: req.AuthConfigJSON,
+		IsEnabled:      req.IsEnabled,
+	})
 	if err != nil {
 		jsonInternalError(c, err)
 		return
@@ -76,22 +85,32 @@ func (h *HTTPController) CreateMessagePlatformConfig(c *gin.Context) {
 // UpdateMessagePlatformConfig 更新消息平台配置并复用鉴权校验。
 func (h *HTTPController) UpdateMessagePlatformConfig(c *gin.Context) {
 	id := c.Param("id")
-	var req models.MessagePlatformConfig
-	if !bindJSONOrBadRequest(c, &req, "参数格式错误") {
+	var req struct {
+		Platform       string `json:"platform"`
+		DisplayName    string `json:"displayName"`
+		AuthConfigJSON string `json:"authConfigJson"`
+		IsEnabled      bool   `json:"isEnabled"`
+	}
+	if !bindJSONOrBadRequest(c, &req, "Invalid request payload format.") {
 		return
 	}
 	req.Platform = strings.ToLower(strings.TrimSpace(req.Platform))
 	req.DisplayName = strings.TrimSpace(req.DisplayName)
 	req.AuthConfigJSON = strings.TrimSpace(req.AuthConfigJSON)
 	if req.Platform == "" || req.DisplayName == "" || req.AuthConfigJSON == "" {
-		jsonError(c, http.StatusBadRequest, "platform/displayName/authConfigJson 必填")
+		jsonError(c, http.StatusBadRequest, "platform, displayName, and authConfigJson are required.")
 		return
 	}
 	if err := validatePlatformAuthConfig(req.Platform, req.AuthConfigJSON); err != nil {
-		jsonError(c, http.StatusBadRequest, "authConfigJson 格式错误或缺少必填字段")
+		jsonError(c, http.StatusBadRequest, "authConfigJson is invalid or missing required fields.")
 		return
 	}
-	if err := h.repo.UpdateMessagePlatformConfig(id, req); err != nil {
+	if err := h.platforms.Update(id, services.MessagePlatformConfigInput{
+		Platform:       req.Platform,
+		DisplayName:    req.DisplayName,
+		AuthConfigJSON: req.AuthConfigJSON,
+		IsEnabled:      req.IsEnabled,
+	}); err != nil {
 		jsonInternalError(c, err)
 		return
 	}
@@ -101,7 +120,7 @@ func (h *HTTPController) UpdateMessagePlatformConfig(c *gin.Context) {
 // DeleteMessagePlatformConfig 删除指定消息平台配置。
 func (h *HTTPController) DeleteMessagePlatformConfig(c *gin.Context) {
 	id := c.Param("id")
-	if err := h.repo.DeleteMessagePlatformConfig(id); err != nil {
+	if err := h.platforms.Delete(id); err != nil {
 		jsonInternalError(c, err)
 		return
 	}

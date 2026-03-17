@@ -4,14 +4,18 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
-	"github.com/google/uuid"
+	"slimebot/backend/internal/consts"
 	"slimebot/backend/internal/models"
 	"slimebot/backend/internal/services"
+
+	"github.com/google/uuid"
 )
 
 type Dispatcher struct {
-	chat platformChatService
+	chat      platformChatService
+	approvals ApprovalBroker
 }
 
 type platformChatService interface {
@@ -27,14 +31,20 @@ type platformChatService interface {
 	) (*services.ChatStreamResult, error)
 }
 
-func NewDispatcher(chat platformChatService) *Dispatcher {
-	return &Dispatcher{chat: chat}
+func NewDispatcher(chat platformChatService, approvals ApprovalBroker) *Dispatcher {
+	return &Dispatcher{
+		chat:      chat,
+		approvals: approvals,
+	}
 }
 
-// HandleInbound 将平台消息转发到统一对话引擎，并把结果回传到平台。
+// HandleInbound 是消息平台的主入口：
+// 1) 校验入站消息并解析 chat/session/model；
+// 2) 组装 AgentCallbacks，串联工具开始、审批等待、工具结果回传；
+// 3) 将最终模型回复发送回平台。
 func (d *Dispatcher) HandleInbound(ctx context.Context, message InboundMessage, sender OutboundSender) error {
 	if d == nil || d.chat == nil {
-		return fmt.Errorf("dispatcher 未初始化")
+		return fmt.Errorf("dispatcher is not initialized")
 	}
 	content := strings.TrimSpace(message.Text)
 	if content == "" {
@@ -42,7 +52,7 @@ func (d *Dispatcher) HandleInbound(ctx context.Context, message InboundMessage, 
 	}
 	chatID := strings.TrimSpace(message.ChatID)
 	if chatID == "" {
-		return fmt.Errorf("chat id 为空")
+		return fmt.Errorf("chat id is required")
 	}
 
 	session, err := d.chat.EnsureMessagePlatformSession()
@@ -59,13 +69,23 @@ func (d *Dispatcher) HandleInbound(ctx context.Context, message InboundMessage, 
 			return nil
 		},
 		OnToolCallStart: func(req services.ApprovalRequest) error {
-			summary := formatToolStartSummary(req)
-			return sender.SendText(chatID, summary)
+			if req.RequiresApproval {
+				if d.approvals == nil {
+					return fmt.Errorf("dispatcher approvals is not initialized")
+				}
+				approveData, rejectData, err := d.approvals.Register(req.ToolCallID, chatID, consts.AgentApprovalTimeout+10*time.Second)
+				if err != nil {
+					return err
+				}
+				return sender.SendApprovalKeyboard(chatID, formatToolApprovalPrompt(req), approveData, rejectData)
+			}
+			return sender.SendText(chatID, formatToolStartSummary(req))
 		},
-		// 平台侧暂不支持审批交互，先明确拒绝并提示在 Web 端操作。
-		WaitApproval: func(_ context.Context, _ string) (*services.ApprovalResponse, error) {
-			_ = sender.SendText(chatID, "检测到需要审批的工具操作，当前 Telegram 会话不支持审批，已自动拒绝。请在 Web 端完成审批后重试。")
-			return &services.ApprovalResponse{Approved: false}, nil
+		WaitApproval: func(waitCtx context.Context, toolCallID string) (*services.ApprovalResponse, error) {
+			if d.approvals == nil {
+				return nil, fmt.Errorf("dispatcher approvals is not initialized")
+			}
+			return d.approvals.Wait(waitCtx, toolCallID)
 		},
 		OnToolCallResult: func(result services.ToolCallResult) error {
 			return sender.SendText(chatID, formatToolResultSummary(result))
@@ -88,9 +108,17 @@ func (d *Dispatcher) HandleInbound(ctx context.Context, message InboundMessage, 
 	}
 	answer := strings.TrimSpace(streamResult.Answer)
 	if answer == "" {
-		answer = "模型没有返回内容。"
+		answer = "The model returned no content."
 	}
 	return sender.SendText(chatID, answer)
+}
+
+// HandleTelegramApprovalCallback 只负责把 Telegram 回调转给审批 broker 解析并落地结果。
+func (d *Dispatcher) HandleTelegramApprovalCallback(chatID string, callbackData string) (bool, error) {
+	if d == nil || d.approvals == nil {
+		return false, fmt.Errorf("dispatcher approvals is not initialized")
+	}
+	return d.approvals.ResolveByCallback(chatID, callbackData)
 }
 
 func formatToolStartSummary(req services.ApprovalRequest) string {
@@ -109,18 +137,26 @@ func formatToolStartSummary(req services.ApprovalRequest) string {
 		}
 	}
 	if len(params) == 0 {
-		return fmt.Sprintf("工具执行开始：%s", req.ToolName)
+		return fmt.Sprintf("Tool execution started: %s", req.ToolName)
 	}
-	return fmt.Sprintf("工具执行开始：%s（%s）", req.ToolName, strings.Join(params, ", "))
+	return fmt.Sprintf("Tool execution started: %s (%s)", req.ToolName, strings.Join(params, ", "))
 }
 
 func formatToolResultSummary(result services.ToolCallResult) string {
-	statusText := "失败"
+	statusText := "failed"
 	if strings.EqualFold(strings.TrimSpace(result.Status), "completed") {
-		statusText = "成功"
+		statusText = "succeeded"
 	}
 	if strings.TrimSpace(result.Error) == "" {
-		return fmt.Sprintf("工具执行%s：%s", statusText, result.ToolName)
+		return fmt.Sprintf("Tool execution %s: %s", statusText, result.ToolName)
 	}
-	return fmt.Sprintf("工具执行%s：%s（%s）", statusText, result.ToolName, strings.TrimSpace(result.Error))
+	return fmt.Sprintf("Tool execution %s: %s (%s)", statusText, result.ToolName, strings.TrimSpace(result.Error))
+}
+
+func formatToolApprovalPrompt(req services.ApprovalRequest) string {
+	base := fmt.Sprintf("Tool execution requires approval: %s", req.ToolName)
+	if strings.TrimSpace(req.Command) != "" {
+		base = fmt.Sprintf("%s (%s)", base, strings.TrimSpace(req.Command))
+	}
+	return base + "\nPlease choose Approve or Reject."
 }

@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 
+	"slimebot/backend/internal/consts"
 	"slimebot/backend/internal/models"
 )
 
@@ -30,11 +31,6 @@ type managedClient struct {
 	alias    string
 	client   Client
 }
-
-const (
-	mcpFuncNameMaxLen = 64
-	mcpFuncHashLen    = 8
-)
 
 // NewManager 创建一个新的 MCP 管理器实例。
 func NewManager() *Manager {
@@ -200,19 +196,19 @@ func buildMCPFuncName(serverAlias, toolName string) string {
 	serverToken := sanitizeToken(serverAlias)
 	toolToken := sanitizeToken(toolName)
 	full := serverToken + "__" + toolToken
-	if len(full) <= mcpFuncNameMaxLen {
+	if len(full) <= consts.MCPFuncNameMaxLen {
 		return full
 	}
 
 	// 保留可读前缀，并追加稳定哈希，兼顾长度限制与冲突概率。
 	sum := sha1.Sum([]byte(serverToken + "::" + toolToken))
 	hash := hex.EncodeToString(sum[:])
-	if len(hash) > mcpFuncHashLen {
-		hash = hash[:mcpFuncHashLen]
+	if len(hash) > consts.MCPFuncHashLen {
+		hash = hash[:consts.MCPFuncHashLen]
 	}
 
 	// 预留 "__" 与 "_<hash>"。
-	available := mcpFuncNameMaxLen - len("__") - 1 - len(hash)
+	available := consts.MCPFuncNameMaxLen - len("__") - 1 - len(hash)
 	if available < 2 {
 		available = 2
 	}
@@ -222,10 +218,10 @@ func buildMCPFuncName(serverAlias, toolName string) string {
 	shortServer := truncateToken(serverToken, serverLen)
 	shortTool := truncateToken(toolToken, toolLen)
 	name := shortServer + "__" + shortTool + "_" + hash
-	if len(name) <= mcpFuncNameMaxLen {
+	if len(name) <= consts.MCPFuncNameMaxLen {
 		return name
 	}
-	return name[:mcpFuncNameMaxLen]
+	return name[:consts.MCPFuncNameMaxLen]
 }
 
 func truncateToken(input string, max int) string {

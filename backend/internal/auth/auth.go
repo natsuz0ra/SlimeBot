@@ -10,12 +10,6 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
-const (
-	SettingAuthUsername            = "auth.username"
-	SettingAuthPasswordHash        = "auth.password_hash"
-	SettingAuthForcePasswordChange = "auth.force_password_change"
-)
-
 type Claims struct {
 	Username string `json:"username"`
 	jwt.RegisteredClaims

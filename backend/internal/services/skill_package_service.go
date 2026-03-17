@@ -13,16 +13,9 @@ import (
 	"time"
 
 	"github.com/goccy/go-yaml"
+	"slimebot/backend/internal/consts"
 	"slimebot/backend/internal/models"
 	"slimebot/backend/internal/repositories"
-)
-
-const (
-	maxSkillZipBytes       = 20 * 1024 * 1024
-	maxSkillExtractedBytes = 50 * 1024 * 1024
-	maxSkillSingleFileSize = 10 * 1024 * 1024
-	maxSkillFileCount      = 2000
-	maxSkillResourcesShown = 200
 )
 
 type SkillPackageService struct {
@@ -58,8 +51,8 @@ func (s *SkillPackageService) InstallFromZip(filename string, data []byte) (*mod
 	if len(data) == 0 {
 		return nil, fmt.Errorf("上传文件为空")
 	}
-	if len(data) > maxSkillZipBytes {
-		return nil, fmt.Errorf("zip 文件过大，最大允许 %d MB", maxSkillZipBytes/(1024*1024))
+	if len(data) > consts.MaxSkillZipBytes {
+		return nil, fmt.Errorf("zip 文件过大，最大允许 %d MB", consts.MaxSkillZipBytes/(1024*1024))
 	}
 	if !strings.HasSuffix(strings.ToLower(strings.TrimSpace(filename)), ".zip") {
 		return nil, fmt.Errorf("仅支持上传 .zip 文件")
@@ -134,8 +127,8 @@ func (s *SkillPackageService) validateZipAndCollect(data []byte) (*parsedSkillMe
 	if len(reader.File) == 0 {
 		return nil, nil, fmt.Errorf("zip 内容为空")
 	}
-	if len(reader.File) > maxSkillFileCount {
-		return nil, nil, fmt.Errorf("zip 中文件过多，最多允许 %d 个", maxSkillFileCount)
+	if len(reader.File) > consts.MaxSkillFileCount {
+		return nil, nil, fmt.Errorf("zip 中文件过多，最多允许 %d 个", consts.MaxSkillFileCount)
 	}
 
 	topLevels := make(map[string]struct{})
@@ -158,8 +151,8 @@ func (s *SkillPackageService) validateZipAndCollect(data []byte) (*parsedSkillMe
 		collected[cleanName] = file
 
 		if !file.FileInfo().IsDir() {
-			if file.UncompressedSize64 > maxSkillSingleFileSize {
-				return nil, nil, fmt.Errorf("文件 %s 超过单文件大小限制 %d MB", cleanName, maxSkillSingleFileSize/(1024*1024))
+			if file.UncompressedSize64 > consts.MaxSkillSingleFileSize {
+				return nil, nil, fmt.Errorf("文件 %s 超过单文件大小限制 %d MB", cleanName, consts.MaxSkillSingleFileSize/(1024*1024))
 			}
 			total += file.UncompressedSize64
 		}
@@ -177,8 +170,8 @@ func (s *SkillPackageService) validateZipAndCollect(data []byte) (*parsedSkillMe
 	if !isValidSkillName(topDir) {
 		return nil, nil, fmt.Errorf("顶层目录名不符合规范（仅小写字母/数字/连字符，1-64，不能以连字符开头或结尾，不能连续连字符）")
 	}
-	if total > maxSkillExtractedBytes {
-		return nil, nil, fmt.Errorf("解压后总大小超过限制 %d MB", maxSkillExtractedBytes/(1024*1024))
+	if total > consts.MaxSkillExtractedBytes {
+		return nil, nil, fmt.Errorf("解压后总大小超过限制 %d MB", consts.MaxSkillExtractedBytes/(1024*1024))
 	}
 
 	skillFilePath := topDir + "/SKILL.md"
@@ -278,7 +271,7 @@ func readSkillMetadata(file *zip.File, expectedName string) (*parsedSkillMetadat
 	}
 	defer rc.Close()
 
-	raw, err := io.ReadAll(io.LimitReader(rc, maxSkillSingleFileSize))
+	raw, err := io.ReadAll(io.LimitReader(rc, consts.MaxSkillSingleFileSize))
 	if err != nil {
 		return nil, fmt.Errorf("读取 SKILL.md 失败: %w", err)
 	}
@@ -375,7 +368,7 @@ func listSkillResourceFiles(skillDir string) ([]string, error) {
 			return nil
 		}
 		results = append(results, rel)
-		if len(results) >= maxSkillResourcesShown {
+		if len(results) >= consts.MaxSkillResourcesShown {
 			return fs.SkipAll
 		}
 		return nil

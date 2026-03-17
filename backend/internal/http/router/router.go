@@ -6,11 +6,12 @@ import (
 	"github.com/gin-gonic/gin"
 	"slimebot/backend/internal/auth"
 	"slimebot/backend/internal/config"
-	"slimebot/backend/internal/controllers"
-	"slimebot/backend/internal/middleware"
+	"slimebot/backend/internal/http/controller"
+	"slimebot/backend/internal/http/middleware"
+	"slimebot/backend/internal/http/ws"
 )
 
-func New(cfg config.Config, tokenManager *auth.TokenManager, httpController *controllers.HTTPController, wsController *controllers.WSController) *gin.Engine {
+func New(cfg config.Config, tokenManager *auth.TokenManager, httpController *controller.HTTPController, wsController *ws.Controller) *gin.Engine {
 	r := gin.Default()
 	r.Use(cors(cfg.Frontend))
 

@@ -45,14 +45,14 @@ export function useHomeSessionActions(options: {
   const isMessagePlatformSession = computed(() => store.currentSessionId === MESSAGE_PLATFORM_SESSION_ID)
   const currentSession = computed(() => {
     const current = store.sessions.find((item) => item.id === store.currentSessionId)
-    if (current) return current
     if (isMessagePlatformSession.value) {
       return {
         id: MESSAGE_PLATFORM_SESSION_ID,
         name: t('messagePlatformSession'),
-        updatedAt: '',
+        updatedAt: current?.updatedAt ?? '',
       }
     }
+    if (current) return current
     return undefined
   })
   const canManageCurrentSession = computed(() => !isMessagePlatformSession.value)

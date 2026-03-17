@@ -9,20 +9,9 @@ import (
 	"time"
 
 	"github.com/go-ego/gse"
+	"slimebot/backend/internal/consts"
 	"slimebot/backend/internal/models"
 	"slimebot/backend/internal/repositories"
-)
-
-const (
-	compressHistoryThreshold       = 10
-	compactRawHistoryLimit         = 6
-	memorySearchTopK               = 5
-	memoryDecisionTimeout          = 20 * time.Second
-	memorySummaryTimeout           = 45 * time.Second
-	memoryCallMaxAttempts          = 2
-	memoryRetryBackoff             = 350 * time.Millisecond
-	memorySummaryRecentMessageSize = 30
-	memoryKeywordMaxCount          = 12
 )
 
 var defaultMemoryStopWords = map[string]struct{}{
@@ -78,7 +67,7 @@ func (m *MemoryService) ShouldCompressContext(sessionID string) (bool, int64, er
 	if err != nil {
 		return false, 0, err
 	}
-	return total >= compressHistoryThreshold, total, nil
+	return total >= consts.CompressHistoryThreshold, total, nil
 }
 
 // DecideMemoryQuery 通过小模型决策当前提问是否需要检索历史记忆。
@@ -96,7 +85,7 @@ JSON 格式：
 	reply, attempts, elapsed, err := m.chatOnceWithRetry(ctx, modelConfig, []ChatMessage{
 		{Role: "system", Content: systemPrompt},
 		{Role: "user", Content: userPrompt},
-	}, memoryDecisionTimeout, "memory_decision")
+	}, consts.MemoryDecisionTimeout, "memory_decision")
 	if err != nil {
 		return MemoryDecision{}, err
 	}
@@ -115,7 +104,7 @@ JSON 格式：
 		len(decision.Keywords),
 		attempts,
 		elapsed.Milliseconds(),
-		memoryDecisionTimeout.Milliseconds(),
+		consts.MemoryDecisionTimeout.Milliseconds(),
 	)
 	return decision, nil
 }
@@ -123,7 +112,7 @@ JSON 格式：
 // RetrieveMemories 根据关键词检索跨会话记忆，并可排除当前会话。
 func (m *MemoryService) RetrieveMemories(keywords []string, excludeSessionID string, limit int) ([]repositories.SessionMemorySearchHit, error) {
 	if limit <= 0 {
-		limit = memorySearchTopK
+		limit = consts.MemorySearchTopK
 	}
 	return m.repo.SearchMemoriesByKeywords(m.TokenizeKeywords(strings.Join(keywords, " ")), limit, excludeSessionID)
 }
@@ -210,7 +199,7 @@ func (m *MemoryService) buildMemoryQueryOutput(query string, keywords []string, 
 
 // BuildCompactHistory 返回用于上下文压缩的近期消息切片。
 func (m *MemoryService) BuildCompactHistory(sessionID string) ([]models.Message, error) {
-	return m.repo.ListRecentSessionMessages(sessionID, compactRawHistoryLimit)
+	return m.repo.ListRecentSessionMessages(sessionID, consts.CompactRawHistoryLimit)
 }
 
 // UpdateSummaryAsync 异步触发摘要更新，并保证同一会话串行执行。
@@ -283,7 +272,7 @@ func (m *MemoryService) runSummaryOnce(modelConfig ModelRuntimeConfig, sessionID
 		return
 	}
 
-	recent, err := m.repo.ListRecentSessionMessages(sessionID, memorySummaryRecentMessageSize)
+	recent, err := m.repo.ListRecentSessionMessages(sessionID, consts.MemorySummaryRecentMessageSize)
 	if err != nil {
 		log.Printf("memory_summary_skip session=%s reason=recent_failed err=%v", sessionID, err)
 		return
@@ -310,7 +299,7 @@ func (m *MemoryService) runSummaryOnce(modelConfig ModelRuntimeConfig, sessionID
 			sessionID,
 			attempts,
 			summaryCost.Milliseconds(),
-			memorySummaryTimeout.Milliseconds(),
+			consts.MemorySummaryTimeout.Milliseconds(),
 			classifyMemoryError(err),
 			err,
 		)
@@ -339,7 +328,7 @@ func (m *MemoryService) runSummaryOnce(modelConfig ModelRuntimeConfig, sessionID
 		len(keywords),
 		attempts,
 		summaryCost.Milliseconds(),
-		memorySummaryTimeout.Milliseconds(),
+		consts.MemorySummaryTimeout.Milliseconds(),
 		time.Since(startAt).Milliseconds(),
 	)
 }
@@ -357,7 +346,7 @@ func (m *MemoryService) MergeSummary(ctx context.Context, modelConfig ModelRunti
 	reply, attempts, elapsed, err := m.chatOnceWithRetry(ctx, modelConfig, []ChatMessage{
 		{Role: "system", Content: systemPrompt},
 		{Role: "user", Content: userPrompt},
-	}, memorySummaryTimeout, "memory_summary")
+	}, consts.MemorySummaryTimeout, "memory_summary")
 	if err != nil {
 		return "", attempts, elapsed, err
 	}
@@ -409,7 +398,7 @@ func (m *MemoryService) TokenizeKeywords(text string) []string {
 		}
 		seen[normalized] = struct{}{}
 		result = append(result, normalized)
-		if len(result) >= memoryKeywordMaxCount {
+		if len(result) >= consts.MemoryKeywordMaxCount {
 			break
 		}
 	}
@@ -428,7 +417,7 @@ func (m *MemoryService) chatOnceWithRetry(
 	var lastErr error
 	attempts := 0
 
-	for attempt := 1; attempt <= memoryCallMaxAttempts; attempt++ {
+	for attempt := 1; attempt <= consts.MemoryCallMaxAttempts; attempt++ {
 		attempts = attempt
 		attemptCtx, cancel := context.WithTimeout(parent, timeout)
 		invoker := m.chatInvoker
@@ -442,7 +431,7 @@ func (m *MemoryService) chatOnceWithRetry(
 		}
 		lastErr = err
 
-		retryable := attempt < memoryCallMaxAttempts && isRetryableMemoryError(err) && parent.Err() == nil
+		retryable := attempt < consts.MemoryCallMaxAttempts && isRetryableMemoryError(err) && parent.Err() == nil
 		log.Printf(
 			"%s_attempt_failed attempt=%d timeout_ms=%d retryable=%t err_class=%s err=%v",
 			stage,
@@ -458,7 +447,7 @@ func (m *MemoryService) chatOnceWithRetry(
 		select {
 		case <-parent.Done():
 			return "", attempts, time.Since(startAt), parent.Err()
-		case <-time.After(memoryRetryBackoff):
+		case <-time.After(consts.MemoryRetryBackoff):
 		}
 	}
 

@@ -81,7 +81,7 @@ const skillsRows = computed(() =>
 )
 const mcpDialogTitle = computed(() => (mcpEditingID.value ? t('editMcp') : t('addMcp')))
 const messagePlatformModelOptions = computed(() => {
-  const base = llmRows.value.map((item) => ({ value: item.id, label: `${item.name} · ${item.model}` }))
+  const base = llmRows.value.map((item) => ({ value: item.id, label: item.name }))
   return [{ value: '', label: t('messagePlatformModelUnset') }, ...base]
 })
 const telegramConfig = computed(() => messagePlatformList.value.find((item: any) => item.platform === 'telegram'))

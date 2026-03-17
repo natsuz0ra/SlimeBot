@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"slimebot/backend/internal/consts"
 	"slimebot/backend/internal/repositories"
 	"slimebot/backend/internal/testutil"
 )
@@ -47,7 +48,7 @@ func TestMemoryServiceShouldCompressContext(t *testing.T) {
 		t.Fatalf("create session failed: %v", err)
 	}
 	sessionID := session.ID
-	for i := 0; i < compressHistoryThreshold; i++ {
+	for i := 0; i < consts.CompressHistoryThreshold; i++ {
 		if _, err := repo.AddMessage(sessionID, "user", "hello"); err != nil {
 			t.Fatalf("add message failed: %v", err)
 		}
@@ -60,7 +61,7 @@ func TestMemoryServiceShouldCompressContext(t *testing.T) {
 	if !ok {
 		t.Fatal("expected compress=true when threshold reached")
 	}
-	if count != compressHistoryThreshold {
+	if count != consts.CompressHistoryThreshold {
 		t.Fatalf("unexpected count: %d", count)
 	}
 }

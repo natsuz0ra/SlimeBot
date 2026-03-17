@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"slimebot/backend/internal/consts"
 	"slimebot/backend/internal/models"
 	"slimebot/backend/internal/repositories"
 )
@@ -123,7 +124,7 @@ func (s *SkillRuntimeService) ActivateSkill(name string, activated map[string]st
 		for _, f := range files {
 			b.WriteString("  <file>" + escapeXML(f) + "</file>\n")
 		}
-		if len(files) >= maxSkillResourcesShown {
+		if len(files) >= consts.MaxSkillResourcesShown {
 			b.WriteString("  <note>资源列表已截断</note>\n")
 		}
 		b.WriteString("</skill_resources>\n")

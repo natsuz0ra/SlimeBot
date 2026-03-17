@@ -1,4 +1,4 @@
-package controllers
+package controller
 
 import (
 	"net/http"
@@ -13,11 +13,10 @@ func jsonError(c *gin.Context, status int, message string) {
 
 // jsonInternalError 统一 500 错误写出，并兼容空错误对象。
 func jsonInternalError(c *gin.Context, err error) {
-	if err == nil {
-		jsonError(c, http.StatusInternalServerError, "internal server error")
-		return
+	if err != nil {
+		_ = c.Error(err)
 	}
-	jsonError(c, http.StatusInternalServerError, err.Error())
+	jsonError(c, http.StatusInternalServerError, "internal server error")
 }
 
 // bindJSONOrBadRequest 统一请求体绑定失败处理，返回 false 表示应立即结束 handler。

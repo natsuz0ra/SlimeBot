@@ -57,20 +57,15 @@ func (r *Repository) UpdateSessionTitle(id, name string) error {
 }
 
 func (r *Repository) DeleteSession(id string) error {
-	tx := r.db.Begin()
-	if err := tx.Where("session_id = ?", id).Delete(&models.Message{}).Error; err != nil {
-		tx.Rollback()
-		return err
-	}
-	if err := tx.Where("session_id = ?", id).Delete(&models.ToolCallRecord{}).Error; err != nil {
-		tx.Rollback()
-		return err
-	}
-	if err := tx.Where("id = ?", id).Delete(&models.Session{}).Error; err != nil {
-		tx.Rollback()
-		return err
-	}
-	return tx.Commit().Error
+	return r.db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Where("session_id = ?", id).Delete(&models.Message{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("session_id = ?", id).Delete(&models.ToolCallRecord{}).Error; err != nil {
+			return err
+		}
+		return tx.Where("id = ?", id).Delete(&models.Session{}).Error
+	})
 }
 
 func (r *Repository) SetSessionModel(sessionID, modelConfigID string) error {

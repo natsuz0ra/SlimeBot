@@ -10,6 +10,7 @@ import (
 
 	"github.com/openai/openai-go/v3"
 	"github.com/openai/openai-go/v3/option"
+	"slimebot/backend/internal/consts"
 )
 
 type OpenAIClient struct {
@@ -51,11 +52,6 @@ type ToolDef struct {
 // StreamResultType 区分流式结果类型
 type StreamResultType int
 
-const (
-	StreamResultText      StreamResultType = iota // 纯文本回复
-	StreamResultToolCalls                         // 工具调用请求
-)
-
 // StreamResult 包含一次流式调用的结果
 type StreamResult struct {
 	// 本次流式结果类型：文本或工具调用。
@@ -79,8 +75,8 @@ func (c *OpenAIClient) StreamChat(ctx context.Context, modelConfig ModelRuntimeC
 	if err != nil {
 		return err
 	}
-	if result.Type == StreamResultToolCalls {
-		return fmt.Errorf("模型意外返回了工具调用，但当前未启用工具")
+	if result.Type == StreamResultType(consts.StreamResultToolCalls) {
+		return fmt.Errorf("The model unexpectedly returned tool calls while tools are disabled.")
 	}
 	return nil
 }
@@ -100,7 +96,7 @@ func (c *OpenAIClient) StreamChatWithTools(
 	apiKey := strings.TrimSpace(modelConfig.APIKey)
 	model := strings.TrimSpace(modelConfig.Model)
 	if baseURL == "" || apiKey == "" || model == "" {
-		return nil, fmt.Errorf("模型配置缺失 baseUrl/apiKey/model")
+		return nil, fmt.Errorf("Model config is missing baseUrl, apiKey, or model.")
 	}
 
 	client := openai.NewClient(
@@ -112,7 +108,7 @@ func (c *OpenAIClient) StreamChatWithTools(
 	supportDeveloperRole := supportsDeveloperRole(baseURL)
 	requestMessages := buildRequestMessages(messages, supportDeveloperRole)
 	if len(requestMessages) == 0 {
-		return nil, fmt.Errorf("请求消息为空")
+		return nil, fmt.Errorf("Request messages are empty.")
 	}
 
 	// 组装 OpenAI 聊天参数；仅在有工具定义时启用 tools。
@@ -143,12 +139,12 @@ func (c *OpenAIClient) StreamChatWithTools(
 		}
 	}
 	if err := stream.Err(); err != nil {
-		return nil, fmt.Errorf("模型请求失败: %w", err)
+		return nil, fmt.Errorf("Model request failed: %w", err)
 	}
 
 	// 无选择分支时按空文本处理，保持返回结构稳定。
 	if len(acc.Choices) == 0 {
-		return &StreamResult{Type: StreamResultText}, nil
+		return &StreamResult{Type: StreamResultType(consts.StreamResultText)}, nil
 	}
 
 	choice := acc.Choices[0]
@@ -163,7 +159,7 @@ func (c *OpenAIClient) StreamChatWithTools(
 			})
 		}
 		return &StreamResult{
-			Type:      StreamResultToolCalls,
+			Type:      StreamResultType(consts.StreamResultToolCalls),
 			ToolCalls: calls,
 			// 保留完整 assistant 消息，供上层追加回上下文继续推理。
 			AssistantMessage: ChatMessage{
@@ -174,7 +170,7 @@ func (c *OpenAIClient) StreamChatWithTools(
 		}, nil
 	}
 
-	return &StreamResult{Type: StreamResultText}, nil
+	return &StreamResult{Type: StreamResultType(consts.StreamResultText)}, nil
 }
 
 func supportsDeveloperRole(baseURL string) bool {

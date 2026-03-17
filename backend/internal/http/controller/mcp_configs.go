@@ -1,17 +1,16 @@
-package controllers
+package controller
 
 import (
 	"net/http"
 	"strings"
 
 	"github.com/gin-gonic/gin"
-	"slimebot/backend/internal/mcp"
-	"slimebot/backend/internal/models"
+	"slimebot/backend/internal/services"
 )
 
 // ListMCPConfigs 列出全部 MCP 服务配置。
 func (h *HTTPController) ListMCPConfigs(c *gin.Context) {
-	items, err := h.repo.ListMCPConfigs()
+	items, err := h.mcpConfigs.List()
 	if err != nil {
 		jsonInternalError(c, err)
 		return
@@ -21,21 +20,29 @@ func (h *HTTPController) ListMCPConfigs(c *gin.Context) {
 
 // CreateMCPConfig 创建 MCP 配置并执行配置内容校验。
 func (h *HTTPController) CreateMCPConfig(c *gin.Context) {
-	var req models.MCPConfig
-	if !bindJSONOrBadRequest(c, &req, "参数格式错误") {
+	var req struct {
+		Name      string `json:"name"`
+		Config    string `json:"config"`
+		IsEnabled bool   `json:"isEnabled"`
+	}
+	if !bindJSONOrBadRequest(c, &req, "Invalid request payload format.") {
 		return
 	}
 	req.Name = strings.TrimSpace(req.Name)
 	req.Config = strings.TrimSpace(req.Config)
 	if req.Name == "" || req.Config == "" {
-		jsonError(c, http.StatusBadRequest, "name/config 必填")
+		jsonError(c, http.StatusBadRequest, "Both name and config are required.")
 		return
 	}
-	if _, err := mcp.ParseAndValidateConfig(req.Config); err != nil {
+	if err := h.mcpConfigs.ValidateConfig(req.Config); err != nil {
 		jsonError(c, http.StatusBadRequest, err.Error())
 		return
 	}
-	item, err := h.repo.CreateMCPConfig(req)
+	item, err := h.mcpConfigs.Create(services.MCPConfigInput{
+		Name:      req.Name,
+		Config:    req.Config,
+		IsEnabled: req.IsEnabled,
+	})
 	if err != nil {
 		jsonInternalError(c, err)
 		return
@@ -46,21 +53,29 @@ func (h *HTTPController) CreateMCPConfig(c *gin.Context) {
 // UpdateMCPConfig 更新指定 MCP 配置并重新校验有效性。
 func (h *HTTPController) UpdateMCPConfig(c *gin.Context) {
 	id := c.Param("id")
-	var req models.MCPConfig
-	if !bindJSONOrBadRequest(c, &req, "参数格式错误") {
+	var req struct {
+		Name      string `json:"name"`
+		Config    string `json:"config"`
+		IsEnabled bool   `json:"isEnabled"`
+	}
+	if !bindJSONOrBadRequest(c, &req, "Invalid request payload format.") {
 		return
 	}
 	req.Name = strings.TrimSpace(req.Name)
 	req.Config = strings.TrimSpace(req.Config)
 	if req.Name == "" || req.Config == "" {
-		jsonError(c, http.StatusBadRequest, "name/config 必填")
+		jsonError(c, http.StatusBadRequest, "Both name and config are required.")
 		return
 	}
-	if _, err := mcp.ParseAndValidateConfig(req.Config); err != nil {
+	if err := h.mcpConfigs.ValidateConfig(req.Config); err != nil {
 		jsonError(c, http.StatusBadRequest, err.Error())
 		return
 	}
-	if err := h.repo.UpdateMCPConfig(id, req); err != nil {
+	if err := h.mcpConfigs.Update(id, services.MCPConfigInput{
+		Name:      req.Name,
+		Config:    req.Config,
+		IsEnabled: req.IsEnabled,
+	}); err != nil {
 		jsonInternalError(c, err)
 		return
 	}
@@ -70,7 +85,7 @@ func (h *HTTPController) UpdateMCPConfig(c *gin.Context) {
 // DeleteMCPConfig 删除指定 MCP 配置。
 func (h *HTTPController) DeleteMCPConfig(c *gin.Context) {
 	id := c.Param("id")
-	if err := h.repo.DeleteMCPConfig(id); err != nil {
+	if err := h.mcpConfigs.Delete(id); err != nil {
 		jsonInternalError(c, err)
 		return
 	}

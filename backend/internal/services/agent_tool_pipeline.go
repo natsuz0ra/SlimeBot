@@ -6,6 +6,7 @@ import (
 	"log"
 	"strings"
 
+	"slimebot/backend/internal/consts"
 	"slimebot/backend/internal/mcp"
 	"slimebot/backend/internal/models"
 	"slimebot/backend/internal/tools"
@@ -20,9 +21,9 @@ type resolvedToolInvocation struct {
 
 // resolveToolInvocation 将模型返回的函数名解析成统一工具调用描述。
 func resolveToolInvocation(tc ToolCallInfo, mcpToolMeta map[string]mcp.ToolMeta) (resolvedToolInvocation, error) {
-	if tc.Name == "activate_skill" {
+	if tc.Name == consts.ActivateSkillTool {
 		return resolvedToolInvocation{
-			toolName:         "activate_skill",
+			toolName:         consts.ActivateSkillTool,
 			command:          "activate",
 			isMCP:            false,
 			requiresApproval: false,
@@ -70,23 +71,23 @@ func waitApprovalIfNeeded(
 	if !invocation.requiresApproval {
 		return true, ""
 	}
-	approvalCtx, cancel := context.WithTimeout(ctx, agentApprovalTimeout)
+	approvalCtx, cancel := context.WithTimeout(ctx, consts.AgentApprovalTimeout)
 	defer cancel()
 
 	approval, err := callbacks.WaitApproval(approvalCtx, tc.ID)
 	if err != nil {
 		notifyToolResult(callbacks, ToolCallResult{
 			ToolCallID: tc.ID, ToolName: invocation.toolName, Command: invocation.command,
-			RequiresApproval: invocation.requiresApproval, Status: "error", Error: "审批超时",
+			RequiresApproval: invocation.requiresApproval, Status: consts.ToolCallStatusError, Error: "Approval timed out.",
 		})
-		return false, "用户审批超时或发生错误，工具调用已取消。"
+		return false, "Approval timed out or failed. The tool call was cancelled."
 	}
 	if !approval.Approved {
 		notifyToolResult(callbacks, ToolCallResult{
 			ToolCallID: tc.ID, ToolName: invocation.toolName, Command: invocation.command,
-			RequiresApproval: invocation.requiresApproval, Status: "rejected", Error: "用户拒绝执行",
+			RequiresApproval: invocation.requiresApproval, Status: consts.ToolCallStatusRejected, Error: "Execution was rejected by the user.",
 		})
-		return false, "用户拒绝了此工具调用，请换一种方式回答或告知用户需要授权才能完成此操作。"
+		return false, "The user rejected this tool call. Please answer in another way or explain that authorization is required."
 	}
 	_ = params
 	_ = preamble
@@ -117,13 +118,13 @@ func (a *AgentService) executeInvocation(
 
 	if invocation.toolName == "memory" && invocation.command == "query" {
 		if *memoryToolUsed {
-			return &tools.ExecuteResult{Error: "memory__query 在单轮回答中最多调用 1 次"}
+			return &tools.ExecuteResult{Error: "memory__query can be called at most once per response."}
 		}
 		if a.memory == nil {
-			return &tools.ExecuteResult{Error: "memory service 未启用"}
+			return &tools.ExecuteResult{Error: "Memory service is not enabled."}
 		}
 		*memoryToolUsed = true
-		topK := parseOptionalInt(params["top_k"], memoryToolDefaultTopK)
+		topK := parseOptionalInt(params["top_k"], consts.MemoryToolDefaultTopK)
 		queryResult, queryErr := a.memory.QueryForAgent(sessionID, params["query"], topK)
 		if queryErr != nil {
 			return &tools.ExecuteResult{Output: queryResult.Output, Error: queryErr.Error()}
@@ -136,18 +137,18 @@ func (a *AgentService) executeInvocation(
 // buildToolResultStatus 将执行结果映射为标准状态字段。
 func buildToolResultStatus(execResult *tools.ExecuteResult) string {
 	if execResult != nil && strings.TrimSpace(execResult.Error) != "" {
-		return "error"
+		return consts.ToolCallStatusError
 	}
-	return "completed"
+	return consts.ToolCallStatusCompleted
 }
 
 // buildToolResultContent 统一构造写回模型上下文的 tool 消息正文。
 func buildToolResultContent(execResult *tools.ExecuteResult) string {
 	if execResult == nil {
-		return "执行结果:\n"
+		return "Execution result:\n"
 	}
 	if execResult.Error != "" {
-		return fmt.Sprintf("执行结果:\n%s\n错误: %s", execResult.Output, execResult.Error)
+		return fmt.Sprintf("Execution result:\n%s\nError: %s", execResult.Output, execResult.Error)
 	}
-	return fmt.Sprintf("执行结果:\n%s", execResult.Output)
+	return fmt.Sprintf("Execution result:\n%s", execResult.Output)
 }

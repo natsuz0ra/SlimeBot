@@ -10,12 +10,8 @@ import (
 
 	"github.com/google/uuid"
 	"gorm.io/gorm"
+	"slimebot/backend/internal/consts"
 	"slimebot/backend/internal/models"
-)
-
-const (
-	defaultMemoryCandidateLimit = 200
-	maxMemoryCandidateLimit     = 1000
 )
 
 type SessionMemoryUpsertInput struct {
@@ -120,11 +116,11 @@ func (r *Repository) SearchMemoriesByKeywords(keywords []string, limit int, excl
 	}
 
 	candidateLimit := limit * 20
-	if candidateLimit < defaultMemoryCandidateLimit {
-		candidateLimit = defaultMemoryCandidateLimit
+	if candidateLimit < consts.DefaultMemoryCandidateLimit {
+		candidateLimit = consts.DefaultMemoryCandidateLimit
 	}
-	if candidateLimit > maxMemoryCandidateLimit {
-		candidateLimit = maxMemoryCandidateLimit
+	if candidateLimit > consts.MaxMemoryCandidateLimit {
+		candidateLimit = consts.MaxMemoryCandidateLimit
 	}
 
 	var candidates []models.SessionMemory

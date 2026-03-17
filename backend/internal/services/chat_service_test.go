@@ -1,9 +1,13 @@
 package services
 
-import "testing"
+import (
+	"testing"
+
+	"slimebot/backend/internal/consts"
+)
 
 func TestTitleStreamParser_ExtractsTitleOnFirstTurn(t *testing.T) {
-	parser := newTitleStreamParser(true, titleProbeRuneLimit)
+	parser := newTitleStreamParser(true, consts.TitleProbeRuneLimit)
 
 	body := parser.Feed("[TITLE]测试标题\n正文内容\n")
 	if body != "正文内容\n" {
@@ -15,7 +19,7 @@ func TestTitleStreamParser_ExtractsTitleOnFirstTurn(t *testing.T) {
 }
 
 func TestTitleStreamParser_ExtractsTitleAfterAssistantTurnBoundary(t *testing.T) {
-	parser := newTitleStreamParser(true, titleProbeRuneLimit)
+	parser := newTitleStreamParser(true, consts.TitleProbeRuneLimit)
 
 	first := parser.Feed("我先调用工具获取信息")
 	if first != "我先调用工具获取信息" {

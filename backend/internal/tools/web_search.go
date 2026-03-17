@@ -8,15 +8,8 @@ import (
 	"net/http"
 	"os"
 	"strings"
-	"time"
-)
 
-const (
-	webSearchBaseURL         = "https://api.tavily.com"
-	webSearchTimeout         = 20 * time.Second
-	webSearchMaxResponseSize = 256 * 1024 // 256KB
-	webSearchMaxSources      = 5
-	webSearchMaxContentRunes = 300
+	"slimebot/backend/internal/consts"
 )
 
 type webSearchTool struct {
@@ -46,8 +39,8 @@ type tavilyErrorResponse struct {
 
 func init() {
 	Register(newWebSearchTool(
-		webSearchBaseURL,
-		&http.Client{Timeout: webSearchTimeout},
+		consts.WebSearchBaseURL,
+		&http.Client{Timeout: consts.WebSearchTimeout},
 		func() string { return os.Getenv("WEB_SEARCH_API_KEY") },
 	))
 }
@@ -88,43 +81,43 @@ func (w *webSearchTool) Execute(command string, params map[string]string) (*Exec
 	case "search":
 		return w.search(params)
 	default:
-		return nil, fmt.Errorf("web_search 工具不支持命令: %s", command)
+		return nil, fmt.Errorf("web_search tool does not support command: %s", command)
 	}
 }
 
 func (w *webSearchTool) search(params map[string]string) (*ExecuteResult, error) {
 	query := strings.TrimSpace(params["query"])
 	if query == "" {
-		return nil, fmt.Errorf("参数 query 不能为空")
+		return nil, fmt.Errorf("query is required.")
 	}
 
 	apiKey := strings.TrimSpace(w.getAPIKey())
 	if apiKey == "" {
-		return nil, fmt.Errorf("环境变量 WEB_SEARCH_API_KEY 未配置，无法调用 web_search")
+		return nil, fmt.Errorf("WEB_SEARCH_API_KEY is not configured; web_search is unavailable.")
 	}
 
 	reqBody, err := json.Marshal(tavilySearchRequest{Query: query})
 	if err != nil {
-		return nil, fmt.Errorf("构建请求体失败: %w", err)
+		return nil, fmt.Errorf("failed to build request body: %w", err)
 	}
 
 	endpoint := w.baseURL + "/search"
 	req, err := http.NewRequest(http.MethodPost, endpoint, bytes.NewReader(reqBody))
 	if err != nil {
-		return nil, fmt.Errorf("构建请求失败: %w", err)
+		return nil, fmt.Errorf("failed to build request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+apiKey)
 
 	resp, err := w.client.Do(req)
 	if err != nil {
-		return &ExecuteResult{Error: fmt.Sprintf("web_search 请求失败: %s", err.Error())}, nil
+		return &ExecuteResult{Error: fmt.Sprintf("web_search request failed: %s.", err.Error())}, nil
 	}
 	defer resp.Body.Close()
 
-	rawBody, err := io.ReadAll(io.LimitReader(resp.Body, webSearchMaxResponseSize))
+	rawBody, err := io.ReadAll(io.LimitReader(resp.Body, consts.WebSearchMaxResponseSize))
 	if err != nil {
-		return &ExecuteResult{Error: fmt.Sprintf("读取 web_search 响应失败: %s", err.Error())}, nil
+		return &ExecuteResult{Error: fmt.Sprintf("Failed to read web_search response: %s.", err.Error())}, nil
 	}
 
 	if resp.StatusCode != http.StatusOK {
@@ -133,7 +126,7 @@ func (w *webSearchTool) search(params map[string]string) (*ExecuteResult, error)
 
 	var data tavilySearchResponse
 	if err := json.Unmarshal(rawBody, &data); err != nil {
-		return &ExecuteResult{Error: fmt.Sprintf("解析 web_search 响应失败: %s", err.Error())}, nil
+		return &ExecuteResult{Error: fmt.Sprintf("Failed to parse web_search response: %s.", err.Error())}, nil
 	}
 
 	return &ExecuteResult{
@@ -145,14 +138,14 @@ func parseTavilyError(statusCode int, rawBody []byte) string {
 	var er tavilyErrorResponse
 	if err := json.Unmarshal(rawBody, &er); err == nil && er.Detail != nil {
 		if msg := extractDetailError(er.Detail); msg != "" {
-			return fmt.Sprintf("web_search 请求失败（状态码 %d）: %s", statusCode, msg)
+			return fmt.Sprintf("web_search request failed (status %d): %s", statusCode, msg)
 		}
 	}
 	body := strings.TrimSpace(string(rawBody))
 	if body == "" {
 		body = "empty response body"
 	}
-	return fmt.Sprintf("web_search 请求失败（状态码 %d）: %s", statusCode, body)
+	return fmt.Sprintf("web_search request failed (status %d): %s", statusCode, body)
 }
 
 func extractDetailError(detail any) string {
@@ -185,14 +178,14 @@ func formatTavilyOutput(data tavilySearchResponse) string {
 
 	b.WriteString("来源:\n")
 	limit := len(data.Results)
-	if limit > webSearchMaxSources {
-		limit = webSearchMaxSources
+	if limit > consts.WebSearchMaxSources {
+		limit = consts.WebSearchMaxSources
 	}
 	for i := 0; i < limit; i++ {
 		item := data.Results[i]
 		title := strings.TrimSpace(item.Title)
 		url := strings.TrimSpace(item.URL)
-		content := truncateRunes(strings.TrimSpace(item.Content), webSearchMaxContentRunes)
+		content := truncateRunes(strings.TrimSpace(item.Content), consts.WebSearchMaxContentRunes)
 
 		if title == "" {
 			title = "未命名来源"

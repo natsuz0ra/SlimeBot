@@ -16,12 +16,7 @@ import (
 	"golang.org/x/text/encoding/simplifiedchinese"
 	"golang.org/x/text/encoding/unicode"
 	"golang.org/x/text/transform"
-)
-
-const (
-	execDefaultTimeout = 30
-	execMaxTimeout     = 300
-	execMaxOutputBytes = 64 * 1024 // 64KB
+	"slimebot/backend/internal/consts"
 )
 
 type execTool struct{}
@@ -62,7 +57,7 @@ func (e *execTool) Execute(command string, params map[string]string) (*ExecuteRe
 	case "run":
 		return e.run(params)
 	default:
-		return nil, fmt.Errorf("exec 工具不支持命令: %s", command)
+		return nil, fmt.Errorf("exec tool does not support command: %s", command)
 	}
 }
 
@@ -72,14 +67,14 @@ func (e *execTool) run(params map[string]string) (*ExecuteResult, error) {
 	argsRaw := strings.TrimSpace(params["args"])
 	shell := normalizeShell(params["shell"])
 
-	timeout := execDefaultTimeout
+	timeout := consts.ExecDefaultTimeout
 	if ts := strings.TrimSpace(params["timeout"]); ts != "" {
 		if v, err := strconv.Atoi(ts); err == nil && v > 0 {
 			timeout = v
 		}
 	}
-	if timeout > execMaxTimeout {
-		timeout = execMaxTimeout
+	if timeout > consts.ExecMaxTimeout {
+		timeout = consts.ExecMaxTimeout
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeout)*time.Second)
@@ -98,7 +93,7 @@ func (e *execTool) run(params map[string]string) (*ExecuteResult, error) {
 		if ctx.Err() == context.DeadlineExceeded {
 			return &ExecuteResult{
 				Output: outStr,
-				Error:  fmt.Sprintf("命令执行超时（%d秒）", timeout),
+				Error:  fmt.Sprintf("Command timed out (%d seconds).", timeout),
 			}, nil
 		}
 		return &ExecuteResult{
@@ -112,12 +107,12 @@ func (e *execTool) run(params map[string]string) (*ExecuteResult, error) {
 
 func buildExecInvocation(goos, program, argsRaw, command, shell string) (execInvocation, error) {
 	if shell != "" && shell != "none" && shell != "powershell" && shell != "cmd" {
-		return execInvocation{}, fmt.Errorf("参数 shell 非法：%s（可选值: none|powershell|cmd）", shell)
+		return execInvocation{}, fmt.Errorf("Invalid shell value: %s (allowed: none|powershell|cmd).", shell)
 	}
 
 	if program != "" {
 		if command != "" {
-			return execInvocation{}, fmt.Errorf("参数 program 与 command 不能同时传入，请二选一")
+			return execInvocation{}, fmt.Errorf("program and command cannot be provided together; choose one.")
 		}
 		parsedArgs, err := parseJSONArgs(argsRaw)
 		if err != nil {
@@ -130,10 +125,10 @@ func buildExecInvocation(goos, program, argsRaw, command, shell string) (execInv
 	}
 
 	if argsRaw != "" {
-		return execInvocation{}, fmt.Errorf("参数 args 仅可与 program 一起使用")
+		return execInvocation{}, fmt.Errorf("args can only be used with program.")
 	}
 	if command == "" {
-		return execInvocation{}, fmt.Errorf("参数 command 不能为空（或改用 program + args）")
+		return execInvocation{}, fmt.Errorf("command is required (or use program + args).")
 	}
 
 	return buildShellInvocation(goos, command, shell), nil
@@ -169,14 +164,14 @@ func parseJSONArgs(argsRaw string) ([]string, error) {
 	}
 	var parsed []string
 	if err := json.Unmarshal([]byte(argsRaw), &parsed); err != nil {
-		return nil, fmt.Errorf("参数 args 解析失败，需为 JSON 字符串数组: %w", err)
+		return nil, fmt.Errorf("failed to parse args; expected a JSON string array: %w", err)
 	}
 	return parsed, nil
 }
 
 func trimOutput(output []byte) []byte {
-	if len(output) > execMaxOutputBytes {
-		return output[:execMaxOutputBytes]
+	if len(output) > consts.ExecMaxOutputBytes {
+		return output[:consts.ExecMaxOutputBytes]
 	}
 	return output
 }
@@ -267,7 +262,7 @@ func normalizeShell(raw string) string {
 func formatExecError(err error) string {
 	var execErr *exec.Error
 	if errors.As(err, &execErr) && errors.Is(execErr.Err, exec.ErrNotFound) {
-		return fmt.Sprintf("命令不存在: %s", execErr.Name)
+		return fmt.Sprintf("Command not found: %s.", execErr.Name)
 	}
 	return err.Error()
 }

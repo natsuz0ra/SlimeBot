@@ -3,6 +3,7 @@ package services
 import (
 	"testing"
 
+	"slimebot/backend/internal/consts"
 	"slimebot/backend/internal/models"
 	"slimebot/backend/internal/repositories"
 	"slimebot/backend/internal/testutil"
@@ -16,15 +17,15 @@ func TestEnsureMessagePlatformSession_StableID(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ensure platform session failed: %v", err)
 	}
-	if session.ID != MessagePlatformSessionID {
-		t.Fatalf("expected fixed session id=%s, got=%s", MessagePlatformSessionID, session.ID)
+	if session.ID != consts.MessagePlatformSessionID {
+		t.Fatalf("expected fixed session id=%s, got=%s", consts.MessagePlatformSessionID, session.ID)
 	}
 
 	second, err := service.EnsureMessagePlatformSession()
 	if err != nil {
 		t.Fatalf("ensure existing platform session failed: %v", err)
 	}
-	if second.ID != MessagePlatformSessionID {
+	if second.ID != consts.MessagePlatformSessionID {
 		t.Fatalf("expected same fixed session id, got=%s", second.ID)
 	}
 }
@@ -52,10 +53,10 @@ func TestResolvePlatformModel_FallbackAndPersist(t *testing.T) {
 		t.Fatalf("create second model failed: %v", err)
 	}
 
-	if err := repo.SetSetting(settingMessagePlatformDefaultModelKey, "missing-id"); err != nil {
+	if err := repo.SetSetting(consts.SettingMessagePlatformDefaultModel, "missing-id"); err != nil {
 		t.Fatalf("set platform default failed: %v", err)
 	}
-	if err := repo.SetSetting(settingDefaultModelKey, second.ID); err != nil {
+	if err := repo.SetSetting(consts.SettingDefaultModel, second.ID); err != nil {
 		t.Fatalf("set global default failed: %v", err)
 	}
 
@@ -67,7 +68,7 @@ func TestResolvePlatformModel_FallbackAndPersist(t *testing.T) {
 		t.Fatalf("expected fallback to global default=%s, got=%s", second.ID, modelID)
 	}
 
-	persisted, err := repo.GetSetting(settingMessagePlatformDefaultModelKey)
+	persisted, err := repo.GetSetting(consts.SettingMessagePlatformDefaultModel)
 	if err != nil {
 		t.Fatalf("read persisted platform default failed: %v", err)
 	}
@@ -75,10 +76,10 @@ func TestResolvePlatformModel_FallbackAndPersist(t *testing.T) {
 		t.Fatalf("expected persisted platform default=%s, got=%s", second.ID, persisted)
 	}
 
-	if err := repo.SetSetting(settingMessagePlatformDefaultModelKey, ""); err != nil {
+	if err := repo.SetSetting(consts.SettingMessagePlatformDefaultModel, ""); err != nil {
 		t.Fatalf("clear platform default failed: %v", err)
 	}
-	if err := repo.SetSetting(settingDefaultModelKey, ""); err != nil {
+	if err := repo.SetSetting(consts.SettingDefaultModel, ""); err != nil {
 		t.Fatalf("clear global default failed: %v", err)
 	}
 	// 删除 second 后，应回落到首个可用模型（按 name asc，这里是 model-a）。

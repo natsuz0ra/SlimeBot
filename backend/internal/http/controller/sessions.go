@@ -1,12 +1,14 @@
-package controllers
+package controller
 
 import (
 	"encoding/json"
+	"errors"
+	"io"
 	"net/http"
 	"strings"
 
+	"slimebot/backend/internal/consts"
 	"slimebot/backend/internal/models"
-	"slimebot/backend/internal/services"
 
 	"github.com/gin-gonic/gin"
 )
@@ -44,7 +46,7 @@ func parseToolCallParams(raw string) map[string]string {
 
 // ListSessions 返回当前用户的会话列表。
 func (h *HTTPController) ListSessions(c *gin.Context) {
-	sessions, err := h.repo.ListSessions()
+	sessions, err := h.sessions.List()
 	if err != nil {
 		jsonInternalError(c, err)
 		return
@@ -57,12 +59,11 @@ func (h *HTTPController) CreateSession(c *gin.Context) {
 	var req struct {
 		Name string `json:"name"`
 	}
-	_ = c.ShouldBindJSON(&req)
-	name := strings.TrimSpace(req.Name)
-	if name == "" {
-		name = "新会话"
+	if err := c.ShouldBindJSON(&req); err != nil && !errors.Is(err, io.EOF) {
+		jsonError(c, http.StatusBadRequest, "Invalid request payload format.")
+		return
 	}
-	session, err := h.repo.CreateSession(name)
+	session, err := h.sessions.Create(req.Name)
 	if err != nil {
 		jsonInternalError(c, err)
 		return
@@ -73,17 +74,17 @@ func (h *HTTPController) CreateSession(c *gin.Context) {
 // RenameSession 修改指定会话名称。
 func (h *HTTPController) RenameSession(c *gin.Context) {
 	id := c.Param("id")
-	if id == services.MessagePlatformSessionID {
-		jsonError(c, http.StatusBadRequest, "消息平台会话不支持重命名")
+	if id == consts.MessagePlatformSessionID {
+		jsonError(c, http.StatusBadRequest, "Message platform sessions cannot be renamed.")
 		return
 	}
 	var req struct {
 		Name string `json:"name" binding:"required"`
 	}
-	if !bindJSONOrBadRequest(c, &req, "name 必填") {
+	if !bindJSONOrBadRequest(c, &req, "name is required.") {
 		return
 	}
-	if err := h.repo.RenameSessionByUser(id, strings.TrimSpace(req.Name)); err != nil {
+	if err := h.sessions.RenameByUser(id, req.Name); err != nil {
 		jsonInternalError(c, err)
 		return
 	}
@@ -93,11 +94,11 @@ func (h *HTTPController) RenameSession(c *gin.Context) {
 // DeleteSession 删除指定会话及其关联数据。
 func (h *HTTPController) DeleteSession(c *gin.Context) {
 	id := c.Param("id")
-	if id == services.MessagePlatformSessionID {
-		jsonError(c, http.StatusBadRequest, "消息平台会话不支持删除")
+	if id == consts.MessagePlatformSessionID {
+		jsonError(c, http.StatusBadRequest, "Message platform sessions cannot be deleted.")
 		return
 	}
-	if err := h.repo.DeleteSession(id); err != nil {
+	if err := h.sessions.Delete(id); err != nil {
 		jsonInternalError(c, err)
 		return
 	}
@@ -107,12 +108,12 @@ func (h *HTTPController) DeleteSession(c *gin.Context) {
 // ListMessages 返回会话消息，并附带 assistant 消息关联的工具调用历史。
 func (h *HTTPController) ListMessages(c *gin.Context) {
 	sessionID := c.Param("id")
-	messages, err := h.repo.ListSessionMessages(sessionID)
+	messages, err := h.sessions.ListMessages(sessionID)
 	if err != nil {
 		jsonInternalError(c, err)
 		return
 	}
-	records, err := h.repo.ListSessionToolCallRecords(sessionID)
+	records, err := h.sessions.ListToolCallRecords(sessionID)
 	if err != nil {
 		jsonInternalError(c, err)
 		return
@@ -152,10 +153,10 @@ func (h *HTTPController) SetSessionModel(c *gin.Context) {
 	var req struct {
 		ModelConfigID string `json:"modelConfigId" binding:"required"`
 	}
-	if !bindJSONOrBadRequest(c, &req, "modelConfigId 必填") {
+	if !bindJSONOrBadRequest(c, &req, "modelConfigId is required.") {
 		return
 	}
-	if err := h.repo.SetSessionModel(id, req.ModelConfigID); err != nil {
+	if err := h.sessions.SetModel(id, req.ModelConfigID); err != nil {
 		jsonInternalError(c, err)
 		return
 	}

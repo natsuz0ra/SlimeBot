@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"slimebot/backend/internal/consts"
 	"slimebot/backend/internal/mcp"
 	"slimebot/backend/internal/models"
 	"slimebot/backend/internal/repositories"
@@ -24,19 +25,6 @@ type ChatService struct {
 	skillsMu     sync.Mutex
 	skillsBySess map[string]map[string]struct{}
 }
-
-const contextHistoryLimit = 20
-const titleProbeRuneLimit = 100
-
-const (
-	// MessagePlatformSessionID 约定外部消息平台共用固定会话，便于统一展示与权限约束。
-	MessagePlatformSessionID = "im-platform-session"
-	// MessagePlatformSessionName 用于首次创建固定会话时的默认标题。
-	MessagePlatformSessionName = "消息平台会话"
-	// settings key 与 settings_service 对齐；保持字符串常量避免跨层耦合。
-	settingDefaultModelKey                = "defaultModel"
-	settingMessagePlatformDefaultModelKey = "messagePlatformDefaultModel"
-)
 
 type ChatStreamResult struct {
 	Answer       string
@@ -109,14 +97,14 @@ func (s *ChatService) EnsureSession(sessionID string) (*models.Session, error) {
 
 // EnsureMessagePlatformSession 确保固定的消息平台会话存在。
 func (s *ChatService) EnsureMessagePlatformSession() (*models.Session, error) {
-	session, err := s.repo.GetSessionByID(MessagePlatformSessionID)
+	session, err := s.repo.GetSessionByID(consts.MessagePlatformSessionID)
 	if err != nil {
 		return nil, err
 	}
 	if session != nil {
 		return session, nil
 	}
-	return s.repo.CreateSessionWithID(MessagePlatformSessionID, MessagePlatformSessionName)
+	return s.repo.CreateSessionWithID(consts.MessagePlatformSessionID, consts.MessagePlatformSessionName)
 }
 
 // ResolvePlatformModel 按平台会话策略解析模型：
@@ -138,7 +126,7 @@ func (s *ChatService) ResolvePlatformModel() (string, error) {
 		return item.ID, true, nil
 	}
 
-	platformDefault, err := s.repo.GetSetting(settingMessagePlatformDefaultModelKey)
+	platformDefault, err := s.repo.GetSetting(consts.SettingMessagePlatformDefaultModel)
 	if err != nil {
 		return "", err
 	}
@@ -148,14 +136,14 @@ func (s *ChatService) ResolvePlatformModel() (string, error) {
 		return id, nil
 	}
 
-	globalDefault, err := s.repo.GetSetting(settingDefaultModelKey)
+	globalDefault, err := s.repo.GetSetting(consts.SettingDefaultModel)
 	if err != nil {
 		return "", err
 	}
 	if id, ok, err := resolveModel(globalDefault); err != nil {
 		return "", err
 	} else if ok {
-		_ = s.repo.SetSetting(settingMessagePlatformDefaultModelKey, id)
+		_ = s.repo.SetSetting(consts.SettingMessagePlatformDefaultModel, id)
 		return id, nil
 	}
 
@@ -164,13 +152,13 @@ func (s *ChatService) ResolvePlatformModel() (string, error) {
 		return "", err
 	}
 	if len(allModels) == 0 {
-		return "", fmt.Errorf("未配置可用模型")
+		return "", fmt.Errorf("No available model is configured.")
 	}
 	fallbackID := strings.TrimSpace(allModels[0].ID)
 	if fallbackID == "" {
-		return "", fmt.Errorf("未配置可用模型")
+		return "", fmt.Errorf("No available model is configured.")
 	}
-	_ = s.repo.SetSetting(settingMessagePlatformDefaultModelKey, fallbackID)
+	_ = s.repo.SetSetting(consts.SettingMessagePlatformDefaultModel, fallbackID)
 	return fallbackID, nil
 }
 
@@ -208,7 +196,7 @@ func (s *ChatService) buildContextMessages(ctx context.Context, sessionID string
 		}
 	}
 
-	history, err := s.repo.ListRecentSessionMessages(sessionID, contextHistoryLimit)
+	history, err := s.repo.ListRecentSessionMessages(sessionID, consts.ContextHistoryLimit)
 	if err != nil {
 		return nil, err
 	}
@@ -248,7 +236,7 @@ func (s *ChatService) buildContextMessages(ctx context.Context, sessionID string
 
 			var memoryHits []repositories.SessionMemorySearchHit
 			if len(memoryKeywords) > 0 {
-				hits, retrieveErr := s.memory.RetrieveMemories(memoryKeywords, sessionID, memorySearchTopK)
+				hits, retrieveErr := s.memory.RetrieveMemories(memoryKeywords, sessionID, consts.MemorySearchTopK)
 				if retrieveErr != nil {
 					log.Printf("chat_context_memory_skip session=%s reason=retrieve_failed err=%v", sessionID, retrieveErr)
 				} else {
@@ -292,7 +280,7 @@ func (s *ChatService) buildContextMessages(ctx context.Context, sessionID string
 func (s *ChatService) loadSystemPrompt() (string, error) {
 	_, currentFile, _, ok := runtime.Caller(0)
 	if !ok {
-		return "", fmt.Errorf("无法定位系统提示词文件路径")
+		return "", fmt.Errorf("Failed to locate the system prompt file path.")
 	}
 
 	serviceDir := filepath.Dir(currentFile)
@@ -304,12 +292,12 @@ func (s *ChatService) loadSystemPrompt() (string, error) {
 	)
 	raw, err = os.ReadFile(filepath.Join(projectRoot, "system_prompt.md"))
 	if err != nil {
-		return "", fmt.Errorf("读取系统提示词失败: %w", err)
+		return "", fmt.Errorf("Failed to read system prompt: %w", err)
 	}
 
 	prompt := strings.TrimSpace(string(raw))
 	if prompt == "" {
-		return "", fmt.Errorf("系统提示词为空")
+		return "", fmt.Errorf("System prompt is empty.")
 	}
 	return prompt, nil
 }
@@ -318,7 +306,7 @@ func (s *ChatService) loadSystemPrompt() (string, error) {
 func (s *ChatService) ResolveLLMConfig(modelID string) (*models.LLMConfig, error) {
 	configID := strings.TrimSpace(modelID)
 	if configID == "" {
-		return nil, fmt.Errorf("modelId 不能为空")
+		return nil, fmt.Errorf("modelId is required.")
 	}
 
 	config, err := s.repo.GetLLMConfigByID(configID)
@@ -326,11 +314,11 @@ func (s *ChatService) ResolveLLMConfig(modelID string) (*models.LLMConfig, error
 		return nil, err
 	}
 	if config == nil {
-		return nil, fmt.Errorf("模型配置不存在: %s", configID)
+		return nil, fmt.Errorf("Model config not found: %s.", configID)
 	}
 
 	if strings.TrimSpace(config.BaseURL) == "" || strings.TrimSpace(config.APIKey) == "" || strings.TrimSpace(config.Model) == "" {
-		return nil, fmt.Errorf("模型配置不完整: %s", config.Name)
+		return nil, fmt.Errorf("Model config is incomplete: %s.", config.Name)
 	}
 	return config, nil
 }
@@ -346,7 +334,7 @@ func (s *ChatService) HandleChatStream(
 	callbacks AgentCallbacks,
 ) (*ChatStreamResult, error) {
 	if strings.TrimSpace(content) == "" {
-		return nil, fmt.Errorf("消息不能为空")
+		return nil, fmt.Errorf("Message cannot be empty.")
 	}
 
 	llmConfig, err := s.ResolveLLMConfig(modelID)
@@ -364,7 +352,7 @@ func (s *ChatService) HandleChatStream(
 		return nil, err
 	}
 	if session == nil {
-		return nil, fmt.Errorf("会话不存在: %s", sessionID)
+		return nil, fmt.Errorf("Session not found: %s.", sessionID)
 	}
 
 	if _, err := s.repo.AddMessage(sessionID, "user", content); err != nil {
@@ -381,7 +369,7 @@ func (s *ChatService) HandleChatStream(
 	}
 
 	isTitleLocked := session.IsTitleLocked
-	parser := newTitleStreamParser(!isTitleLocked, titleProbeRuneLimit)
+	parser := newTitleStreamParser(!isTitleLocked, consts.TitleProbeRuneLimit)
 	var answerBuilder strings.Builder
 	var pushErr error
 	streamStart := time.Now()
@@ -411,9 +399,9 @@ func (s *ChatService) HandleChatStream(
 			return pushBody(body)
 		},
 		OnToolCallStart: func(req ApprovalRequest) error {
-			startStatus := "executing"
+			startStatus := consts.ToolCallStatusExecuting
 			if req.RequiresApproval {
-				startStatus = "pending"
+				startStatus = consts.ToolCallStatusPending
 			}
 			if err := s.recordToolCallStart(sessionID, requestID, req, startStatus); err != nil {
 				return err
@@ -431,11 +419,11 @@ func (s *ChatService) HandleChatStream(
 		OnToolCallResult: func(result ToolCallResult) error {
 			status := strings.TrimSpace(result.Status)
 			if status == "" {
-				status = "completed"
+				status = consts.ToolCallStatusCompleted
 				if result.Error != "" {
-					status = "error"
-					if strings.Contains(result.Error, "用户拒绝") {
-						status = "rejected"
+					status = consts.ToolCallStatusError
+					if strings.Contains(strings.ToLower(result.Error), "rejected by the user") {
+						status = consts.ToolCallStatusRejected
 					}
 				}
 			}
@@ -475,7 +463,7 @@ func (s *ChatService) HandleChatStream(
 		finalAnswer = cleanBody
 	}
 	if strings.TrimSpace(finalAnswer) == "" {
-		finalAnswer = "模型没有返回内容。"
+		finalAnswer = "The model returned no content."
 	}
 	assistantMessage, err := s.repo.AddMessage(sessionID, "assistant", finalAnswer)
 	if err != nil {

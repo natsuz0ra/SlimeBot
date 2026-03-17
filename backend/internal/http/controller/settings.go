@@ -1,4 +1,4 @@
-package controllers
+package controller
 
 import (
 	"net/http"
@@ -28,7 +28,7 @@ func (h *HTTPController) UpdateSettings(c *gin.Context) {
 		DefaultModel                string `json:"defaultModel"`
 		MessagePlatformDefaultModel string `json:"messagePlatformDefaultModel"`
 	}
-	if !bindJSONOrBadRequest(c, &req, "参数格式错误") {
+	if !bindJSONOrBadRequest(c, &req, "Invalid request payload format.") {
 		return
 	}
 	err := h.settings.Update(services.UpdateSettingsInput{

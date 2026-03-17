@@ -8,6 +8,7 @@ import (
 
 	"golang.org/x/text/encoding/simplifiedchinese"
 	"golang.org/x/text/transform"
+	"slimebot/backend/internal/consts"
 )
 
 func TestBuildExecInvocationProgramArgs(t *testing.T) {
@@ -28,7 +29,7 @@ func TestBuildExecInvocationInvalidArgsJSON(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected parse error, got nil")
 	}
-	if !strings.Contains(err.Error(), "args 解析失败") {
+	if !strings.Contains(err.Error(), "failed to parse args") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
@@ -38,7 +39,7 @@ func TestBuildExecInvocationArgsWithoutProgram(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected params error, got nil")
 	}
-	if !strings.Contains(err.Error(), "仅可与 program 一起使用") {
+	if !strings.Contains(err.Error(), "args can only be used with program") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
@@ -62,9 +63,9 @@ func TestBuildExecInvocationWindowsShellSelection(t *testing.T) {
 }
 
 func TestTrimOutput(t *testing.T) {
-	large := strings.Repeat("a", execMaxOutputBytes+100)
+	large := strings.Repeat("a", consts.ExecMaxOutputBytes+100)
 	trimmed := trimOutput([]byte(large))
-	if len(trimmed) != execMaxOutputBytes {
+	if len(trimmed) != consts.ExecMaxOutputBytes {
 		t.Fatalf("unexpected trimmed size: %d", len(trimmed))
 	}
 }
@@ -151,7 +152,7 @@ func TestBuildShellInvocationWindowsPowerShellForcesUTF8(t *testing.T) {
 func TestFormatExecErrorNotFound(t *testing.T) {
 	err := &exec.Error{Name: "no-such-binary", Err: exec.ErrNotFound}
 	formatted := formatExecError(err)
-	if !strings.Contains(formatted, "命令不存在") {
+	if !strings.Contains(formatted, "Command not found") {
 		t.Fatalf("unexpected formatted error: %s", formatted)
 	}
 }
@@ -193,7 +194,7 @@ func TestExecRunTimeout(t *testing.T) {
 	if result == nil {
 		t.Fatal("expected non-nil result")
 	}
-	if !strings.Contains(result.Error, "命令执行超时") {
+	if !strings.Contains(result.Error, "Command timed out") {
 		t.Fatalf("expected timeout error, got %s", result.Error)
 	}
 }

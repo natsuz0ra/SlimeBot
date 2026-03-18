@@ -122,6 +122,10 @@ func (d *Dispatcher) HandleTelegramApprovalCallback(chatID string, callbackData 
 }
 
 func formatToolStartSummary(req services.ApprovalRequest) string {
+	details := make([]string, 0, len(req.Params)+1)
+	if command := strings.TrimSpace(req.Command); command != "" {
+		details = append(details, command)
+	}
 	params := make([]string, 0, len(req.Params))
 	for key, value := range req.Params {
 		v := strings.TrimSpace(value)
@@ -136,10 +140,11 @@ func formatToolStartSummary(req services.ApprovalRequest) string {
 			break
 		}
 	}
-	if len(params) == 0 {
+	details = append(details, params...)
+	if len(details) == 0 {
 		return fmt.Sprintf("Tool execution started: %s", req.ToolName)
 	}
-	return fmt.Sprintf("Tool execution started: %s (%s)", req.ToolName, strings.Join(params, ", "))
+	return fmt.Sprintf("Tool execution started: %s (%s)", req.ToolName, strings.Join(details, ", "))
 }
 
 func formatToolResultSummary(result services.ToolCallResult) string {

@@ -219,9 +219,24 @@ func TestDispatcherHandleInbound_SendsToolSummaryAndFinalAnswer(t *testing.T) {
 	if len(sender.items) < 3 {
 		t.Fatalf("expected at least 3 messages(tool start, tool result, final), got=%d", len(sender.items))
 	}
+	start := sender.items[0]
+	if !strings.Contains(start, "run") {
+		t.Fatalf("expected tool start message to include command, got=%s", start)
+	}
 	last := sender.items[len(sender.items)-1]
 	if last != "hello-from-mock" {
 		t.Fatalf("expected final answer message, got=%s", last)
+	}
+}
+
+func TestFormatToolStartSummary_WithoutCommand(t *testing.T) {
+	got := formatToolStartSummary(services.ApprovalRequest{
+		ToolName: "http_request",
+		Command:  "",
+		Params:   map[string]string{},
+	})
+	if got != "Tool execution started: http_request" {
+		t.Fatalf("unexpected start summary without command, got=%s", got)
 	}
 }
 

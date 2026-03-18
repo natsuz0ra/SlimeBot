@@ -2,7 +2,7 @@
   <img src="assets/title.png" alt="SlimeBot Logo" width="420" />
 </p>
 
-这是个人练手用的 Agent Demo 项目，目标是实现一个可持续扩展的 AI 会话应用雏形。
+这是一个个人练手的 Agent Demo 项目，目标是实现可持续扩展的 AI 会话应用雏形。
 
 ## 1. 当前支持功能
 
@@ -24,6 +24,9 @@
   - LLM 配置管理（增/删/列）
   - MCP 配置管理（增/改/删/启停）与工具加载
   - Skills 上传安装、列表、删除与运行时激活
+- 消息平台（当前支持 Telegram）
+  - 消息平台配置管理（新增、更新、启用/停用）
+  - 平台消息接入与回复
 
 ## 2. UI 预览
 
@@ -42,6 +45,10 @@
 ### 工具执行
 
 ![工具执行](assets/tool_exec.png)
+
+### 消息平台（Telegram）
+
+<img src="assets/tg_chat.jpg" alt="消息平台预览" width="220" />
 
 ## 3. 架构与技术栈
 
@@ -122,7 +129,7 @@ npm run dev
 - `SERVER_PORT`：服务端口，默认 `8080`
 - `DB_PATH`：SQLite 文件路径，默认 `./storage/data.db`
 - `FRONTEND_ORIGIN`：允许跨域的前端地址，默认 `http://localhost:5173`
-- `WEB_SEARCH_API_KEY`：tavily网络搜索api_key
+- `WEB_SEARCH_API_KEY`：Tavily 网络搜索 API Key
 - `JWT_SECRET`：JWT 签名密钥（必填，未配置将启动失败）
 - `JWT_EXPIRE`：JWT 过期时间（单位：分钟，默认 `21600` 即 15 天）
 
@@ -160,7 +167,8 @@ VITE_WS_URL=ws://localhost:8080
 - MCP 配置与工具执行能力
 - Skills 包管理与运行时激活
 - 会话持久化记忆与主动检索
+- 消息平台基础能力（当前支持 Telegram）
 
 ### 待完成功能
 
-- 消息平台接入能力
+- 更多消息平台接入（如Discord、Slack 等）

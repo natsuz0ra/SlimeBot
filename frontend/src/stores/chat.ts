@@ -4,12 +4,14 @@ import { computed, ref } from 'vue'
 import { ChatSocket, type ConnectionStatus } from '@/api/chatSocket'
 import { MESSAGE_PLATFORM_SESSION_ID, sessionAPI } from '@/api/chat'
 import type {
+  MessageAttachmentItem,
   MessageItem,
   SessionHistoryPayload,
   SessionHistoryToolCallItem,
   SessionItem,
   ToolCallItem,
   ToolCallStatus,
+  UploadedAttachmentItem,
 } from '@/api/chat'
 import { i18n } from '@/i18n'
 
@@ -73,6 +75,21 @@ export const useChatStore = defineStore('chat', () => {
     hasMoreHistory.value = false
     loadingOlderHistory.value = false
     loadingNewerMessages.value = false
+  }
+
+  function getStoppedPlaceholderText() {
+    return i18n.global.t('assistantStopped') as string
+  }
+
+  function materializeMessage(item: MessageItem): MessageItem {
+    if (item.isStopPlaceholder && (!item.content || item.content.trim() === '')) {
+      return { ...item, content: getStoppedPlaceholderText() }
+    }
+    return item
+  }
+
+  function materializeMessages(items: MessageItem[]): MessageItem[] {
+    return items.map((item) => materializeMessage(item))
   }
 
   function normalizeToolStatus(status?: string, fallbackError?: string): ToolCallStatus {
@@ -299,7 +316,7 @@ export const useChatStore = defineStore('chat', () => {
     try {
       const history = await sessionAPI.history(id, { limit: HISTORY_PAGE_SIZE })
       currentSessionId.value = id
-      messages.value = history.messages
+      messages.value = materializeMessages(history.messages)
       resetHistoryState()
       hasMoreHistory.value = history.hasMore
       resetSessionRuntimeState()
@@ -327,7 +344,7 @@ export const useChatStore = defineStore('chat', () => {
         limit: HISTORY_PAGE_SIZE,
         before: first.createdAt,
       })
-      prependUniqueMessages(history.messages)
+      prependUniqueMessages(materializeMessages(history.messages))
       hasMoreHistory.value = history.hasMore
       mergeReplyBatchesFromHistory(sessionId, history, 'prepend')
       return history.messages.length > 0
@@ -346,7 +363,7 @@ export const useChatStore = defineStore('chat', () => {
         limit: 50,
         after: latest?.createdAt,
       })
-      appendUniqueMessages(history.messages)
+      appendUniqueMessages(materializeMessages(history.messages))
       mergeReplyBatchesFromHistory(sessionId, history, 'append')
       return history.messages.length > 0
     } finally {
@@ -410,22 +427,30 @@ export const useChatStore = defineStore('chat', () => {
         if (!item) return
         item.name = title
       },
-      onDone: async (sessionId, answer) => {
+      onDone: async (sessionId, answer, meta) => {
         if (!sessionId || sessionId !== currentSessionId.value) return
         waiting.value = false
         streamingStarted.value = false
         const batch = getCurrentBatch()
         if (batch) {
-          if (typeof answer === 'string' && answer !== '') {
-            const assistant = messages.value.find((msg) => msg.id === batch.assistantMessageId)
+          const assistant = messages.value.find((msg) => msg.id === batch.assistantMessageId)
+          if (assistant) {
+            assistant.isInterrupted = !!meta?.isInterrupted
+            assistant.isStopPlaceholder = !!meta?.isStopPlaceholder
+          }
+          const finalAnswer =
+            typeof answer === 'string' && answer !== ''
+              ? answer
+              : (meta?.isStopPlaceholder ? getStoppedPlaceholderText() : '')
+          if (finalAnswer !== '') {
             if (assistant) {
-              assistant.content = answer
+              assistant.content = finalAnswer
               clearAssistantError(assistant.id)
             }
             const mergedTextEntry = {
               id: crypto.randomUUID(),
               kind: 'text' as const,
-              content: answer,
+              content: finalAnswer,
             }
             const rebuiltTimeline: AssistantReplyTimelineItem[] = []
             let insertedText = false
@@ -439,7 +464,7 @@ export const useChatStore = defineStore('chat', () => {
               }
               rebuiltTimeline.push(entry)
             }
-            if (!insertedText && answer.trim() !== '') {
+            if (!insertedText && finalAnswer.trim() !== '') {
               rebuiltTimeline.push(mergedTextEntry)
             }
             batch.timeline = rebuiltTimeline
@@ -518,11 +543,35 @@ export const useChatStore = defineStore('chat', () => {
     return !!currentSessionId.value
   }
 
-  async function sendMessage(content: string, modelId: string) {
+  function toMessageAttachments(items: UploadedAttachmentItem[]): MessageAttachmentItem[] {
+    return items.map((item) => ({
+      id: item.id,
+      name: item.name,
+      ext: item.ext,
+      sizeBytes: item.sizeBytes,
+      mimeType: item.mimeType,
+      category: item.category,
+      iconType: item.iconType,
+    }))
+  }
+
+  async function uploadAttachmentsForCurrentSession(files: File[]) {
+    if (files.length === 0 || !currentSessionId.value) {
+      return [] as UploadedAttachmentItem[]
+    }
+    const response = await sessionAPI.uploadAttachments(currentSessionId.value, files)
+    return response.items || []
+  }
+
+  async function sendMessage(content: string, modelId: string, files: File[] = []) {
+    const trimmed = content.trim()
+    if (!trimmed && files.length === 0) {
+      return false
+    }
     if (!modelId) {
       const error = 'modelId is required'
       connectionError.value = error
-      pushFailedUserMessage(content)
+      pushFailedUserMessage(trimmed)
       return false
     }
     const ready = await ensureSessionReady()
@@ -530,24 +579,35 @@ export const useChatStore = defineStore('chat', () => {
     if (!isSocketReady.value) {
       const error = 'socket is not connected'
       connectionError.value = error
-      pushFailedUserMessage(content)
+      pushFailedUserMessage(trimmed)
       return false
     }
-    const sent = ws.send(content, currentSessionId.value, modelId)
+    let uploaded: UploadedAttachmentItem[] = []
+    if (files.length > 0) {
+      uploaded = await uploadAttachmentsForCurrentSession(files)
+    }
+    const sent = ws.send(trimmed, currentSessionId.value, modelId, uploaded.map((item) => item.id))
     if (!sent) {
       const error = 'socket is not connected'
       connectionError.value = error
-      pushFailedUserMessage(content)
+      pushFailedUserMessage(trimmed)
       return false
     }
     messages.value.push({
       id: crypto.randomUUID(),
       sessionId: currentSessionId.value,
       role: 'user',
-      content,
+      content: trimmed,
+      attachments: toMessageAttachments(uploaded),
       createdAt: new Date().toISOString(),
     })
     return true
+  }
+
+  function stopCurrentResponse() {
+    const sessionId = currentSessionId.value
+    if (!sessionId || !waiting.value) return false
+    return ws.sendStop(sessionId)
   }
 
   function approveToolCall(toolCallId: string, approved: boolean) {
@@ -602,6 +662,7 @@ export const useChatStore = defineStore('chat', () => {
     connectSocket,
     ensureSessionReady,
     sendMessage,
+    stopCurrentResponse,
     approveToolCall,
     disconnectSocket,
     consumeSuppressNextConnectionNotice,

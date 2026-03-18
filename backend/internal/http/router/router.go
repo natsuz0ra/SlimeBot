@@ -34,6 +34,7 @@ func New(cfg config.Config, tokenManager *auth.TokenManager, httpController *con
 		protectedAPI.PATCH("/sessions/:id/name", httpController.RenameSession)
 		protectedAPI.DELETE("/sessions/:id", httpController.DeleteSession)
 		protectedAPI.GET("/sessions/:id/messages", httpController.ListMessages)
+		protectedAPI.POST("/sessions/:id/attachments", httpController.UploadSessionAttachments)
 		protectedAPI.PUT("/sessions/:id/model", httpController.SetSessionModel)
 
 		protectedAPI.GET("/settings", httpController.GetSettings)

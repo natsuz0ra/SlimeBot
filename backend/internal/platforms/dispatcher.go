@@ -27,6 +27,7 @@ type platformChatService interface {
 		requestID string,
 		content string,
 		modelID string,
+		attachmentIDs []string,
 		callbacks services.AgentCallbacks,
 	) (*services.ChatStreamResult, error)
 }
@@ -98,6 +99,7 @@ func (d *Dispatcher) HandleInbound(ctx context.Context, message InboundMessage, 
 		uuid.NewString(),
 		content,
 		modelID,
+		nil,
 		callbacks,
 	)
 	if err != nil {

@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -22,6 +23,7 @@ type ChatService struct {
 	agent        *AgentService
 	skillRuntime *SkillRuntimeService
 	memory       *MemoryService
+	uploads      *ChatUploadService
 	skillsMu     sync.Mutex
 	skillsBySess map[string]map[string]struct{}
 }
@@ -32,12 +34,14 @@ type chatStreamAccumulator struct {
 }
 
 type ChatStreamResult struct {
-	Answer         string
-	TitleUpdated   bool
-	Title          string
-	SummaryUpdated bool
-	PushFailed     bool
-	PushError      string
+	Answer            string
+	IsInterrupted     bool
+	IsStopPlaceholder bool
+	TitleUpdated      bool
+	Title             string
+	SummaryUpdated    bool
+	PushFailed        bool
+	PushError         string
 }
 
 // NewChatService 组装聊天服务及其依赖的 agent/memory 子能力。
@@ -49,6 +53,11 @@ func NewChatService(repo *repositories.Repository, openai *OpenAIClient, mcpMana
 		memory:       memory,
 		skillsBySess: make(map[string]map[string]struct{}),
 	}
+}
+
+// SetUploadService 注入临时附件服务；用于聊天回合内消费与清理上传文件。
+func (s *ChatService) SetUploadService(uploads *ChatUploadService) {
+	s.uploads = uploads
 }
 
 func (s *ChatService) getSessionActivatedSkills(sessionID string) map[string]struct{} {
@@ -234,9 +243,13 @@ func (s *ChatService) buildContextMessages(ctx context.Context, sessionID string
 	})
 
 	for _, item := range history {
+		messageContent := item.Content
+		if item.Role == "user" && len(item.Attachments) > 0 {
+			messageContent = buildHistoryMessageWithAttachments(item.Content, item.Attachments)
+		}
 		msgs = append(msgs, ChatMessage{
 			Role:    item.Role,
-			Content: item.Content,
+			Content: messageContent,
 		})
 	}
 	log.Printf("chat_context_ready session=%s history=%d mode=memory_plus_recent20 cost_ms=%d", sessionID, len(history), time.Since(buildStart).Milliseconds())
@@ -313,9 +326,11 @@ func (s *ChatService) HandleChatStream(
 	requestID string,
 	content string,
 	modelID string,
+	attachmentIDs []string,
 	callbacks AgentCallbacks,
 ) (*ChatStreamResult, error) {
-	if strings.TrimSpace(content) == "" {
+	// 允许“仅文件无文本”场景，但文本与附件都为空时仍视为非法请求。
+	if strings.TrimSpace(content) == "" && len(attachmentIDs) == 0 {
 		return nil, fmt.Errorf("Message cannot be empty.")
 	}
 
@@ -337,13 +352,50 @@ func (s *ChatService) HandleChatStream(
 		return nil, fmt.Errorf("Session not found: %s.", sessionID)
 	}
 
-	if _, err := s.repo.AddMessage(sessionID, "user", content); err != nil {
+	attachments, err := s.resolveTurnAttachments(sessionID, attachmentIDs)
+	if err != nil {
+		return nil, err
+	}
+	// 无论推理成功/失败/中断，都要回收本轮临时文件，确保“不持久化源文件”语义。
+	defer s.cleanupTurnAttachments(attachments)
+
+	userContentForLLM := strings.TrimSpace(content)
+	userMessageParts := make([]ChatMessageContentPart, 0)
+	attachmentFallback := make([]string, 0)
+	if len(attachments) > 0 {
+		// 优先把附件转换为结构化 content parts，供模型原生多模态消费。
+		userMessageParts, attachmentFallback = buildUserMessageContentParts(userContentForLLM, attachments)
+		if len(userMessageParts) == 0 || len(attachmentFallback) > 0 {
+			// 补偿逻辑：只要出现“全部失败”或“部分失败”，就补一份文本描述，
+			// 防止本轮附件上下文在模型侧完全缺失。
+			userContentForLLM = buildUserPromptWithAttachments(userContentForLLM, attachments)
+		}
+	}
+
+	userMessageAttachments := make([]models.MessageAttachment, 0, len(attachments))
+	for _, item := range attachments {
+		userMessageAttachments = append(userMessageAttachments, item.ToMessageAttachment())
+	}
+	if _, err := s.repo.AddMessageWithInput(repositories.AddMessageInput{
+		SessionID:   sessionID,
+		Role:        "user",
+		Content:     content,
+		Attachments: userMessageAttachments,
+	}); err != nil {
 		return nil, err
 	}
 
 	contextMessages, err := s.BuildContextMessages(ctx, sessionID, modelConfig)
 	if err != nil {
 		return nil, err
+	}
+	if len(attachments) > 0 {
+		// 覆盖本轮最后一条 user message，补齐附件增强内容（文本或结构化 parts）。
+		if len(userMessageParts) > 0 {
+			overrideLatestUserTurnWithParts(contextMessages, userContentForLLM, userMessageParts)
+		} else {
+			overrideLatestUserTurn(contextMessages, userContentForLLM)
+		}
 	}
 	enabledMCPConfigs, err := s.repo.ListEnabledMCPConfigs()
 	if err != nil {
@@ -412,7 +464,9 @@ func (s *ChatService) HandleChatStream(
 	activatedSkills := s.getSessionActivatedSkills(sessionID)
 	answer, err := s.agent.RunAgentLoop(ctx, modelConfig, sessionID, contextMessages, enabledMCPConfigs, activatedSkills, agentCallbacks)
 	s.mergeSessionActivatedSkills(sessionID, activatedSkills)
-	if err != nil && answer == "" {
+	// 统一将取消/超时识别为“中断结束”，而非普通失败。
+	interrupted := errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)
+	if err != nil && !interrupted && answer == "" {
 		return nil, err
 	}
 
@@ -422,11 +476,15 @@ func (s *ChatService) HandleChatStream(
 	}
 	log.Printf("chat_stream_done session=%s first_token_ms=%d total_stream_ms=%d", sessionID, firstTokenMs, time.Since(streamStart).Milliseconds())
 
-	if err := pushBody(parser.Flush()); err != nil {
+	if err := pushBody(parser.Flush()); err != nil && !interrupted {
 		return nil, err
 	}
 
 	finalAnswer := answer
+	if strings.TrimSpace(finalAnswer) == "" {
+		// 兜底采用流式累积正文，覆盖模型未显式返回 answer 的场景。
+		finalAnswer = strings.TrimSpace(accumulator.answerBuilder.String())
+	}
 	// 兜底解析 <title>/<summary> 协议，避免在多轮 tool_call 场景下元信息丢失。
 	// 同时统一净化正文，确保协议标签不会残留存档。
 	title := parser.Title()
@@ -440,17 +498,28 @@ func (s *ChatService) HandleChatStream(
 		}
 		finalAnswer = cleanBody
 	}
-	if strings.TrimSpace(finalAnswer) == "" {
+	if strings.TrimSpace(finalAnswer) == "" && !interrupted {
 		finalAnswer = "The model returned no content."
 	}
-	assistantMessage, err := s.repo.AddMessage(sessionID, "assistant", finalAnswer)
+	// 中断且无正文时落空 content + stop placeholder 标记，供前端按 i18n 文案展示。
+	assistantMessage, err := s.repo.AddMessageWithInput(repositories.AddMessageInput{
+		SessionID:         sessionID,
+		Role:              "assistant",
+		Content:           finalAnswer,
+		IsInterrupted:     interrupted,
+		IsStopPlaceholder: interrupted && strings.TrimSpace(finalAnswer) == "",
+	})
 	if err != nil {
 		return nil, err
 	}
 	if err := s.repo.BindToolCallsToAssistantMessage(sessionID, requestID, assistantMessage.ID); err != nil {
 		return nil, err
 	}
-	result := &ChatStreamResult{Answer: finalAnswer}
+	result := &ChatStreamResult{
+		Answer:            finalAnswer,
+		IsInterrupted:     interrupted,
+		IsStopPlaceholder: interrupted && strings.TrimSpace(finalAnswer) == "",
+	}
 	if title != "" {
 		if err := s.repo.UpdateSessionTitle(sessionID, title); err != nil {
 			return nil, err
@@ -481,6 +550,130 @@ func (s *ChatService) HandleChatStream(
 		result.PushError = accumulator.pushErr.Error()
 	}
 	return result, nil
+}
+
+// resolveTurnAttachments 按附件 ID 消费本轮临时文件，防止重复复用历史上传内容。
+func (s *ChatService) resolveTurnAttachments(sessionID string, ids []string) ([]UploadedAttachment, error) {
+	if len(ids) == 0 {
+		return []UploadedAttachment{}, nil
+	}
+	if s.uploads == nil {
+		return nil, fmt.Errorf("chat upload service is not initialized")
+	}
+	return s.uploads.Consume(sessionID, ids)
+}
+
+// cleanupTurnAttachments 清理本轮临时文件；调用方通过 defer 保证在所有退出路径触发。
+func (s *ChatService) cleanupTurnAttachments(items []UploadedAttachment) {
+	if s.uploads == nil || len(items) == 0 {
+		return
+	}
+	s.uploads.Cleanup(items)
+}
+
+// buildUserPromptWithAttachments 将附件可用信息拼接进本轮用户提示词。
+// 注意：这里只构建“当前回合”输入，不改变历史存档内容。
+func buildUserPromptWithAttachments(userText string, attachments []UploadedAttachment) string {
+	if len(attachments) == 0 {
+		return userText
+	}
+	var builder strings.Builder
+	if strings.TrimSpace(userText) != "" {
+		builder.WriteString(userText)
+		builder.WriteString("\n\n")
+	}
+	builder.WriteString("Uploaded files for this turn:\n")
+	for idx, file := range attachments {
+		builder.WriteString(fmt.Sprintf("%d. %s (%s, %d bytes)\n", idx+1, file.Name, file.MimeType, file.SizeBytes))
+		excerpt, ok := readAttachmentExcerpt(file.Path, file.MimeType, file.Ext)
+		if ok {
+			builder.WriteString("Content excerpt:\n")
+			builder.WriteString(excerpt)
+			builder.WriteString("\n")
+		}
+	}
+	return strings.TrimSpace(builder.String())
+}
+
+// buildHistoryMessageWithAttachments 将历史 user 消息和附件元信息合并为上下文文本。
+// 仅用于模型上下文重建，不回写数据库原始字段。
+func buildHistoryMessageWithAttachments(userText string, attachments []models.MessageAttachment) string {
+	var builder strings.Builder
+	if strings.TrimSpace(userText) != "" {
+		builder.WriteString(userText)
+		builder.WriteString("\n\n")
+	}
+	builder.WriteString("Attached files metadata:\n")
+	for idx, item := range attachments {
+		builder.WriteString(fmt.Sprintf("%d. %s (%s, %d bytes)\n", idx+1, item.Name, item.MimeType, item.SizeBytes))
+	}
+	return strings.TrimSpace(builder.String())
+}
+
+// overrideLatestUserTurn 覆盖上下文中最后一条 user 消息内容。
+// 该步骤用于把“附件增强后的输入”替换到本轮 user turn。
+func overrideLatestUserTurn(messages []ChatMessage, content string) {
+	if strings.TrimSpace(content) == "" {
+		return
+	}
+	for i := len(messages) - 1; i >= 0; i-- {
+		if messages[i].Role != "user" {
+			continue
+		}
+		messages[i].Content = content
+		return
+	}
+}
+
+// overrideLatestUserTurnWithParts 在最后一条 user turn 上挂载结构化 parts。
+// 这是多模态主路径；content 仍保留，作为模型/日志侧的文本补偿。
+func overrideLatestUserTurnWithParts(messages []ChatMessage, content string, parts []ChatMessageContentPart) {
+	if len(parts) == 0 {
+		return
+	}
+	for i := len(messages) - 1; i >= 0; i-- {
+		if messages[i].Role != "user" {
+			continue
+		}
+		messages[i].Content = content
+		messages[i].ContentParts = parts
+		return
+	}
+}
+
+// readAttachmentExcerpt 读取文本类附件内容作为降级上下文补充（仅在 part 构建失败时使用）。
+func readAttachmentExcerpt(path, mimeType, ext string) (string, bool) {
+	if strings.TrimSpace(path) == "" {
+		return "", false
+	}
+	mimeLower := strings.ToLower(strings.TrimSpace(mimeType))
+	extLower := strings.ToLower(strings.TrimPrefix(strings.TrimSpace(ext), "."))
+	if !strings.HasPrefix(mimeLower, "text/") &&
+		extLower != "txt" &&
+		extLower != "md" &&
+		extLower != "json" &&
+		extLower != "yaml" &&
+		extLower != "yml" &&
+		extLower != "csv" &&
+		extLower != "xml" &&
+		extLower != "go" &&
+		extLower != "py" &&
+		extLower != "js" &&
+		extLower != "ts" &&
+		extLower != "tsx" &&
+		extLower != "java" &&
+		extLower != "sql" {
+		return "", false
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return "", false
+	}
+	text := strings.TrimSpace(string(raw))
+	if text == "" {
+		return "", false
+	}
+	return text, true
 }
 
 // normalizeToolCallResultStatus 统一 tool result 状态推断：

@@ -13,7 +13,24 @@ export interface MessageItem {
   sessionId: string
   role: 'user' | 'assistant' | 'system'
   content: string
+  isInterrupted?: boolean
+  isStopPlaceholder?: boolean
+  attachments?: MessageAttachmentItem[]
   createdAt: string
+}
+
+export interface MessageAttachmentItem {
+  id?: string
+  name: string
+  ext: string
+  sizeBytes: number
+  mimeType: string
+  category?: string
+  iconType: string
+}
+
+export interface UploadedAttachmentItem extends MessageAttachmentItem {
+  id: string
 }
 
 export type ToolCallStatus = 'pending' | 'rejected' | 'executing' | 'completed' | 'error'
@@ -66,4 +83,13 @@ export const sessionAPI = {
         params: query,
       })
     ).data,
+  uploadAttachments: async (id: string, files: File[]) => {
+    const formData = new FormData()
+    files.forEach((file) => formData.append('files', file))
+    return (
+      await apiClient.post<{ items: UploadedAttachmentItem[] }>(`/api/sessions/${id}/attachments`, formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      })
+    ).data
+  },
 }

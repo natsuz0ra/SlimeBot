@@ -5,7 +5,7 @@ type Handlers = {
   onStart: (sessionId?: string) => void
   onChunk: (chunk: string, sessionId?: string) => void
   onSessionTitle: (title: string, sessionId?: string) => void
-  onDone: (sessionId?: string, answer?: string) => void
+  onDone: (sessionId?: string, answer?: string, meta?: { isInterrupted?: boolean; isStopPlaceholder?: boolean }) => void
   onError: (error: string, sessionId?: string) => void
   onToolCallStart?: (data: ToolCallStartData, sessionId?: string) => void
   onToolCallResult?: (data: ToolCallResultData, sessionId?: string) => void
@@ -51,6 +51,8 @@ type WSIncoming = {
   status?: 'pending' | 'rejected' | 'executing' | 'completed' | 'error'
   preamble?: string
   output?: string
+  isInterrupted?: boolean
+  isStopPlaceholder?: boolean
 }
 
 export class ChatSocket {
@@ -78,12 +80,21 @@ export class ChatSocket {
     this.openSocket()
   }
 
-  send(content: string, sessionId: string, modelId: string) {
+  send(content: string, sessionId: string, modelId: string, attachmentIds?: string[]) {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
       this.handlers?.onSocketError?.('socket is not connected')
       return false
     }
-    this.ws.send(JSON.stringify({ type: 'chat', content, sessionId, modelId }))
+    this.ws.send(JSON.stringify({ type: 'chat', content, sessionId, modelId, attachmentIds: attachmentIds || [] }))
+    return true
+  }
+
+  sendStop(sessionId: string) {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+      this.handlers?.onSocketError?.('socket is not connected')
+      return false
+    }
+    this.ws.send(JSON.stringify({ type: 'stop', sessionId }))
     return true
   }
 
@@ -146,7 +157,12 @@ export class ChatSocket {
       if (data.type === 'start') this.handlers?.onStart(data.sessionId)
       if (data.type === 'chunk') this.handlers?.onChunk(data.content || '', data.sessionId)
       if (data.type === 'session_title') this.handlers?.onSessionTitle(data.title || '', data.sessionId)
-      if (data.type === 'done') this.handlers?.onDone(data.sessionId, data.answer)
+      if (data.type === 'done') {
+        this.handlers?.onDone(data.sessionId, data.answer, {
+          isInterrupted: data.isInterrupted,
+          isStopPlaceholder: data.isStopPlaceholder,
+        })
+      }
       if (data.type === 'error') this.handlers?.onError(data.error || 'unknown error', data.sessionId)
 
       if (data.type === 'tool_call_start') {

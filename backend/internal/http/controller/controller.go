@@ -9,6 +9,7 @@ type HTTPController struct {
 	repo         *repositories.Repository
 	skillPackage *services.SkillPackageService
 	skillRuntime *services.SkillRuntimeService
+	chatUploads  *services.ChatUploadService
 	settings     *services.SettingsService
 	auth         *services.AuthService
 	sessions     *services.SessionService
@@ -23,12 +24,14 @@ func NewHTTPController(
 	repo *repositories.Repository,
 	skillPackage *services.SkillPackageService,
 	skillRuntime *services.SkillRuntimeService,
+	chatUploads *services.ChatUploadService,
 	tokenManager *auth.TokenManager,
 ) *HTTPController {
 	return &HTTPController{
 		repo:         repo,
 		skillPackage: skillPackage,
 		skillRuntime: skillRuntime,
+		chatUploads:  chatUploads,
 		settings:     services.NewSettingsService(repo),
 		auth:         services.NewAuthService(repo),
 		sessions:     services.NewSessionService(repo),

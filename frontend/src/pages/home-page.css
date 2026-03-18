@@ -204,13 +204,28 @@ textarea::placeholder {
 
 /* ── 发送按钮 ── */
 .send-btn {
-  background: linear-gradient(135deg, #10b981 0%, #059669 100%);
-  color: white;
-  box-shadow: 0 2px 8px rgba(16, 185, 129, 0.35);
+  background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%);
+  color: #fff;
+  box-shadow: 0 2px 8px rgba(99, 102, 241, 0.32);
 }
 .send-btn:hover {
-  box-shadow: 0 4px 12px rgba(16, 185, 129, 0.45);
+  box-shadow: 0 4px 12px rgba(99, 102, 241, 0.42);
   transform: scale(1.05);
+}
+.stop-btn {
+  background: rgba(239, 68, 68, 0.16);
+  color: #ef4444;
+  border: 1px solid rgba(239, 68, 68, 0.24);
+}
+.stop-btn:hover {
+  background: rgba(239, 68, 68, 0.24);
+}
+.attach-btn {
+  background: rgba(99, 102, 241, 0.08);
+  color: var(--text-secondary);
+}
+.attach-btn:hover {
+  background: rgba(99, 102, 241, 0.14);
 }
 .send-btn-disabled {
   background: rgba(99, 102, 241, 0.08);
@@ -218,11 +233,39 @@ textarea::placeholder {
   cursor: not-allowed;
 }
 
+.chat-upload-chip {
+  background: rgba(99, 102, 241, 0.1);
+  color: var(--text-primary);
+  border: 1px solid rgba(99, 102, 241, 0.2);
+}
+
 /* ── 用户气泡 ── */
 .user-bubble {
   background: var(--user-bubble-bg);
   color: var(--user-bubble-text);
   box-shadow: 0 2px 12px rgba(99, 102, 241, 0.25);
+}
+
+.user-attachments-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.user-attachment-card {
+  min-width: 140px;
+  max-width: 220px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: rgba(255, 255, 255, 0.08);
+  padding: 8px;
+}
+
+.user-attachment-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* ── 错误消息气泡 ── */

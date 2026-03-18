@@ -14,7 +14,7 @@ import (
 func TestCreateSession_ReturnsBadRequestForMalformedJSON(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	repo := repositories.New(testutil.NewSQLiteDB(t, "http_sessions_test"))
-	controller := NewHTTPController(repo, nil, nil, nil)
+	controller := NewHTTPController(repo, nil, nil, nil, nil)
 
 	engine := gin.New()
 	engine.POST("/sessions", controller.CreateSession)

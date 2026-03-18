@@ -29,11 +29,32 @@ type ModelRuntimeConfig struct {
 }
 
 type ChatMessage struct {
-	Role       string `json:"role"`
-	Content    string `json:"content"`
-	ToolCallID string `json:"toolCallId,omitempty"`
+	Role         string                   `json:"role"`
+	Content      string                   `json:"content"`
+	ContentParts []ChatMessageContentPart `json:"contentParts,omitempty"`
+	ToolCallID   string                   `json:"toolCallId,omitempty"`
 	// ToolCalls 仅在 role=assistant 且模型返回了工具调用时使用
 	ToolCalls []ToolCallInfo `json:"toolCalls,omitempty"`
+}
+
+type ChatMessageContentPartType string
+
+const (
+	ChatMessageContentPartTypeText  ChatMessageContentPartType = "text"
+	ChatMessageContentPartTypeImage ChatMessageContentPartType = "image"
+	ChatMessageContentPartTypeAudio ChatMessageContentPartType = "audio"
+	ChatMessageContentPartTypeFile  ChatMessageContentPartType = "file"
+)
+
+type ChatMessageContentPart struct {
+	Type             ChatMessageContentPartType `json:"type"`
+	Text             string                     `json:"text,omitempty"`
+	ImageURL         string                     `json:"imageUrl,omitempty"`
+	ImageDetail      string                     `json:"imageDetail,omitempty"`
+	InputAudioData   string                     `json:"inputAudioData,omitempty"`
+	InputAudioFormat string                     `json:"inputAudioFormat,omitempty"`
+	FileDataBase64   string                     `json:"fileDataBase64,omitempty"`
+	Filename         string                     `json:"filename,omitempty"`
 }
 
 // ToolCallInfo 描述一次工具调用请求
@@ -244,11 +265,70 @@ func buildRequestMessages(messages []ChatMessage, supportDeveloperRole bool) []o
 				// 对不支持 developer 的兼容端点降级为 system，保留指令语义。
 				result = append(result, openai.SystemMessage(content))
 			}
+		case "user":
+			if len(msg.ContentParts) > 0 {
+				userParts := buildRequestUserContentParts(msg.ContentParts)
+				if len(userParts) > 0 {
+					result = append(result, openai.UserMessage(userParts))
+					continue
+				}
+			}
+			if content == "" {
+				continue
+			}
+			result = append(result, openai.UserMessage(content))
 		default:
 			if content == "" {
 				continue
 			}
 			result = append(result, openai.UserMessage(content))
+		}
+	}
+	return result
+}
+
+func buildRequestUserContentParts(parts []ChatMessageContentPart) []openai.ChatCompletionContentPartUnionParam {
+	result := make([]openai.ChatCompletionContentPartUnionParam, 0, len(parts))
+	for _, part := range parts {
+		switch part.Type {
+		case ChatMessageContentPartTypeText:
+			text := strings.TrimSpace(part.Text)
+			if text == "" {
+				continue
+			}
+			result = append(result, openai.TextContentPart(text))
+		case ChatMessageContentPartTypeImage:
+			imageURL := strings.TrimSpace(part.ImageURL)
+			if imageURL == "" {
+				continue
+			}
+			image := openai.ChatCompletionContentPartImageImageURLParam{URL: imageURL}
+			if detail := strings.TrimSpace(part.ImageDetail); detail != "" {
+				image.Detail = detail
+			}
+			result = append(result, openai.ImageContentPart(image))
+		case ChatMessageContentPartTypeAudio:
+			data := strings.TrimSpace(part.InputAudioData)
+			format := strings.TrimSpace(part.InputAudioFormat)
+			if data == "" || format == "" {
+				continue
+			}
+			result = append(result, openai.InputAudioContentPart(openai.ChatCompletionContentPartInputAudioInputAudioParam{
+				Data:   data,
+				Format: format,
+			}))
+		case ChatMessageContentPartTypeFile:
+			fileData := strings.TrimSpace(part.FileDataBase64)
+			if fileData == "" {
+				continue
+			}
+			file := openai.ChatCompletionContentPartFileFileParam{
+				FileData: openai.String(fileData),
+			}
+			if filename := strings.TrimSpace(part.Filename); filename != "" {
+				file.Filename = openai.String(filename)
+			}
+			result = append(result, openai.FileContentPart(file))
 		}
 	}
 	return result

@@ -26,10 +26,13 @@ export function useHomeChatPage() {
     store,
   })
   const isMessagePlatformSession = computed(() => store.currentSessionId === MESSAGE_PLATFORM_SESSION_ID)
-  const sendDisabled = computed(() => {
-    if (isMessagePlatformSession.value) return true
-    return !modelState.hasModel.value || !modelState.selectedModelId.value || !uiState.inputValue.value.trim() || store.waiting || !store.isSocketReady
+  const canSend = computed(() => {
+    if (isMessagePlatformSession.value) return false
+    const hasInput = uiState.inputValue.value.trim() !== '' || uiState.pendingFiles.value.length > 0
+    return modelState.hasModel.value && !!modelState.selectedModelId.value && hasInput && !store.waiting && store.isSocketReady
   })
+  const sendDisabled = computed(() => !canSend.value)
+  const stopDisabled = computed(() => !store.waiting || !store.isSocketReady)
   const sessionActions = useHomeSessionActions({
     t: (key, params) => t(key, params as never),
     store,
@@ -40,6 +43,7 @@ export function useHomeChatPage() {
       renameValue: uiState.renameValue,
       renameTargetId: uiState.renameTargetId,
       inputValue: uiState.inputValue,
+      pendingFiles: uiState.pendingFiles,
       loading: uiState.loading,
       activeSessionMenu: uiState.activeSessionMenu,
       topMenuVisible: uiState.topMenuVisible,
@@ -82,6 +86,7 @@ export function useHomeChatPage() {
     renameVisible: uiState.renameVisible,
     renameValue: uiState.renameValue,
     inputValue: uiState.inputValue,
+    pendingFiles: uiState.pendingFiles,
     loading: uiState.loading,
     isEmptySession,
     showScrollToBottom: scrollState.showScrollToBottom,
@@ -95,6 +100,7 @@ export function useHomeChatPage() {
     setMessagesRef: scrollState.setMessagesRef,
     currentSession: sessionActions.currentSession,
     sendDisabled,
+    stopDisabled,
     networkStatusText: networkState.networkStatusText,
     isMessagePlatformSession: sessionActions.isMessagePlatformSession,
     canManageCurrentSession: sessionActions.canManageCurrentSession,
@@ -121,6 +127,9 @@ export function useHomeChatPage() {
     pickSession: sessionActions.pickSession,
     createSession: sessionActions.createSession,
     sendMessage: sessionActions.sendMessage,
+    stopMessage: sessionActions.stopMessage,
+    onSelectFiles: sessionActions.onSelectFiles,
+    removePendingFile: sessionActions.removePendingFile,
     scrollToBottomByButton: scrollState.scrollToBottomByButton,
     renameFromFloatingMenu: sessionActions.renameFromFloatingMenu,
     deleteFromFloatingMenu: sessionActions.deleteFromFloatingMenu,

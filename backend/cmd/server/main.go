@@ -45,6 +45,9 @@ func main() {
 	if err := os.MkdirAll(cfg.SkillsRoot, os.ModePerm); err != nil {
 		log.Fatalf("failed to create skills directory: %v", err)
 	}
+	if err := os.MkdirAll(cfg.ChatUploadRoot, os.ModePerm); err != nil {
+		log.Fatalf("failed to create chat upload directory: %v", err)
+	}
 
 	db, err := database.NewSQLite(cfg.DBPath)
 	if err != nil {
@@ -64,7 +67,11 @@ func main() {
 	skillPackageService := services.NewSkillPackageService(repo, cfg.SkillsRoot)
 	skillRuntimeService := services.NewSkillRuntimeService(repo, cfg.SkillsRoot)
 	memoryService := services.NewMemoryService(repo, openaiClient)
+	// chatUploadService 负责“上传临时存储 -> 回合消费 -> 结束清理”的附件生命周期管理。
+	chatUploadService := services.NewChatUploadService(cfg.ChatUploadRoot)
 	chatService := services.NewChatService(repo, openaiClient, mcpManager, skillRuntimeService, memoryService)
+	// 将附件服务注入 chatService，使 WS chat 链路可消费 attachmentIds。
+	chatService.SetUploadService(chatUploadService)
 	approvalBroker := telegram.NewApprovalBroker()
 	platformDispatcher := platforms.NewDispatcher(chatService, approvalBroker)
 	telegramWorker := telegram.NewWorker(repo, platformDispatcher)
@@ -72,7 +79,8 @@ func main() {
 	defer stopSignals()
 	telegramWorker.Start(appCtx)
 
-	httpController := controller.NewHTTPController(repo, skillPackageService, skillRuntimeService, tokenManager)
+	// HTTP 控制器注入上传服务，提供 /sessions/:id/attachments 临时上传入口。
+	httpController := controller.NewHTTPController(repo, skillPackageService, skillRuntimeService, chatUploadService, tokenManager)
 	wsController := ws.NewController(chatService)
 	engine := router.New(cfg, tokenManager, httpController, wsController)
 

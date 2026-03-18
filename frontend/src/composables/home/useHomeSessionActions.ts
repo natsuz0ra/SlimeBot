@@ -10,6 +10,7 @@ type UiState = {
   renameValue: Ref<string>
   renameTargetId: Ref<string>
   inputValue: Ref<string>
+  pendingFiles: Ref<File[]>
   loading: Ref<boolean>
   activeSessionMenu: Ref<{ id: string; x: number; y: number } | null>
   topMenuVisible: Ref<boolean>
@@ -158,6 +159,7 @@ export function useHomeSessionActions(options: {
   }
 
   async function pickSession(id: string) {
+    uiState.pendingFiles.value = []
     if (id === MESSAGE_PLATFORM_SESSION_ID) {
       await store.selectSession(id)
       await nextTick()
@@ -172,6 +174,7 @@ export function useHomeSessionActions(options: {
   }
 
   async function createSession() {
+    uiState.pendingFiles.value = []
     store.resetToNewSession()
     scrollState.autoStickToBottom.value = true
     scrollState.queueScrollMessagesToBottom(true)
@@ -183,13 +186,27 @@ export function useHomeSessionActions(options: {
     if (sendDisabled.value) return
     scrollState.autoStickToBottom.value = true
     scrollState.queueScrollMessagesToBottom(true)
-    const sent = await store.sendMessage(uiState.inputValue.value.trim(), modelState.selectedModelId.value)
+    const sent = await store.sendMessage(uiState.inputValue.value.trim(), modelState.selectedModelId.value, uiState.pendingFiles.value)
     if (!sent) {
       showWarning(t('sendBlockedOffline'))
       return
     }
     uiState.inputValue.value = ''
+    uiState.pendingFiles.value = []
     void store.loadSessions()
+  }
+
+  function stopMessage() {
+    void store.stopCurrentResponse()
+  }
+
+  function onSelectFiles(files: File[]) {
+    uiState.pendingFiles.value = files
+  }
+
+  function removePendingFile(index: number) {
+    if (index < 0 || index >= uiState.pendingFiles.value.length) return
+    uiState.pendingFiles.value.splice(index, 1)
   }
 
   function renameFromFloatingMenu() {
@@ -238,6 +255,9 @@ export function useHomeSessionActions(options: {
     pickSession,
     createSession,
     sendMessage,
+    stopMessage,
+    onSelectFiles,
+    removePendingFile,
     renameFromFloatingMenu,
     deleteFromFloatingMenu,
     route,

@@ -50,3 +50,33 @@ func TestBuildRequestMessages_DeveloperRoleFallback(t *testing.T) {
 		t.Fatalf("expected developer role preserved, got: %s", supportedJSON)
 	}
 }
+
+func TestBuildRequestMessages_UserContentParts(t *testing.T) {
+	source := []ChatMessage{
+		{
+			Role: "user",
+			ContentParts: []ChatMessageContentPart{
+				{Type: ChatMessageContentPartTypeText, Text: "请分析附件"},
+				{Type: ChatMessageContentPartTypeImage, ImageURL: "data:image/png;base64,aW1hZ2UtYnl0ZXM="},
+				{Type: ChatMessageContentPartTypeAudio, InputAudioData: "YXVkaW8tYnl0ZXM=", InputAudioFormat: "mp3"},
+				{Type: ChatMessageContentPartTypeFile, FileDataBase64: "ZmlsZS1ieXRlcw==", Filename: "notes.bin"},
+			},
+		},
+	}
+
+	msgs := buildRequestMessages(source, true)
+	raw, err := json.Marshal(msgs)
+	if err != nil {
+		t.Fatalf("marshal messages failed: %v", err)
+	}
+	got := string(raw)
+	if !strings.Contains(got, `"type":"image_url"`) || !strings.Contains(got, `"url":"data:image/png;base64,aW1hZ2UtYnl0ZXM="`) {
+		t.Fatalf("expected image content part in payload, got: %s", got)
+	}
+	if !strings.Contains(got, `"type":"input_audio"`) || !strings.Contains(got, `"format":"mp3"`) {
+		t.Fatalf("expected audio content part in payload, got: %s", got)
+	}
+	if !strings.Contains(got, `"type":"file"`) || !strings.Contains(got, `"file_data":"ZmlsZS1ieXRlcw=="`) || !strings.Contains(got, `"filename":"notes.bin"`) {
+		t.Fatalf("expected file content part in payload, got: %s", got)
+	}
+}

@@ -26,6 +26,7 @@ const {
   renameVisible,
   renameValue,
   inputValue,
+  pendingFiles,
   loading,
   isEmptySession,
   showScrollToBottom,
@@ -41,6 +42,7 @@ const {
   setSidebarListRef,
   currentSession,
   sendDisabled,
+  stopDisabled,
   networkStatusText,
   isMessagePlatformSession,
   canManageCurrentSession,
@@ -65,6 +67,9 @@ const {
   pickSession,
   createSession,
   sendMessage,
+  stopMessage,
+  onSelectFiles,
+  removePendingFile,
   scrollToBottomByButton,
   renameFromFloatingMenu,
   deleteFromFloatingMenu,
@@ -194,8 +199,14 @@ const {
                   :model-select-options="modelSelectOptions"
                   :model-options-count="modelOptions.length"
                   :send-disabled="sendDisabled"
+                  :stop-disabled="stopDisabled"
+                  :is-streaming="store.waiting"
+                  :pending-files="pendingFiles"
                   :placeholder="t('inputPlaceholder')"
                   @send="sendMessage"
+                  @stop="stopMessage"
+                  @files-change="onSelectFiles"
+                  @remove-file="removePendingFile"
                   @model-change="onModelChange"
                 />
               </div>
@@ -240,8 +251,14 @@ const {
                 :model-select-options="modelSelectOptions"
                 :model-options-count="modelOptions.length"
                 :send-disabled="sendDisabled"
+                :stop-disabled="stopDisabled"
+                :is-streaming="store.waiting"
+                :pending-files="pendingFiles"
                 :placeholder="t('inputPlaceholder')"
                 @send="sendMessage"
+                @stop="stopMessage"
+                @files-change="onSelectFiles"
+                @remove-file="removePendingFile"
                 @model-change="onModelChange"
               />
             </div>

@@ -32,10 +32,44 @@ type chatIncoming struct {
 	Content string `json:"content"`
 	// 期望使用的模型标识。
 	ModelID string `json:"modelId"`
+	// 本次聊天携带的临时附件 ID。
+	AttachmentIDs []string `json:"attachmentIds"`
 	// 工具调用审批对应的调用 ID。
 	ToolCallID string `json:"toolCallId"`
 	// 工具审批结果；nil 表示未携带审批字段。
 	Approved *bool `json:"approved"`
+}
+
+type activeChatCanceler struct {
+	mu     sync.Mutex
+	cancel context.CancelFunc
+}
+
+// Set 记录当前正在处理的 chat cancel 句柄（同连接仅维护一个活跃任务）。
+func (a *activeChatCanceler) Set(cancel context.CancelFunc) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.cancel = cancel
+}
+
+// Clear 清空活跃 cancel 句柄；请求结束后调用，避免后续 stop 命中陈旧任务。
+func (a *activeChatCanceler) Clear(cancel context.CancelFunc) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	_ = cancel
+	a.cancel = nil
+}
+
+// Cancel 尝试终止当前活跃 chat；若无活跃任务则返回 false。
+func (a *activeChatCanceler) Cancel() bool {
+	a.mu.Lock()
+	cancel := a.cancel
+	a.mu.Unlock()
+	if cancel == nil {
+		return false
+	}
+	cancel()
+	return true
 }
 
 func NewController(chatService *services.ChatService) *Controller {
@@ -106,6 +140,7 @@ func (w *Controller) Chat(wr http.ResponseWriter, req *http.Request) {
 	writeCh := make(chan map[string]any, 128)
 	chatCh := make(chan chatIncoming, 16)
 	broker := newApprovalBroker()
+	activeCancel := &activeChatCanceler{}
 
 	// 统一入队写消息：会话结束后不再发送，避免 goroutine 悬挂。
 	enqueue := func(payload map[string]any) bool {
@@ -118,8 +153,8 @@ func (w *Controller) Chat(wr http.ResponseWriter, req *http.Request) {
 	}
 
 	w.startWriteLoop(sessionCtx, cancelSession, conn, writeCh)
-	w.startReadLoop(sessionCtx, cancelSession, conn, enqueue, chatCh, broker)
-	w.runChatLoop(sessionCtx, enqueue, chatCh, broker)
+	w.startReadLoop(sessionCtx, cancelSession, conn, enqueue, chatCh, broker, activeCancel)
+	w.runChatLoop(sessionCtx, enqueue, chatCh, broker, activeCancel)
 }
 
 // startWriteLoop 启动单独写协程，确保 websocket 发送顺序一致。
@@ -153,6 +188,7 @@ func (w *Controller) startReadLoop(
 	enqueue func(map[string]any) bool,
 	chatCh chan<- chatIncoming,
 	broker *approvalBroker,
+	activeCancel *activeChatCanceler,
 ) {
 	// 读协程负责协议解包与分流；实际聊天处理在主循环串行执行。
 	go func() {
@@ -185,8 +221,13 @@ func (w *Controller) startReadLoop(
 						Approved:   *incoming.Approved,
 					})
 				}
+			case "stop":
+				// 用户主动中断本次流式输出：仅取消当前 chatCtx，不关闭 websocket 会话。
+				if activeCancel.Cancel() {
+					_ = enqueue(map[string]any{"type": "stopping", "sessionId": incoming.SessionID})
+				}
 			case "chat", "":
-				if strings.TrimSpace(incoming.Content) == "" {
+				if strings.TrimSpace(incoming.Content) == "" && len(incoming.AttachmentIDs) == 0 {
 					continue
 				}
 				select {
@@ -210,13 +251,14 @@ func (w *Controller) runChatLoop(
 	enqueue func(map[string]any) bool,
 	chatCh <-chan chatIncoming,
 	broker *approvalBroker,
+	activeCancel *activeChatCanceler,
 ) {
 	for {
 		select {
 		case <-sessionCtx.Done():
 			return
 		case incoming := <-chatCh:
-			if !w.handleChatIncoming(sessionCtx, enqueue, broker, incoming) {
+			if !w.handleChatIncoming(sessionCtx, enqueue, broker, activeCancel, incoming) {
 				return
 			}
 		}
@@ -228,6 +270,7 @@ func (w *Controller) handleChatIncoming(
 	sessionCtx context.Context,
 	enqueue func(map[string]any) bool,
 	broker *approvalBroker,
+	activeCancel *activeChatCanceler,
 	incoming chatIncoming,
 ) bool {
 	receivedAt := time.Now()
@@ -259,8 +302,18 @@ func (w *Controller) handleChatIncoming(
 	var firstChunkSentAt time.Time
 	requestID := uuid.NewString()
 	chatCtx, cancel := context.WithTimeout(sessionCtx, 600*time.Second)
+	activeCancel.Set(cancel)
+	defer activeCancel.Clear(cancel)
 	callbacks := w.buildCallbacks(enqueue, broker, session.ID, &firstChunkSentAt)
-	streamResult, err := w.chatService.HandleChatStream(chatCtx, session.ID, requestID, incoming.Content, incoming.ModelID, callbacks)
+	streamResult, err := w.chatService.HandleChatStream(
+		chatCtx,
+		session.ID,
+		requestID,
+		incoming.Content,
+		incoming.ModelID,
+		incoming.AttachmentIDs,
+		callbacks,
+	)
 	cancel()
 
 	if err != nil {
@@ -291,6 +344,9 @@ func (w *Controller) handleChatIncoming(
 	donePayload := map[string]any{"type": "done", "sessionId": session.ID}
 	if streamResult != nil {
 		donePayload["answer"] = streamResult.Answer
+		// 由前端根据标记决定文案与渲染（例如“已停止输出”多语言展示）。
+		donePayload["isInterrupted"] = streamResult.IsInterrupted
+		donePayload["isStopPlaceholder"] = streamResult.IsStopPlaceholder
 	}
 	if !enqueue(donePayload) {
 		return false

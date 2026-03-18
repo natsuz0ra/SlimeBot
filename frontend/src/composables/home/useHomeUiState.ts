@@ -6,6 +6,7 @@ export function useHomeUiState() {
   const renameValue = ref('')
   const renameTargetId = ref('')
   const inputValue = ref('')
+  const pendingFiles = ref<File[]>([])
   const loading = ref(false)
   const settingsVisible = ref(false)
   const activeSessionMenu = ref<{ id: string; x: number; y: number } | null>(null)
@@ -47,6 +48,7 @@ export function useHomeUiState() {
     renameValue,
     renameTargetId,
     inputValue,
+    pendingFiles,
     loading,
     settingsVisible,
     activeSessionMenu,

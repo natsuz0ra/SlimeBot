@@ -29,6 +29,7 @@ func (m *mockPlatformChatService) HandleChatStream(
 	_ string,
 	_ string,
 	_ string,
+	_ []string,
 	callbacks services.AgentCallbacks,
 ) (*services.ChatStreamResult, error) {
 	_ = callbacks.OnToolCallStart(services.ApprovalRequest{
@@ -64,6 +65,7 @@ func (m *mockApprovalChatService) HandleChatStream(
 	_ string,
 	_ string,
 	_ string,
+	_ []string,
 	callbacks services.AgentCallbacks,
 ) (*services.ChatStreamResult, error) {
 	_ = callbacks.OnToolCallStart(services.ApprovalRequest{

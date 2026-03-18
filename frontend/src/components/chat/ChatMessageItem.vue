@@ -1,5 +1,14 @@
 <script setup lang="ts">
-import { mdiAlert } from '@mdi/js'
+import {
+  mdiAlert,
+  mdiFile,
+  mdiFileCodeOutline,
+  mdiFileDocumentOutline,
+  mdiFileExcelOutline,
+  mdiFileImageOutline,
+  mdiMusic,
+  mdiFolderZipOutline,
+} from '@mdi/js'
 import type { MessageItem, ToolCallItem } from '@/api/chat'
 import MdiIcon from '@/components/MdiIcon.vue'
 import SlimeBotLogo from '@/components/ui/SlimeBotLogo.vue'
@@ -28,6 +37,37 @@ const props = defineProps<{
   sendBlockedOfflineText: string
   toolExecutionDetailTitle: string
 }>()
+
+function attachmentIcon(iconType?: string, category?: string) {
+  if (iconType === 'audio' || category === 'audio') {
+    return mdiMusic
+  }
+  switch (iconType) {
+    case 'image':
+      return mdiFileImageOutline
+    case 'pdf':
+      return mdiFileDocumentOutline
+    case 'word':
+      return mdiFileDocumentOutline
+    case 'excel':
+      return mdiFileExcelOutline
+    case 'archive':
+      return mdiFolderZipOutline
+    case 'code':
+      return mdiFileCodeOutline
+    default:
+      if (category === 'document') {
+        return mdiFileDocumentOutline
+      }
+      return mdiFile
+  }
+}
+
+function formatSize(sizeBytes: number) {
+  if (sizeBytes < 1024) return `${sizeBytes}B`
+  if (sizeBytes < 1024 * 1024) return `${(sizeBytes / 1024).toFixed(1)}KB`
+  return `${(sizeBytes / (1024 * 1024)).toFixed(1)}MB`
+}
 </script>
 
 <template>
@@ -90,7 +130,22 @@ const props = defineProps<{
         :tool-execution-detail-title="toolExecutionDetailTitle"
       />
       <template v-else>
-        {{ item.content }}
+        <div v-if="item.attachments && item.attachments.length > 0" class="user-attachments-row">
+          <div
+            v-for="(file, idx) in item.attachments"
+            :key="`${file.name}-${idx}`"
+            class="user-attachment-card"
+          >
+            <div class="flex items-center gap-2 mb-1">
+              <MdiIcon :path="attachmentIcon(file.iconType, file.category)" :size="16" />
+              <span class="user-attachment-name text-xs font-medium">{{ file.name }}</span>
+            </div>
+            <div class="text-[11px] opacity-80">
+              {{ file.ext }} · {{ formatSize(file.sizeBytes) }}
+            </div>
+          </div>
+        </div>
+        <div v-if="item.content !== ''">{{ item.content }}</div>
       </template>
     </div>
   </div>

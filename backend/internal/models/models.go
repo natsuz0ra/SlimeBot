@@ -13,11 +13,30 @@ type Session struct {
 }
 
 type Message struct {
-	ID        string    `gorm:"primaryKey;size:36" json:"id"`
-	SessionID string    `gorm:"size:36;index;not null" json:"sessionId"`
-	Role      string    `gorm:"size:16;index;not null" json:"role"`
-	Content   string    `gorm:"type:text;not null" json:"content"`
-	CreatedAt time.Time `gorm:"index" json:"createdAt"`
+	ID        string `gorm:"primaryKey;size:36" json:"id"`
+	SessionID string `gorm:"size:36;index;not null" json:"sessionId"`
+	Role      string `gorm:"size:16;index;not null" json:"role"`
+	Content   string `gorm:"type:text;not null" json:"content"`
+	// IsInterrupted 标记 assistant 输出是否在流式阶段被用户主动中断或上下文取消。
+	IsInterrupted bool `gorm:"not null;default:false" json:"isInterrupted"`
+	// IsStopPlaceholder 用于“中断且无正文”场景，前端可据此展示 i18n 文案。
+	IsStopPlaceholder bool `gorm:"not null;default:false" json:"isStopPlaceholder"`
+	// AttachmentsJSON 为持久化字段，存储附件元信息数组（不含源文件内容）。
+	AttachmentsJSON string `gorm:"type:text;not null;default:'[]'" json:"-"`
+	// Attachments 为运行时反序列化字段，对外返回给前端渲染附件卡片。
+	Attachments []MessageAttachment `gorm:"-" json:"attachments"`
+	CreatedAt   time.Time           `gorm:"index" json:"createdAt"`
+}
+
+// MessageAttachment 描述消息中的附件元信息（不包含源文件内容）。
+type MessageAttachment struct {
+	ID        string `json:"id,omitempty"`
+	Name      string `json:"name"`
+	Ext       string `json:"ext"`
+	SizeBytes int64  `json:"sizeBytes"`
+	MimeType  string `json:"mimeType"`
+	Category  string `json:"category,omitempty"`
+	IconType  string `json:"iconType"`
 }
 
 // SessionMemory 维护会话级摘要与关键词，用于上下文压缩与全局记忆检索。

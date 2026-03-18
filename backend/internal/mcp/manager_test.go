@@ -3,6 +3,8 @@ package mcp
 import (
 	"strings"
 	"testing"
+
+	"slimebot/backend/internal/consts"
 )
 
 func TestBuildMCPFuncName_LengthBounded(t *testing.T) {
@@ -10,8 +12,8 @@ func TestBuildMCPFuncName_LengthBounded(t *testing.T) {
 	toolName := strings.Repeat("very_long_tool_name_", 5)
 
 	name := buildMCPFuncName(serverAlias, toolName)
-	if len(name) > mcpFuncNameMaxLen {
-		t.Fatalf("expected len <= %d, got %d: %s", mcpFuncNameMaxLen, len(name), name)
+	if len(name) > consts.MCPFuncNameMaxLen {
+		t.Fatalf("expected len <= %d, got %d: %s", consts.MCPFuncNameMaxLen, len(name), name)
 	}
 	if !strings.Contains(name, "__") {
 		t.Fatalf("expected tool function name to contain separator '__': %s", name)

@@ -24,7 +24,7 @@ func Register(tool Tool) {
 
 	name := tool.Name()
 	if _, exists := globalRegistry.tools[name]; exists {
-		panic(fmt.Sprintf("工具名称重复: %s", name))
+		panic(fmt.Sprintf("duplicate tool name: %s", name))
 	}
 	globalRegistry.tools[name] = tool
 	log.Printf("tool_registered name=%s commands=%d", name, len(tool.Commands()))
@@ -46,18 +46,6 @@ func All() []Tool {
 	result := make([]Tool, 0, len(globalRegistry.tools))
 	for _, t := range globalRegistry.tools {
 		result = append(result, t)
-	}
-	return result
-}
-
-// AllMap 返回工具名称到工具实例的映射
-func AllMap() map[string]Tool {
-	globalRegistry.mu.RLock()
-	defer globalRegistry.mu.RUnlock()
-
-	result := make(map[string]Tool, len(globalRegistry.tools))
-	for name, t := range globalRegistry.tools {
-		result[name] = t
 	}
 	return result
 }

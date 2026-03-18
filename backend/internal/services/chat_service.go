@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"slimebot/backend/internal/consts"
 	"slimebot/backend/internal/mcp"
 	"slimebot/backend/internal/models"
 	"slimebot/backend/internal/repositories"
@@ -25,15 +26,18 @@ type ChatService struct {
 	skillsBySess map[string]map[string]struct{}
 }
 
-const contextHistoryLimit = 20
-const titleProbeRuneLimit = 100
+type chatStreamAccumulator struct {
+	answerBuilder strings.Builder
+	pushErr       error
+}
 
 type ChatStreamResult struct {
-	Answer       string
-	TitleUpdated bool
-	Title        string
-	PushFailed   bool
-	PushError    string
+	Answer         string
+	TitleUpdated   bool
+	Title          string
+	SummaryUpdated bool
+	PushFailed     bool
+	PushError      string
 }
 
 // NewChatService 组装聊天服务及其依赖的 agent/memory 子能力。
@@ -94,7 +98,74 @@ func (s *ChatService) EnsureSession(sessionID string) (*models.Session, error) {
 			return existing, nil
 		}
 	}
-	return s.repo.CreateSession("新会话")
+	return s.repo.CreateSession("New Chat")
+}
+
+// EnsureMessagePlatformSession 确保固定的消息平台会话存在。
+func (s *ChatService) EnsureMessagePlatformSession() (*models.Session, error) {
+	session, err := s.repo.GetSessionByID(consts.MessagePlatformSessionID)
+	if err != nil {
+		return nil, err
+	}
+	if session != nil {
+		return session, nil
+	}
+	return s.repo.CreateSessionWithID(consts.MessagePlatformSessionID, consts.MessagePlatformSessionName)
+}
+
+// ResolvePlatformModel 按平台会话策略解析模型：
+// 1) messagePlatformDefaultModel；2) defaultModel；3) 首个可用模型。
+// 当平台默认模型不存在时，会自动回退并写回，避免每次请求都失败。
+func (s *ChatService) ResolvePlatformModel() (string, error) {
+	resolveModel := func(modelID string) (string, bool, error) {
+		trimmed := strings.TrimSpace(modelID)
+		if trimmed == "" {
+			return "", false, nil
+		}
+		item, err := s.repo.GetLLMConfigByID(trimmed)
+		if err != nil {
+			return "", false, err
+		}
+		if item == nil {
+			return "", false, nil
+		}
+		return item.ID, true, nil
+	}
+
+	platformDefault, err := s.repo.GetSetting(consts.SettingMessagePlatformDefaultModel)
+	if err != nil {
+		return "", err
+	}
+	if id, ok, err := resolveModel(platformDefault); err != nil {
+		return "", err
+	} else if ok {
+		return id, nil
+	}
+
+	globalDefault, err := s.repo.GetSetting(consts.SettingDefaultModel)
+	if err != nil {
+		return "", err
+	}
+	if id, ok, err := resolveModel(globalDefault); err != nil {
+		return "", err
+	} else if ok {
+		_ = s.repo.SetSetting(consts.SettingMessagePlatformDefaultModel, id)
+		return id, nil
+	}
+
+	allModels, err := s.repo.ListLLMConfigs()
+	if err != nil {
+		return "", err
+	}
+	if len(allModels) == 0 {
+		return "", fmt.Errorf("No available model is configured.")
+	}
+	fallbackID := strings.TrimSpace(allModels[0].ID)
+	if fallbackID == "" {
+		return "", fmt.Errorf("No available model is configured.")
+	}
+	_ = s.repo.SetSetting(consts.SettingMessagePlatformDefaultModel, fallbackID)
+	return fallbackID, nil
 }
 
 type chatContextBuilder struct {
@@ -112,6 +183,8 @@ func (b chatContextBuilder) Build(ctx context.Context, sessionID string, modelCo
 }
 
 func (s *ChatService) buildContextMessages(ctx context.Context, sessionID string, modelConfig ModelRuntimeConfig) ([]ChatMessage, error) {
+	_ = ctx
+	_ = modelConfig
 	buildStart := time.Now()
 	systemPrompt, err := s.loadSystemPrompt()
 	if err != nil {
@@ -120,7 +193,7 @@ func (s *ChatService) buildContextMessages(ctx context.Context, sessionID string
 
 	// 拼接环境信息到系统提示词
 	envInfo := CollectEnvInfo()
-	systemPrompt = systemPrompt + "\n\n## 当前运行环境\n" + envInfo.FormatForPrompt()
+	systemPrompt = systemPrompt + "\n\n## Runtime Environment\n" + envInfo.FormatForPrompt()
 	if s.skillRuntime != nil {
 		catalogPrompt, _, catalogErr := s.skillRuntime.BuildCatalogPrompt()
 		if catalogErr != nil {
@@ -131,75 +204,34 @@ func (s *ChatService) buildContextMessages(ctx context.Context, sessionID string
 		}
 	}
 
-	history, err := s.repo.ListRecentSessionMessages(sessionID, contextHistoryLimit)
+	history, err := s.repo.ListRecentSessionMessages(sessionID, consts.ContextHistoryLimit)
 	if err != nil {
 		return nil, err
 	}
 
 	msgs := []ChatMessage{{Role: "system", Content: systemPrompt}}
-	compressEnabled := false
-	var memoryKeywords []string
-	var memoryHitCount int
 	if s.memory != nil {
-		shouldCompress, messageCount, countErr := s.memory.ShouldCompressContext(sessionID)
-		if countErr != nil {
-			log.Printf("chat_context_memory_skip session=%s reason=count_failed err=%v", sessionID, countErr)
-		} else if shouldCompress {
-			compressEnabled = true
-
-			sessionSummary := ""
-			if memoryItem, memoryErr := s.repo.GetSessionMemory(sessionID); memoryErr != nil {
-				log.Printf("chat_context_memory_skip session=%s reason=get_summary_failed err=%v", sessionID, memoryErr)
-			} else if memoryItem != nil {
-				sessionSummary = strings.TrimSpace(memoryItem.Summary)
-			}
-
-			lastUserInput := ""
-			for idx := len(history) - 1; idx >= 0; idx-- {
-				if strings.EqualFold(strings.TrimSpace(history[idx].Role), "user") {
-					lastUserInput = strings.TrimSpace(history[idx].Content)
-					break
-				}
-			}
-
-			decision, decideErr := s.memory.DecideMemoryQuery(ctx, modelConfig, lastUserInput, sessionSummary)
-			if decideErr != nil {
-				log.Printf("chat_context_memory_skip session=%s reason=decision_failed err=%v", sessionID, decideErr)
-			} else if decision.NeedMemory {
-				memoryKeywords = decision.Keywords
-			}
-
-			var memoryHits []repositories.SessionMemorySearchHit
-			if len(memoryKeywords) > 0 {
-				hits, retrieveErr := s.memory.RetrieveMemories(memoryKeywords, sessionID, memorySearchTopK)
-				if retrieveErr != nil {
-					log.Printf("chat_context_memory_skip session=%s reason=retrieve_failed err=%v", sessionID, retrieveErr)
-				} else {
-					memoryHits = hits
-					memoryHitCount = len(hits)
-				}
-			}
-
-			memoryContext := s.memory.FormatMemoryContext(sessionSummary, memoryHits)
-			if memoryContext != "" {
-				msgs = append(msgs, ChatMessage{
-					Role: "developer",
-					Content: "以下是系统提供的 memory_context，请优先用于理解历史偏好、约束与长期任务；" +
-						"若与用户当前输入冲突，以用户当前输入为准。\n\n<memory_context>\n" +
-						memoryContext +
-						"\n</memory_context>",
-				})
-			}
-
-			compactHistory, compactErr := s.memory.BuildCompactHistory(sessionID)
-			if compactErr != nil {
-				log.Printf("chat_context_memory_skip session=%s reason=compact_history_failed err=%v", sessionID, compactErr)
-			} else if len(compactHistory) > 0 {
-				history = compactHistory
-			}
-			log.Printf("chat_context_compressed session=%s message_count=%d keywords=%d hits=%d", sessionID, messageCount, len(memoryKeywords), memoryHitCount)
+		sessionSummary := ""
+		if memoryItem, memoryErr := s.repo.GetSessionMemory(sessionID); memoryErr != nil {
+			log.Printf("chat_context_memory_skip session=%s reason=get_summary_failed err=%v", sessionID, memoryErr)
+		} else if memoryItem != nil {
+			sessionSummary = strings.TrimSpace(memoryItem.Summary)
+		}
+		memoryContext := s.memory.FormatCurrentSessionContext(sessionSummary)
+		if memoryContext != "" {
+			msgs = append(msgs, ChatMessage{
+				Role: "system",
+				Content: "The following memory_context is provided by the system. Use it primarily to understand historical preferences, constraints, and long-term tasks; " +
+					"if it conflicts with the user's current input, always follow the current input.\n\n<memory_context>\n" +
+					memoryContext +
+					"\n</memory_context>",
+			})
 		}
 	}
+	msgs = append(msgs, ChatMessage{
+		Role:    "system",
+		Content: buildProtocolDeveloperPrompt(time.Now()),
+	})
 
 	for _, item := range history {
 		msgs = append(msgs, ChatMessage{
@@ -207,15 +239,30 @@ func (s *ChatService) buildContextMessages(ctx context.Context, sessionID string
 			Content: item.Content,
 		})
 	}
-	log.Printf("chat_context_ready session=%s history=%d compressed=%t cost_ms=%d", sessionID, len(history), compressEnabled, time.Since(buildStart).Milliseconds())
+	log.Printf("chat_context_ready session=%s history=%d mode=memory_plus_recent20 cost_ms=%d", sessionID, len(history), time.Since(buildStart).Milliseconds())
 	return msgs, nil
+}
+
+func buildProtocolDeveloperPrompt(now time.Time) string {
+	turnTime := now.Local().Format(time.RFC3339)
+	return "Final response protocol (strict):\n" +
+		"1. Output exactly one <title>...</title> and one <summary>...</summary> block in the final response.\n" +
+		"2. Keep title concise and action-oriented, and it must reflect the whole conversation context, not just the latest turn.\n" +
+		"3. For every turn, regenerate a NEW summary from scratch by combining: current user request, <memory_context> (if provided), and recent conversation messages.\n" +
+		"4. The newly generated summary is the latest canonical memory for this session turn and semantically replaces the previous summary.\n" +
+		"5. Never generate title/summary based on the current turn alone.\n" +
+		"6. The summary must be detailed, narrative, and can contain multiple paragraphs.\n" +
+		"7. The summary must include: this turn's user question time (" + turnTime + "), user intent, and your conclusion.\n" +
+		"8. Compress and merge older dialogue details while preserving key turning points and historical continuity.\n" +
+		"9. Drop irrelevant branches/options not chosen by the user; when needed, describe as \"multiple options were considered, and the user selected X\".\n" +
+		"10. Do not include tool logs, greetings, or markdown headings inside <summary>."
 }
 
 // loadSystemPrompt 从 prompts 目录加载系统提示词模板。
 func (s *ChatService) loadSystemPrompt() (string, error) {
 	_, currentFile, _, ok := runtime.Caller(0)
 	if !ok {
-		return "", fmt.Errorf("无法定位系统提示词文件路径")
+		return "", fmt.Errorf("Failed to locate the system prompt file path.")
 	}
 
 	serviceDir := filepath.Dir(currentFile)
@@ -227,12 +274,12 @@ func (s *ChatService) loadSystemPrompt() (string, error) {
 	)
 	raw, err = os.ReadFile(filepath.Join(projectRoot, "system_prompt.md"))
 	if err != nil {
-		return "", fmt.Errorf("读取系统提示词失败: %w", err)
+		return "", fmt.Errorf("Failed to read system prompt: %w", err)
 	}
 
 	prompt := strings.TrimSpace(string(raw))
 	if prompt == "" {
-		return "", fmt.Errorf("系统提示词为空")
+		return "", fmt.Errorf("System prompt is empty.")
 	}
 	return prompt, nil
 }
@@ -241,7 +288,7 @@ func (s *ChatService) loadSystemPrompt() (string, error) {
 func (s *ChatService) ResolveLLMConfig(modelID string) (*models.LLMConfig, error) {
 	configID := strings.TrimSpace(modelID)
 	if configID == "" {
-		return nil, fmt.Errorf("modelId 不能为空")
+		return nil, fmt.Errorf("modelId is required.")
 	}
 
 	config, err := s.repo.GetLLMConfigByID(configID)
@@ -249,11 +296,11 @@ func (s *ChatService) ResolveLLMConfig(modelID string) (*models.LLMConfig, error
 		return nil, err
 	}
 	if config == nil {
-		return nil, fmt.Errorf("模型配置不存在: %s", configID)
+		return nil, fmt.Errorf("Model config not found: %s.", configID)
 	}
 
 	if strings.TrimSpace(config.BaseURL) == "" || strings.TrimSpace(config.APIKey) == "" || strings.TrimSpace(config.Model) == "" {
-		return nil, fmt.Errorf("模型配置不完整: %s", config.Name)
+		return nil, fmt.Errorf("Model config is incomplete: %s.", config.Name)
 	}
 	return config, nil
 }
@@ -269,7 +316,7 @@ func (s *ChatService) HandleChatStream(
 	callbacks AgentCallbacks,
 ) (*ChatStreamResult, error) {
 	if strings.TrimSpace(content) == "" {
-		return nil, fmt.Errorf("消息不能为空")
+		return nil, fmt.Errorf("Message cannot be empty.")
 	}
 
 	llmConfig, err := s.ResolveLLMConfig(modelID)
@@ -287,7 +334,7 @@ func (s *ChatService) HandleChatStream(
 		return nil, err
 	}
 	if session == nil {
-		return nil, fmt.Errorf("会话不存在: %s", sessionID)
+		return nil, fmt.Errorf("Session not found: %s.", sessionID)
 	}
 
 	if _, err := s.repo.AddMessage(sessionID, "user", content); err != nil {
@@ -304,9 +351,8 @@ func (s *ChatService) HandleChatStream(
 	}
 
 	isTitleLocked := session.IsTitleLocked
-	parser := newTitleStreamParser(!isTitleLocked, titleProbeRuneLimit)
-	var answerBuilder strings.Builder
-	var pushErr error
+	parser := newTitleStreamParser(!isTitleLocked)
+	accumulator := &chatStreamAccumulator{}
 	streamStart := time.Now()
 	var firstTokenAt time.Time
 
@@ -314,12 +360,12 @@ func (s *ChatService) HandleChatStream(
 		if body == "" {
 			return nil
 		}
-		answerBuilder.WriteString(body)
-		if pushErr != nil {
+		accumulator.answerBuilder.WriteString(body)
+		if accumulator.pushErr != nil {
 			return nil
 		}
 		if err := callbacks.OnChunk(body); err != nil {
-			pushErr = err
+			accumulator.pushErr = err
 		}
 		return nil
 	}
@@ -334,9 +380,9 @@ func (s *ChatService) HandleChatStream(
 			return pushBody(body)
 		},
 		OnToolCallStart: func(req ApprovalRequest) error {
-			startStatus := "executing"
+			startStatus := consts.ToolCallStatusExecuting
 			if req.RequiresApproval {
-				startStatus = "pending"
+				startStatus = consts.ToolCallStatusPending
 			}
 			if err := s.recordToolCallStart(sessionID, requestID, req, startStatus); err != nil {
 				return err
@@ -352,16 +398,7 @@ func (s *ChatService) HandleChatStream(
 		},
 		WaitApproval: callbacks.WaitApproval,
 		OnToolCallResult: func(result ToolCallResult) error {
-			status := strings.TrimSpace(result.Status)
-			if status == "" {
-				status = "completed"
-				if result.Error != "" {
-					status = "error"
-					if strings.Contains(result.Error, "用户拒绝") {
-						status = "rejected"
-					}
-				}
-			}
+			status := normalizeToolCallResultStatus(result)
 			if err := s.recordToolCallResult(sessionID, requestID, result, status); err != nil {
 				return err
 			}
@@ -390,15 +427,21 @@ func (s *ChatService) HandleChatStream(
 	}
 
 	finalAnswer := answer
-	// 兜底解析 [TITLE] 协议，避免在多轮 tool_call 场景下标题丢失。
-	// 同时统一净化正文，确保不会把 [TITLE] 残留存档。
+	// 兜底解析 <title>/<summary> 协议，避免在多轮 tool_call 场景下元信息丢失。
+	// 同时统一净化正文，确保协议标签不会残留存档。
 	title := parser.Title()
-	if parsedTitle, cleanBody := extractProtocolTitleAndBody(finalAnswer); parsedTitle != "" {
-		title = parsedTitle
+	summary := parser.Summary()
+	if parsedTitle, parsedSummary, cleanBody := extractProtocolMetaAndBody(finalAnswer); parsedTitle != "" || parsedSummary != "" || cleanBody != finalAnswer {
+		if parsedTitle != "" {
+			title = parsedTitle
+		}
+		if parsedSummary != "" {
+			summary = parsedSummary
+		}
 		finalAnswer = cleanBody
 	}
 	if strings.TrimSpace(finalAnswer) == "" {
-		finalAnswer = "模型没有返回内容。"
+		finalAnswer = "The model returned no content."
 	}
 	assistantMessage, err := s.repo.AddMessage(sessionID, "assistant", finalAnswer)
 	if err != nil {
@@ -407,10 +450,6 @@ func (s *ChatService) HandleChatStream(
 	if err := s.repo.BindToolCallsToAssistantMessage(sessionID, requestID, assistantMessage.ID); err != nil {
 		return nil, err
 	}
-	if s.memory != nil {
-		s.memory.UpdateSummaryAsync(modelConfig, sessionID)
-	}
-
 	result := &ChatStreamResult{Answer: finalAnswer}
 	if title != "" {
 		if err := s.repo.UpdateSessionTitle(sessionID, title); err != nil {
@@ -419,11 +458,47 @@ func (s *ChatService) HandleChatStream(
 		result.TitleUpdated = true
 		result.Title = title
 	}
-	if pushErr != nil {
+	if s.memory != nil && strings.TrimSpace(summary) != "" {
+		messageCount, countErr := s.repo.CountSessionMessages(sessionID)
+		if countErr != nil {
+			return nil, countErr
+		}
+		updated, upsertErr := s.repo.UpsertSessionMemoryIfNewer(repositories.SessionMemoryUpsertInput{
+			SessionID:          sessionID,
+			Summary:            summary,
+			Keywords:           s.memory.TokenizeKeywords(summary),
+			SourceMessageCount: int(messageCount),
+		})
+		if upsertErr != nil {
+			return nil, upsertErr
+		}
+		result.SummaryUpdated = updated
+	} else if s.memory != nil {
+		log.Printf("chat_summary_missing session=%s reason=empty_or_unparsed", sessionID)
+	}
+	if accumulator.pushErr != nil {
 		result.PushFailed = true
-		result.PushError = pushErr.Error()
+		result.PushError = accumulator.pushErr.Error()
 	}
 	return result, nil
+}
+
+// normalizeToolCallResultStatus 统一 tool result 状态推断：
+// - 显式状态优先；
+// - 无状态时按 error 自动推断 completed/error/rejected。
+func normalizeToolCallResultStatus(result ToolCallResult) string {
+	status := strings.TrimSpace(result.Status)
+	if status != "" {
+		return status
+	}
+	status = consts.ToolCallStatusCompleted
+	if result.Error == "" {
+		return status
+	}
+	if strings.Contains(strings.ToLower(result.Error), "rejected by the user") {
+		return consts.ToolCallStatusRejected
+	}
+	return consts.ToolCallStatusError
 }
 
 func (s *ChatService) recordToolCallStart(

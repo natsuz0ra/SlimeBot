@@ -10,8 +10,9 @@ import { lineNumbers } from '@codemirror/view'
 import MdiIcon from '@/components/MdiIcon.vue'
 import BaseDialog from '@/components/ui/BaseDialog.vue'
 import LanguageSwitcher from '@/components/ui/LanguageSwitcher.vue'
+import AppSelect from '@/components/ui/AppSelect.vue'
 import AccountEditDialog from '@/components/settings/AccountEditDialog.vue'
-import { llmAPI, mcpAPI, skillsAPI } from '@/api/settings'
+import { llmAPI, mcpAPI, skillsAPI, messagePlatformAPI, settingAPI, type AppSettings } from '@/api/settings'
 import { useToast } from '@/composables/useToast'
 import { useLanguagePreference, type LanguageCode } from '@/composables/useLanguagePreference'
 import { useAuthStore } from '@/stores/auth'
@@ -30,10 +31,11 @@ const chatStore = useChatStore()
 const router = useRouter()
 const { language, languageOptions, savingLanguage, loadLanguage, changeLanguage } = useLanguagePreference()
 
-const tab = ref<'basic' | 'llm' | 'mcp' | 'skills'>('basic')
+const tab = ref<'basic' | 'llm' | 'mcp' | 'skills' | 'platform'>('basic')
 const llmList = ref<any[]>([])
 const mcpList = ref<any[]>([])
 const skillsList = ref<any[]>([])
+const messagePlatformList = ref<any[]>([])
 const loading = ref(false)
 const llmDialogVisible = ref(false)
 const mcpDialogVisible = ref(false)
@@ -44,9 +46,19 @@ const skillsUploading = ref(false)
 const skillsDropActive = ref(false)
 const skillsFileInputRef = ref<HTMLInputElement | null>(null)
 const accountDialogVisible = ref(false)
+const messagePlatformDialogVisible = ref(false)
+const messagePlatformSubmitting = ref(false)
+const messagePlatformDefaultModel = ref('')
 
 const llmForm = ref({ name: '', baseUrl: '', apiKey: '', model: '' })
 const mcpForm = ref({ name: '', config: '', isEnabled: true })
+const messagePlatformForm = ref({
+  id: '',
+  platform: 'telegram',
+  displayName: 'Telegram',
+  botToken: '',
+  isEnabled: true,
+})
 const confirmDialogVisible = ref(false)
 const confirmDialogCallback = ref<(() => Promise<void>) | null>(null)
 const mcpTemplateType = ref<'stdio' | 'sse' | 'streamable_http'>('stdio')
@@ -68,14 +80,35 @@ const skillsRows = computed(() =>
   }),
 )
 const mcpDialogTitle = computed(() => (mcpEditingID.value ? t('editMcp') : t('addMcp')))
+const messagePlatformModelOptions = computed(() => {
+  const base = llmRows.value.map((item) => ({ value: item.id, label: item.name }))
+  return [{ value: '', label: t('messagePlatformModelUnset') }, ...base]
+})
+const telegramConfig = computed(() => messagePlatformList.value.find((item: any) => item.platform === 'telegram'))
+
+function getBotTokenFromAuthConfig(raw: string) {
+  try {
+    const parsed = JSON.parse(raw || '{}')
+    return String(parsed?.botToken || '')
+  } catch {
+    return ''
+  }
+}
+
+function buildPlatformAuthConfigJson(botToken: string) {
+  return JSON.stringify({ botToken: botToken.trim() })
+}
 
 async function loadData() {
   loading.value = true
   try {
     await loadLanguage({ allowRemote: true })
+    const appSettings: AppSettings = await settingAPI.get()
+    messagePlatformDefaultModel.value = appSettings.messagePlatformDefaultModel || ''
     llmList.value = await llmAPI.list()
     mcpList.value = await mcpAPI.list()
     skillsList.value = await skillsAPI.list()
+    messagePlatformList.value = await messagePlatformAPI.list()
   } finally {
     loading.value = false
   }
@@ -309,6 +342,71 @@ function deleteSkill(id: string) {
   })
 }
 
+function openMessagePlatformDialog() {
+  const row = telegramConfig.value
+  if (!row) {
+    messagePlatformForm.value = {
+      id: '',
+      platform: 'telegram',
+      displayName: 'Telegram',
+      botToken: '',
+      isEnabled: true,
+    }
+  } else {
+    messagePlatformForm.value = {
+      id: row.id,
+      platform: row.platform,
+      displayName: row.displayName,
+      botToken: getBotTokenFromAuthConfig(row.authConfigJson),
+      isEnabled: !!row.isEnabled,
+    }
+  }
+  messagePlatformDialogVisible.value = true
+}
+
+async function saveMessagePlatformConfig() {
+  if (!messagePlatformForm.value.botToken.trim()) {
+    toast.error(t('botTokenRequired'))
+    return
+  }
+  messagePlatformSubmitting.value = true
+  try {
+    const payload = {
+      platform: messagePlatformForm.value.platform,
+      displayName: messagePlatformForm.value.displayName,
+      authConfigJson: buildPlatformAuthConfigJson(messagePlatformForm.value.botToken),
+      isEnabled: messagePlatformForm.value.isEnabled,
+    }
+    if (messagePlatformForm.value.id) {
+      await messagePlatformAPI.update(messagePlatformForm.value.id, payload)
+    } else {
+      await messagePlatformAPI.create(payload)
+    }
+    messagePlatformList.value = await messagePlatformAPI.list()
+    messagePlatformDialogVisible.value = false
+  } finally {
+    messagePlatformSubmitting.value = false
+  }
+}
+
+async function toggleTelegramEnabled() {
+  const row = telegramConfig.value
+  if (!row) return
+  await messagePlatformAPI.update(row.id, {
+    platform: row.platform,
+    displayName: row.displayName,
+    authConfigJson: row.authConfigJson,
+    isEnabled: !row.isEnabled,
+  })
+  messagePlatformList.value = await messagePlatformAPI.list()
+}
+
+async function saveMessagePlatformDefaultModel(modelId: string) {
+  messagePlatformDefaultModel.value = modelId
+  if (!modelId) return
+  await settingAPI.update({ messagePlatformDefaultModel: modelId } as any)
+}
+
 onMounted(loadData)
 </script>
 
@@ -343,6 +441,7 @@ onMounted(loadData)
             { key: 'llm', label: t('llmSettings') },
             { key: 'mcp', label: t('mcpSettings') },
             { key: 'skills', label: t('skillsSettings') },
+            { key: 'platform', label: t('messagePlatformSettings') },
           ]"
           :key="item.key"
           type="button"
@@ -566,6 +665,54 @@ onMounted(loadData)
             </div>
           </div>
         </div>
+
+        <!-- ── 消息平台设置 ── -->
+        <div v-if="tab === 'platform'">
+          <p class="section-label">{{ t('messagePlatformSettings') }}</p>
+          <div class="settings-card flex items-center justify-between px-4 py-3.5 rounded-xl mb-2">
+            <span class="text-sm settings-field-label">{{ t('messagePlatformDefaultModel') }}</span>
+            <AppSelect
+              :model-value="messagePlatformDefaultModel"
+              :options="messagePlatformModelOptions"
+              :disabled="llmRows.length === 0"
+              @update:model-value="saveMessagePlatformDefaultModel($event)"
+            />
+          </div>
+          <div class="settings-card flex items-center gap-3 px-4 py-3.5 rounded-xl">
+            <img src="/im_icon/telegram.svg" alt="telegram" class="w-5 h-5 flex-shrink-0" />
+            <div class="flex-1 min-w-0">
+              <div class="text-sm font-medium settings-item-name">{{ t('telegram') }}</div>
+            </div>
+            <template v-if="telegramConfig">
+              <button
+                type="button"
+                class="relative w-9 h-5 rounded-full transition-all duration-200 cursor-pointer flex-shrink-0"
+                :class="telegramConfig.isEnabled ? 'mcp-toggle-on' : 'mcp-toggle-off'"
+                @click="toggleTelegramEnabled"
+              >
+                <span
+                  class="absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full shadow-sm transition-transform duration-200"
+                  :class="telegramConfig.isEnabled ? 'translate-x-4' : 'translate-x-0'"
+                />
+              </button>
+              <button
+                type="button"
+                class="px-3 py-1.5 text-xs rounded-lg cursor-pointer account-edit-btn"
+                @click="openMessagePlatformDialog"
+              >
+                {{ t('editConfig') }}
+              </button>
+            </template>
+            <button
+              v-else
+              type="button"
+              class="action-btn px-3 py-1.5 text-xs font-medium rounded-xl cursor-pointer"
+              @click="openMessagePlatformDialog"
+            >
+              {{ t('bind') }}
+            </button>
+          </div>
+        </div>
       </section>
     </div>
   </div>
@@ -668,6 +815,28 @@ onMounted(loadData)
     v-model:visible="accountDialogVisible"
     @success="onAccountUpdated"
   />
+
+  <BaseDialog
+    v-model:visible="messagePlatformDialogVisible"
+    :title="t('messagePlatformBindTitle')"
+    :confirm-text="t('confirm')"
+    :cancel-text="t('cancel')"
+    :confirm-loading="messagePlatformSubmitting"
+    width="480px"
+    @confirm="saveMessagePlatformConfig"
+  >
+    <div class="flex flex-col gap-3">
+      <p class="text-xs settings-item-sub">{{ t('messagePlatformBindDesc') }}</p>
+      <div class="flex flex-col gap-1.5">
+        <label class="text-xs font-medium" style="color: var(--text-muted)">{{ t('botToken') }}</label>
+        <input
+          v-model="messagePlatformForm.botToken"
+          type="password"
+          class="settings-input px-3 py-2.5 text-sm rounded-xl outline-none transition-all duration-150"
+        />
+      </div>
+    </div>
+  </BaseDialog>
 </template>
 
 <style scoped>

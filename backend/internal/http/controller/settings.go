@@ -1,4 +1,4 @@
-package controllers
+package controller
 
 import (
 	"net/http"
@@ -15,23 +15,26 @@ func (h *HTTPController) GetSettings(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{
-		"language":     settings.Language,
-		"defaultModel": settings.DefaultModel,
+		"language":                    settings.Language,
+		"defaultModel":                settings.DefaultModel,
+		"messagePlatformDefaultModel": settings.MessagePlatformDefaultModel,
 	})
 }
 
 // UpdateSettings 按字段增量更新全局设置。
 func (h *HTTPController) UpdateSettings(c *gin.Context) {
 	var req struct {
-		Language     string `json:"language"`
-		DefaultModel string `json:"defaultModel"`
+		Language                    string `json:"language"`
+		DefaultModel                string `json:"defaultModel"`
+		MessagePlatformDefaultModel string `json:"messagePlatformDefaultModel"`
 	}
-	if !bindJSONOrBadRequest(c, &req, "参数格式错误") {
+	if !bindJSONOrBadRequest(c, &req, "Invalid request payload format.") {
 		return
 	}
 	err := h.settings.Update(services.UpdateSettingsInput{
-		Language:     req.Language,
-		DefaultModel: req.DefaultModel,
+		Language:                    req.Language,
+		DefaultModel:                req.DefaultModel,
+		MessagePlatformDefaultModel: req.MessagePlatformDefaultModel,
 	})
 	if err != nil {
 		jsonInternalError(c, err)

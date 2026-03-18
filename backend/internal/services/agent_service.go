@@ -7,18 +7,11 @@ import (
 	"log"
 	"strconv"
 	"strings"
-	"time"
 
+	"slimebot/backend/internal/consts"
 	"slimebot/backend/internal/mcp"
 	"slimebot/backend/internal/models"
 	"slimebot/backend/internal/tools"
-)
-
-const (
-	agentMaxIterations    = 50
-	agentApprovalTimeout  = 120 * time.Second
-	maxToolNameLen        = 64
-	memoryToolDefaultTopK = 3
 )
 
 // ApprovalRequest 发送给前端的工具调用审批请求
@@ -121,19 +114,19 @@ func (a *AgentService) buildRuntimeToolDefs(ctx context.Context, configs []model
 	metaByFunc := make(map[string]mcp.ToolMeta)
 	if a.memory != nil {
 		defs = append(defs, ToolDef{
-			Name:        "memory__query",
-			Description: "[memory] 按需检索历史记忆。仅在回答依赖历史偏好、历史决策或跨会话约束时调用。",
+			Name:        consts.SearchMemoryTool,
+			Description: "[memory] Search historical memory on demand. Use only when the response depends on past preferences, decisions, or cross-session constraints.",
 			Parameters: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
 					"query": map[string]any{
 						"type":        "string",
-						"description": "本次需要检索的记忆主题或问题",
+						"description": "Memory topic or question to retrieve for this turn.",
 					},
 					"top_k": map[string]any{
 						"type":        "integer",
-						"description": "返回条数，默认 3，最大 5",
-						"default":     memoryToolDefaultTopK,
+						"description": "Number of results to return, default 3, max 5.",
+						"default":     consts.MemoryToolDefaultTopK,
 						"minimum":     1,
 						"maximum":     5,
 					},
@@ -177,9 +170,9 @@ func (a *AgentService) buildRuntimeToolDefs(ctx context.Context, configs []model
 	}
 	for _, def := range defs {
 		nameLen := len(def.Name)
-		if nameLen > maxToolNameLen {
+		if nameLen > consts.MaxToolNameLen {
 			log.Printf("tool_name_too_long name=%s len=%d", def.Name, nameLen)
-			return nil, nil, fmt.Errorf("工具名称过长: %s (len=%d, max=%d)", def.Name, nameLen, maxToolNameLen)
+			return nil, nil, fmt.Errorf("tool name is too long: %s (len=%d, max=%d)", def.Name, nameLen, consts.MaxToolNameLen)
 		}
 	}
 	return defs, metaByFunc, nil
@@ -201,7 +194,7 @@ func (a *AgentService) RunAgentLoop(
 ) (string, error) {
 	toolDefs, mcpToolMeta, err := a.buildRuntimeToolDefs(ctx, mcpConfigs)
 	if err != nil {
-		return "", fmt.Errorf("加载 MCP 工具失败: %w", err)
+		return "", fmt.Errorf("failed to load MCP tools: %w", err)
 	}
 	messages := make([]ChatMessage, len(contextMessages))
 	copy(messages, contextMessages)
@@ -209,7 +202,7 @@ func (a *AgentService) RunAgentLoop(
 	var finalAnswer strings.Builder
 	memoryToolUsed := false
 
-	for i := 0; i < agentMaxIterations; i++ {
+	for i := 0; i < consts.AgentMaxIterations; i++ {
 		log.Printf("agent_iteration iteration=%d messages=%d", i+1, len(messages))
 
 		var chunkBuf strings.Builder
@@ -218,10 +211,10 @@ func (a *AgentService) RunAgentLoop(
 			return callbacks.OnChunk(chunk)
 		})
 		if err != nil {
-			return "", fmt.Errorf("agent 第 %d 轮 LLM 调用失败: %w", i+1, err)
+			return "", fmt.Errorf("agent LLM call failed at iteration %d: %w", i+1, err)
 		}
 
-		if result.Type == StreamResultText {
+		if result.Type == StreamResultType(consts.StreamResultText) {
 			finalAnswer.WriteString(chunkBuf.String())
 			return finalAnswer.String(), nil
 		}
@@ -233,40 +226,24 @@ func (a *AgentService) RunAgentLoop(
 		for _, tc := range result.ToolCalls {
 			invocation, err := resolveToolInvocation(tc, mcpToolMeta)
 			if err != nil {
-				messages = append(messages, ChatMessage{
-					Role:       "tool",
-					ToolCallID: tc.ID,
-					Content:    fmt.Sprintf("工具调用解析失败: %s", err.Error()),
-				})
+				messages = appendToolMessage(messages, tc.ID, fmt.Sprintf("failed to parse tool invocation: %s", err.Error()))
 				continue
 			}
 
 			params, err := parseToolCallArgs(tc.Arguments)
 			if err != nil {
-				messages = append(messages, ChatMessage{
-					Role:       "tool",
-					ToolCallID: tc.ID,
-					Content:    fmt.Sprintf("参数解析失败: %s", err.Error()),
-				})
+				messages = appendToolMessage(messages, tc.ID, fmt.Sprintf("failed to parse arguments: %s", err.Error()))
 				continue
 			}
 
-			if tc.Name == "activate_skill" && a.skillRuntime != nil {
+			if tc.Name == consts.ActivateSkillTool && a.skillRuntime != nil {
 				skillName := strings.TrimSpace(params["name"])
 				content, _, activateErr := a.skillRuntime.ActivateSkill(skillName, activatedSkills)
 				if activateErr != nil {
-					messages = append(messages, ChatMessage{
-						Role:       "tool",
-						ToolCallID: tc.ID,
-						Content:    fmt.Sprintf("skill 激活失败: %s", activateErr.Error()),
-					})
+					messages = appendToolMessage(messages, tc.ID, fmt.Sprintf("failed to activate skill: %s", activateErr.Error()))
 					continue
 				}
-				messages = append(messages, ChatMessage{
-					Role:       "tool",
-					ToolCallID: tc.ID,
-					Content:    content,
-				})
+				messages = appendToolMessage(messages, tc.ID, content)
 				continue
 			}
 
@@ -278,16 +255,12 @@ func (a *AgentService) RunAgentLoop(
 				RequiresApproval: invocation.requiresApproval,
 				Preamble:         preamble,
 			}); err != nil {
-				return "", fmt.Errorf("推送工具调用审批请求失败: %w", err)
+				return "", fmt.Errorf("failed to push tool approval request: %w", err)
 			}
 
 			approved, rejectionMessage := waitApprovalIfNeeded(ctx, callbacks, tc, invocation, params, preamble)
 			if !approved {
-				messages = append(messages, ChatMessage{
-					Role:       "tool",
-					ToolCallID: tc.ID,
-					Content:    rejectionMessage,
-				})
+				messages = appendToolMessage(messages, tc.ID, rejectionMessage)
 				continue
 			}
 
@@ -304,33 +277,31 @@ func (a *AgentService) RunAgentLoop(
 				Error:            execResult.Error,
 			})
 
-			messages = append(messages, ChatMessage{
-				Role:       "tool",
-				ToolCallID: tc.ID,
-				Content:    buildToolResultContent(execResult),
-			})
+			messages = appendToolMessage(messages, tc.ID, buildToolResultContent(execResult))
 		}
 	}
 
-	return finalAnswer.String(), fmt.Errorf("agent 循环达到最大迭代次数 (%d)", agentMaxIterations)
+	return finalAnswer.String(), fmt.Errorf("agent loop reached max iterations (%d)", consts.AgentMaxIterations)
 }
 
 // parseToolCallName 解析 "{tool}__{command}" 格式的函数名
 func parseToolCallName(funcName string) (toolName, command string, err error) {
 	parts := strings.SplitN(funcName, "__", 2)
 	if len(parts) != 2 {
-		return "", "", fmt.Errorf("无效的工具函数名格式: %s", funcName)
+		return "", "", fmt.Errorf("invalid tool function name format: %s", funcName)
 	}
 	return parts[0], parts[1], nil
 }
 
+// parseToolCallArgs 将工具参数统一转换为 string map，供内建工具执行层使用。
+// 非字符串值会转成紧凑 JSON 文本，保证参数信息不丢失。
 func parseToolCallArgs(arguments string) (map[string]string, error) {
 	if strings.TrimSpace(arguments) == "" {
 		return map[string]string{}, nil
 	}
 	var raw map[string]any
 	if err := json.Unmarshal([]byte(arguments), &raw); err != nil {
-		return nil, fmt.Errorf("JSON 解析失败: %w", err)
+		return nil, fmt.Errorf("failed to parse JSON: %w", err)
 	}
 	result := make(map[string]string, len(raw))
 	for k, v := range raw {
@@ -352,7 +323,7 @@ func parseToolCallArgsAny(arguments string) (map[string]any, error) {
 	}
 	var raw map[string]any
 	if err := json.Unmarshal([]byte(arguments), &raw); err != nil {
-		return nil, fmt.Errorf("JSON 解析失败: %w", err)
+		return nil, fmt.Errorf("failed to parse JSON: %w", err)
 	}
 	return raw, nil
 }
@@ -374,7 +345,7 @@ func parseOptionalInt(raw string, defaultValue int) int {
 func executeToolCall(toolName, command string, params map[string]string) *tools.ExecuteResult {
 	t, ok := tools.Get(toolName)
 	if !ok {
-		return &tools.ExecuteResult{Error: fmt.Sprintf("工具 %s 不存在", toolName)}
+		return &tools.ExecuteResult{Error: fmt.Sprintf("tool %s not found", toolName)}
 	}
 	result, err := t.Execute(command, params)
 	if err != nil {
@@ -388,5 +359,13 @@ func requiresToolApproval(toolName string, isMCP bool) bool {
 	if isMCP {
 		return false
 	}
-	return toolName == "exec"
+	return toolName == consts.ExecToolName
+}
+
+func appendToolMessage(messages []ChatMessage, toolCallID string, content string) []ChatMessage {
+	return append(messages, ChatMessage{
+		Role:       "tool",
+		ToolCallID: toolCallID,
+		Content:    content,
+	})
 }

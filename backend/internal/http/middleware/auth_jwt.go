@@ -6,32 +6,29 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"slimebot/backend/internal/auth"
-)
-
-const (
-	ContextAuthUsername = "auth.username"
+	"slimebot/backend/internal/consts"
 )
 
 func RequireJWT(tokenManager *auth.TokenManager) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if tokenManager == nil {
-			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "鉴权服务未初始化"})
+			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "Authentication service is not initialized."})
 			return
 		}
 
 		token := extractToken(c)
 		if token == "" {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "未授权"})
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized."})
 			return
 		}
 
 		claims, err := tokenManager.Parse(token)
 		if err != nil {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "token 无效或已过期"})
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Token is invalid or expired."})
 			return
 		}
 
-		c.Set(ContextAuthUsername, claims.Username)
+		c.Set(consts.ContextAuthUsername, claims.Username)
 		c.Next()
 	}
 }

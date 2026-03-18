@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"slimebot/backend/internal/consts"
 	"slimebot/backend/internal/models"
 	"slimebot/backend/internal/repositories"
 )
@@ -38,8 +39,8 @@ func (s *SkillRuntimeService) BuildCatalogPrompt() (string, []models.Skill, erro
 
 	var b strings.Builder
 	b.WriteString("## available_skills\n")
-	b.WriteString("以下 skills 提供专用能力。当任务与描述匹配时，请调用 `activate_skill` 工具按名称加载完整说明后再执行。\n")
-	b.WriteString("若 skill 中引用相对路径（如 scripts/、references/），它们都相对于技能目录。\n\n")
+	b.WriteString("The following skills provide specialized capabilities. When a task matches the description, call `activate_skill` by name to load full instructions before execution.\n")
+	b.WriteString("If a skill references relative paths (for example, scripts/ or references/), they are relative to the skill directory.\n\n")
 	b.WriteString("<available_skills>\n")
 	for _, item := range items {
 		b.WriteString("  <skill>\n")
@@ -63,13 +64,13 @@ func (s *SkillRuntimeService) BuildActivateSkillToolDef(skills []models.Skill) *
 
 	return &ToolDef{
 		Name:        "activate_skill",
-		Description: "按名称加载技能说明。仅在任务匹配技能描述时调用。",
+		Description: "Load a skill guide by name. Call only when the task matches the skill description.",
 		Parameters: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
 				"name": map[string]any{
 					"type":        "string",
-					"description": "要激活的技能名称",
+					"description": "Skill name to activate.",
 					"enum":        enumValues,
 				},
 			},
@@ -81,10 +82,10 @@ func (s *SkillRuntimeService) BuildActivateSkillToolDef(skills []models.Skill) *
 func (s *SkillRuntimeService) ActivateSkill(name string, activated map[string]struct{}) (string, bool, error) {
 	name = strings.TrimSpace(name)
 	if name == "" {
-		return "", false, fmt.Errorf("skill 名称不能为空")
+		return "", false, fmt.Errorf("skill name cannot be empty")
 	}
 	if _, ok := activated[name]; ok {
-		return fmt.Sprintf("<skill_content name=\"%s\">\n该 skill 在当前会话已激活，无需重复加载。\n</skill_content>", escapeXML(name)), true, nil
+		return fmt.Sprintf("<skill_content name=\"%s\">\nThis skill is already activated in the current session.\n</skill_content>", escapeXML(name)), true, nil
 	}
 
 	item, err := s.repo.GetSkillByName(name)
@@ -92,7 +93,7 @@ func (s *SkillRuntimeService) ActivateSkill(name string, activated map[string]st
 		return "", false, err
 	}
 	if item == nil {
-		return "", false, fmt.Errorf("skill 不存在: %s", name)
+		return "", false, fmt.Errorf("skill not found: %s", name)
 	}
 
 	skillDir, err := s.resolveSkillDir(*item)
@@ -101,7 +102,7 @@ func (s *SkillRuntimeService) ActivateSkill(name string, activated map[string]st
 	}
 	raw, err := os.ReadFile(filepath.Join(skillDir, "SKILL.md"))
 	if err != nil {
-		return "", false, fmt.Errorf("读取 SKILL.md 失败: %w", err)
+		return "", false, fmt.Errorf("failed to read SKILL.md: %w", err)
 	}
 
 	body, err := stripFrontmatter(string(raw))
@@ -110,7 +111,7 @@ func (s *SkillRuntimeService) ActivateSkill(name string, activated map[string]st
 	}
 	files, err := listSkillResourceFiles(skillDir)
 	if err != nil {
-		return "", false, fmt.Errorf("读取 skill 资源失败: %w", err)
+		return "", false, fmt.Errorf("failed to read skill resources: %w", err)
 	}
 
 	var b strings.Builder
@@ -123,8 +124,8 @@ func (s *SkillRuntimeService) ActivateSkill(name string, activated map[string]st
 		for _, f := range files {
 			b.WriteString("  <file>" + escapeXML(f) + "</file>\n")
 		}
-		if len(files) >= maxSkillResourcesShown {
-			b.WriteString("  <note>资源列表已截断</note>\n")
+		if len(files) >= consts.MaxSkillResourcesShown {
+			b.WriteString("  <note>Resource list truncated</note>\n")
 		}
 		b.WriteString("</skill_resources>\n")
 	}
@@ -149,7 +150,7 @@ func (s *SkillRuntimeService) DeleteSkillByID(id string) error {
 	}
 	if _, statErr := os.Stat(skillDir); statErr == nil {
 		if err := os.RemoveAll(skillDir); err != nil {
-			return fmt.Errorf("删除技能目录失败: %w", err)
+			return fmt.Errorf("failed to delete skill directory: %w", err)
 		}
 	}
 	if err := s.repo.DeleteSkill(id); err != nil {
@@ -164,12 +165,12 @@ func (s *SkillRuntimeService) resolveSkillDir(item models.Skill) (string, error)
 	if rel := strings.TrimSpace(item.RelativePath); rel != "" {
 		rel = filepath.FromSlash(rel)
 		if strings.Contains(rel, "..") {
-			return "", fmt.Errorf("技能路径非法")
+			return "", fmt.Errorf("invalid skill path")
 		}
 		candidate = filepath.Join(filepath.Dir(base), rel)
 	}
 	if !isWithinRoot(filepath.Dir(base), candidate) {
-		return "", fmt.Errorf("技能路径越界")
+		return "", fmt.Errorf("skill path is out of root")
 	}
 	return candidate, nil
 }
@@ -177,15 +178,15 @@ func (s *SkillRuntimeService) resolveSkillDir(item models.Skill) (string, error)
 func stripFrontmatter(content string) (string, error) {
 	text := strings.TrimPrefix(content, "\uFEFF")
 	if !strings.HasPrefix(text, "---") {
-		return "", fmt.Errorf("SKILL.md 缺少 frontmatter")
+		return "", fmt.Errorf("SKILL.md is missing frontmatter")
 	}
 	parts := strings.SplitN(text, "---", 3)
 	if len(parts) < 3 {
-		return "", fmt.Errorf("SKILL.md frontmatter 格式错误")
+		return "", fmt.Errorf("invalid SKILL.md frontmatter format")
 	}
 	body := strings.TrimSpace(parts[2])
 	if body == "" {
-		return "", fmt.Errorf("SKILL.md 正文为空")
+		return "", fmt.Errorf("SKILL.md body is empty")
 	}
 	return body, nil
 }

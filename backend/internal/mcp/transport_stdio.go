@@ -26,7 +26,7 @@ type stdioClient struct {
 func newStdioClient(cfg *ServerConfig) (Client, error) {
 	command := strings.TrimSpace(cfg.Command)
 	if command == "" {
-		return nil, fmt.Errorf("stdio 缺少 command")
+		return nil, fmt.Errorf("stdio command is required")
 	}
 
 	cmd := exec.Command(command, cfg.Args...)
@@ -70,7 +70,7 @@ func (c *stdioClient) initialize(ctx context.Context) error {
 		},
 	})
 	if err != nil {
-		return fmt.Errorf("initialize 失败: %w", err)
+		return fmt.Errorf("initialize failed: %w", err)
 	}
 	_, err = c.request(ctx, "notifications/initialized", map[string]any{})
 	return err
@@ -134,13 +134,13 @@ func readRPCMessage(ctx context.Context, r io.Reader) ([]byte, error) {
 			value = strings.TrimSpace(strings.TrimPrefix(value, "content-length:"))
 			n, err := strconv.Atoi(value)
 			if err != nil {
-				return nil, fmt.Errorf("content-length 非法: %w", err)
+				return nil, fmt.Errorf("invalid content-length: %w", err)
 			}
 			contentLength = n
 		}
 	}
 	if contentLength <= 0 {
-		return nil, fmt.Errorf("缺少 content-length")
+		return nil, fmt.Errorf("missing content-length")
 	}
 	buf := make([]byte, contentLength)
 	if _, err := io.ReadFull(reader, buf); err != nil {

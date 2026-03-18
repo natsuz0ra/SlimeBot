@@ -8,15 +8,8 @@ import (
 	"net/http"
 	"os"
 	"strings"
-	"time"
-)
 
-const (
-	webSearchBaseURL         = "https://api.tavily.com"
-	webSearchTimeout         = 20 * time.Second
-	webSearchMaxResponseSize = 256 * 1024 // 256KB
-	webSearchMaxSources      = 5
-	webSearchMaxContentRunes = 300
+	"slimebot/backend/internal/consts"
 )
 
 type webSearchTool struct {
@@ -46,8 +39,8 @@ type tavilyErrorResponse struct {
 
 func init() {
 	Register(newWebSearchTool(
-		webSearchBaseURL,
-		&http.Client{Timeout: webSearchTimeout},
+		consts.WebSearchBaseURL,
+		&http.Client{Timeout: consts.WebSearchTimeout},
 		func() string { return os.Getenv("WEB_SEARCH_API_KEY") },
 	))
 }
@@ -63,19 +56,19 @@ func newWebSearchTool(baseURL string, client *http.Client, getAPIKey func() stri
 func (w *webSearchTool) Name() string { return "web_search" }
 
 func (w *webSearchTool) Description() string {
-	return "联网搜索工具，适合查询最新公开信息。输入 query 后会返回答案摘要与来源链接，可用于事实核验与补充背景。"
+	return "Search the web for recent public information and return answer summaries with source links."
 }
 
 func (w *webSearchTool) Commands() []Command {
 	return []Command{
 		{
 			Name:        "search",
-			Description: "执行网络搜索并返回结构化结果。适用于需要实时信息或来源引用的场景；失败时会返回参数/鉴权/上游错误信息。",
+			Description: "Run a web search and return structured results, including upstream/validation/auth errors when they occur.",
 			Params: []CommandParam{
 				{
 					Name:        "query",
 					Required:    true,
-					Description: "搜索问题，建议使用完整、明确的问题句，避免空字符串或过于模糊的关键词。",
+					Description: "Search query. Prefer complete and specific questions over empty or vague keywords.",
 					Example:     "Who is Leo Messi?",
 				},
 			},
@@ -88,43 +81,43 @@ func (w *webSearchTool) Execute(command string, params map[string]string) (*Exec
 	case "search":
 		return w.search(params)
 	default:
-		return nil, fmt.Errorf("web_search 工具不支持命令: %s", command)
+		return nil, fmt.Errorf("web_search tool does not support command: %s", command)
 	}
 }
 
 func (w *webSearchTool) search(params map[string]string) (*ExecuteResult, error) {
 	query := strings.TrimSpace(params["query"])
 	if query == "" {
-		return nil, fmt.Errorf("参数 query 不能为空")
+		return nil, fmt.Errorf("query is required.")
 	}
 
 	apiKey := strings.TrimSpace(w.getAPIKey())
 	if apiKey == "" {
-		return nil, fmt.Errorf("环境变量 WEB_SEARCH_API_KEY 未配置，无法调用 web_search")
+		return nil, fmt.Errorf("WEB_SEARCH_API_KEY is not configured; web_search is unavailable.")
 	}
 
 	reqBody, err := json.Marshal(tavilySearchRequest{Query: query})
 	if err != nil {
-		return nil, fmt.Errorf("构建请求体失败: %w", err)
+		return nil, fmt.Errorf("failed to build request body: %w", err)
 	}
 
 	endpoint := w.baseURL + "/search"
 	req, err := http.NewRequest(http.MethodPost, endpoint, bytes.NewReader(reqBody))
 	if err != nil {
-		return nil, fmt.Errorf("构建请求失败: %w", err)
+		return nil, fmt.Errorf("failed to build request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+apiKey)
 
 	resp, err := w.client.Do(req)
 	if err != nil {
-		return &ExecuteResult{Error: fmt.Sprintf("web_search 请求失败: %s", err.Error())}, nil
+		return &ExecuteResult{Error: fmt.Sprintf("web_search request failed: %s.", err.Error())}, nil
 	}
 	defer resp.Body.Close()
 
-	rawBody, err := io.ReadAll(io.LimitReader(resp.Body, webSearchMaxResponseSize))
+	rawBody, err := io.ReadAll(io.LimitReader(resp.Body, consts.WebSearchMaxResponseSize))
 	if err != nil {
-		return &ExecuteResult{Error: fmt.Sprintf("读取 web_search 响应失败: %s", err.Error())}, nil
+		return &ExecuteResult{Error: fmt.Sprintf("Failed to read web_search response: %s.", err.Error())}, nil
 	}
 
 	if resp.StatusCode != http.StatusOK {
@@ -133,7 +126,7 @@ func (w *webSearchTool) search(params map[string]string) (*ExecuteResult, error)
 
 	var data tavilySearchResponse
 	if err := json.Unmarshal(rawBody, &data); err != nil {
-		return &ExecuteResult{Error: fmt.Sprintf("解析 web_search 响应失败: %s", err.Error())}, nil
+		return &ExecuteResult{Error: fmt.Sprintf("Failed to parse web_search response: %s.", err.Error())}, nil
 	}
 
 	return &ExecuteResult{
@@ -145,14 +138,14 @@ func parseTavilyError(statusCode int, rawBody []byte) string {
 	var er tavilyErrorResponse
 	if err := json.Unmarshal(rawBody, &er); err == nil && er.Detail != nil {
 		if msg := extractDetailError(er.Detail); msg != "" {
-			return fmt.Sprintf("web_search 请求失败（状态码 %d）: %s", statusCode, msg)
+			return fmt.Sprintf("web_search request failed (status %d): %s", statusCode, msg)
 		}
 	}
 	body := strings.TrimSpace(string(rawBody))
 	if body == "" {
 		body = "empty response body"
 	}
-	return fmt.Sprintf("web_search 请求失败（状态码 %d）: %s", statusCode, body)
+	return fmt.Sprintf("web_search request failed (status %d): %s", statusCode, body)
 }
 
 func extractDetailError(detail any) string {
@@ -172,10 +165,10 @@ func extractDetailError(detail any) string {
 func formatTavilyOutput(data tavilySearchResponse) string {
 	var b strings.Builder
 	if q := strings.TrimSpace(data.Query); q != "" {
-		b.WriteString("查询: " + q + "\n")
+		b.WriteString("Query: " + q + "\n")
 	}
 	if a := strings.TrimSpace(data.Answer); a != "" {
-		b.WriteString("答案:\n")
+		b.WriteString("Answer:\n")
 		b.WriteString(a + "\n")
 	}
 
@@ -183,26 +176,26 @@ func formatTavilyOutput(data tavilySearchResponse) string {
 		return strings.TrimSpace(b.String())
 	}
 
-	b.WriteString("来源:\n")
+	b.WriteString("Sources:\n")
 	limit := len(data.Results)
-	if limit > webSearchMaxSources {
-		limit = webSearchMaxSources
+	if limit > consts.WebSearchMaxSources {
+		limit = consts.WebSearchMaxSources
 	}
 	for i := 0; i < limit; i++ {
 		item := data.Results[i]
 		title := strings.TrimSpace(item.Title)
 		url := strings.TrimSpace(item.URL)
-		content := truncateRunes(strings.TrimSpace(item.Content), webSearchMaxContentRunes)
+		content := truncateRunes(strings.TrimSpace(item.Content), consts.WebSearchMaxContentRunes)
 
 		if title == "" {
-			title = "未命名来源"
+			title = "Untitled source"
 		}
 		b.WriteString(fmt.Sprintf("%d. %s\n", i+1, title))
 		if url != "" {
 			b.WriteString("   URL: " + url + "\n")
 		}
 		if content != "" {
-			b.WriteString("   摘要: " + content + "\n")
+			b.WriteString("   Snippet: " + content + "\n")
 		}
 	}
 	return strings.TrimSpace(b.String())

@@ -1,5 +1,7 @@
 import { apiClient } from './client'
 
+export const MESSAGE_PLATFORM_SESSION_ID = 'im-platform-session'
+
 export interface SessionItem {
   id: string
   name: string
@@ -32,6 +34,13 @@ export interface SessionHistoryToolCallItem {
 export interface SessionHistoryPayload {
   messages: MessageItem[]
   toolCallsByAssistantMessageId: Record<string, SessionHistoryToolCallItem[]>
+  hasMore: boolean
+}
+
+export interface SessionHistoryQuery {
+  limit?: number
+  before?: string
+  after?: string
 }
 
 export interface ToolCallItem {
@@ -51,5 +60,10 @@ export const sessionAPI = {
   create: async (name?: string) => (await apiClient.post<SessionItem>('/api/sessions', { name })).data,
   rename: async (id: string, name: string) => apiClient.patch(`/api/sessions/${id}/name`, { name }),
   remove: async (id: string) => apiClient.delete(`/api/sessions/${id}`),
-  history: async (id: string) => (await apiClient.get<SessionHistoryPayload>(`/api/sessions/${id}/messages`)).data,
+  history: async (id: string, query: SessionHistoryQuery = {}) =>
+    (
+      await apiClient.get<SessionHistoryPayload>(`/api/sessions/${id}/messages`, {
+        params: query,
+      })
+    ).data,
 }

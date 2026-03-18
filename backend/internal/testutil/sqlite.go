@@ -26,6 +26,7 @@ func NewSQLiteDB(t testing.TB, namespace string) *gorm.DB {
 		&models.AppSetting{},
 		&models.LLMConfig{},
 		&models.MCPConfig{},
+		&models.MessagePlatformConfig{},
 		&models.Skill{},
 	); err != nil {
 		t.Fatalf("auto migrate failed: %v", err)

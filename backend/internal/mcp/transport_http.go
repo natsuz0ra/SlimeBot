@@ -76,7 +76,7 @@ func (c *httpClient) postRPC(ctx context.Context, method string, params map[stri
 
 	var rpc map[string]any
 	if err := json.Unmarshal(raw, &rpc); err != nil {
-		return nil, fmt.Errorf("mcp http response 非法 JSON: %w", err)
+		return nil, fmt.Errorf("invalid JSON in MCP HTTP response: %w", err)
 	}
 	// MCP 规范中的 error 字段优先级高于 result，统一在这里抛出。
 	if errObj, ok := rpc["error"]; ok && errObj != nil {

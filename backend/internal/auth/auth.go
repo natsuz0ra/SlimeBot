@@ -10,12 +10,6 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
-const (
-	SettingAuthUsername            = "auth.username"
-	SettingAuthPasswordHash        = "auth.password_hash"
-	SettingAuthForcePasswordChange = "auth.force_password_change"
-)
-
 type Claims struct {
 	Username string `json:"username"`
 	jwt.RegisteredClaims
@@ -28,10 +22,10 @@ type TokenManager struct {
 
 func NewTokenManager(secret string, expireMinutes int) (*TokenManager, error) {
 	if strings.TrimSpace(secret) == "" {
-		return nil, errors.New("jwt secret 不能为空")
+		return nil, errors.New("jwt secret cannot be empty")
 	}
 	if expireMinutes <= 0 {
-		return nil, errors.New("jwt expire 必须大于 0")
+		return nil, errors.New("jwt expire must be greater than 0")
 	}
 	return &TokenManager{
 		secret:        []byte(secret),
@@ -56,7 +50,7 @@ func (m *TokenManager) Generate(username string) (string, error) {
 func (m *TokenManager) Parse(tokenString string) (*Claims, error) {
 	token, err := jwt.ParseWithClaims(tokenString, &Claims{}, func(token *jwt.Token) (any, error) {
 		if token.Method != jwt.SigningMethodHS256 {
-			return nil, fmt.Errorf("不支持的签名算法: %v", token.Method.Alg())
+			return nil, fmt.Errorf("unsupported signing algorithm: %v", token.Method.Alg())
 		}
 		return m.secret, nil
 	})
@@ -65,7 +59,7 @@ func (m *TokenManager) Parse(tokenString string) (*Claims, error) {
 	}
 	claims, ok := token.Claims.(*Claims)
 	if !ok || !token.Valid {
-		return nil, errors.New("token 无效")
+		return nil, errors.New("invalid token")
 	}
 	return claims, nil
 }

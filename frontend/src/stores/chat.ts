@@ -2,6 +2,7 @@ import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 
 import { ChatSocket, type ConnectionStatus } from '@/api/chatSocket'
+import { MESSAGE_PLATFORM_SESSION_ID, sessionAPI } from '@/api/chat'
 import type {
   MessageItem,
   SessionHistoryPayload,
@@ -10,8 +11,9 @@ import type {
   ToolCallItem,
   ToolCallStatus,
 } from '@/api/chat'
-import { sessionAPI } from '@/api/chat'
 import { i18n } from '@/i18n'
+
+const HISTORY_PAGE_SIZE = 10
 
 interface AssistantReplyBatch {
   id: string
@@ -45,6 +47,9 @@ export const useChatStore = defineStore('chat', () => {
   const messages = ref<MessageItem[]>([])
   const waiting = ref(false)
   const streamingStarted = ref(false)
+  const hasMoreHistory = ref(false)
+  const loadingOlderHistory = ref(false)
+  const loadingNewerMessages = ref(false)
   const connectionStatus = ref<ConnectionStatus>('disconnected')
   const connectionError = ref('')
   const suppressNextConnectionNotice = ref(false)
@@ -64,6 +69,12 @@ export const useChatStore = defineStore('chat', () => {
     failedUserMessageIds.value.clear()
   }
 
+  function resetHistoryState() {
+    hasMoreHistory.value = false
+    loadingOlderHistory.value = false
+    loadingNewerMessages.value = false
+  }
+
   function normalizeToolStatus(status?: string, fallbackError?: string): ToolCallStatus {
     if (status === 'pending' || status === 'rejected' || status === 'executing' || status === 'completed' || status === 'error') {
       return status
@@ -71,7 +82,7 @@ export const useChatStore = defineStore('chat', () => {
     return fallbackError ? 'error' : 'completed'
   }
 
-  function rebuildReplyBatchesFromHistory(sessionId: string, history: SessionHistoryPayload) {
+  function buildReplyBatchesFromHistory(sessionId: string, history: SessionHistoryPayload): AssistantReplyBatch[] {
     const nextBatches: AssistantReplyBatch[] = []
     for (const message of history.messages) {
       if (message.role !== 'assistant') continue
@@ -127,8 +138,21 @@ export const useChatStore = defineStore('chat', () => {
         collapsed: true,
       })
     }
-    replyBatches.value = nextBatches
+    return nextBatches
+  }
+
+  function rebuildReplyBatchesFromHistory(sessionId: string, history: SessionHistoryPayload) {
+    replyBatches.value = buildReplyBatchesFromHistory(sessionId, history)
     currentBatchId.value = ''
+  }
+
+  function mergeReplyBatchesFromHistory(sessionId: string, history: SessionHistoryPayload, position: 'prepend' | 'append') {
+    const incoming = buildReplyBatchesFromHistory(sessionId, history)
+    if (incoming.length === 0) return
+    const existingAssistantIDs = new Set(replyBatches.value.map((item) => item.assistantMessageId))
+    const filtered = incoming.filter((item) => !existingAssistantIDs.has(item.assistantMessageId))
+    if (filtered.length === 0) return
+    replyBatches.value = position === 'prepend' ? [...filtered, ...replyBatches.value] : [...replyBatches.value, ...filtered]
   }
 
   function getCurrentBatch() {
@@ -225,10 +249,33 @@ export const useChatStore = defineStore('chat', () => {
 
   async function loadSessions() {
     sessions.value = await sessionAPI.list()
+    const isVirtualMessagePlatformSession =
+      currentSessionId.value === MESSAGE_PLATFORM_SESSION_ID &&
+      !sessions.value.some((item) => item.id === MESSAGE_PLATFORM_SESSION_ID)
+    if (isVirtualMessagePlatformSession) return
     if (currentSessionId.value && !sessions.value.some((item) => item.id === currentSessionId.value)) {
       currentSessionId.value = undefined
       messages.value = []
       resetSessionRuntimeState()
+      resetHistoryState()
+    }
+  }
+
+  function appendUniqueMessages(items: MessageItem[]) {
+    if (items.length === 0) return
+    const existingIDs = new Set(messages.value.map((item) => item.id))
+    const next = items.filter((item) => !existingIDs.has(item.id))
+    if (next.length > 0) {
+      messages.value = [...messages.value, ...next]
+    }
+  }
+
+  function prependUniqueMessages(items: MessageItem[]) {
+    if (items.length === 0) return
+    const existingIDs = new Set(messages.value.map((item) => item.id))
+    const next = items.filter((item) => !existingIDs.has(item.id))
+    if (next.length > 0) {
+      messages.value = [...next, ...messages.value]
     }
   }
 
@@ -236,6 +283,7 @@ export const useChatStore = defineStore('chat', () => {
     currentSessionId.value = undefined
     messages.value = []
     resetSessionRuntimeState()
+    resetHistoryState()
   }
 
   async function createSession() {
@@ -244,14 +292,66 @@ export const useChatStore = defineStore('chat', () => {
     sessions.value = [item, ...sessions.value]
     messages.value = []
     resetSessionRuntimeState()
+    resetHistoryState()
   }
 
   async function selectSession(id: string) {
-    const history = await sessionAPI.history(id)
-    currentSessionId.value = id
-    messages.value = history.messages
-    resetSessionRuntimeState()
-    rebuildReplyBatchesFromHistory(id, history)
+    try {
+      const history = await sessionAPI.history(id, { limit: HISTORY_PAGE_SIZE })
+      currentSessionId.value = id
+      messages.value = history.messages
+      resetHistoryState()
+      hasMoreHistory.value = history.hasMore
+      resetSessionRuntimeState()
+      rebuildReplyBatchesFromHistory(id, history)
+    } catch {
+      // 固定消息平台会话在首条平台消息前可能尚未落库，前端先展示只读空态。
+      if (id === MESSAGE_PLATFORM_SESSION_ID) {
+        currentSessionId.value = id
+        messages.value = []
+        resetSessionRuntimeState()
+        resetHistoryState()
+        return
+      }
+      throw new Error('load session history failed')
+    }
+  }
+
+  async function loadOlderMessages() {
+    const sessionId = currentSessionId.value
+    const first = messages.value[0]
+    if (!sessionId || !first || !hasMoreHistory.value || loadingOlderHistory.value) return false
+    loadingOlderHistory.value = true
+    try {
+      const history = await sessionAPI.history(sessionId, {
+        limit: HISTORY_PAGE_SIZE,
+        before: first.createdAt,
+      })
+      prependUniqueMessages(history.messages)
+      hasMoreHistory.value = history.hasMore
+      mergeReplyBatchesFromHistory(sessionId, history, 'prepend')
+      return history.messages.length > 0
+    } finally {
+      loadingOlderHistory.value = false
+    }
+  }
+
+  async function loadNewMessagesForSession(sessionId: string) {
+    const activeSessionID = currentSessionId.value
+    if (!activeSessionID || activeSessionID !== sessionId || loadingNewerMessages.value) return false
+    loadingNewerMessages.value = true
+    try {
+      const latest = messages.value[messages.value.length - 1]
+      const history = await sessionAPI.history(sessionId, {
+        limit: 50,
+        after: latest?.createdAt,
+      })
+      appendUniqueMessages(history.messages)
+      mergeReplyBatchesFromHistory(sessionId, history, 'append')
+      return history.messages.length > 0
+    } finally {
+      loadingNewerMessages.value = false
+    }
   }
 
   function connectSocket() {
@@ -485,6 +585,8 @@ export const useChatStore = defineStore('chat', () => {
     messages,
     waiting,
     streamingStarted,
+    hasMoreHistory,
+    loadingOlderHistory,
     connectionStatus,
     isSocketReady,
     isAssistantErrorMessage,
@@ -495,6 +597,8 @@ export const useChatStore = defineStore('chat', () => {
     resetToNewSession,
     createSession,
     selectSession,
+    loadOlderMessages,
+    loadNewMessagesForSession,
     connectSocket,
     ensureSessionReady,
     sendMessage,

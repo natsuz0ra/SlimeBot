@@ -48,28 +48,28 @@ func CollectEnvInfo() *EnvInfo {
 func (e *EnvInfo) FormatForPrompt() string {
 	var b strings.Builder
 	if e.CurrentDate != "" {
-		b.WriteString(fmt.Sprintf("- 当前本地日期: %s\n", e.CurrentDate))
+		b.WriteString(fmt.Sprintf("- Local date: %s\n", e.CurrentDate))
 	}
 	if e.CurrentTime != "" {
-		b.WriteString(fmt.Sprintf("- 当前本地时间: %s\n", e.CurrentTime))
+		b.WriteString(fmt.Sprintf("- Local time: %s\n", e.CurrentTime))
 	}
 	if e.Timezone != "" {
 		if e.TimezoneOffset != "" {
-			b.WriteString(fmt.Sprintf("- 当前时区: %s (UTC%s)\n", e.Timezone, e.TimezoneOffset))
+			b.WriteString(fmt.Sprintf("- Timezone: %s (UTC%s)\n", e.Timezone, e.TimezoneOffset))
 		} else {
-			b.WriteString(fmt.Sprintf("- 当前时区: %s\n", e.Timezone))
+			b.WriteString(fmt.Sprintf("- Timezone: %s\n", e.Timezone))
 		}
 	}
-	b.WriteString(fmt.Sprintf("- 操作系统: %s\n", e.OS))
-	b.WriteString(fmt.Sprintf("- 系统架构: %s\n", e.Arch))
+	b.WriteString(fmt.Sprintf("- OS: %s\n", e.OS))
+	b.WriteString(fmt.Sprintf("- Architecture: %s\n", e.Arch))
 	if e.Version != "" {
-		b.WriteString(fmt.Sprintf("- 系统版本: %s\n", e.Version))
+		b.WriteString(fmt.Sprintf("- OS version: %s\n", e.Version))
 	}
 	if e.Hostname != "" {
-		b.WriteString(fmt.Sprintf("- 主机名: %s\n", e.Hostname))
+		b.WriteString(fmt.Sprintf("- Hostname: %s\n", e.Hostname))
 	}
 	if e.Shell != "" {
-		b.WriteString(fmt.Sprintf("- 默认 Shell: %s\n", e.Shell))
+		b.WriteString(fmt.Sprintf("- Default shell: %s\n", e.Shell))
 	}
 	return b.String()
 }

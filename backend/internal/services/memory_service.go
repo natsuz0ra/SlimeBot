@@ -8,21 +8,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/go-ego/gse"
+	"slimebot/backend/internal/consts"
 	"slimebot/backend/internal/models"
 	"slimebot/backend/internal/repositories"
-)
 
-const (
-	compressHistoryThreshold       = 10
-	compactRawHistoryLimit         = 6
-	memorySearchTopK               = 5
-	memoryDecisionTimeout          = 20 * time.Second
-	memorySummaryTimeout           = 45 * time.Second
-	memoryCallMaxAttempts          = 2
-	memoryRetryBackoff             = 350 * time.Millisecond
-	memorySummaryRecentMessageSize = 30
-	memoryKeywordMaxCount          = 12
+	"github.com/go-ego/gse"
 )
 
 var defaultMemoryStopWords = map[string]struct{}{
@@ -78,25 +68,25 @@ func (m *MemoryService) ShouldCompressContext(sessionID string) (bool, int64, er
 	if err != nil {
 		return false, 0, err
 	}
-	return total >= compressHistoryThreshold, total, nil
+	return total >= consts.CompressHistoryThreshold, total, nil
 }
 
 // DecideMemoryQuery 通过小模型决策当前提问是否需要检索历史记忆。
 func (m *MemoryService) DecideMemoryQuery(ctx context.Context, modelConfig ModelRuntimeConfig, userInput string, summary string) (MemoryDecision, error) {
-	systemPrompt := `你是“记忆检索决策器”。请根据用户当前输入和会话摘要，判断是否需要检索历史记忆来回答问题。
-仅返回 JSON，不要输出任何额外文本。
-JSON 格式：
-{"need_memory":true/false,"keywords":["关键词1","关键词2"],"reason":"简短原因"}
-要求：
-1. 只有在用户问题依赖历史事实、偏好、长期任务或跨会话信息时，need_memory=true。
-2. keywords 仅保留 1~8 个可检索关键词，避免停用词。
-3. 若不需要检索，keywords 返回空数组。`
+	systemPrompt := `You are a memory retrieval decision engine. Based on the current user input and session summary, decide whether historical memory retrieval is needed to answer.
+Return JSON only. Do not output any extra text.
+JSON format:
+{"need_memory":true/false,"keywords":["keyword1","keyword2"],"reason":"brief reason"}
+Requirements:
+1. Set need_memory=true only when the request depends on historical facts, preferences, long-term tasks, or cross-session context.
+2. Keep 1-8 retrievable keywords in keywords, avoiding stop words.
+3. If retrieval is not needed, return an empty keywords array.`
 
-	userPrompt := fmt.Sprintf("用户输入：\n%s\n\n当前会话摘要：\n%s", strings.TrimSpace(userInput), strings.TrimSpace(summary))
+	userPrompt := fmt.Sprintf("User input:\n%s\n\nCurrent session summary:\n%s", strings.TrimSpace(userInput), strings.TrimSpace(summary))
 	reply, attempts, elapsed, err := m.chatOnceWithRetry(ctx, modelConfig, []ChatMessage{
 		{Role: "system", Content: systemPrompt},
 		{Role: "user", Content: userPrompt},
-	}, memoryDecisionTimeout, "memory_decision")
+	}, consts.MemoryDecisionTimeout, "memory_decision")
 	if err != nil {
 		return MemoryDecision{}, err
 	}
@@ -115,7 +105,7 @@ JSON 格式：
 		len(decision.Keywords),
 		attempts,
 		elapsed.Milliseconds(),
-		memoryDecisionTimeout.Milliseconds(),
+		consts.MemoryDecisionTimeout.Milliseconds(),
 	)
 	return decision, nil
 }
@@ -123,7 +113,7 @@ JSON 格式：
 // RetrieveMemories 根据关键词检索跨会话记忆，并可排除当前会话。
 func (m *MemoryService) RetrieveMemories(keywords []string, excludeSessionID string, limit int) ([]repositories.SessionMemorySearchHit, error) {
 	if limit <= 0 {
-		limit = memorySearchTopK
+		limit = consts.MemorySearchTopK
 	}
 	return m.repo.SearchMemoriesByKeywords(m.TokenizeKeywords(strings.Join(keywords, " ")), limit, excludeSessionID)
 }
@@ -149,13 +139,25 @@ func (m *MemoryService) FormatMemoryContext(summary string, hits []repositories.
 	return strings.TrimSpace(b.String())
 }
 
+// FormatCurrentSessionContext 仅组织当前会话摘要为 memory_context 块，避免引入跨会话检索结果。
+func (m *MemoryService) FormatCurrentSessionContext(summary string) string {
+	if strings.TrimSpace(summary) == "" {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("<current_session_summary>\n")
+	b.WriteString(strings.TrimSpace(summary))
+	b.WriteString("\n</current_session_summary>")
+	return b.String()
+}
+
 // QueryForAgent 是 memory 工具入口，返回标准化的检索结果文本。
 func (m *MemoryService) QueryForAgent(sessionID string, query string, topK int) (MemoryQueryResult, error) {
 	result := MemoryQueryResult{
 		Query: strings.TrimSpace(query),
 	}
 	if result.Query == "" {
-		return result, fmt.Errorf("memory_query 参数 query 不能为空")
+		return result, fmt.Errorf("memory_query query cannot be empty")
 	}
 	if topK <= 0 {
 		topK = 3
@@ -166,7 +168,7 @@ func (m *MemoryService) QueryForAgent(sessionID string, query string, topK int) 
 
 	result.Keywords = m.TokenizeKeywords(result.Query)
 	if len(result.Keywords) == 0 {
-		result.Output = "<memory_query_result>\n未提取到可检索关键词，请改写 query 后重试。\n</memory_query_result>"
+		result.Output = "<memory_query_result>\nNo retrievable keywords extracted. Please refine the query and try again.\n</memory_query_result>"
 		return result, nil
 	}
 
@@ -194,7 +196,7 @@ func (m *MemoryService) buildMemoryQueryOutput(query string, keywords []string, 
 	b.WriteString("\n")
 	b.WriteString(fmt.Sprintf("hit_count: %d\n", len(hits)))
 	if len(hits) == 0 {
-		b.WriteString("未检索到相关记忆。\n")
+		b.WriteString("No related memories found.\n")
 		b.WriteString("</memory_query_result>")
 		return b.String()
 	}
@@ -210,7 +212,15 @@ func (m *MemoryService) buildMemoryQueryOutput(query string, keywords []string, 
 
 // BuildCompactHistory 返回用于上下文压缩的近期消息切片。
 func (m *MemoryService) BuildCompactHistory(sessionID string) ([]models.Message, error) {
-	return m.repo.ListRecentSessionMessages(sessionID, compactRawHistoryLimit)
+	return m.BuildRecentHistory(sessionID, consts.CompactRawHistoryLimit)
+}
+
+// BuildRecentHistory 返回用于上下文构建的近期消息切片。
+func (m *MemoryService) BuildRecentHistory(sessionID string, limit int) ([]models.Message, error) {
+	if limit <= 0 {
+		limit = consts.CompressedRecentHistoryLimit
+	}
+	return m.repo.ListRecentSessionMessages(sessionID, limit)
 }
 
 // UpdateSummaryAsync 异步触发摘要更新，并保证同一会话串行执行。
@@ -283,7 +293,7 @@ func (m *MemoryService) runSummaryOnce(modelConfig ModelRuntimeConfig, sessionID
 		return
 	}
 
-	recent, err := m.repo.ListRecentSessionMessages(sessionID, memorySummaryRecentMessageSize)
+	recent, err := m.repo.ListRecentSessionMessages(sessionID, consts.MemorySummaryRecentMessageSize)
 	if err != nil {
 		log.Printf("memory_summary_skip session=%s reason=recent_failed err=%v", sessionID, err)
 		return
@@ -310,7 +320,7 @@ func (m *MemoryService) runSummaryOnce(modelConfig ModelRuntimeConfig, sessionID
 			sessionID,
 			attempts,
 			summaryCost.Milliseconds(),
-			memorySummaryTimeout.Milliseconds(),
+			consts.MemorySummaryTimeout.Milliseconds(),
 			classifyMemoryError(err),
 			err,
 		)
@@ -339,32 +349,35 @@ func (m *MemoryService) runSummaryOnce(modelConfig ModelRuntimeConfig, sessionID
 		len(keywords),
 		attempts,
 		summaryCost.Milliseconds(),
-		memorySummaryTimeout.Milliseconds(),
+		consts.MemorySummaryTimeout.Milliseconds(),
 		time.Since(startAt).Milliseconds(),
 	)
 }
 
 // MergeSummary 合并历史摘要与近期消息，生成新的会话记忆摘要。
 func (m *MemoryService) MergeSummary(ctx context.Context, modelConfig ModelRuntimeConfig, oldSummary string, recent []models.Message) (string, int, time.Duration, error) {
-	systemPrompt := `你是会话摘要器。请将“历史摘要”和“最新对话片段”融合成新的高质量记忆摘要。
-输出要求：
-1. 只输出摘要正文，不要使用 markdown 标题，不要输出 JSON。
-2. 保留：用户偏好、关键事实、已完成/待完成任务、重要约束、上下文线索。
-3. 删除：寒暄、重复信息、无关工具日志。
-4. 摘要尽量精炼，但不要丢失关键信息。`
-	userPrompt := fmt.Sprintf("历史摘要：\n%s\n\n最新对话片段：\n%s", strings.TrimSpace(oldSummary), flattenMessages(recent))
+	systemPrompt := `You are a conversation summarizer. Merge the historical summary and latest conversation snippets into a new high-quality memory summary.
+Output requirements:
+1. Output summary text only. Do not use markdown headings and do not output JSON.
+2. Write in a natural narrative style and allow multiple paragraphs.
+3. Include user question time, user asks, and conclusion/decision whenever the timeline is clear from inputs.
+4. Keep user preferences, key facts, completed/pending tasks, important constraints, and useful context clues.
+5. For older history, merge and compress repetitive details while preserving key turning points.
+6. Remove greetings, repeated details, irrelevant tool logs, and branches/options the user did not continue to pursue.
+7. If there were multiple options, summarize as "multiple options were considered and user selected X" when helpful.`
+	userPrompt := fmt.Sprintf("Historical summary:\n%s\n\nLatest conversation snippets:\n%s", strings.TrimSpace(oldSummary), flattenMessages(recent))
 
 	reply, attempts, elapsed, err := m.chatOnceWithRetry(ctx, modelConfig, []ChatMessage{
 		{Role: "system", Content: systemPrompt},
 		{Role: "user", Content: userPrompt},
-	}, memorySummaryTimeout, "memory_summary")
+	}, consts.MemorySummaryTimeout, "memory_summary")
 	if err != nil {
 		return "", attempts, elapsed, err
 	}
 
 	summary := strings.TrimSpace(reply)
 	if summary == "" {
-		return "", attempts, elapsed, fmt.Errorf("摘要生成为空")
+		return "", attempts, elapsed, fmt.Errorf("summary generation returned empty output")
 	}
 	return summary, attempts, elapsed, nil
 }
@@ -409,7 +422,7 @@ func (m *MemoryService) TokenizeKeywords(text string) []string {
 		}
 		seen[normalized] = struct{}{}
 		result = append(result, normalized)
-		if len(result) >= memoryKeywordMaxCount {
+		if len(result) >= consts.MemoryKeywordMaxCount {
 			break
 		}
 	}
@@ -428,7 +441,7 @@ func (m *MemoryService) chatOnceWithRetry(
 	var lastErr error
 	attempts := 0
 
-	for attempt := 1; attempt <= memoryCallMaxAttempts; attempt++ {
+	for attempt := 1; attempt <= consts.MemoryCallMaxAttempts; attempt++ {
 		attempts = attempt
 		attemptCtx, cancel := context.WithTimeout(parent, timeout)
 		invoker := m.chatInvoker
@@ -442,7 +455,7 @@ func (m *MemoryService) chatOnceWithRetry(
 		}
 		lastErr = err
 
-		retryable := attempt < memoryCallMaxAttempts && isRetryableMemoryError(err) && parent.Err() == nil
+		retryable := attempt < consts.MemoryCallMaxAttempts && isRetryableMemoryError(err) && parent.Err() == nil
 		log.Printf(
 			"%s_attempt_failed attempt=%d timeout_ms=%d retryable=%t err_class=%s err=%v",
 			stage,
@@ -458,7 +471,7 @@ func (m *MemoryService) chatOnceWithRetry(
 		select {
 		case <-parent.Done():
 			return "", attempts, time.Since(startAt), parent.Err()
-		case <-time.After(memoryRetryBackoff):
+		case <-time.After(consts.MemoryRetryBackoff):
 		}
 	}
 

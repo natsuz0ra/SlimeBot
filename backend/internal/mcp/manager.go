@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 
+	"slimebot/backend/internal/consts"
 	"slimebot/backend/internal/models"
 )
 
@@ -30,11 +31,6 @@ type managedClient struct {
 	alias    string
 	client   Client
 }
-
-const (
-	mcpFuncNameMaxLen = 64
-	mcpFuncHashLen    = 8
-)
 
 // NewManager 创建一个新的 MCP 管理器实例。
 func NewManager() *Manager {
@@ -59,11 +55,11 @@ func (m *Manager) LoadTools(ctx context.Context, configs []models.MCPConfig) ([]
 		alive[item.ID] = true
 		entry, err := m.ensureClientLocked(item)
 		if err != nil {
-			return nil, nil, fmt.Errorf("初始化 MCP 服务失败(%s): %w", item.Name, err)
+			return nil, nil, fmt.Errorf("failed to initialize MCP service (%s): %w", item.Name, err)
 		}
 		tools, err := entry.client.ListTools(ctx)
 		if err != nil {
-			return nil, nil, fmt.Errorf("获取 MCP 工具失败(%s): %w", item.Name, err)
+			return nil, nil, fmt.Errorf("failed to load MCP tools (%s): %w", item.Name, err)
 		}
 
 		for _, tool := range tools {
@@ -124,7 +120,7 @@ func (m *Manager) ensureClientLocked(item models.MCPConfig) (*managedClient, err
 	case "streamable_http", "sse":
 		cli = newHTTPClient(cfg)
 	default:
-		err = fmt.Errorf("不支持的 transport: %s", cfg.Transport)
+		err = fmt.Errorf("unsupported transport: %s", cfg.Transport)
 	}
 	if err != nil {
 		return nil, err
@@ -159,7 +155,7 @@ func (m *Manager) Execute(ctx context.Context, configs []models.MCPConfig, serve
 		}
 	}
 	if !found {
-		return nil, fmt.Errorf("MCP 服务不存在或未启用: %s", serverAlias)
+		return nil, fmt.Errorf("MCP service not found or disabled: %s", serverAlias)
 	}
 
 	entry, err := m.ensureClientLocked(target)
@@ -200,19 +196,19 @@ func buildMCPFuncName(serverAlias, toolName string) string {
 	serverToken := sanitizeToken(serverAlias)
 	toolToken := sanitizeToken(toolName)
 	full := serverToken + "__" + toolToken
-	if len(full) <= mcpFuncNameMaxLen {
+	if len(full) <= consts.MCPFuncNameMaxLen {
 		return full
 	}
 
 	// 保留可读前缀，并追加稳定哈希，兼顾长度限制与冲突概率。
 	sum := sha1.Sum([]byte(serverToken + "::" + toolToken))
 	hash := hex.EncodeToString(sum[:])
-	if len(hash) > mcpFuncHashLen {
-		hash = hash[:mcpFuncHashLen]
+	if len(hash) > consts.MCPFuncHashLen {
+		hash = hash[:consts.MCPFuncHashLen]
 	}
 
 	// 预留 "__" 与 "_<hash>"。
-	available := mcpFuncNameMaxLen - len("__") - 1 - len(hash)
+	available := consts.MCPFuncNameMaxLen - len("__") - 1 - len(hash)
 	if available < 2 {
 		available = 2
 	}
@@ -222,10 +218,10 @@ func buildMCPFuncName(serverAlias, toolName string) string {
 	shortServer := truncateToken(serverToken, serverLen)
 	shortTool := truncateToken(toolToken, toolLen)
 	name := shortServer + "__" + shortTool + "_" + hash
-	if len(name) <= mcpFuncNameMaxLen {
+	if len(name) <= consts.MCPFuncNameMaxLen {
 		return name
 	}
-	return name[:mcpFuncNameMaxLen]
+	return name[:consts.MCPFuncNameMaxLen]
 }
 
 func truncateToken(input string, max int) string {

@@ -12,12 +12,12 @@ import (
 func NewSQLite(dbPath string) (*gorm.DB, error) {
 	absPath, err := filepath.Abs(dbPath)
 	if err != nil {
-		return nil, fmt.Errorf("解析数据库路径失败: %w", err)
+		return nil, fmt.Errorf("failed to resolve database path: %w", err)
 	}
 
 	db, err := gorm.Open(sqlite.Open(absPath), &gorm.Config{})
 	if err != nil {
-		return nil, fmt.Errorf("连接数据库失败: %w", err)
+		return nil, fmt.Errorf("failed to connect database: %w", err)
 	}
 
 	if err := db.AutoMigrate(
@@ -28,9 +28,10 @@ func NewSQLite(dbPath string) (*gorm.DB, error) {
 		&models.AppSetting{},
 		&models.LLMConfig{},
 		&models.MCPConfig{},
+		&models.MessagePlatformConfig{},
 		&models.Skill{},
 	); err != nil {
-		return nil, fmt.Errorf("自动迁移失败: %w", err)
+		return nil, fmt.Errorf("auto migration failed: %w", err)
 	}
 
 	return db, nil

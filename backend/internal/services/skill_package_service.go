@@ -13,16 +13,9 @@ import (
 	"time"
 
 	"github.com/goccy/go-yaml"
+	"slimebot/backend/internal/consts"
 	"slimebot/backend/internal/models"
 	"slimebot/backend/internal/repositories"
-)
-
-const (
-	maxSkillZipBytes       = 20 * 1024 * 1024
-	maxSkillExtractedBytes = 50 * 1024 * 1024
-	maxSkillSingleFileSize = 10 * 1024 * 1024
-	maxSkillFileCount      = 2000
-	maxSkillResourcesShown = 200
 )
 
 type SkillPackageService struct {
@@ -50,19 +43,17 @@ func NewSkillPackageService(repo *repositories.Repository, skillsRoot string) *S
 	}
 }
 
-func (s *SkillPackageService) SkillsRootAbs() string {
-	return s.skillsRootAbs
-}
-
+// InstallFromZip 按“校验 -> 解压 -> 移动 -> 入库”流程安装技能包。
+// 注意文件系统与数据库不是原子事务：若入库失败会尝试回滚目标目录。
 func (s *SkillPackageService) InstallFromZip(filename string, data []byte) (*models.Skill, error) {
 	if len(data) == 0 {
-		return nil, fmt.Errorf("上传文件为空")
+		return nil, fmt.Errorf("uploaded file is empty")
 	}
-	if len(data) > maxSkillZipBytes {
-		return nil, fmt.Errorf("zip 文件过大，最大允许 %d MB", maxSkillZipBytes/(1024*1024))
+	if len(data) > consts.MaxSkillZipBytes {
+		return nil, fmt.Errorf("zip file is too large, maximum allowed is %d MB", consts.MaxSkillZipBytes/(1024*1024))
 	}
 	if !strings.HasSuffix(strings.ToLower(strings.TrimSpace(filename)), ".zip") {
-		return nil, fmt.Errorf("仅支持上传 .zip 文件")
+		return nil, fmt.Errorf("only .zip files are supported")
 	}
 
 	meta, files, err := s.validateZipAndCollect(data)
@@ -75,16 +66,16 @@ func (s *SkillPackageService) InstallFromZip(filename string, data []byte) (*mod
 		return nil, err
 	}
 	if exists != nil {
-		return nil, fmt.Errorf("skill %s 已存在，请先删除后重试", meta.Name)
+		return nil, fmt.Errorf("skill %s already exists, delete it before retrying", meta.Name)
 	}
 
 	if err := os.MkdirAll(s.skillsRootAbs, os.ModePerm); err != nil {
-		return nil, fmt.Errorf("创建 skills 目录失败: %w", err)
+		return nil, fmt.Errorf("failed to create skills directory: %w", err)
 	}
 
 	tmpDir, err := os.MkdirTemp(s.skillsRootAbs, ".upload-*")
 	if err != nil {
-		return nil, fmt.Errorf("创建临时目录失败: %w", err)
+		return nil, fmt.Errorf("failed to create temp directory: %w", err)
 	}
 	defer os.RemoveAll(tmpDir)
 
@@ -94,22 +85,22 @@ func (s *SkillPackageService) InstallFromZip(filename string, data []byte) (*mod
 
 	srcSkillDir := filepath.Join(tmpDir, meta.Name)
 	if !isWithinRoot(tmpDir, srcSkillDir) {
-		return nil, fmt.Errorf("技能目录路径非法")
+		return nil, fmt.Errorf("invalid skill directory path")
 	}
 	if st, statErr := os.Stat(srcSkillDir); statErr != nil || !st.IsDir() {
-		return nil, fmt.Errorf("解压后的 skill 目录不存在")
+		return nil, fmt.Errorf("extracted skill directory does not exist")
 	}
 
 	destSkillDir := filepath.Join(s.skillsRootAbs, meta.Name)
 	if !isWithinRoot(s.skillsRootAbs, destSkillDir) {
-		return nil, fmt.Errorf("目标路径非法")
+		return nil, fmt.Errorf("invalid target path")
 	}
 	if _, statErr := os.Stat(destSkillDir); statErr == nil {
-		return nil, fmt.Errorf("skill %s 已存在，请先删除后重试", meta.Name)
+		return nil, fmt.Errorf("skill %s already exists, delete it before retrying", meta.Name)
 	}
 
 	if err := os.Rename(srcSkillDir, destSkillDir); err != nil {
-		return nil, fmt.Errorf("移动 skill 目录失败: %w", err)
+		return nil, fmt.Errorf("failed to move skill directory: %w", err)
 	}
 
 	relativePath := filepath.ToSlash(filepath.Join(filepath.Base(s.skillsRootAbs), meta.Name))
@@ -126,16 +117,17 @@ func (s *SkillPackageService) InstallFromZip(filename string, data []byte) (*mod
 	return item, nil
 }
 
+// validateZipAndCollect 校验 zip 结构与资源限制，并提取 SKILL.md 元数据。
 func (s *SkillPackageService) validateZipAndCollect(data []byte) (*parsedSkillMetadata, map[string]*zip.File, error) {
 	reader, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))
 	if err != nil {
-		return nil, nil, fmt.Errorf("zip 解析失败: %w", err)
+		return nil, nil, fmt.Errorf("failed to parse zip: %w", err)
 	}
 	if len(reader.File) == 0 {
-		return nil, nil, fmt.Errorf("zip 内容为空")
+		return nil, nil, fmt.Errorf("zip content is empty")
 	}
-	if len(reader.File) > maxSkillFileCount {
-		return nil, nil, fmt.Errorf("zip 中文件过多，最多允许 %d 个", maxSkillFileCount)
+	if len(reader.File) > consts.MaxSkillFileCount {
+		return nil, nil, fmt.Errorf("too many files in zip, maximum allowed is %d", consts.MaxSkillFileCount)
 	}
 
 	topLevels := make(map[string]struct{})
@@ -152,21 +144,21 @@ func (s *SkillPackageService) validateZipAndCollect(data []byte) (*parsedSkillMe
 
 		parts := strings.Split(cleanName, "/")
 		if len(parts) == 0 || strings.TrimSpace(parts[0]) == "" {
-			return nil, nil, fmt.Errorf("zip 结构非法：存在无效路径 %s", file.Name)
+			return nil, nil, fmt.Errorf("invalid zip structure: invalid path %s", file.Name)
 		}
 		topLevels[parts[0]] = struct{}{}
 		collected[cleanName] = file
 
 		if !file.FileInfo().IsDir() {
-			if file.UncompressedSize64 > maxSkillSingleFileSize {
-				return nil, nil, fmt.Errorf("文件 %s 超过单文件大小限制 %d MB", cleanName, maxSkillSingleFileSize/(1024*1024))
+			if file.UncompressedSize64 > consts.MaxSkillSingleFileSize {
+				return nil, nil, fmt.Errorf("file %s exceeds single-file size limit %d MB", cleanName, consts.MaxSkillSingleFileSize/(1024*1024))
 			}
 			total += file.UncompressedSize64
 		}
 	}
 
 	if len(topLevels) != 1 {
-		return nil, nil, fmt.Errorf("zip 必须且只能包含一个顶层目录")
+		return nil, nil, fmt.Errorf("zip must contain exactly one top-level directory")
 	}
 
 	var topDir string
@@ -175,16 +167,16 @@ func (s *SkillPackageService) validateZipAndCollect(data []byte) (*parsedSkillMe
 	}
 
 	if !isValidSkillName(topDir) {
-		return nil, nil, fmt.Errorf("顶层目录名不符合规范（仅小写字母/数字/连字符，1-64，不能以连字符开头或结尾，不能连续连字符）")
+		return nil, nil, fmt.Errorf("invalid top-level directory name (lowercase letters/numbers/hyphens only, length 1-64, no leading/trailing/consecutive hyphens)")
 	}
-	if total > maxSkillExtractedBytes {
-		return nil, nil, fmt.Errorf("解压后总大小超过限制 %d MB", maxSkillExtractedBytes/(1024*1024))
+	if total > consts.MaxSkillExtractedBytes {
+		return nil, nil, fmt.Errorf("total extracted size exceeds limit %d MB", consts.MaxSkillExtractedBytes/(1024*1024))
 	}
 
 	skillFilePath := topDir + "/SKILL.md"
 	skillFile, ok := collected[skillFilePath]
 	if !ok || skillFile.FileInfo().IsDir() {
-		return nil, nil, fmt.Errorf("顶层目录内必须包含 SKILL.md")
+		return nil, nil, fmt.Errorf("top-level directory must contain SKILL.md")
 	}
 
 	meta, err := readSkillMetadata(skillFile, topDir)
@@ -194,10 +186,11 @@ func (s *SkillPackageService) validateZipAndCollect(data []byte) (*parsedSkillMe
 	return meta, collected, nil
 }
 
+// extractZip 仅提取通过 validateZipAndCollect 白名单筛选后的条目，避免路径逃逸。
 func (s *SkillPackageService) extractZip(data []byte, targetRoot string, files map[string]*zip.File) error {
 	reader, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))
 	if err != nil {
-		return fmt.Errorf("zip 解析失败: %w", err)
+		return fmt.Errorf("failed to parse zip: %w", err)
 	}
 
 	for _, file := range reader.File {
@@ -214,33 +207,33 @@ func (s *SkillPackageService) extractZip(data []byte, targetRoot string, files m
 
 		destPath := filepath.Join(targetRoot, filepath.FromSlash(cleanName))
 		if !isWithinRoot(targetRoot, destPath) {
-			return fmt.Errorf("检测到非法解压路径: %s", cleanName)
+			return fmt.Errorf("detected invalid extraction path: %s", cleanName)
 		}
 
 		if file.FileInfo().IsDir() {
 			if err := os.MkdirAll(destPath, os.ModePerm); err != nil {
-				return fmt.Errorf("创建目录失败: %w", err)
+				return fmt.Errorf("failed to create directory: %w", err)
 			}
 			continue
 		}
 
 		if err := os.MkdirAll(filepath.Dir(destPath), os.ModePerm); err != nil {
-			return fmt.Errorf("创建父目录失败: %w", err)
+			return fmt.Errorf("failed to create parent directory: %w", err)
 		}
 
 		src, err := file.Open()
 		if err != nil {
-			return fmt.Errorf("读取 zip 条目失败: %w", err)
+			return fmt.Errorf("failed to read zip entry: %w", err)
 		}
 		dst, err := os.OpenFile(destPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, file.Mode().Perm())
 		if err != nil {
 			_ = src.Close()
-			return fmt.Errorf("写入文件失败: %w", err)
+			return fmt.Errorf("failed to write file: %w", err)
 		}
 		if _, err = io.Copy(dst, src); err != nil {
 			_ = dst.Close()
 			_ = src.Close()
-			return fmt.Errorf("解压文件失败: %w", err)
+			return fmt.Errorf("failed to extract file: %w", err)
 		}
 		_ = dst.Close()
 		_ = src.Close()
@@ -255,10 +248,10 @@ func sanitizeZipPath(raw string) (string, error) {
 		return "", nil
 	}
 	if strings.HasPrefix(normalized, "/") {
-		return "", fmt.Errorf("zip 中存在绝对路径: %s", raw)
+		return "", fmt.Errorf("zip contains an absolute path: %s", raw)
 	}
 	if strings.Contains(normalized, ":") {
-		return "", fmt.Errorf("zip 中存在盘符路径: %s", raw)
+		return "", fmt.Errorf("zip contains a drive path: %s", raw)
 	}
 
 	cleaned := path.Clean(normalized)
@@ -266,7 +259,7 @@ func sanitizeZipPath(raw string) (string, error) {
 		return "", nil
 	}
 	if strings.HasPrefix(cleaned, "../") || cleaned == ".." {
-		return "", fmt.Errorf("zip 中存在越界路径: %s", raw)
+		return "", fmt.Errorf("zip contains an out-of-root path: %s", raw)
 	}
 	return cleaned, nil
 }
@@ -274,20 +267,20 @@ func sanitizeZipPath(raw string) (string, error) {
 func readSkillMetadata(file *zip.File, expectedName string) (*parsedSkillMetadata, error) {
 	rc, err := file.Open()
 	if err != nil {
-		return nil, fmt.Errorf("读取 SKILL.md 失败: %w", err)
+		return nil, fmt.Errorf("failed to read SKILL.md: %w", err)
 	}
 	defer rc.Close()
 
-	raw, err := io.ReadAll(io.LimitReader(rc, maxSkillSingleFileSize))
+	raw, err := io.ReadAll(io.LimitReader(rc, consts.MaxSkillSingleFileSize))
 	if err != nil {
-		return nil, fmt.Errorf("读取 SKILL.md 失败: %w", err)
+		return nil, fmt.Errorf("failed to read SKILL.md: %w", err)
 	}
 	name, description, err := parseSkillFrontmatter(string(raw))
 	if err != nil {
 		return nil, err
 	}
 	if name != expectedName {
-		return nil, fmt.Errorf("SKILL.md 中 name(%s) 与顶层目录(%s) 不一致", name, expectedName)
+		return nil, fmt.Errorf("SKILL.md name (%s) does not match top-level directory (%s)", name, expectedName)
 	}
 	return &parsedSkillMetadata{Name: name, Description: description}, nil
 }
@@ -295,32 +288,32 @@ func readSkillMetadata(file *zip.File, expectedName string) (*parsedSkillMetadat
 func parseSkillFrontmatter(content string) (string, string, error) {
 	text := strings.TrimPrefix(content, "\uFEFF")
 	if !strings.HasPrefix(text, "---") {
-		return "", "", fmt.Errorf("SKILL.md 缺少 YAML frontmatter")
+		return "", "", fmt.Errorf("SKILL.md is missing YAML frontmatter")
 	}
 	parts := strings.SplitN(text, "---", 3)
 	if len(parts) < 3 {
-		return "", "", fmt.Errorf("SKILL.md frontmatter 格式错误")
+		return "", "", fmt.Errorf("invalid SKILL.md frontmatter format")
 	}
 	frontmatter := strings.TrimSpace(parts[1])
 	if frontmatter == "" {
-		return "", "", fmt.Errorf("SKILL.md frontmatter 不能为空")
+		return "", "", fmt.Errorf("SKILL.md frontmatter cannot be empty")
 	}
 
 	var fm skillFrontmatter
 	if err := yaml.Unmarshal([]byte(frontmatter), &fm); err != nil {
-		return "", "", fmt.Errorf("SKILL.md frontmatter YAML 解析失败: %w", err)
+		return "", "", fmt.Errorf("failed to parse SKILL.md frontmatter YAML: %w", err)
 	}
 
 	name := strings.TrimSpace(fm.Name)
 	description := strings.TrimSpace(fm.Description)
 	if !isValidSkillName(name) {
-		return "", "", fmt.Errorf("SKILL.md name 不符合规范")
+		return "", "", fmt.Errorf("invalid SKILL.md name")
 	}
 	if description == "" {
-		return "", "", fmt.Errorf("SKILL.md description 不能为空")
+		return "", "", fmt.Errorf("SKILL.md description cannot be empty")
 	}
 	if len([]rune(description)) > 1024 {
-		return "", "", fmt.Errorf("SKILL.md description 超过 1024 字符限制")
+		return "", "", fmt.Errorf("SKILL.md description exceeds 1024 characters")
 	}
 	return name, description, nil
 }
@@ -375,7 +368,7 @@ func listSkillResourceFiles(skillDir string) ([]string, error) {
 			return nil
 		}
 		results = append(results, rel)
-		if len(results) >= maxSkillResourcesShown {
+		if len(results) >= consts.MaxSkillResourcesShown {
 			return fs.SkipAll
 		}
 		return nil

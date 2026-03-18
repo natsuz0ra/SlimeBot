@@ -33,6 +33,15 @@ func (r *Repository) CreateSession(name string) (*models.Session, error) {
 	return session, err
 }
 
+func (r *Repository) CreateSessionWithID(id, name string) (*models.Session, error) {
+	session := &models.Session{
+		ID:   id,
+		Name: name,
+	}
+	err := r.db.Create(session).Error
+	return session, err
+}
+
 func (r *Repository) RenameSessionByUser(id, name string) error {
 	return r.db.Model(&models.Session{}).
 		Where("id = ?", id).
@@ -48,20 +57,15 @@ func (r *Repository) UpdateSessionTitle(id, name string) error {
 }
 
 func (r *Repository) DeleteSession(id string) error {
-	tx := r.db.Begin()
-	if err := tx.Where("session_id = ?", id).Delete(&models.Message{}).Error; err != nil {
-		tx.Rollback()
-		return err
-	}
-	if err := tx.Where("session_id = ?", id).Delete(&models.ToolCallRecord{}).Error; err != nil {
-		tx.Rollback()
-		return err
-	}
-	if err := tx.Where("id = ?", id).Delete(&models.Session{}).Error; err != nil {
-		tx.Rollback()
-		return err
-	}
-	return tx.Commit().Error
+	return r.db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Where("session_id = ?", id).Delete(&models.Message{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("session_id = ?", id).Delete(&models.ToolCallRecord{}).Error; err != nil {
+			return err
+		}
+		return tx.Where("id = ?", id).Delete(&models.Session{}).Error
+	})
 }
 
 func (r *Repository) SetSessionModel(sessionID, modelConfigID string) error {

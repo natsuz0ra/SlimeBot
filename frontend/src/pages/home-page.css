@@ -125,6 +125,12 @@
   color: var(--text-primary);
 }
 
+.platform-badge {
+  background: rgba(99, 102, 241, 0.12);
+  color: #6366f1;
+  border: 1px solid rgba(99, 102, 241, 0.24);
+}
+
 /* ── 顶栏标题按钮 ── */
 .header-title-btn:hover {
   background: rgba(99, 102, 241, 0.08);

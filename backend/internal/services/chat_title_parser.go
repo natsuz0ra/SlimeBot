@@ -1,25 +1,37 @@
 package services
 
-import "strings"
+import (
+	"regexp"
+	"strings"
+)
+
+var protocolGapRegex = regexp.MustCompile(`\n{2,}`)
 
 type titleStreamParser struct {
 	// 是否启用协议解析；关闭时全部透传。
 	enabled bool
 	// 最近一次成功解析出的标题。
 	title string
-	// 探测模式下的行缓冲，用于按“行”识别 [TITLE] 协议。
-	lineBuf strings.Builder
-	// 是否处于探测模式：true=先入缓冲识别协议，false=正文直通。
-	probing bool
+	// 最近一次成功解析出的会话总结。
+	summary string
+	// 当前正在解析的协议标签：title / summary。
+	activeTag string
+	// 普通文本阶段下，可能跨 chunk 的开标签探测缓存。
+	openBuf []rune
+	// 标签内容阶段下，可能跨 chunk 的闭标签探测缓存。
+	closeBuf []rune
+	// 当前标签内容缓存（不包含标签本身）。
+	tagContent []rune
+	// 标记在移除协议标签后，下一段正文前缀空白应被裁剪。
+	trimNextTextPrefix bool
 }
 
 // newTitleStreamParser 创建标题协议解析器；禁用时直接透传所有内容。
-func newTitleStreamParser(enabled bool, probeRuneLimit int) *titleStreamParser {
-	_ = probeRuneLimit
+func newTitleStreamParser(enabled bool) *titleStreamParser {
 	if !enabled {
 		return &titleStreamParser{enabled: false}
 	}
-	return &titleStreamParser{enabled: true, probing: true}
+	return &titleStreamParser{enabled: true}
 }
 
 // Feed 增量接收模型流片段并返回可直接下发前端的正文部分。
@@ -30,7 +42,15 @@ func (p *titleStreamParser) Feed(chunk string) string {
 	if !p.enabled {
 		return chunk
 	}
-	return p.process(chunk, false)
+	var out strings.Builder
+	for _, r := range chunk {
+		if p.activeTag == "" {
+			p.consumeTextRune(r, &out)
+			continue
+		}
+		p.consumeTagRune(r)
+	}
+	return out.String()
 }
 
 // Flush 在流结束时冲刷缓冲中的残留内容。
@@ -38,73 +58,20 @@ func (p *titleStreamParser) Flush() string {
 	if !p.enabled {
 		return ""
 	}
-	return p.process("", true)
-}
 
-func (p *titleStreamParser) process(chunk string, flush bool) string {
 	var out strings.Builder
-
-	// 将确认属于正文的内容透传到输出。
-	writePassthrough := func(content string) {
-		if content == "" {
-			return
-		}
-		out.WriteString(content)
+	if p.activeTag != "" {
+		// 标签未闭合，按正文透传，避免吞字。
+		out.WriteString("<")
+		out.WriteString(p.activeTag)
+		out.WriteString(">")
+		out.WriteString(string(p.tagContent))
+		out.WriteString(string(p.closeBuf))
+	} else if len(p.openBuf) > 0 {
+		// 开标签探测缓存残留，说明不是完整协议标签，按正文透传。
+		out.WriteString(string(p.openBuf))
 	}
-
-	// 刷新当前行缓冲：可在遇到换行时自然刷新，也可强制刷新（流结束/判定非协议时）。
-	flushLineBuffer := func(force bool) {
-		current := p.lineBuf.String()
-		if current == "" {
-			return
-		}
-		if !force && !strings.Contains(current, "\n") {
-			return
-		}
-		line := strings.TrimSuffix(current, "\n")
-		line = strings.TrimSuffix(line, "\r")
-		if title, ok := parseProtocolTitle(line); ok {
-			// 协议行仅用于更新标题，不进入正文输出。
-			p.title = title
-			p.lineBuf.Reset()
-			// 处理完一行后继续处于探测模式，便于识别下一行协议。
-			p.probing = true
-			return
-		}
-		writePassthrough(current)
-		p.lineBuf.Reset()
-		// 仅当以换行结束时，下一字符才视作新行开头并重新探测。
-		p.probing = strings.HasSuffix(current, "\n")
-	}
-
-	for i := 0; i < len(chunk); i++ {
-		ch := chunk[i]
-		if p.probing {
-			// 探测模式：先累积到行缓冲，再判断是否为 [TITLE] 协议。
-			p.lineBuf.WriteByte(ch)
-			trimmedLeft := strings.TrimLeft(p.lineBuf.String(), " \t\r\n\uFEFF")
-			titleTag := "[TITLE]"
-			// 前缀已足够但不匹配时，立即强制刷新为正文，避免无谓等待整行。
-			if len([]rune(trimmedLeft)) >= len([]rune(titleTag)) && !strings.HasPrefix(trimmedLeft, titleTag) {
-				flushLineBuffer(true)
-			} else {
-				flushLineBuffer(false)
-			}
-			continue
-		}
-
-		// 直通模式：正文原样输出，换行后回到探测模式。
-		out.WriteByte(ch)
-		if ch == '\n' {
-			p.probing = true
-		}
-	}
-
-	if flush {
-		// 流结束时强制处理残留缓冲，避免最后半行被遗漏。
-		flushLineBuffer(true)
-	}
-
+	p.resetStreamState()
 	return out.String()
 }
 
@@ -112,67 +79,209 @@ func (p *titleStreamParser) Title() string {
 	return p.title
 }
 
-// BeginAssistantTurn 在工具调用切轮时重置探测状态，避免标题协议跨轮污染。
+func (p *titleStreamParser) Summary() string {
+	return p.summary
+}
+
+// BeginAssistantTurn 在工具调用切轮时重置探测状态，避免协议跨轮污染。
 func (p *titleStreamParser) BeginAssistantTurn() string {
 	if !p.enabled {
 		return ""
 	}
-	// 工具调用切轮时先冲刷残留，再回到“新一行起点探测”状态。
-	passthrough := p.process("", true)
-	p.probing = true
-	return passthrough
+	// 工具调用切轮时先冲刷残留，避免跨轮污染解析状态。
+	return p.Flush()
 }
 
-// parseProtocolTitle 识别单行 [TITLE] 协议并执行标题清洗。
-func parseProtocolTitle(line string) (string, bool) {
-	trimmed := strings.TrimSpace(strings.ReplaceAll(line, "\uFEFF", ""))
-	if !strings.HasPrefix(trimmed, "[TITLE]") {
-		return "", false
+func (p *titleStreamParser) consumeTextRune(r rune, out *strings.Builder) {
+	if p.trimNextTextPrefix && len(p.openBuf) == 0 {
+		if isProtocolSeparatorRune(r) {
+			return
+		}
+		// 若后续直接进入下一个协议标签，继续保持裁剪标记；
+		// 若进入正文，则关闭裁剪标记。
+		if r != '<' {
+			p.trimNextTextPrefix = false
+		}
 	}
 
-	title := strings.TrimSpace(strings.TrimPrefix(trimmed, "[TITLE]"))
-	title = strings.ReplaceAll(title, "\r", "")
+	if len(p.openBuf) == 0 {
+		if r == '<' {
+			p.openBuf = append(p.openBuf, r)
+			return
+		}
+		out.WriteRune(r)
+		p.trimNextTextPrefix = false
+		return
+	}
+
+	p.openBuf = append(p.openBuf, r)
+	for len(p.openBuf) > 0 && !isOpenTagPrefix(string(p.openBuf)) {
+		out.WriteRune(p.openBuf[0])
+		p.trimNextTextPrefix = false
+		p.openBuf = p.openBuf[1:]
+	}
+	if len(p.openBuf) == 0 {
+		return
+	}
+
+	if tag, ok := matchOpenTag(string(p.openBuf)); ok {
+		p.activeTag = tag
+		p.openBuf = nil
+		p.closeBuf = nil
+		p.tagContent = nil
+	}
+}
+
+func (p *titleStreamParser) consumeTagRune(r rune) {
+	endTag := "</" + p.activeTag + ">"
+	if len(p.closeBuf) == 0 {
+		if r == '<' {
+			p.closeBuf = append(p.closeBuf, r)
+			return
+		}
+		p.tagContent = append(p.tagContent, r)
+		return
+	}
+
+	p.closeBuf = append(p.closeBuf, r)
+	for len(p.closeBuf) > 0 && !strings.HasPrefix(endTag, string(p.closeBuf)) {
+		p.tagContent = append(p.tagContent, p.closeBuf[0])
+		p.closeBuf = p.closeBuf[1:]
+	}
+	if len(p.closeBuf) == 0 {
+		return
+	}
+
+	if string(p.closeBuf) == endTag {
+		p.finishActiveTag()
+	}
+}
+
+func (p *titleStreamParser) finishActiveTag() {
+	switch p.activeTag {
+	case "title":
+		if cleaned := cleanProtocolTitle(string(p.tagContent)); cleaned != "" {
+			p.title = cleaned
+		}
+	case "summary":
+		if cleaned := cleanProtocolSummary(string(p.tagContent)); cleaned != "" {
+			p.summary = cleaned
+		}
+	}
+	p.activeTag = ""
+	p.closeBuf = nil
+	p.tagContent = nil
+	p.trimNextTextPrefix = true
+}
+
+func (p *titleStreamParser) resetStreamState() {
+	p.activeTag = ""
+	p.openBuf = nil
+	p.closeBuf = nil
+	p.tagContent = nil
+	p.trimNextTextPrefix = false
+}
+
+func isProtocolSeparatorRune(r rune) bool {
+	switch r {
+	case ' ', '\t', '\r', '\n', '\uFEFF':
+		return true
+	default:
+		return false
+	}
+}
+
+func isOpenTagPrefix(candidate string) bool {
+	return strings.HasPrefix("<title>", candidate) || strings.HasPrefix("<summary>", candidate)
+}
+
+func matchOpenTag(candidate string) (string, bool) {
+	switch candidate {
+	case "<title>":
+		return "title", true
+	case "<summary>":
+		return "summary", true
+	default:
+		return "", false
+	}
+}
+
+func cleanProtocolTitle(input string) string {
+	title := strings.ReplaceAll(input, "\r", "")
 	title = strings.ReplaceAll(title, "\n", "")
 	title = strings.Trim(title, "\"'\u201c\u201d")
 	title = truncateRunes(title, 20)
-	if title == "" {
-		return "", false
-	}
-	return title, true
+	return strings.TrimSpace(title)
 }
 
-// extractProtocolTitleAndBody 用于兜底提取标题并剔除正文中的协议行。
-func extractProtocolTitleAndBody(input string) (string, string) {
+func cleanProtocolSummary(input string) string {
+	summary := strings.ReplaceAll(input, "\r\n", "\n")
+	summary = strings.ReplaceAll(summary, "\r", "\n")
+	summary = strings.TrimSpace(summary)
+	return summary
+}
+
+// extractProtocolMetaAndBody 用于兜底提取协议元信息并剔除正文中的协议行。
+func extractProtocolMetaAndBody(input string) (string, string, string) {
 	if strings.TrimSpace(input) == "" {
-		return "", input
+		return "", "", input
 	}
 
-	// 按行扫描协议行，支持 [TITLE] 出现在首行/中间/末行。
-	segments := strings.SplitAfter(input, "\n")
-	if len(segments) == 0 {
-		return "", input
-	}
-
+	body := input
 	var extractedTitle string
-	var hasTitle bool
-	bodySegments := make([]string, 0, len(segments))
+	var extractedSummary string
+	hasTagBlock := false
 
-	for _, seg := range segments {
-		line := strings.TrimSuffix(seg, "\n")
-		line = strings.TrimSuffix(line, "\r")
-		if title, ok := parseProtocolTitle(line); ok {
+	if title, cleaned, foundValue, removed := extractAndRemoveTagBlocks(body, "title", cleanProtocolTitle); removed {
+		if foundValue {
 			extractedTitle = title
-			hasTitle = true
-			continue
 		}
-		bodySegments = append(bodySegments, seg)
+		body = cleaned
+		hasTagBlock = true
+	}
+	if summary, cleaned, foundValue, removed := extractAndRemoveTagBlocks(body, "summary", cleanProtocolSummary); removed {
+		if foundValue {
+			extractedSummary = summary
+		}
+		body = cleaned
+		hasTagBlock = true
 	}
 
-	if !hasTitle {
-		return "", input
+	if !hasTagBlock {
+		return "", "", input
 	}
 
-	return extractedTitle, strings.Join(bodySegments, "")
+	body = protocolGapRegex.ReplaceAllString(body, "\n")
+	return extractedTitle, extractedSummary, strings.Trim(body, "\r\n")
+}
+
+func extractAndRemoveTagBlocks(input string, tag string, cleaner func(string) string) (string, string, bool, bool) {
+	startTag := "<" + tag + ">"
+	endTag := "</" + tag + ">"
+	working := input
+	latest := ""
+	found := false
+	removed := false
+	for {
+		startIdx := strings.Index(working, startTag)
+		if startIdx < 0 {
+			break
+		}
+		endRel := strings.Index(working[startIdx+len(startTag):], endTag)
+		if endRel < 0 {
+			break
+		}
+		contentStart := startIdx + len(startTag)
+		contentEnd := contentStart + endRel
+		if value := cleaner(working[contentStart:contentEnd]); value != "" {
+			latest = value
+			found = true
+		}
+		blockEnd := contentEnd + len(endTag)
+		working = working[:startIdx] + working[blockEnd:]
+		removed = true
+	}
+	return latest, working, found, removed
 }
 
 // truncateRunes 按 rune 截断，避免中文等多字节字符被破坏。

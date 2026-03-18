@@ -2,6 +2,8 @@ import { apiClient } from './client'
 
 export interface AppSettings {
   language: 'zh-CN' | 'en-US'
+  defaultModel?: string
+  messagePlatformDefaultModel?: string
 }
 
 export interface LLMConfig {
@@ -31,6 +33,16 @@ export interface SkillItem {
   updatedAt?: string
 }
 
+export interface MessagePlatformConfig {
+  id: string
+  platform: string
+  displayName: string
+  authConfigJson: string
+  isEnabled: boolean
+  createdAt?: string
+  updatedAt?: string
+}
+
 export const settingAPI = {
   get: async () => (await apiClient.get<AppSettings>('/api/settings')).data,
   update: async (payload: Partial<AppSettings>) => apiClient.put('/api/settings', payload),
@@ -47,6 +59,13 @@ export const mcpAPI = {
   create: async (payload: Omit<MCPConfig, 'id'>) => (await apiClient.post<MCPConfig>('/api/mcp-configs', payload)).data,
   update: async (id: string, payload: Omit<MCPConfig, 'id'>) => apiClient.put(`/api/mcp-configs/${id}`, payload),
   remove: async (id: string) => apiClient.delete(`/api/mcp-configs/${id}`),
+}
+
+export const messagePlatformAPI = {
+  list: async () => (await apiClient.get<MessagePlatformConfig[]>('/api/message-platform-configs')).data,
+  create: async (payload: Omit<MessagePlatformConfig, 'id'>) => (await apiClient.post<MessagePlatformConfig>('/api/message-platform-configs', payload)).data,
+  update: async (id: string, payload: Omit<MessagePlatformConfig, 'id'>) => apiClient.put(`/api/message-platform-configs/${id}`, payload),
+  remove: async (id: string) => apiClient.delete(`/api/message-platform-configs/${id}`),
 }
 
 export const skillsAPI = {

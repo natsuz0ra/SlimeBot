@@ -77,6 +77,18 @@ type MCPConfig struct {
 	UpdatedAt time.Time `json:"updatedAt"`
 }
 
+// MessagePlatformConfig 保存外部消息平台接入配置（首期支持 Telegram）。
+// AuthConfigJSON 使用 JSON 对象格式存储，便于后续扩展多平台多鉴权字段。
+type MessagePlatformConfig struct {
+	ID             string    `gorm:"primaryKey;size:36" json:"id"`
+	Platform       string    `gorm:"size:32;not null;uniqueIndex" json:"platform"`
+	DisplayName    string    `gorm:"size:64;not null" json:"displayName"`
+	AuthConfigJSON string    `gorm:"type:text;not null" json:"authConfigJson"`
+	IsEnabled      bool      `gorm:"default:true;not null" json:"isEnabled"`
+	CreatedAt      time.Time `json:"createdAt"`
+	UpdatedAt      time.Time `json:"updatedAt"`
+}
+
 type Skill struct {
 	ID           string    `gorm:"primaryKey;size:36" json:"id"`
 	Name         string    `gorm:"size:64;not null;uniqueIndex" json:"name"`

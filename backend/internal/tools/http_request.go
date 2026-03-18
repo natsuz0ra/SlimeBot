@@ -6,12 +6,8 @@ import (
 	"io"
 	"net/http"
 	"strings"
-	"time"
-)
 
-const (
-	httpRequestTimeout   = 30 * time.Second
-	httpMaxResponseBytes = 128 * 1024 // 128KB
+	"slimebot/backend/internal/consts"
 )
 
 type httpRequestTool struct {
@@ -20,26 +16,26 @@ type httpRequestTool struct {
 
 func init() {
 	Register(&httpRequestTool{
-		client: &http.Client{Timeout: httpRequestTimeout},
+		client: &http.Client{Timeout: consts.HTTPRequestTimeout},
 	})
 }
 
 func (h *httpRequestTool) Name() string { return "http_request" }
 
 func (h *httpRequestTool) Description() string {
-	return "HTTP 请求工具，可以向指定 URL 发送 HTTP 请求并返回响应状态码、响应头和响应体"
+	return "Send HTTP requests to a URL and return status, headers, and body."
 }
 
 func (h *httpRequestTool) Commands() []Command {
 	return []Command{
 		{
 			Name:        "request",
-			Description: "发送一个 HTTP 请求，返回响应的状态码、headers 和 body",
+			Description: "Send an HTTP request and return status code, headers, and body.",
 			Params: []CommandParam{
-				{Name: "method", Required: true, Description: "HTTP 方法，如 GET、POST、PUT、DELETE 等", Example: "GET"},
-				{Name: "url", Required: true, Description: "请求的完整 URL", Example: "https://api.example.com/data"},
-				{Name: "headers", Required: false, Description: "请求头，JSON 对象格式，key 为 header 名，value 为 header 值", Example: `{"Content-Type":"application/json","Authorization":"Bearer xxx"}`},
-				{Name: "body", Required: false, Description: "请求体内容，仅 POST/PUT/PATCH 等方法时有效", Example: `{"key":"value"}`},
+				{Name: "method", Required: true, Description: "HTTP method, such as GET, POST, PUT, DELETE, etc.", Example: "GET"},
+				{Name: "url", Required: true, Description: "Full request URL.", Example: "https://api.example.com/data"},
+				{Name: "headers", Required: false, Description: "Request headers as a JSON object where key is header name and value is header value.", Example: `{"Content-Type":"application/json","Authorization":"Bearer xxx"}`},
+				{Name: "body", Required: false, Description: "Request body content, used for methods like POST/PUT/PATCH.", Example: `{"key":"value"}`},
 			},
 		},
 	}
@@ -50,19 +46,19 @@ func (h *httpRequestTool) Execute(command string, params map[string]string) (*Ex
 	case "request":
 		return h.request(params)
 	default:
-		return nil, fmt.Errorf("http_request 工具不支持命令: %s", command)
+		return nil, fmt.Errorf("http_request tool does not support command: %s", command)
 	}
 }
 
 func (h *httpRequestTool) request(params map[string]string) (*ExecuteResult, error) {
 	method := strings.ToUpper(strings.TrimSpace(params["method"]))
 	if method == "" {
-		return nil, fmt.Errorf("参数 method 不能为空")
+		return nil, fmt.Errorf("method is required.")
 	}
 
 	rawURL := strings.TrimSpace(params["url"])
 	if rawURL == "" {
-		return nil, fmt.Errorf("参数 url 不能为空")
+		return nil, fmt.Errorf("url is required.")
 	}
 
 	var bodyReader io.Reader
@@ -72,13 +68,13 @@ func (h *httpRequestTool) request(params map[string]string) (*ExecuteResult, err
 
 	req, err := http.NewRequest(method, rawURL, bodyReader)
 	if err != nil {
-		return nil, fmt.Errorf("构建请求失败: %w", err)
+		return nil, fmt.Errorf("failed to build request: %w", err)
 	}
 
 	if headersStr := strings.TrimSpace(params["headers"]); headersStr != "" {
 		var headers map[string]string
 		if err := json.Unmarshal([]byte(headersStr), &headers); err != nil {
-			return nil, fmt.Errorf("headers 格式错误，需要 JSON 对象: %w", err)
+			return nil, fmt.Errorf("invalid headers format; expected a JSON object: %w", err)
 		}
 		for k, v := range headers {
 			req.Header.Set(k, v)
@@ -87,13 +83,13 @@ func (h *httpRequestTool) request(params map[string]string) (*ExecuteResult, err
 
 	resp, err := h.client.Do(req)
 	if err != nil {
-		return &ExecuteResult{Error: fmt.Sprintf("请求失败: %s", err.Error())}, nil
+		return &ExecuteResult{Error: fmt.Sprintf("Request failed: %s.", err.Error())}, nil
 	}
 	defer resp.Body.Close()
 
-	bodyBytes, err := io.ReadAll(io.LimitReader(resp.Body, httpMaxResponseBytes))
+	bodyBytes, err := io.ReadAll(io.LimitReader(resp.Body, consts.HTTPMaxResponseBytes))
 	if err != nil {
-		return &ExecuteResult{Error: fmt.Sprintf("读取响应体失败: %s", err.Error())}, nil
+		return &ExecuteResult{Error: fmt.Sprintf("Failed to read response body: %s.", err.Error())}, nil
 	}
 
 	respHeaders := make(map[string]string)
@@ -102,6 +98,6 @@ func (h *httpRequestTool) request(params map[string]string) (*ExecuteResult, err
 	}
 	headersJSON, _ := json.Marshal(respHeaders)
 
-	result := fmt.Sprintf("状态码: %d\n响应头: %s\n响应体:\n%s", resp.StatusCode, string(headersJSON), string(bodyBytes))
+	result := fmt.Sprintf("Status: %d\nHeaders: %s\nBody:\n%s", resp.StatusCode, string(headersJSON), string(bodyBytes))
 	return &ExecuteResult{Output: result}, nil
 }

@@ -1,4 +1,4 @@
-package controllers
+package ws
 
 import (
 	"context"
@@ -16,7 +16,7 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-type WSController struct {
+type Controller struct {
 	// 聊天业务入口，负责会话与流式输出处理。
 	chatService *services.ChatService
 	// WebSocket 升级与连接参数配置。
@@ -38,8 +38,8 @@ type chatIncoming struct {
 	Approved *bool `json:"approved"`
 }
 
-func NewWSController(chatService *services.ChatService) *WSController {
-	return &WSController{
+func NewController(chatService *services.ChatService) *Controller {
+	return &Controller{
 		chatService: chatService,
 		upgrader: websocket.Upgrader{
 			ReadBufferSize:  1024,
@@ -66,6 +66,7 @@ func newApprovalBroker() *approvalBroker {
 func (b *approvalBroker) Register(toolCallID string) chan services.ApprovalResponse {
 	b.mu.Lock()
 	defer b.mu.Unlock()
+	// 使用容量 1 的缓冲通道，确保回调线程不会因等待方尚未 select 而阻塞。
 	ch := make(chan services.ApprovalResponse, 1)
 	b.channels[toolCallID] = ch
 	return ch
@@ -77,7 +78,9 @@ func (b *approvalBroker) Resolve(toolCallID string, resp services.ApprovalRespon
 	if ch, ok := b.channels[toolCallID]; ok {
 		select {
 		case ch <- resp:
+			// 成功投递后立即删除，保证每个 toolCallID 只消费一次审批结果。
 		default:
+			// 等待方已取消或通道已满时直接丢弃，避免回调链路卡住。
 		}
 		delete(b.channels, toolCallID)
 	}
@@ -86,10 +89,11 @@ func (b *approvalBroker) Resolve(toolCallID string, resp services.ApprovalRespon
 func (b *approvalBroker) Remove(toolCallID string) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
+	// 超时/取消路径调用 Remove，确保悬挂审批不会泄漏在 map 中。
 	delete(b.channels, toolCallID)
 }
 
-func (w *WSController) Chat(wr http.ResponseWriter, req *http.Request) {
+func (w *Controller) Chat(wr http.ResponseWriter, req *http.Request) {
 	conn, err := w.upgrader.Upgrade(wr, req, nil)
 	if err != nil {
 		return
@@ -119,7 +123,7 @@ func (w *WSController) Chat(wr http.ResponseWriter, req *http.Request) {
 }
 
 // startWriteLoop 启动单独写协程，确保 websocket 发送顺序一致。
-func (w *WSController) startWriteLoop(
+func (w *Controller) startWriteLoop(
 	sessionCtx context.Context,
 	cancelSession context.CancelFunc,
 	conn *websocket.Conn,
@@ -142,7 +146,7 @@ func (w *WSController) startWriteLoop(
 }
 
 // startReadLoop 解析客户端协议消息，并分流到聊天队列或审批通道。
-func (w *WSController) startReadLoop(
+func (w *Controller) startReadLoop(
 	sessionCtx context.Context,
 	cancelSession context.CancelFunc,
 	conn *websocket.Conn,
@@ -161,7 +165,7 @@ func (w *WSController) startReadLoop(
 
 			var incoming chatIncoming
 			if err := json.Unmarshal(payload, &incoming); err != nil {
-				if !enqueue(map[string]any{"type": "error", "error": "消息格式错误"}) {
+				if !enqueue(map[string]any{"type": "error", "error": "Invalid message format."}) {
 					cancelSession()
 					return
 				}
@@ -191,7 +195,7 @@ func (w *WSController) startReadLoop(
 				case chatCh <- incoming:
 				}
 			default:
-				if !enqueue(map[string]any{"type": "error", "error": "不支持的消息类型"}) {
+				if !enqueue(map[string]any{"type": "error", "error": "Unsupported message type."}) {
 					cancelSession()
 					return
 				}
@@ -201,7 +205,7 @@ func (w *WSController) startReadLoop(
 }
 
 // runChatLoop 串行消费 chat 消息，避免同连接内并发处理导致状态错乱。
-func (w *WSController) runChatLoop(
+func (w *Controller) runChatLoop(
 	sessionCtx context.Context,
 	enqueue func(map[string]any) bool,
 	chatCh <-chan chatIncoming,
@@ -220,7 +224,7 @@ func (w *WSController) runChatLoop(
 }
 
 // handleChatIncoming 处理单条 chat 请求并完成流式输出与收尾事件下发。
-func (w *WSController) handleChatIncoming(
+func (w *Controller) handleChatIncoming(
 	sessionCtx context.Context,
 	enqueue func(map[string]any) bool,
 	broker *approvalBroker,
@@ -279,7 +283,7 @@ func (w *WSController) handleChatIncoming(
 		if !enqueue(map[string]any{
 			"type":      "error",
 			"sessionId": session.ID,
-			"error":     "推送中断，消息已保存",
+			"error":     "Streaming interrupted, but the message has been saved.",
 		}) {
 			return false
 		}
@@ -311,7 +315,7 @@ func (w *WSController) handleChatIncoming(
 }
 
 // buildCallbacks 构建 chatService 所需回调，桥接为 websocket 协议事件。
-func (w *WSController) buildCallbacks(
+func (w *Controller) buildCallbacks(
 	enqueue func(map[string]any) bool,
 	broker *approvalBroker,
 	sessionID string,

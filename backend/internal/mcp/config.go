@@ -21,12 +21,12 @@ type ServerConfig struct {
 func ParseAndValidateConfig(raw string) (*ServerConfig, error) {
 	content := strings.TrimSpace(raw)
 	if content == "" {
-		return nil, fmt.Errorf("config 不能为空")
+		return nil, fmt.Errorf("config is required.")
 	}
 
 	var cfg ServerConfig
 	if err := json.Unmarshal([]byte(content), &cfg); err != nil {
-		return nil, fmt.Errorf("config JSON 解析失败: %w", err)
+		return nil, fmt.Errorf("config JSON is invalid: %w", err)
 	}
 
 	transport := strings.TrimSpace(cfg.Transport)
@@ -40,14 +40,14 @@ func ParseAndValidateConfig(raw string) (*ServerConfig, error) {
 	switch transport {
 	case "stdio":
 		if strings.TrimSpace(cfg.Command) == "" {
-			return nil, fmt.Errorf("stdio 配置必须提供 command")
+			return nil, fmt.Errorf("stdio config requires command.")
 		}
 	case "streamable_http", "sse":
 		if strings.TrimSpace(cfg.URL) == "" {
-			return nil, fmt.Errorf("%s 配置必须提供 url", transport)
+			return nil, fmt.Errorf("%s config requires url.", transport)
 		}
 	default:
-		return nil, fmt.Errorf("不支持的 transport: %s", transport)
+		return nil, fmt.Errorf("unsupported transport: %s", transport)
 	}
 
 	return &cfg, nil

@@ -6,11 +6,12 @@ import (
 	"github.com/gin-gonic/gin"
 	"slimebot/backend/internal/auth"
 	"slimebot/backend/internal/config"
-	"slimebot/backend/internal/controllers"
-	"slimebot/backend/internal/middleware"
+	"slimebot/backend/internal/http/controller"
+	"slimebot/backend/internal/http/middleware"
+	"slimebot/backend/internal/http/ws"
 )
 
-func New(cfg config.Config, tokenManager *auth.TokenManager, httpController *controllers.HTTPController, wsController *controllers.WSController) *gin.Engine {
+func New(cfg config.Config, tokenManager *auth.TokenManager, httpController *controller.HTTPController, wsController *ws.Controller) *gin.Engine {
 	r := gin.Default()
 	r.Use(cors(cfg.Frontend))
 
@@ -46,6 +47,11 @@ func New(cfg config.Config, tokenManager *auth.TokenManager, httpController *con
 		protectedAPI.POST("/mcp-configs", httpController.CreateMCPConfig)
 		protectedAPI.PUT("/mcp-configs/:id", httpController.UpdateMCPConfig)
 		protectedAPI.DELETE("/mcp-configs/:id", httpController.DeleteMCPConfig)
+
+		protectedAPI.GET("/message-platform-configs", httpController.ListMessagePlatformConfigs)
+		protectedAPI.POST("/message-platform-configs", httpController.CreateMessagePlatformConfig)
+		protectedAPI.PUT("/message-platform-configs/:id", httpController.UpdateMessagePlatformConfig)
+		protectedAPI.DELETE("/message-platform-configs/:id", httpController.DeleteMessagePlatformConfig)
 
 		protectedAPI.GET("/skills", httpController.ListSkills)
 		protectedAPI.POST("/skills/upload", httpController.UploadSkills)

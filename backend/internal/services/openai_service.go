@@ -8,9 +8,10 @@ import (
 	"strings"
 	"time"
 
+	"slimebot/backend/internal/consts"
+
 	"github.com/openai/openai-go/v3"
 	"github.com/openai/openai-go/v3/option"
-	"slimebot/backend/internal/consts"
 )
 
 type OpenAIClient struct {

@@ -5,7 +5,6 @@ import "time"
 const (
 	// Chat context limits.
 	ContextHistoryLimit = 20
-	TitleProbeRuneLimit = 100
 )
 
 const (
@@ -47,6 +46,7 @@ const (
 const (
 	// Memory processing controls.
 	CompressHistoryThreshold       = 10
+	CompressedRecentHistoryLimit   = 10
 	CompactRawHistoryLimit         = 6
 	MemorySearchTopK               = 5
 	MemoryDecisionTimeout          = 20 * time.Second
@@ -90,12 +90,12 @@ const (
 
 const (
 	// exec tool limits.
-	ExecDefaultTimeout  = 30
-	ExecMaxTimeout      = 300
-	ExecMaxOutputBytes  = 64 * 1024
-	ExecToolName        = "exec"
-	ActivateSkillTool   = "activate_skill"
-	MemoryQueryToolName = "memory__query"
+	ExecDefaultTimeout = 30
+	ExecMaxTimeout     = 300
+	ExecMaxOutputBytes = 64 * 1024
+	ExecToolName       = "exec"
+	ActivateSkillTool  = "activate_skill"
+	SearchMemoryTool   = "search_memory"
 )
 
 const (

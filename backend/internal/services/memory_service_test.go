@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"slimebot/backend/internal/consts"
+	"slimebot/backend/internal/models"
 	"slimebot/backend/internal/repositories"
 	"slimebot/backend/internal/testutil"
 )
@@ -249,6 +250,216 @@ func TestChatServiceBuildContextMessages_NoDuplicateUserMessage(t *testing.T) {
 	}
 	if userCount != 1 {
 		t.Fatalf("expected single user message, got %d", userCount)
+	}
+}
+
+func TestMemoryServiceBuildRecentHistory_UsesLimit(t *testing.T) {
+	repo := newTestRepo(t)
+	svc := NewMemoryService(repo, nil)
+
+	session, err := repo.CreateSession("s")
+	if err != nil {
+		t.Fatalf("create session failed: %v", err)
+	}
+	sessionID := session.ID
+	for i := 0; i < 24; i++ {
+		if _, err := repo.AddMessage(sessionID, "user", fmt.Sprintf("msg-%d", i)); err != nil {
+			t.Fatalf("add message failed: %v", err)
+		}
+		time.Sleep(1 * time.Millisecond)
+	}
+
+	history, err := svc.BuildRecentHistory(sessionID, consts.CompressedRecentHistoryLimit)
+	if err != nil {
+		t.Fatalf("build recent history failed: %v", err)
+	}
+	if len(history) != consts.CompressedRecentHistoryLimit {
+		t.Fatalf("expected recent=%d, got %d", consts.CompressedRecentHistoryLimit, len(history))
+	}
+	contents := make(map[string]struct{}, len(history))
+	for _, msg := range history {
+		contents[msg.Content] = struct{}{}
+	}
+	if _, exists := contents["msg-0"]; exists {
+		t.Fatalf("expected msg-0 trimmed, got history=%v", contents)
+	}
+	if _, exists := contents["msg-3"]; exists {
+		t.Fatalf("expected msg-3 trimmed, got history=%v", contents)
+	}
+	if _, exists := contents["msg-23"]; !exists {
+		t.Fatalf("expected latest message to remain, got history=%v", contents)
+	}
+}
+
+func TestChatServiceBuildContextMessages_UsesMemoryAndRecentHistory(t *testing.T) {
+	repo := newTestRepo(t)
+	memorySvc := NewMemoryService(repo, nil)
+
+	session, err := repo.CreateSession("s")
+	if err != nil {
+		t.Fatalf("create session failed: %v", err)
+	}
+	sessionID := session.ID
+	for i := 0; i < 12; i++ {
+		role := "assistant"
+		if i%2 == 0 {
+			role = "user"
+		}
+		if _, err := repo.AddMessage(sessionID, role, fmt.Sprintf("turn-%d", i)); err != nil {
+			t.Fatalf("add message failed: %v", err)
+		}
+		time.Sleep(1 * time.Millisecond)
+	}
+
+	if err := repo.UpsertSessionMemory(repositories.SessionMemoryUpsertInput{
+		SessionID:          sessionID,
+		Summary:            "当前会话关注 golang 性能优化",
+		Keywords:           []string{"golang", "性能"},
+		SourceMessageCount: 12,
+	}); err != nil {
+		t.Fatalf("upsert current session memory failed: %v", err)
+	}
+	if err := repo.UpsertSessionMemory(repositories.SessionMemoryUpsertInput{
+		SessionID:          "other",
+		Summary:            "历史会话也提到 golang",
+		Keywords:           []string{"golang"},
+		SourceMessageCount: 20,
+	}); err != nil {
+		t.Fatalf("upsert other session memory failed: %v", err)
+	}
+
+	svc := &ChatService{repo: repo, memory: memorySvc}
+	msgs, err := svc.BuildContextMessages(context.Background(), sessionID, ModelRuntimeConfig{})
+	if err != nil {
+		t.Fatalf("build context failed: %v", err)
+	}
+
+	if len(msgs) != 15 {
+		t.Fatalf("expected 15 messages (system + memory + protocol + recent12), got %d", len(msgs))
+	}
+	if msgs[1].Role != "developer" || !strings.Contains(msgs[1].Content, "<memory_context>") {
+		t.Fatalf("expected memory context developer message, got role=%q", msgs[1].Role)
+	}
+	if msgs[2].Role != "developer" || !strings.Contains(msgs[2].Content, "Final response protocol (strict):") {
+		t.Fatalf("expected protocol developer message, got role=%q", msgs[2].Role)
+	}
+	if !strings.Contains(msgs[1].Content, "<current_session_summary>") {
+		t.Fatalf("expected current session summary in memory context, got=%q", msgs[1].Content)
+	}
+	if strings.Contains(msgs[1].Content, "<retrieved_memories>") {
+		t.Fatalf("did not expect cross-session memories in context, got=%q", msgs[1].Content)
+	}
+	if strings.Contains(msgs[1].Content, "历史会话也提到 golang") {
+		t.Fatalf("did not expect other-session summary in context, got=%q", msgs[1].Content)
+	}
+
+	historyPart := msgs[3:]
+	if len(historyPart) != 12 {
+		t.Fatalf("expected %d history messages, got %d", 12, len(historyPart))
+	}
+	for i, msg := range historyPart {
+		want := fmt.Sprintf("turn-%d", i)
+		if msg.Content != want {
+			t.Fatalf("unexpected history at index %d: got=%q want=%q", i, msg.Content, want)
+		}
+	}
+}
+
+func TestChatServiceBuildContextMessages_UnderThresholdUsesMemoryAndHistory(t *testing.T) {
+	repo := newTestRepo(t)
+	memorySvc := NewMemoryService(repo, nil)
+
+	session, err := repo.CreateSession("s")
+	if err != nil {
+		t.Fatalf("create session failed: %v", err)
+	}
+	sessionID := session.ID
+	for i := 0; i < consts.CompressHistoryThreshold-1; i++ {
+		if _, err := repo.AddMessage(sessionID, "user", fmt.Sprintf("short-%d", i)); err != nil {
+			t.Fatalf("add message failed: %v", err)
+		}
+	}
+
+	if err := repo.UpsertSessionMemory(repositories.SessionMemoryUpsertInput{
+		SessionID:          sessionID,
+		Summary:            "已有摘要但不应在阈值以下注入",
+		Keywords:           []string{"摘要"},
+		SourceMessageCount: consts.CompressHistoryThreshold - 1,
+	}); err != nil {
+		t.Fatalf("upsert session memory failed: %v", err)
+	}
+
+	svc := &ChatService{repo: repo, memory: memorySvc}
+	msgs, err := svc.BuildContextMessages(context.Background(), sessionID, ModelRuntimeConfig{})
+	if err != nil {
+		t.Fatalf("build context failed: %v", err)
+	}
+
+	expected := 3 + (consts.CompressHistoryThreshold - 1)
+	if len(msgs) != expected {
+		t.Fatalf("expected %d messages (system + memory + protocol + full history), got %d", expected, len(msgs))
+	}
+	if msgs[1].Role != "developer" || !strings.Contains(msgs[1].Content, "<memory_context>") {
+		t.Fatalf("expected memory context developer message, got role=%q", msgs[1].Role)
+	}
+	if msgs[2].Role != "developer" || !strings.Contains(msgs[2].Content, "Final response protocol (strict):") {
+		t.Fatalf("expected protocol developer message, got role=%q", msgs[2].Role)
+	}
+}
+
+func TestExternalSummaryUpsert_ProducesKeywords(t *testing.T) {
+	repo := newTestRepo(t)
+	svc := NewMemoryService(repo, nil)
+
+	session, err := repo.CreateSession("s")
+	if err != nil {
+		t.Fatalf("create session failed: %v", err)
+	}
+	sessionID := session.ID
+	if _, err := repo.AddMessage(sessionID, "user", "请记住我偏好 golang 和 rag 实现"); err != nil {
+		t.Fatalf("add message failed: %v", err)
+	}
+
+	summary := "用户偏好 golang，当前在做 rag 方案设计，关注 token 成本。"
+	keywords := svc.TokenizeKeywords(summary)
+	updated, err := repo.UpsertSessionMemoryIfNewer(repositories.SessionMemoryUpsertInput{
+		SessionID:          sessionID,
+		Summary:            summary,
+		Keywords:           keywords,
+		SourceMessageCount: 1,
+	})
+	if err != nil {
+		t.Fatalf("upsert summary failed: %v", err)
+	}
+	if !updated {
+		t.Fatal("expected summary upsert updated=true")
+	}
+
+	item, err := repo.GetSessionMemory(sessionID)
+	if err != nil {
+		t.Fatalf("get session memory failed: %v", err)
+	}
+	if item == nil {
+		t.Fatal("expected session memory to exist")
+	}
+	if strings.TrimSpace(item.Summary) != summary {
+		t.Fatalf("unexpected summary: %q", item.Summary)
+	}
+	if strings.TrimSpace(item.KeywordsText) == "" {
+		t.Fatal("expected non-empty keywords_text")
+	}
+}
+
+func TestFlattenMessages_IncludesTimestamp(t *testing.T) {
+	at := time.Date(2026, 3, 18, 10, 0, 0, 0, time.Local)
+	text := flattenMessages([]models.Message{
+		{Role: "user", Content: "hello", CreatedAt: at},
+	})
+	if !strings.Contains(text, "[") || !strings.Contains(text, "] user: hello") {
+		t.Fatalf("unexpected flattened format: %q", text)
+	}
+	if !strings.Contains(text, at.Format(time.RFC3339)) {
+		t.Fatalf("expected RFC3339 timestamp, got: %q", text)
 	}
 }
 

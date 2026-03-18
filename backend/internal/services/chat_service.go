@@ -27,11 +27,12 @@ type ChatService struct {
 }
 
 type ChatStreamResult struct {
-	Answer       string
-	TitleUpdated bool
-	Title        string
-	PushFailed   bool
-	PushError    string
+	Answer         string
+	TitleUpdated   bool
+	Title          string
+	SummaryUpdated bool
+	PushFailed     bool
+	PushError      string
 }
 
 // NewChatService 组装聊天服务及其依赖的 agent/memory 子能力。
@@ -177,6 +178,8 @@ func (b chatContextBuilder) Build(ctx context.Context, sessionID string, modelCo
 }
 
 func (s *ChatService) buildContextMessages(ctx context.Context, sessionID string, modelConfig ModelRuntimeConfig) ([]ChatMessage, error) {
+	_ = ctx
+	_ = modelConfig
 	buildStart := time.Now()
 	systemPrompt, err := s.loadSystemPrompt()
 	if err != nil {
@@ -202,69 +205,28 @@ func (s *ChatService) buildContextMessages(ctx context.Context, sessionID string
 	}
 
 	msgs := []ChatMessage{{Role: "system", Content: systemPrompt}}
-	compressEnabled := false
-	var memoryKeywords []string
-	var memoryHitCount int
 	if s.memory != nil {
-		shouldCompress, messageCount, countErr := s.memory.ShouldCompressContext(sessionID)
-		if countErr != nil {
-			log.Printf("chat_context_memory_skip session=%s reason=count_failed err=%v", sessionID, countErr)
-		} else if shouldCompress {
-			compressEnabled = true
-
-			sessionSummary := ""
-			if memoryItem, memoryErr := s.repo.GetSessionMemory(sessionID); memoryErr != nil {
-				log.Printf("chat_context_memory_skip session=%s reason=get_summary_failed err=%v", sessionID, memoryErr)
-			} else if memoryItem != nil {
-				sessionSummary = strings.TrimSpace(memoryItem.Summary)
-			}
-
-			lastUserInput := ""
-			for idx := len(history) - 1; idx >= 0; idx-- {
-				if strings.EqualFold(strings.TrimSpace(history[idx].Role), "user") {
-					lastUserInput = strings.TrimSpace(history[idx].Content)
-					break
-				}
-			}
-
-			decision, decideErr := s.memory.DecideMemoryQuery(ctx, modelConfig, lastUserInput, sessionSummary)
-			if decideErr != nil {
-				log.Printf("chat_context_memory_skip session=%s reason=decision_failed err=%v", sessionID, decideErr)
-			} else if decision.NeedMemory {
-				memoryKeywords = decision.Keywords
-			}
-
-			var memoryHits []repositories.SessionMemorySearchHit
-			if len(memoryKeywords) > 0 {
-				hits, retrieveErr := s.memory.RetrieveMemories(memoryKeywords, sessionID, consts.MemorySearchTopK)
-				if retrieveErr != nil {
-					log.Printf("chat_context_memory_skip session=%s reason=retrieve_failed err=%v", sessionID, retrieveErr)
-				} else {
-					memoryHits = hits
-					memoryHitCount = len(hits)
-				}
-			}
-
-			memoryContext := s.memory.FormatMemoryContext(sessionSummary, memoryHits)
-			if memoryContext != "" {
-				msgs = append(msgs, ChatMessage{
-					Role: "developer",
-					Content: "The following memory_context is provided by the system. Use it primarily to understand historical preferences, constraints, and long-term tasks; " +
-						"if it conflicts with the user's current input, always follow the current input.\n\n<memory_context>\n" +
-						memoryContext +
-						"\n</memory_context>",
-				})
-			}
-
-			compactHistory, compactErr := s.memory.BuildCompactHistory(sessionID)
-			if compactErr != nil {
-				log.Printf("chat_context_memory_skip session=%s reason=compact_history_failed err=%v", sessionID, compactErr)
-			} else if len(compactHistory) > 0 {
-				history = compactHistory
-			}
-			log.Printf("chat_context_compressed session=%s message_count=%d keywords=%d hits=%d", sessionID, messageCount, len(memoryKeywords), memoryHitCount)
+		sessionSummary := ""
+		if memoryItem, memoryErr := s.repo.GetSessionMemory(sessionID); memoryErr != nil {
+			log.Printf("chat_context_memory_skip session=%s reason=get_summary_failed err=%v", sessionID, memoryErr)
+		} else if memoryItem != nil {
+			sessionSummary = strings.TrimSpace(memoryItem.Summary)
+		}
+		memoryContext := s.memory.FormatCurrentSessionContext(sessionSummary)
+		if memoryContext != "" {
+			msgs = append(msgs, ChatMessage{
+				Role: "system",
+				Content: "The following memory_context is provided by the system. Use it primarily to understand historical preferences, constraints, and long-term tasks; " +
+					"if it conflicts with the user's current input, always follow the current input.\n\n<memory_context>\n" +
+					memoryContext +
+					"\n</memory_context>",
+			})
 		}
 	}
+	msgs = append(msgs, ChatMessage{
+		Role:    "system",
+		Content: buildProtocolDeveloperPrompt(time.Now()),
+	})
 
 	for _, item := range history {
 		msgs = append(msgs, ChatMessage{
@@ -272,8 +234,23 @@ func (s *ChatService) buildContextMessages(ctx context.Context, sessionID string
 			Content: item.Content,
 		})
 	}
-	log.Printf("chat_context_ready session=%s history=%d compressed=%t cost_ms=%d", sessionID, len(history), compressEnabled, time.Since(buildStart).Milliseconds())
+	log.Printf("chat_context_ready session=%s history=%d mode=memory_plus_recent20 cost_ms=%d", sessionID, len(history), time.Since(buildStart).Milliseconds())
 	return msgs, nil
+}
+
+func buildProtocolDeveloperPrompt(now time.Time) string {
+	turnTime := now.Local().Format(time.RFC3339)
+	return "Final response protocol (strict):\n" +
+		"1. Output exactly one <title>...</title> and one <summary>...</summary> block in the final response.\n" +
+		"2. Keep title concise and action-oriented, and it must reflect the whole conversation context, not just the latest turn.\n" +
+		"3. For every turn, regenerate a NEW summary from scratch by combining: current user request, <memory_context> (if provided), and recent conversation messages.\n" +
+		"4. The newly generated summary is the latest canonical memory for this session turn and semantically replaces the previous summary.\n" +
+		"5. Never generate title/summary based on the current turn alone.\n" +
+		"6. The summary must be detailed, narrative, and can contain multiple paragraphs.\n" +
+		"7. The summary must include: this turn's user question time (" + turnTime + "), user intent, and your conclusion.\n" +
+		"8. Compress and merge older dialogue details while preserving key turning points and historical continuity.\n" +
+		"9. Drop irrelevant branches/options not chosen by the user; when needed, describe as \"multiple options were considered, and the user selected X\".\n" +
+		"10. Do not include tool logs, greetings, or markdown headings inside <summary>."
 }
 
 // loadSystemPrompt 从 prompts 目录加载系统提示词模板。
@@ -369,7 +346,7 @@ func (s *ChatService) HandleChatStream(
 	}
 
 	isTitleLocked := session.IsTitleLocked
-	parser := newTitleStreamParser(!isTitleLocked, consts.TitleProbeRuneLimit)
+	parser := newTitleStreamParser(!isTitleLocked)
 	var answerBuilder strings.Builder
 	var pushErr error
 	streamStart := time.Now()
@@ -455,11 +432,17 @@ func (s *ChatService) HandleChatStream(
 	}
 
 	finalAnswer := answer
-	// 兜底解析 [TITLE] 协议，避免在多轮 tool_call 场景下标题丢失。
-	// 同时统一净化正文，确保不会把 [TITLE] 残留存档。
+	// 兜底解析 <title>/<summary> 协议，避免在多轮 tool_call 场景下元信息丢失。
+	// 同时统一净化正文，确保协议标签不会残留存档。
 	title := parser.Title()
-	if parsedTitle, cleanBody := extractProtocolTitleAndBody(finalAnswer); parsedTitle != "" {
-		title = parsedTitle
+	summary := parser.Summary()
+	if parsedTitle, parsedSummary, cleanBody := extractProtocolMetaAndBody(finalAnswer); parsedTitle != "" || parsedSummary != "" || cleanBody != finalAnswer {
+		if parsedTitle != "" {
+			title = parsedTitle
+		}
+		if parsedSummary != "" {
+			summary = parsedSummary
+		}
 		finalAnswer = cleanBody
 	}
 	if strings.TrimSpace(finalAnswer) == "" {
@@ -472,10 +455,6 @@ func (s *ChatService) HandleChatStream(
 	if err := s.repo.BindToolCallsToAssistantMessage(sessionID, requestID, assistantMessage.ID); err != nil {
 		return nil, err
 	}
-	if s.memory != nil {
-		s.memory.UpdateSummaryAsync(modelConfig, sessionID)
-	}
-
 	result := &ChatStreamResult{Answer: finalAnswer}
 	if title != "" {
 		if err := s.repo.UpdateSessionTitle(sessionID, title); err != nil {
@@ -483,6 +462,24 @@ func (s *ChatService) HandleChatStream(
 		}
 		result.TitleUpdated = true
 		result.Title = title
+	}
+	if s.memory != nil && strings.TrimSpace(summary) != "" {
+		messageCount, countErr := s.repo.CountSessionMessages(sessionID)
+		if countErr != nil {
+			return nil, countErr
+		}
+		updated, upsertErr := s.repo.UpsertSessionMemoryIfNewer(repositories.SessionMemoryUpsertInput{
+			SessionID:          sessionID,
+			Summary:            summary,
+			Keywords:           s.memory.TokenizeKeywords(summary),
+			SourceMessageCount: int(messageCount),
+		})
+		if upsertErr != nil {
+			return nil, upsertErr
+		}
+		result.SummaryUpdated = updated
+	} else if s.memory != nil {
+		log.Printf("chat_summary_missing session=%s reason=empty_or_unparsed", sessionID)
 	}
 	if pushErr != nil {
 		result.PushFailed = true

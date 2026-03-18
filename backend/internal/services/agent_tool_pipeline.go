@@ -29,6 +29,14 @@ func resolveToolInvocation(tc ToolCallInfo, mcpToolMeta map[string]mcp.ToolMeta)
 			requiresApproval: false,
 		}, nil
 	}
+	if tc.Name == consts.SearchMemoryTool {
+		return resolvedToolInvocation{
+			toolName:         consts.SearchMemoryTool,
+			command:          "query",
+			isMCP:            false,
+			requiresApproval: false,
+		}, nil
+	}
 	toolName, command, err := parseToolCallName(tc.Name)
 	if mcpMeta, ok := mcpToolMeta[tc.Name]; ok {
 		return resolvedToolInvocation{
@@ -116,9 +124,10 @@ func (a *AgentService) executeInvocation(
 		return &tools.ExecuteResult{Output: callResult.Output, Error: callResult.Error}
 	}
 
-	if invocation.toolName == "memory" && invocation.command == "query" {
+	if (invocation.toolName == "memory" && invocation.command == "query") ||
+		(invocation.toolName == consts.SearchMemoryTool && invocation.command == "query") {
 		if *memoryToolUsed {
-			return &tools.ExecuteResult{Error: "memory__query can be called at most once per response."}
+			return &tools.ExecuteResult{Error: "search_memory can be called at most once per response."}
 		}
 		if a.memory == nil {
 			return &tools.ExecuteResult{Error: "Memory service is not enabled."}

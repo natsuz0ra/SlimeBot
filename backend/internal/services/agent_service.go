@@ -114,8 +114,8 @@ func (a *AgentService) buildRuntimeToolDefs(ctx context.Context, configs []model
 	metaByFunc := make(map[string]mcp.ToolMeta)
 	if a.memory != nil {
 		defs = append(defs, ToolDef{
-			Name:        "memory__query",
-			Description: "[memory] Retrieve historical memory on demand. Use only when the response depends on past preferences, decisions, or cross-session constraints.",
+			Name:        consts.SearchMemoryTool,
+			Description: "[memory] Search historical memory on demand. Use only when the response depends on past preferences, decisions, or cross-session constraints.",
 			Parameters: map[string]any{
 				"type": "object",
 				"properties": map[string]any{

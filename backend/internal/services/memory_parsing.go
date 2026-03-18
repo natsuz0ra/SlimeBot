@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+	"time"
 	"unicode"
 
 	"slimebot/backend/internal/models"
@@ -45,6 +46,13 @@ func flattenMessages(messages []models.Message) string {
 		if role == "" {
 			role = "unknown"
 		}
+		timeText := item.CreatedAt.Local().Format(time.RFC3339)
+		if item.CreatedAt.IsZero() {
+			timeText = "unknown-time"
+		}
+		b.WriteString("[")
+		b.WriteString(timeText)
+		b.WriteString("] ")
 		b.WriteString(role)
 		b.WriteString(": ")
 		b.WriteString(strings.TrimSpace(item.Content))

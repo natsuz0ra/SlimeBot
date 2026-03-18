@@ -42,13 +42,6 @@ const { t } = useI18n()
     :ref="setMessagesRef"
     class="messages-section scroll-area flex-1 overflow-y-auto px-4 py-6"
   >
-    <div v-if="isMessagePlatformSession" class="max-w-[720px] mx-auto mb-3 px-1">
-      <p class="text-xs text-muted">{{ t('messagePlatformReadonlyTip') }}</p>
-    </div>
-    <div class="max-w-[720px] mx-auto mb-3 px-1 text-center">
-      <p v-if="loadingOlderHistory" class="text-xs text-muted">加载更早消息中...</p>
-      <p v-else-if="!hasMoreHistory" class="text-xs text-muted">没有更多历史消息</p>
-    </div>
     <div class="flex flex-col gap-5 max-w-[720px] mx-auto">
       <ChatMessageItem
         v-for="item in messages"

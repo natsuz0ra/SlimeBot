@@ -8,10 +8,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/go-ego/gse"
 	"slimebot/backend/internal/consts"
 	"slimebot/backend/internal/models"
 	"slimebot/backend/internal/repositories"
+
+	"github.com/go-ego/gse"
 )
 
 var defaultMemoryStopWords = map[string]struct{}{
@@ -138,6 +139,18 @@ func (m *MemoryService) FormatMemoryContext(summary string, hits []repositories.
 	return strings.TrimSpace(b.String())
 }
 
+// FormatCurrentSessionContext 仅组织当前会话摘要为 memory_context 块，避免引入跨会话检索结果。
+func (m *MemoryService) FormatCurrentSessionContext(summary string) string {
+	if strings.TrimSpace(summary) == "" {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("<current_session_summary>\n")
+	b.WriteString(strings.TrimSpace(summary))
+	b.WriteString("\n</current_session_summary>")
+	return b.String()
+}
+
 // QueryForAgent 是 memory 工具入口，返回标准化的检索结果文本。
 func (m *MemoryService) QueryForAgent(sessionID string, query string, topK int) (MemoryQueryResult, error) {
 	result := MemoryQueryResult{
@@ -199,7 +212,15 @@ func (m *MemoryService) buildMemoryQueryOutput(query string, keywords []string, 
 
 // BuildCompactHistory 返回用于上下文压缩的近期消息切片。
 func (m *MemoryService) BuildCompactHistory(sessionID string) ([]models.Message, error) {
-	return m.repo.ListRecentSessionMessages(sessionID, consts.CompactRawHistoryLimit)
+	return m.BuildRecentHistory(sessionID, consts.CompactRawHistoryLimit)
+}
+
+// BuildRecentHistory 返回用于上下文构建的近期消息切片。
+func (m *MemoryService) BuildRecentHistory(sessionID string, limit int) ([]models.Message, error) {
+	if limit <= 0 {
+		limit = consts.CompressedRecentHistoryLimit
+	}
+	return m.repo.ListRecentSessionMessages(sessionID, limit)
 }
 
 // UpdateSummaryAsync 异步触发摘要更新，并保证同一会话串行执行。
@@ -338,9 +359,12 @@ func (m *MemoryService) MergeSummary(ctx context.Context, modelConfig ModelRunti
 	systemPrompt := `You are a conversation summarizer. Merge the historical summary and latest conversation snippets into a new high-quality memory summary.
 Output requirements:
 1. Output summary text only. Do not use markdown headings and do not output JSON.
-2. Keep user preferences, key facts, completed/pending tasks, important constraints, and useful context clues.
-3. Remove greetings, repeated details, and irrelevant tool logs.
-4. Keep the summary concise without losing critical information.`
+2. Write in a natural narrative style and allow multiple paragraphs.
+3. Include user question time, user asks, and conclusion/decision whenever the timeline is clear from inputs.
+4. Keep user preferences, key facts, completed/pending tasks, important constraints, and useful context clues.
+5. For older history, merge and compress repetitive details while preserving key turning points.
+6. Remove greetings, repeated details, irrelevant tool logs, and branches/options the user did not continue to pursue.
+7. If there were multiple options, summarize as "multiple options were considered and user selected X" when helpful.`
 	userPrompt := fmt.Sprintf("Historical summary:\n%s\n\nLatest conversation snippets:\n%s", strings.TrimSpace(oldSummary), flattenMessages(recent))
 
 	reply, attempts, elapsed, err := m.chatOnceWithRetry(ctx, modelConfig, []ChatMessage{

@@ -1,16 +1,14 @@
 package repositories
 
 import (
+	"slimebot/backend/internal/domain"
 	"testing"
-
-	"slimebot/backend/internal/models"
-	"slimebot/backend/internal/testutil"
 )
 
 func TestMessagePlatformConfigCRUD(t *testing.T) {
-	repo := New(testutil.NewSQLiteDB(t, "platform_repo"))
+	repo := New(NewSQLiteDBTest(t, "platform_repo"))
 
-	created, err := repo.CreateMessagePlatformConfig(models.MessagePlatformConfig{
+	created, err := repo.CreateMessagePlatformConfig(domain.MessagePlatformConfig{
 		Platform:       "telegram",
 		DisplayName:    "Telegram",
 		AuthConfigJSON: `{"botToken":"test-token"}`,
@@ -31,7 +29,7 @@ func TestMessagePlatformConfigCRUD(t *testing.T) {
 		t.Fatalf("unexpected config: %+v", got)
 	}
 
-	err = repo.UpdateMessagePlatformConfig(created.ID, models.MessagePlatformConfig{
+	err = repo.UpdateMessagePlatformConfig(created.ID, domain.MessagePlatformConfig{
 		DisplayName:    "Telegram Bot",
 		AuthConfigJSON: `{"botToken":"new-token"}`,
 		IsEnabled:      false,

@@ -9,7 +9,7 @@ import (
 	"sync"
 	"time"
 
-	"slimebot/backend/internal/services"
+	chatsvc "slimebot/backend/internal/services/chat"
 )
 
 const (
@@ -22,7 +22,7 @@ type pendingApproval struct {
 	chatID     string
 	token      string
 	expireAt   time.Time
-	ch         chan services.ApprovalResponse
+	ch         chan chatsvc.ApprovalResponse
 }
 
 type approvalBroker struct {
@@ -69,7 +69,7 @@ func (b *approvalBroker) Register(toolCallID string, chatID string, ttl time.Dur
 		chatID:     chatID,
 		token:      token,
 		expireAt:   expireAt,
-		ch:         make(chan services.ApprovalResponse, 1),
+		ch:         make(chan chatsvc.ApprovalResponse, 1),
 	}
 	b.byToolCall[toolCallID] = entry
 	b.byToken[token] = entry
@@ -77,7 +77,7 @@ func (b *approvalBroker) Register(toolCallID string, chatID string, ttl time.Dur
 }
 
 // Wait 阻塞等待某个 toolCallID 的审批结果，直到收到回调或 ctx 取消/超时。
-func (b *approvalBroker) Wait(ctx context.Context, toolCallID string) (*services.ApprovalResponse, error) {
+func (b *approvalBroker) Wait(ctx context.Context, toolCallID string) (*chatsvc.ApprovalResponse, error) {
 	if b == nil {
 		return nil, fmt.Errorf("approval broker is nil")
 	}
@@ -129,7 +129,7 @@ func (b *approvalBroker) ResolveByCallback(chatID string, callbackData string) (
 
 	approved := action == approvalApprovePrefix
 	select {
-	case entry.ch <- services.ApprovalResponse{ToolCallID: entry.toolCallID, Approved: approved}:
+	case entry.ch <- chatsvc.ApprovalResponse{ToolCallID: entry.toolCallID, Approved: approved}:
 	default:
 	}
 	return approved, nil

@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"slimebot/backend/internal/consts"
+	"slimebot/backend/internal/constants"
 )
 
 type telegramAuthConfig struct {
@@ -22,7 +22,7 @@ func ValidateAuthConfig(platform string, raw string) error {
 	if err := json.Unmarshal([]byte(trimmed), &asObject); err != nil {
 		return err
 	}
-	if strings.EqualFold(strings.TrimSpace(platform), consts.TelegramPlatformName) {
+	if strings.EqualFold(strings.TrimSpace(platform), constants.TelegramPlatformName) {
 		if strings.TrimSpace(ParseTelegramBotToken(trimmed)) == "" {
 			return fmt.Errorf("telegram botToken is required")
 		}

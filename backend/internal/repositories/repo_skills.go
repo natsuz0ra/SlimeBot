@@ -2,21 +2,21 @@ package repositories
 
 import (
 	"errors"
+	"slimebot/backend/internal/domain"
 	"time"
 
 	"github.com/google/uuid"
 	"gorm.io/gorm"
-	"slimebot/backend/internal/models"
 )
 
-func (r *Repository) ListSkills() ([]models.Skill, error) {
-	var items []models.Skill
+func (r *Repository) ListSkills() ([]domain.Skill, error) {
+	var items []domain.Skill
 	err := r.db.Order("uploaded_at desc").Order("created_at desc").Find(&items).Error
 	return items, err
 }
 
-func (r *Repository) GetSkillByID(id string) (*models.Skill, error) {
-	var item models.Skill
+func (r *Repository) GetSkillByID(id string) (*domain.Skill, error) {
+	var item domain.Skill
 	err := r.db.First(&item, "id = ?", id).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, nil
@@ -24,8 +24,8 @@ func (r *Repository) GetSkillByID(id string) (*models.Skill, error) {
 	return &item, err
 }
 
-func (r *Repository) GetSkillByName(name string) (*models.Skill, error) {
-	var item models.Skill
+func (r *Repository) GetSkillByName(name string) (*domain.Skill, error) {
+	var item domain.Skill
 	err := r.db.First(&item, "name = ?", name).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, nil
@@ -33,7 +33,7 @@ func (r *Repository) GetSkillByName(name string) (*models.Skill, error) {
 	return &item, err
 }
 
-func (r *Repository) CreateSkill(item models.Skill) (*models.Skill, error) {
+func (r *Repository) CreateSkill(item domain.Skill) (*domain.Skill, error) {
 	item.ID = uuid.NewString()
 	if item.UploadedAt.IsZero() {
 		item.UploadedAt = time.Now()
@@ -45,5 +45,5 @@ func (r *Repository) CreateSkill(item models.Skill) (*models.Skill, error) {
 }
 
 func (r *Repository) DeleteSkill(id string) error {
-	return r.db.Where("id = ?", id).Delete(&models.Skill{}).Error
+	return r.db.Where("id = ?", id).Delete(&domain.Skill{}).Error
 }

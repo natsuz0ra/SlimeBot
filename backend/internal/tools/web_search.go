@@ -9,7 +9,7 @@ import (
 	"os"
 	"strings"
 
-	"slimebot/backend/internal/consts"
+	"slimebot/backend/internal/constants"
 )
 
 type webSearchTool struct {
@@ -39,8 +39,8 @@ type tavilyErrorResponse struct {
 
 func init() {
 	Register(newWebSearchTool(
-		consts.WebSearchBaseURL,
-		&http.Client{Timeout: consts.WebSearchTimeout},
+		constants.WebSearchBaseURL,
+		&http.Client{Timeout: constants.WebSearchTimeout},
 		func() string { return os.Getenv("WEB_SEARCH_API_KEY") },
 	))
 }
@@ -115,7 +115,7 @@ func (w *webSearchTool) search(params map[string]string) (*ExecuteResult, error)
 	}
 	defer resp.Body.Close()
 
-	rawBody, err := io.ReadAll(io.LimitReader(resp.Body, consts.WebSearchMaxResponseSize))
+	rawBody, err := io.ReadAll(io.LimitReader(resp.Body, constants.WebSearchMaxResponseSize))
 	if err != nil {
 		return &ExecuteResult{Error: fmt.Sprintf("Failed to read web_search response: %s.", err.Error())}, nil
 	}
@@ -178,14 +178,14 @@ func formatTavilyOutput(data tavilySearchResponse) string {
 
 	b.WriteString("Sources:\n")
 	limit := len(data.Results)
-	if limit > consts.WebSearchMaxSources {
-		limit = consts.WebSearchMaxSources
+	if limit > constants.WebSearchMaxSources {
+		limit = constants.WebSearchMaxSources
 	}
 	for i := 0; i < limit; i++ {
 		item := data.Results[i]
 		title := strings.TrimSpace(item.Title)
 		url := strings.TrimSpace(item.URL)
-		content := truncateRunes(strings.TrimSpace(item.Content), consts.WebSearchMaxContentRunes)
+		content := truncateRunes(strings.TrimSpace(item.Content), constants.WebSearchMaxContentRunes)
 
 		if title == "" {
 			title = "Untitled source"

@@ -12,6 +12,7 @@ type Config struct {
 	SkillsRoot string
 	// ChatUploadRoot 用于存放聊天附件临时文件（回合结束后会清理）。
 	ChatUploadRoot   string
+	SystemPromptPath string
 	JWTSecret        string
 	JWTExpireMinutes int
 
@@ -33,6 +34,7 @@ func Load() Config {
 		Frontend:               getEnv("FRONTEND_ORIGIN", "http://localhost:5173"),
 		SkillsRoot:             getEnv("SKILLS_ROOT", "./skills"),
 		ChatUploadRoot:         getEnv("CHAT_UPLOAD_ROOT", "./storage/chat_uploads"),
+		SystemPromptPath:       getEnv("SYSTEM_PROMPT_PATH", "./prompts/system_prompt.md"),
 		JWTSecret:              getEnv("JWT_SECRET", ""),
 		JWTExpireMinutes:       GetIntEnv("JWT_EXPIRE", 15*24*60),
 		EmbeddingProvider:      getEnv("EMBEDDING_PROVIDER", "onnx"),

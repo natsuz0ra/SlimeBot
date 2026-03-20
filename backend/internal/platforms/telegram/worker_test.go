@@ -14,9 +14,9 @@ import (
 	"testing"
 	"time"
 
-	"slimebot/backend/internal/consts"
+	"slimebot/backend/internal/constants"
 	"slimebot/backend/internal/platforms"
-	"slimebot/backend/internal/services"
+	chatsvc "slimebot/backend/internal/services/chat"
 )
 
 type mockWorkerSender struct {
@@ -101,7 +101,7 @@ func (m *mockBrokerForWorker) Register(string, string, time.Duration) (string, s
 	return "", "", nil
 }
 
-func (m *mockBrokerForWorker) Wait(context.Context, string) (*services.ApprovalResponse, error) {
+func (m *mockBrokerForWorker) Wait(context.Context, string) (*chatsvc.ApprovalResponse, error) {
 	return nil, nil
 }
 
@@ -118,15 +118,15 @@ func (f roundTripperFunc) RoundTrip(req *http.Request) (*http.Response, error) {
 }
 
 type mockUploadService struct {
-	items []services.UploadedAttachment
+	items []chatsvc.UploadedAttachment
 }
 
-func (m *mockUploadService) RegisterLocalFiles(_ string, files []services.LocalAttachmentFile) ([]services.UploadedAttachment, error) {
-	items := make([]services.UploadedAttachment, 0, len(files))
+func (m *mockUploadService) RegisterLocalFiles(_ string, files []chatsvc.LocalAttachmentFile) ([]chatsvc.UploadedAttachment, error) {
+	items := make([]chatsvc.UploadedAttachment, 0, len(files))
 	for i, file := range files {
-		items = append(items, services.UploadedAttachment{
+		items = append(items, chatsvc.UploadedAttachment{
 			ID:        "att_" + strconv.Itoa(i+1),
-			SessionID: consts.MessagePlatformSessionID,
+			SessionID: constants.MessagePlatformSessionID,
 			Name:      file.Name,
 			SizeBytes: int64(len(file.Data)),
 			MimeType:  strings.TrimSpace(file.MimeType),

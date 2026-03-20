@@ -4,22 +4,13 @@ import (
 	"encoding/json"
 	"time"
 
+	"slimebot/backend/internal/domain"
+
 	"github.com/google/uuid"
 	"gorm.io/gorm"
-	"slimebot/backend/internal/models"
 )
 
-type AddMessageInput struct {
-	SessionID         string
-	Role              string
-	Content           string
-	IsInterrupted     bool
-	IsStopPlaceholder bool
-	Attachments       []models.MessageAttachment
-}
-
-// encodeMessageAttachments 将附件元信息序列化为 JSON；失败时回退为 [] 保持可读写。
-func encodeMessageAttachments(items []models.MessageAttachment) string {
+func encodeMessageAttachments(items []domain.MessageAttachment) string {
 	if len(items) == 0 {
 		return "[]"
 	}
@@ -30,40 +21,38 @@ func encodeMessageAttachments(items []models.MessageAttachment) string {
 	return string(data)
 }
 
-// decodeMessageAttachments 从 JSON 恢复附件元信息；解析失败时回退为空数组。
-func decodeMessageAttachments(raw string) []models.MessageAttachment {
+func decodeMessageAttachments(raw string) []domain.MessageAttachment {
 	if raw == "" {
-		return []models.MessageAttachment{}
+		return []domain.MessageAttachment{}
 	}
-	var items []models.MessageAttachment
+	var items []domain.MessageAttachment
 	if err := json.Unmarshal([]byte(raw), &items); err != nil {
-		return []models.MessageAttachment{}
+		return []domain.MessageAttachment{}
 	}
 	return items
 }
 
-// normalizeMessages 为查询结果补齐 Attachments 运行时字段，统一返回结构。
-func normalizeMessages(items []models.Message) {
+func normalizeMessages(items []domain.Message) {
 	for idx := range items {
 		items[idx].Attachments = decodeMessageAttachments(items[idx].AttachmentsJSON)
 	}
 }
 
-func (r *Repository) ListSessionMessages(sessionID string) ([]models.Message, error) {
-	var messages []models.Message
+func (r *Repository) ListSessionMessages(sessionID string) ([]domain.Message, error) {
+	var messages []domain.Message
 	err := r.db.Where("session_id = ?", sessionID).Order("created_at asc").Find(&messages).Error
 	normalizeMessages(messages)
 	return messages, err
 }
 
-func (r *Repository) ListSessionMessagesPage(sessionID string, limit int, before *time.Time, after *time.Time) ([]models.Message, bool, error) {
+func (r *Repository) ListSessionMessagesPage(sessionID string, limit int, before *time.Time, after *time.Time) ([]domain.Message, bool, error) {
 	if limit <= 0 {
 		limit = 10
 	}
 
 	base := r.db.Where("session_id = ?", sessionID)
 	var (
-		messages []models.Message
+		messages []domain.Message
 		err      error
 		hasMore  bool
 	)
@@ -121,12 +110,12 @@ func (r *Repository) ListSessionMessagesPage(sessionID string, limit int, before
 	return messages, hasMore, nil
 }
 
-func (r *Repository) ListRecentSessionMessages(sessionID string, limit int) ([]models.Message, error) {
+func (r *Repository) ListRecentSessionMessages(sessionID string, limit int) ([]domain.Message, error) {
 	if limit <= 0 {
-		return []models.Message{}, nil
+		return []domain.Message{}, nil
 	}
 
-	var messages []models.Message
+	var messages []domain.Message
 	err := r.db.
 		Where("session_id = ?", sessionID).
 		Order("created_at desc").
@@ -144,18 +133,16 @@ func (r *Repository) ListRecentSessionMessages(sessionID string, limit int) ([]m
 	return messages, nil
 }
 
-func (r *Repository) AddMessage(sessionID, role, content string) (*models.Message, error) {
-	return r.AddMessageWithInput(AddMessageInput{
+func (r *Repository) AddMessage(sessionID, role, content string) (*domain.Message, error) {
+	return r.AddMessageWithInput(domain.AddMessageInput{
 		SessionID: sessionID,
 		Role:      role,
 		Content:   content,
 	})
 }
 
-// AddMessageWithInput 支持扩展字段落库（中断标记/附件元信息）。
-// 与会话 updated_at 更新放在同一事务中，保证消息与会话时间线一致。
-func (r *Repository) AddMessageWithInput(input AddMessageInput) (*models.Message, error) {
-	message := &models.Message{
+func (r *Repository) AddMessageWithInput(input domain.AddMessageInput) (*domain.Message, error) {
+	message := &domain.Message{
 		ID:                uuid.NewString(),
 		SessionID:         input.SessionID,
 		Role:              input.Role,
@@ -169,7 +156,7 @@ func (r *Repository) AddMessageWithInput(input AddMessageInput) (*models.Message
 		if err := tx.Create(message).Error; err != nil {
 			return err
 		}
-		return tx.Model(&models.Session{}).
+		return tx.Model(&domain.Session{}).
 			Where("id = ?", input.SessionID).
 			Update("updated_at", time.Now()).
 			Error

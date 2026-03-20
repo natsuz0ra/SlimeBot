@@ -1,25 +1,25 @@
 package repositories
 
 import (
+	"slimebot/backend/internal/domain"
 	"time"
 
 	"github.com/google/uuid"
-	"slimebot/backend/internal/models"
 )
 
-func (r *Repository) ListMCPConfigs() ([]models.MCPConfig, error) {
-	var items []models.MCPConfig
+func (r *Repository) ListMCPConfigs() ([]domain.MCPConfig, error) {
+	var items []domain.MCPConfig
 	err := r.db.Order("created_at asc").Find(&items).Error
 	return items, err
 }
 
-func (r *Repository) ListEnabledMCPConfigs() ([]models.MCPConfig, error) {
-	var items []models.MCPConfig
+func (r *Repository) ListEnabledMCPConfigs() ([]domain.MCPConfig, error) {
+	var items []domain.MCPConfig
 	err := r.db.Where("is_enabled = ?", true).Order("created_at asc").Find(&items).Error
 	return items, err
 }
 
-func (r *Repository) CreateMCPConfig(item models.MCPConfig) (*models.MCPConfig, error) {
+func (r *Repository) CreateMCPConfig(item domain.MCPConfig) (*domain.MCPConfig, error) {
 	item.ID = uuid.NewString()
 	if err := r.db.Create(&item).Error; err != nil {
 		return nil, err
@@ -27,8 +27,8 @@ func (r *Repository) CreateMCPConfig(item models.MCPConfig) (*models.MCPConfig, 
 	return &item, nil
 }
 
-func (r *Repository) UpdateMCPConfig(id string, item models.MCPConfig) error {
-	return r.db.Model(&models.MCPConfig{}).
+func (r *Repository) UpdateMCPConfig(id string, item domain.MCPConfig) error {
+	return r.db.Model(&domain.MCPConfig{}).
 		Where("id = ?", id).
 		Updates(map[string]any{
 			"name":       item.Name,
@@ -39,5 +39,5 @@ func (r *Repository) UpdateMCPConfig(id string, item models.MCPConfig) error {
 }
 
 func (r *Repository) DeleteMCPConfig(id string) error {
-	return r.db.Where("id = ?", id).Delete(&models.MCPConfig{}).Error
+	return r.db.Where("id = ?", id).Delete(&domain.MCPConfig{}).Error
 }

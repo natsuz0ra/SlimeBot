@@ -1,22 +1,21 @@
 package repositories
 
 import (
+	"slimebot/backend/internal/domain"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
-	"slimebot/backend/internal/models"
-	"slimebot/backend/internal/testutil"
 )
 
 func TestDeleteSession_DeletesSessionAndRelatedRecords(t *testing.T) {
-	repo := New(testutil.NewSQLiteDB(t, "repo_sessions_delete_ok"))
+	repo := New(NewSQLiteDBTest(t, "repo_sessions_delete_ok"))
 	sessionID := uuid.NewString()
 
 	if _, err := repo.CreateSessionWithID(sessionID, "to-delete"); err != nil {
 		t.Fatalf("create session failed: %v", err)
 	}
-	if err := repo.db.Create(&models.Message{
+	if err := repo.db.Create(&domain.Message{
 		ID:        uuid.NewString(),
 		SessionID: sessionID,
 		Role:      "user",
@@ -25,7 +24,7 @@ func TestDeleteSession_DeletesSessionAndRelatedRecords(t *testing.T) {
 	}).Error; err != nil {
 		t.Fatalf("create message failed: %v", err)
 	}
-	if err := repo.db.Create(&models.ToolCallRecord{
+	if err := repo.db.Create(&domain.ToolCallRecord{
 		ID:               uuid.NewString(),
 		SessionID:        sessionID,
 		RequestID:        uuid.NewString(),
@@ -45,7 +44,7 @@ func TestDeleteSession_DeletesSessionAndRelatedRecords(t *testing.T) {
 	}
 
 	var sessionCount int64
-	if err := repo.db.Model(&models.Session{}).Where("id = ?", sessionID).Count(&sessionCount).Error; err != nil {
+	if err := repo.db.Model(&domain.Session{}).Where("id = ?", sessionID).Count(&sessionCount).Error; err != nil {
 		t.Fatalf("count session failed: %v", err)
 	}
 	if sessionCount != 0 {
@@ -53,7 +52,7 @@ func TestDeleteSession_DeletesSessionAndRelatedRecords(t *testing.T) {
 	}
 
 	var messageCount int64
-	if err := repo.db.Model(&models.Message{}).Where("session_id = ?", sessionID).Count(&messageCount).Error; err != nil {
+	if err := repo.db.Model(&domain.Message{}).Where("session_id = ?", sessionID).Count(&messageCount).Error; err != nil {
 		t.Fatalf("count message failed: %v", err)
 	}
 	if messageCount != 0 {
@@ -61,7 +60,7 @@ func TestDeleteSession_DeletesSessionAndRelatedRecords(t *testing.T) {
 	}
 
 	var toolCallCount int64
-	if err := repo.db.Model(&models.ToolCallRecord{}).Where("session_id = ?", sessionID).Count(&toolCallCount).Error; err != nil {
+	if err := repo.db.Model(&domain.ToolCallRecord{}).Where("session_id = ?", sessionID).Count(&toolCallCount).Error; err != nil {
 		t.Fatalf("count tool calls failed: %v", err)
 	}
 	if toolCallCount != 0 {
@@ -70,13 +69,13 @@ func TestDeleteSession_DeletesSessionAndRelatedRecords(t *testing.T) {
 }
 
 func TestDeleteSession_RollsBackWhenToolCallDeleteFails(t *testing.T) {
-	repo := New(testutil.NewSQLiteDB(t, "repo_sessions_delete_rollback"))
+	repo := New(NewSQLiteDBTest(t, "repo_sessions_delete_rollback"))
 	sessionID := uuid.NewString()
 
 	if _, err := repo.CreateSessionWithID(sessionID, "rollback-case"); err != nil {
 		t.Fatalf("create session failed: %v", err)
 	}
-	if err := repo.db.Create(&models.Message{
+	if err := repo.db.Create(&domain.Message{
 		ID:        uuid.NewString(),
 		SessionID: sessionID,
 		Role:      "user",
@@ -85,7 +84,7 @@ func TestDeleteSession_RollsBackWhenToolCallDeleteFails(t *testing.T) {
 	}).Error; err != nil {
 		t.Fatalf("create message failed: %v", err)
 	}
-	if err := repo.db.Create(&models.ToolCallRecord{
+	if err := repo.db.Create(&domain.ToolCallRecord{
 		ID:               uuid.NewString(),
 		SessionID:        sessionID,
 		RequestID:        uuid.NewString(),
@@ -115,7 +114,7 @@ END;
 	}
 
 	var sessionCount int64
-	if err := repo.db.Model(&models.Session{}).Where("id = ?", sessionID).Count(&sessionCount).Error; err != nil {
+	if err := repo.db.Model(&domain.Session{}).Where("id = ?", sessionID).Count(&sessionCount).Error; err != nil {
 		t.Fatalf("count session failed: %v", err)
 	}
 	if sessionCount != 1 {
@@ -123,7 +122,7 @@ END;
 	}
 
 	var messageCount int64
-	if err := repo.db.Model(&models.Message{}).Where("session_id = ?", sessionID).Count(&messageCount).Error; err != nil {
+	if err := repo.db.Model(&domain.Message{}).Where("session_id = ?", sessionID).Count(&messageCount).Error; err != nil {
 		t.Fatalf("count message failed: %v", err)
 	}
 	if messageCount != 1 {

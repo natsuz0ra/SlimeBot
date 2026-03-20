@@ -9,10 +9,10 @@ import (
 	"strings"
 	"time"
 
-	"slimebot/backend/internal/consts"
+	"slimebot/backend/internal/constants"
 	"slimebot/backend/internal/platforms"
 	"slimebot/backend/internal/repositories"
-	"slimebot/backend/internal/services"
+	chatsvc "slimebot/backend/internal/services/chat"
 )
 
 type Worker struct {
@@ -24,7 +24,7 @@ type Worker struct {
 }
 
 type workerUploadService interface {
-	RegisterLocalFiles(sessionID string, files []services.LocalAttachmentFile) ([]services.UploadedAttachment, error)
+	RegisterLocalFiles(sessionID string, files []chatsvc.LocalAttachmentFile) ([]chatsvc.UploadedAttachment, error)
 }
 
 const (
@@ -68,27 +68,27 @@ func (w *Worker) run(ctx context.Context) {
 		default:
 		}
 
-		cfg, err := w.repo.GetMessagePlatformConfigByPlatform(consts.TelegramPlatformName)
+		cfg, err := w.repo.GetMessagePlatformConfigByPlatform(constants.TelegramPlatformName)
 		if err != nil {
 			log.Printf("telegram_worker_load_config_failed err=%v", err)
-			time.Sleep(consts.TelegramErrorBackoff)
+			time.Sleep(constants.TelegramErrorBackoff)
 			continue
 		}
 		if cfg == nil || !cfg.IsEnabled {
-			time.Sleep(consts.TelegramIdleWaitInterval)
+			time.Sleep(constants.TelegramIdleWaitInterval)
 			continue
 		}
 
 		token := platforms.ParseTelegramBotToken(cfg.AuthConfigJSON)
 		if token == "" {
-			time.Sleep(consts.TelegramIdleWaitInterval)
+			time.Sleep(constants.TelegramIdleWaitInterval)
 			continue
 		}
 		adapter := NewAdapter(token)
-		updates, err := adapter.GetUpdates(ctx, updateOffset, consts.TelegramPollTimeoutSeconds)
+		updates, err := adapter.GetUpdates(ctx, updateOffset, constants.TelegramPollTimeoutSeconds)
 		if err != nil {
 			log.Printf("telegram_worker_poll_failed err=%v", err)
-			time.Sleep(consts.TelegramErrorBackoff)
+			time.Sleep(constants.TelegramErrorBackoff)
 			continue
 		}
 
@@ -116,7 +116,7 @@ func (w *Worker) processUpdates(ctx context.Context, adapter *Adapter, updates [
 			text = strings.TrimSpace(item.Message.Caption)
 		}
 		inbound := platforms.InboundMessage{
-			Platform: consts.TelegramPlatformName,
+			Platform: constants.TelegramPlatformName,
 			ChatID:   chatID,
 			Text:     text,
 		}
@@ -179,7 +179,7 @@ func (w *Worker) buildInboundAttachments(ctx context.Context, adapter *Adapter, 
 	if len(candidates) > workerMaxAttachmentsPerMsg {
 		candidates = candidates[:workerMaxAttachmentsPerMsg]
 	}
-	inputs := make([]services.LocalAttachmentFile, 0, len(candidates))
+	inputs := make([]chatsvc.LocalAttachmentFile, 0, len(candidates))
 	inboundMeta := make([]platforms.InboundAttachment, 0, len(candidates))
 	var skipped int
 
@@ -190,7 +190,7 @@ func (w *Worker) buildInboundAttachments(ctx context.Context, adapter *Adapter, 
 			continue
 		}
 		name := selectAttachmentName(candidate.Name, fallbackName, candidate.Source, candidate.MimeType)
-		inputs = append(inputs, services.LocalAttachmentFile{
+		inputs = append(inputs, chatsvc.LocalAttachmentFile{
 			Name:     name,
 			MimeType: candidate.MimeType,
 			Data:     data,
@@ -210,7 +210,7 @@ func (w *Worker) buildInboundAttachments(ctx context.Context, adapter *Adapter, 
 		return nil, nil, nil
 	}
 
-	registered, err := w.uploads.RegisterLocalFiles(consts.MessagePlatformSessionID, inputs)
+	registered, err := w.uploads.RegisterLocalFiles(constants.MessagePlatformSessionID, inputs)
 	if err != nil {
 		return nil, nil, err
 	}

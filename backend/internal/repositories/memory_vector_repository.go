@@ -10,31 +10,16 @@ import (
 	"sync"
 
 	"github.com/qdrant/go-client/qdrant"
+	"slimebot/backend/internal/domain"
 )
-
-type MemoryVectorUpsertInput struct {
-	SessionID string
-	Vector    []float32
-	Payload   map[string]any
-}
-
-type MemoryVectorSearchHit struct {
-	SessionID string
-	Score     float64
-}
-
-type MemoryVectorStore interface {
-	UpsertSessionMemoryVector(ctx context.Context, input MemoryVectorUpsertInput) error
-	SearchSimilarSessionIDs(ctx context.Context, queryVector []float32, limit int, excludeSessionID string) ([]MemoryVectorSearchHit, error)
-}
 
 type MemoryVectorRepository struct {
 	qdrantURL  string
 	collection string
 	client     qdrantVectorClient
 
-	ensureCollectionOnce sync.Once
-	ensureCollectionErr  error
+	ensureCollectionMu sync.Mutex
+	collectionEnsured  bool
 }
 
 type qdrantVectorClient interface {
@@ -77,7 +62,7 @@ func NewMemoryVectorRepositoryWithClient(client qdrantVectorClient, collection s
 	}
 }
 
-func (r *MemoryVectorRepository) UpsertSessionMemoryVector(ctx context.Context, input MemoryVectorUpsertInput) error {
+func (r *MemoryVectorRepository) UpsertSessionMemoryVector(ctx context.Context, input domain.MemoryVectorUpsertInput) error {
 	if err := r.validateConfig(); err != nil {
 		return err
 	}
@@ -121,12 +106,12 @@ func (r *MemoryVectorRepository) UpsertSessionMemoryVector(ctx context.Context, 
 	return nil
 }
 
-func (r *MemoryVectorRepository) SearchSimilarSessionIDs(ctx context.Context, queryVector []float32, limit int, excludeSessionID string) ([]MemoryVectorSearchHit, error) {
+func (r *MemoryVectorRepository) SearchSimilarSessionIDs(ctx context.Context, queryVector []float32, limit int, excludeSessionID string) ([]domain.MemoryVectorSearchHit, error) {
 	if err := r.validateConfig(); err != nil {
 		return nil, err
 	}
 	if len(queryVector) == 0 || limit <= 0 {
-		return []MemoryVectorSearchHit{}, nil
+		return []domain.MemoryVectorSearchHit{}, nil
 	}
 	if err := r.ensureCollection(ctx, len(queryVector)); err != nil {
 		return nil, err
@@ -149,13 +134,13 @@ func (r *MemoryVectorRepository) SearchSimilarSessionIDs(ctx context.Context, qu
 	if err != nil {
 		return nil, err
 	}
-	hits := make([]MemoryVectorSearchHit, 0, len(results))
+	hits := make([]domain.MemoryVectorSearchHit, 0, len(results))
 	for _, item := range results {
 		sessionID := extractSessionID(item.GetPayload(), item.GetId())
 		if strings.TrimSpace(sessionID) == "" {
 			continue
 		}
-		hits = append(hits, MemoryVectorSearchHit{
+		hits = append(hits, domain.MemoryVectorSearchHit{
 			SessionID: sessionID,
 			Score:     float64(item.GetScore()),
 		})
@@ -164,27 +149,35 @@ func (r *MemoryVectorRepository) SearchSimilarSessionIDs(ctx context.Context, qu
 }
 
 func (r *MemoryVectorRepository) ensureCollection(ctx context.Context, vectorDim int) error {
-	r.ensureCollectionOnce.Do(func() {
-		exists, err := r.client.CollectionExists(ctx, r.collection)
-		if err != nil {
-			r.ensureCollectionErr = err
-			return
-		}
-		if exists {
-			return
-		}
-		err = r.client.CreateCollection(ctx, &qdrant.CreateCollection{
-			CollectionName: r.collection,
-			VectorsConfig: qdrant.NewVectorsConfig(&qdrant.VectorParams{
-				Size:     uint64(vectorDim),
-				Distance: qdrant.Distance_Cosine,
-			}),
-		})
-		if err != nil {
-			r.ensureCollectionErr = fmt.Errorf("qdrant ensure collection failed: %w", err)
-		}
+	r.ensureCollectionMu.Lock()
+	defer r.ensureCollectionMu.Unlock()
+
+	if r.collectionEnsured {
+		return nil
+	}
+
+	exists, err := r.client.CollectionExists(ctx, r.collection)
+	if err != nil {
+		return err
+	}
+	if exists {
+		r.collectionEnsured = true
+		return nil
+	}
+
+	err = r.client.CreateCollection(ctx, &qdrant.CreateCollection{
+		CollectionName: r.collection,
+		VectorsConfig: qdrant.NewVectorsConfig(&qdrant.VectorParams{
+			Size:     uint64(vectorDim),
+			Distance: qdrant.Distance_Cosine,
+		}),
 	})
-	return r.ensureCollectionErr
+	if err != nil {
+		return fmt.Errorf("qdrant ensure collection failed: %w", err)
+	}
+
+	r.collectionEnsured = true
+	return nil
 }
 
 func (r *MemoryVectorRepository) Close() error {

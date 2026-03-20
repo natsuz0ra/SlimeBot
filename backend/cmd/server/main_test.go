@@ -3,11 +3,12 @@ package main
 import (
 	"testing"
 
+	"slimebot/backend/internal/app"
 	"slimebot/backend/internal/config"
 )
 
 func TestValidateConfig_RejectsMissingJWTSecret(t *testing.T) {
-	err := validateConfig(config.Config{
+	err := app.ValidateConfig(config.Config{
 		JWTSecret:        "",
 		JWTExpireMinutes: 60,
 	})
@@ -17,7 +18,7 @@ func TestValidateConfig_RejectsMissingJWTSecret(t *testing.T) {
 }
 
 func TestValidateConfig_RejectsInvalidJWTExpireMinutes(t *testing.T) {
-	err := validateConfig(config.Config{
+	err := app.ValidateConfig(config.Config{
 		JWTSecret:        "secret",
 		JWTExpireMinutes: 0,
 	})
@@ -27,7 +28,7 @@ func TestValidateConfig_RejectsInvalidJWTExpireMinutes(t *testing.T) {
 }
 
 func TestValidateConfig_AcceptsValidConfig(t *testing.T) {
-	err := validateConfig(config.Config{
+	err := app.ValidateConfig(config.Config{
 		JWTSecret:        "secret",
 		JWTExpireMinutes: 60,
 	})

@@ -7,7 +7,7 @@ import (
 	"net/http"
 	"strings"
 
-	"slimebot/backend/internal/consts"
+	"slimebot/backend/internal/constants"
 )
 
 type httpRequestTool struct {
@@ -16,7 +16,7 @@ type httpRequestTool struct {
 
 func init() {
 	Register(&httpRequestTool{
-		client: &http.Client{Timeout: consts.HTTPRequestTimeout},
+		client: &http.Client{Timeout: constants.HTTPRequestTimeout},
 	})
 }
 
@@ -87,7 +87,7 @@ func (h *httpRequestTool) request(params map[string]string) (*ExecuteResult, err
 	}
 	defer resp.Body.Close()
 
-	bodyBytes, err := io.ReadAll(io.LimitReader(resp.Body, consts.HTTPMaxResponseBytes))
+	bodyBytes, err := io.ReadAll(io.LimitReader(resp.Body, constants.HTTPMaxResponseBytes))
 	if err != nil {
 		return &ExecuteResult{Error: fmt.Sprintf("Failed to read response body: %s.", err.Error())}, nil
 	}

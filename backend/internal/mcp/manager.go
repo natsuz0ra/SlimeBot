@@ -5,11 +5,11 @@ import (
 	"crypto/sha1"
 	"encoding/hex"
 	"fmt"
+	"slimebot/backend/internal/domain"
 	"strings"
 	"sync"
 
-	"slimebot/backend/internal/consts"
-	"slimebot/backend/internal/models"
+	"slimebot/backend/internal/constants"
 )
 
 // ToolMeta 记录函数调用定义与 MCP 真实工具之间的映射关系。
@@ -30,6 +30,7 @@ type managedClient struct {
 	raw      string
 	alias    string
 	client   Client
+	clientMu sync.Mutex
 }
 
 // NewManager 创建一个新的 MCP 管理器实例。
@@ -40,14 +41,19 @@ func NewManager() *Manager {
 }
 
 // LoadTools 加载当前启用服务的工具定义，并返回函数映射与 OpenAI 工具描述。
-func (m *Manager) LoadTools(ctx context.Context, configs []models.MCPConfig) ([]ToolMeta, []map[string]any, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
+func (m *Manager) LoadTools(ctx context.Context, configs []domain.MCPConfig) ([]ToolMeta, []map[string]any, error) {
 	alive := make(map[string]bool, len(configs))
 	var metas []ToolMeta
 	var defs []map[string]any
 
+	type target struct {
+		item  domain.MCPConfig
+		entry *managedClient
+	}
+	var targets []target
+	var toClose []*managedClient
+
+	m.mu.Lock()
 	for _, item := range configs {
 		if !item.IsEnabled {
 			continue
@@ -55,11 +61,37 @@ func (m *Manager) LoadTools(ctx context.Context, configs []models.MCPConfig) ([]
 		alive[item.ID] = true
 		entry, err := m.ensureClientLocked(item)
 		if err != nil {
+			m.mu.Unlock()
 			return nil, nil, fmt.Errorf("failed to initialize MCP service (%s): %w", item.Name, err)
 		}
+		targets = append(targets, target{item: item, entry: entry})
+	}
+
+	for id, entry := range m.clients {
+		if alive[id] {
+			continue
+		}
+		// 配置被禁用或删除后主动回收连接，避免保留失活客户端。
+		toClose = append(toClose, entry)
+		delete(m.clients, id)
+	}
+	m.mu.Unlock()
+
+	defer func() {
+		for _, entry := range toClose {
+			entry.clientMu.Lock()
+			_ = entry.client.Close()
+			entry.clientMu.Unlock()
+		}
+	}()
+
+	for _, t := range targets {
+		entry := t.entry
+		entry.clientMu.Lock()
 		tools, err := entry.client.ListTools(ctx)
+		entry.clientMu.Unlock()
 		if err != nil {
-			return nil, nil, fmt.Errorf("failed to load MCP tools (%s): %w", item.Name, err)
+			return nil, nil, fmt.Errorf("failed to load MCP tools (%s): %w", t.item.Name, err)
 		}
 
 		for _, tool := range tools {
@@ -74,7 +106,7 @@ func (m *Manager) LoadTools(ctx context.Context, configs []models.MCPConfig) ([]
 			}
 			defs = append(defs, map[string]any{
 				"name":        funcName,
-				"description": fmt.Sprintf("[mcp:%s] %s", item.Name, strings.TrimSpace(tool.Description)),
+				"description": fmt.Sprintf("[mcp:%s] %s", t.item.Name, strings.TrimSpace(tool.Description)),
 				"parameters":  inputSchema,
 			})
 			metas = append(metas, ToolMeta{
@@ -85,27 +117,20 @@ func (m *Manager) LoadTools(ctx context.Context, configs []models.MCPConfig) ([]
 		}
 	}
 
-	for id, entry := range m.clients {
-		if alive[id] {
-			continue
-		}
-		// 配置被禁用或删除后主动回收连接，避免保留失活客户端。
-		_ = entry.client.Close()
-		delete(m.clients, id)
-	}
-
 	return metas, defs, nil
 }
 
 // ensureClientLocked 确保给定配置对应的客户端可用，必要时按最新配置重建连接。
-func (m *Manager) ensureClientLocked(item models.MCPConfig) (*managedClient, error) {
+func (m *Manager) ensureClientLocked(item domain.MCPConfig) (*managedClient, error) {
 	existing, ok := m.clients[item.ID]
 	if ok && existing.raw == item.Config {
 		// 配置未变化时复用已有连接，减少重复握手与进程创建开销。
 		return existing, nil
 	}
 	if ok {
+		existing.clientMu.Lock()
 		_ = existing.client.Close()
+		existing.clientMu.Unlock()
 		delete(m.clients, item.ID)
 	}
 
@@ -138,12 +163,11 @@ func (m *Manager) ensureClientLocked(item models.MCPConfig) (*managedClient, err
 }
 
 // Execute 根据 serverAlias 与 toolName 定位目标 MCP 服务并执行工具调用。
-func (m *Manager) Execute(ctx context.Context, configs []models.MCPConfig, serverAlias, toolName string, arguments map[string]any) (*CallResult, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	var target models.MCPConfig
+func (m *Manager) Execute(ctx context.Context, configs []domain.MCPConfig, serverAlias, toolName string, arguments map[string]any) (*CallResult, error) {
+	var target domain.MCPConfig
 	found := false
+	var entry *managedClient
+
 	for _, item := range configs {
 		if !item.IsEnabled {
 			continue
@@ -157,12 +181,18 @@ func (m *Manager) Execute(ctx context.Context, configs []models.MCPConfig, serve
 	if !found {
 		return nil, fmt.Errorf("MCP service not found or disabled: %s", serverAlias)
 	}
-
-	entry, err := m.ensureClientLocked(target)
+	m.mu.Lock()
+	var err error
+	entry, err = m.ensureClientLocked(target)
+	m.mu.Unlock()
 	if err != nil {
 		return nil, err
 	}
-	return entry.client.CallTool(ctx, toolName, arguments)
+
+	entry.clientMu.Lock()
+	res, callErr := entry.client.CallTool(ctx, toolName, arguments)
+	entry.clientMu.Unlock()
+	return res, callErr
 }
 
 // sanitizeToken 将任意标识规范化为安全 token，用于函数名与别名拼接。
@@ -196,19 +226,19 @@ func buildMCPFuncName(serverAlias, toolName string) string {
 	serverToken := sanitizeToken(serverAlias)
 	toolToken := sanitizeToken(toolName)
 	full := serverToken + "__" + toolToken
-	if len(full) <= consts.MCPFuncNameMaxLen {
+	if len(full) <= constants.MCPFuncNameMaxLen {
 		return full
 	}
 
 	// 保留可读前缀，并追加稳定哈希，兼顾长度限制与冲突概率。
 	sum := sha1.Sum([]byte(serverToken + "::" + toolToken))
 	hash := hex.EncodeToString(sum[:])
-	if len(hash) > consts.MCPFuncHashLen {
-		hash = hash[:consts.MCPFuncHashLen]
+	if len(hash) > constants.MCPFuncHashLen {
+		hash = hash[:constants.MCPFuncHashLen]
 	}
 
 	// 预留 "__" 与 "_<hash>"。
-	available := consts.MCPFuncNameMaxLen - len("__") - 1 - len(hash)
+	available := constants.MCPFuncNameMaxLen - len("__") - 1 - len(hash)
 	if available < 2 {
 		available = 2
 	}
@@ -218,10 +248,10 @@ func buildMCPFuncName(serverAlias, toolName string) string {
 	shortServer := truncateToken(serverToken, serverLen)
 	shortTool := truncateToken(toolToken, toolLen)
 	name := shortServer + "__" + shortTool + "_" + hash
-	if len(name) <= consts.MCPFuncNameMaxLen {
+	if len(name) <= constants.MCPFuncNameMaxLen {
 		return name
 	}
-	return name[:consts.MCPFuncNameMaxLen]
+	return name[:constants.MCPFuncNameMaxLen]
 }
 
 func truncateToken(input string, max int) string {

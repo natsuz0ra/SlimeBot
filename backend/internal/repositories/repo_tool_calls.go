@@ -5,35 +5,13 @@ import (
 	"errors"
 	"time"
 
-	"slimebot/backend/internal/models"
+	"slimebot/backend/internal/domain"
 
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 )
 
-type ToolCallStartRecordInput struct {
-	SessionID        string
-	RequestID        string
-	ToolCallID       string
-	ToolName         string
-	Command          string
-	Params           map[string]string
-	Status           string
-	RequiresApproval bool
-	StartedAt        time.Time
-}
-
-type ToolCallResultRecordInput struct {
-	SessionID  string
-	RequestID  string
-	ToolCallID string
-	Status     string
-	Output     string
-	Error      string
-	FinishedAt time.Time
-}
-
-func (r *Repository) UpsertToolCallStart(input ToolCallStartRecordInput) error {
+func (r *Repository) UpsertToolCallStart(input domain.ToolCallStartRecordInput) error {
 	paramsJSONBytes, err := json.Marshal(input.Params)
 	if err != nil {
 		return err
@@ -45,10 +23,10 @@ func (r *Repository) UpsertToolCallStart(input ToolCallStartRecordInput) error {
 		startedAt = time.Now()
 	}
 
-	var existing models.ToolCallRecord
+	var existing domain.ToolCallRecord
 	query := r.db.Where("session_id = ? AND request_id = ? AND tool_call_id = ?", input.SessionID, input.RequestID, input.ToolCallID).First(&existing)
 	if query.Error == nil {
-		return r.db.Model(&models.ToolCallRecord{}).
+		return r.db.Model(&domain.ToolCallRecord{}).
 			Where("id = ?", existing.ID).
 			Updates(map[string]any{
 				"tool_name":            input.ToolName,
@@ -69,7 +47,7 @@ func (r *Repository) UpsertToolCallStart(input ToolCallStartRecordInput) error {
 		return query.Error
 	}
 
-	record := models.ToolCallRecord{
+	record := domain.ToolCallRecord{
 		ID:               uuid.NewString(),
 		SessionID:        input.SessionID,
 		RequestID:        input.RequestID,
@@ -84,7 +62,7 @@ func (r *Repository) UpsertToolCallStart(input ToolCallStartRecordInput) error {
 	return r.db.Create(&record).Error
 }
 
-func (r *Repository) UpdateToolCallResult(input ToolCallResultRecordInput) error {
+func (r *Repository) UpdateToolCallResult(input domain.ToolCallResultRecordInput) error {
 	updates := map[string]any{
 		"status":      input.Status,
 		"output":      input.Output,
@@ -96,14 +74,14 @@ func (r *Repository) UpdateToolCallResult(input ToolCallResultRecordInput) error
 		updates["finished_at"] = time.Now()
 	}
 
-	return r.db.Model(&models.ToolCallRecord{}).
+	return r.db.Model(&domain.ToolCallRecord{}).
 		Where("session_id = ? AND request_id = ? AND tool_call_id = ?", input.SessionID, input.RequestID, input.ToolCallID).
 		Updates(updates).
 		Error
 }
 
 func (r *Repository) BindToolCallsToAssistantMessage(sessionID, requestID, assistantMessageID string) error {
-	return r.db.Model(&models.ToolCallRecord{}).
+	return r.db.Model(&domain.ToolCallRecord{}).
 		Where("session_id = ? AND request_id = ?", sessionID, requestID).
 		Updates(map[string]any{
 			"assistant_message_id": assistantMessageID,
@@ -112,8 +90,8 @@ func (r *Repository) BindToolCallsToAssistantMessage(sessionID, requestID, assis
 		Error
 }
 
-func (r *Repository) ListSessionToolCallRecords(sessionID string) ([]models.ToolCallRecord, error) {
-	var records []models.ToolCallRecord
+func (r *Repository) ListSessionToolCallRecords(sessionID string) ([]domain.ToolCallRecord, error) {
+	var records []domain.ToolCallRecord
 	err := r.db.
 		Where("session_id = ?", sessionID).
 		Order("started_at asc").

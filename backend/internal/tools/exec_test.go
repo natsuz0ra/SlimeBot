@@ -8,7 +8,7 @@ import (
 
 	"golang.org/x/text/encoding/simplifiedchinese"
 	"golang.org/x/text/transform"
-	"slimebot/backend/internal/consts"
+	"slimebot/backend/internal/constants"
 )
 
 func TestBuildExecInvocationProgramArgs(t *testing.T) {
@@ -63,9 +63,9 @@ func TestBuildExecInvocationWindowsShellSelection(t *testing.T) {
 }
 
 func TestTrimOutput(t *testing.T) {
-	large := strings.Repeat("a", consts.ExecMaxOutputBytes+100)
+	large := strings.Repeat("a", constants.ExecMaxOutputBytes+100)
 	trimmed := trimOutput([]byte(large))
-	if len(trimmed) != consts.ExecMaxOutputBytes {
+	if len(trimmed) != constants.ExecMaxOutputBytes {
 		t.Fatalf("unexpected trimmed size: %d", len(trimmed))
 	}
 }

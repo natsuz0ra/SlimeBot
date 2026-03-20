@@ -1,14 +1,12 @@
 package repositories
 
 import (
+	"slimebot/backend/internal/domain"
 	"testing"
-
-	"slimebot/backend/internal/models"
-	"slimebot/backend/internal/testutil"
 )
 
 func TestAddMessageWithInput_PersistsFlagsAndAttachments(t *testing.T) {
-	repo := New(testutil.NewSQLiteDB(t, "repo_messages_test"))
+	repo := New(NewSQLiteDBTest(t, "repo_messages_test"))
 	session, err := repo.CreateSession("s")
 	if err != nil {
 		t.Fatalf("create session failed: %v", err)
@@ -20,7 +18,7 @@ func TestAddMessageWithInput_PersistsFlagsAndAttachments(t *testing.T) {
 		Content:           "",
 		IsInterrupted:     true,
 		IsStopPlaceholder: true,
-		Attachments: []models.MessageAttachment{
+		Attachments: []domain.MessageAttachment{
 			{
 				ID:        "att1",
 				Name:      "a.txt",

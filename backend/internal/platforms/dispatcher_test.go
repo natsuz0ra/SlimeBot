@@ -3,20 +3,20 @@ package platforms
 import (
 	"context"
 	"fmt"
+	"slimebot/backend/internal/domain"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
-	"slimebot/backend/internal/consts"
-	"slimebot/backend/internal/models"
-	"slimebot/backend/internal/services"
+	"slimebot/backend/internal/constants"
+	chatsvc "slimebot/backend/internal/services/chat"
 )
 
 type mockPlatformChatService struct{}
 
-func (m *mockPlatformChatService) EnsureMessagePlatformSession() (*models.Session, error) {
-	return &models.Session{ID: consts.MessagePlatformSessionID, Name: consts.MessagePlatformSessionName}, nil
+func (m *mockPlatformChatService) EnsureMessagePlatformSession() (*domain.Session, error) {
+	return &domain.Session{ID: constants.MessagePlatformSessionID, Name: constants.MessagePlatformSessionName}, nil
 }
 
 func (m *mockPlatformChatService) ResolvePlatformModel() (string, error) {
@@ -30,23 +30,23 @@ func (m *mockPlatformChatService) HandleChatStream(
 	_ string,
 	_ string,
 	_ []string,
-	callbacks services.AgentCallbacks,
-) (*services.ChatStreamResult, error) {
-	_ = callbacks.OnToolCallStart(services.ApprovalRequest{
+	callbacks chatsvc.AgentCallbacks,
+) (*chatsvc.ChatStreamResult, error) {
+	_ = callbacks.OnToolCallStart(chatsvc.ApprovalRequest{
 		ToolCallID:       "tc_1",
 		ToolName:         "http_request",
 		Command:          "run",
 		Params:           map[string]string{"cmd": "echo hi"},
 		RequiresApproval: false,
 	})
-	_ = callbacks.OnToolCallResult(services.ToolCallResult{
+	_ = callbacks.OnToolCallResult(chatsvc.ToolCallResult{
 		ToolCallID:       "tc_1",
 		ToolName:         "http_request",
 		Command:          "run",
 		RequiresApproval: false,
 		Status:           "completed",
 	})
-	return &services.ChatStreamResult{Answer: "hello-from-mock"}, nil
+	return &chatsvc.ChatStreamResult{Answer: "hello-from-mock"}, nil
 }
 
 type captureAttachmentChatService struct {
@@ -54,8 +54,8 @@ type captureAttachmentChatService struct {
 	lastAttachmentIDs []string
 }
 
-func (m *captureAttachmentChatService) EnsureMessagePlatformSession() (*models.Session, error) {
-	return &models.Session{ID: consts.MessagePlatformSessionID, Name: consts.MessagePlatformSessionName}, nil
+func (m *captureAttachmentChatService) EnsureMessagePlatformSession() (*domain.Session, error) {
+	return &domain.Session{ID: constants.MessagePlatformSessionID, Name: constants.MessagePlatformSessionName}, nil
 }
 
 func (m *captureAttachmentChatService) ResolvePlatformModel() (string, error) {
@@ -69,17 +69,17 @@ func (m *captureAttachmentChatService) HandleChatStream(
 	content string,
 	_ string,
 	attachmentIDs []string,
-	_ services.AgentCallbacks,
-) (*services.ChatStreamResult, error) {
+	_ chatsvc.AgentCallbacks,
+) (*chatsvc.ChatStreamResult, error) {
 	m.lastContent = content
 	m.lastAttachmentIDs = append([]string{}, attachmentIDs...)
-	return &services.ChatStreamResult{Answer: "ok"}, nil
+	return &chatsvc.ChatStreamResult{Answer: "ok"}, nil
 }
 
 type mockApprovalChatService struct{}
 
-func (m *mockApprovalChatService) EnsureMessagePlatformSession() (*models.Session, error) {
-	return &models.Session{ID: consts.MessagePlatformSessionID, Name: consts.MessagePlatformSessionName}, nil
+func (m *mockApprovalChatService) EnsureMessagePlatformSession() (*domain.Session, error) {
+	return &domain.Session{ID: constants.MessagePlatformSessionID, Name: constants.MessagePlatformSessionName}, nil
 }
 
 func (m *mockApprovalChatService) ResolvePlatformModel() (string, error) {
@@ -93,9 +93,9 @@ func (m *mockApprovalChatService) HandleChatStream(
 	_ string,
 	_ string,
 	_ []string,
-	callbacks services.AgentCallbacks,
-) (*services.ChatStreamResult, error) {
-	_ = callbacks.OnToolCallStart(services.ApprovalRequest{
+	callbacks chatsvc.AgentCallbacks,
+) (*chatsvc.ChatStreamResult, error) {
+	_ = callbacks.OnToolCallStart(chatsvc.ApprovalRequest{
 		ToolCallID:       "tc_approval",
 		ToolName:         "exec",
 		Command:          "run",
@@ -106,13 +106,13 @@ func (m *mockApprovalChatService) HandleChatStream(
 	if err != nil {
 		return nil, err
 	}
-	status := consts.ToolCallStatusRejected
+	status := constants.ToolCallStatusRejected
 	errText := "Execution was rejected by the user."
 	if approval != nil && approval.Approved {
-		status = consts.ToolCallStatusCompleted
+		status = constants.ToolCallStatusCompleted
 		errText = ""
 	}
-	_ = callbacks.OnToolCallResult(services.ToolCallResult{
+	_ = callbacks.OnToolCallResult(chatsvc.ToolCallResult{
 		ToolCallID:       "tc_approval",
 		ToolName:         "exec",
 		Command:          "run",
@@ -120,7 +120,7 @@ func (m *mockApprovalChatService) HandleChatStream(
 		Status:           status,
 		Error:            errText,
 	})
-	return &services.ChatStreamResult{Answer: "approval-flow-done"}, nil
+	return &chatsvc.ChatStreamResult{Answer: "approval-flow-done"}, nil
 }
 
 type mockSender struct {
@@ -137,13 +137,13 @@ type mockApprovalEntry struct {
 
 type mockApprovalBroker struct {
 	mu         sync.Mutex
-	waitByTool map[string]chan services.ApprovalResponse
+	waitByTool map[string]chan chatsvc.ApprovalResponse
 	byToken    map[string]mockApprovalEntry
 }
 
 func newMockApprovalBroker() *mockApprovalBroker {
 	return &mockApprovalBroker{
-		waitByTool: make(map[string]chan services.ApprovalResponse),
+		waitByTool: make(map[string]chan chatsvc.ApprovalResponse),
 		byToken:    make(map[string]mockApprovalEntry),
 	}
 }
@@ -154,7 +154,7 @@ func (m *mockApprovalBroker) Register(toolCallID string, chatID string, _ time.D
 	if strings.TrimSpace(toolCallID) == "" || strings.TrimSpace(chatID) == "" {
 		return "", "", fmt.Errorf("toolCallID/chatID is required")
 	}
-	waitCh := make(chan services.ApprovalResponse, 1)
+	waitCh := make(chan chatsvc.ApprovalResponse, 1)
 	m.waitByTool[toolCallID] = waitCh
 
 	approveToken := "ap_token_" + toolCallID
@@ -164,7 +164,7 @@ func (m *mockApprovalBroker) Register(toolCallID string, chatID string, _ time.D
 	return "ap:" + approveToken, "rj:" + rejectToken, nil
 }
 
-func (m *mockApprovalBroker) Wait(ctx context.Context, toolCallID string) (*services.ApprovalResponse, error) {
+func (m *mockApprovalBroker) Wait(ctx context.Context, toolCallID string) (*chatsvc.ApprovalResponse, error) {
 	m.mu.Lock()
 	ch, ok := m.waitByTool[toolCallID]
 	m.mu.Unlock()
@@ -189,7 +189,7 @@ func (m *mockApprovalBroker) ResolveByCallback(chatID string, callbackData strin
 	token := strings.TrimSpace(parts[1])
 	m.mu.Lock()
 	entry, ok := m.byToken[token]
-	var waitCh chan services.ApprovalResponse
+	var waitCh chan chatsvc.ApprovalResponse
 	if ok {
 		waitCh = m.waitByTool[entry.toolCallID]
 		delete(m.byToken, token)
@@ -202,7 +202,7 @@ func (m *mockApprovalBroker) ResolveByCallback(chatID string, callbackData strin
 	if strings.TrimSpace(chatID) != entry.chatID {
 		return false, fmt.Errorf("approval token does not belong to this chat")
 	}
-	resp := services.ApprovalResponse{ToolCallID: entry.toolCallID, Approved: entry.approved}
+	resp := chatsvc.ApprovalResponse{ToolCallID: entry.toolCallID, Approved: entry.approved}
 	select {
 	case waitCh <- resp:
 	default:
@@ -259,7 +259,7 @@ func TestDispatcherHandleInbound_SendsToolSummaryAndFinalAnswer(t *testing.T) {
 }
 
 func TestFormatToolStartSummary_WithoutCommand(t *testing.T) {
-	got := formatToolStartSummary(services.ApprovalRequest{
+	got := formatToolStartSummary(chatsvc.ApprovalRequest{
 		ToolName: "http_request",
 		Command:  "",
 		Params:   map[string]string{},
@@ -276,7 +276,7 @@ func TestDispatcherHandleInbound_ApprovalByCallback(t *testing.T) {
 	done := make(chan error, 1)
 	go func() {
 		done <- dispatcher.HandleInbound(context.Background(), InboundMessage{
-			Platform: consts.TelegramPlatformName,
+			Platform: constants.TelegramPlatformName,
 			ChatID:   "20001",
 			Text:     "hello",
 		}, sender)
@@ -314,7 +314,7 @@ func TestDispatcherHandleInbound_PassesAttachmentIDs(t *testing.T) {
 	sender := &mockSender{}
 
 	err := dispatcher.HandleInbound(context.Background(), InboundMessage{
-		Platform:      consts.TelegramPlatformName,
+		Platform:      constants.TelegramPlatformName,
 		ChatID:        "30001",
 		Text:          "",
 		AttachmentIDs: []string{" att_a ", "", "att_b"},

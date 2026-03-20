@@ -16,7 +16,7 @@ import (
 	"golang.org/x/text/encoding/simplifiedchinese"
 	"golang.org/x/text/encoding/unicode"
 	"golang.org/x/text/transform"
-	"slimebot/backend/internal/consts"
+	"slimebot/backend/internal/constants"
 )
 
 type execTool struct{}
@@ -67,14 +67,14 @@ func (e *execTool) run(params map[string]string) (*ExecuteResult, error) {
 	argsRaw := strings.TrimSpace(params["args"])
 	shell := normalizeShell(params["shell"])
 
-	timeout := consts.ExecDefaultTimeout
+	timeout := constants.ExecDefaultTimeout
 	if ts := strings.TrimSpace(params["timeout"]); ts != "" {
 		if v, err := strconv.Atoi(ts); err == nil && v > 0 {
 			timeout = v
 		}
 	}
-	if timeout > consts.ExecMaxTimeout {
-		timeout = consts.ExecMaxTimeout
+	if timeout > constants.ExecMaxTimeout {
+		timeout = constants.ExecMaxTimeout
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeout)*time.Second)
@@ -170,8 +170,8 @@ func parseJSONArgs(argsRaw string) ([]string, error) {
 }
 
 func trimOutput(output []byte) []byte {
-	if len(output) > consts.ExecMaxOutputBytes {
-		return output[:consts.ExecMaxOutputBytes]
+	if len(output) > constants.ExecMaxOutputBytes {
+		return output[:constants.ExecMaxOutputBytes]
 	}
 	return output
 }

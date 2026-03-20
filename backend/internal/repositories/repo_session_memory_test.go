@@ -2,8 +2,6 @@ package repositories
 
 import (
 	"testing"
-
-	"slimebot/backend/internal/testutil"
 )
 
 func TestUpsertSessionMemoryIfNewer_MonotonicBySourceMessageCount(t *testing.T) {
@@ -76,5 +74,5 @@ func TestUpsertSessionMemoryIfNewer_MonotonicBySourceMessageCount(t *testing.T) 
 
 func newSessionMemoryRepo(t *testing.T) *Repository {
 	t.Helper()
-	return New(testutil.NewSQLiteDB(t, "memory_repo"))
+	return New(NewSQLiteDBTest(t, "memory_repo"))
 }

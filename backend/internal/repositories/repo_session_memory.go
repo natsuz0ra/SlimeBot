@@ -8,29 +8,17 @@ import (
 	"strings"
 	"time"
 
+	"slimebot/backend/internal/constants"
+	"slimebot/backend/internal/domain"
+
 	"github.com/google/uuid"
 	"gorm.io/gorm"
-	"slimebot/backend/internal/consts"
-	"slimebot/backend/internal/models"
 )
-
-type SessionMemoryUpsertInput struct {
-	SessionID          string
-	Summary            string
-	Keywords           []string
-	SourceMessageCount int
-}
-
-type SessionMemorySearchHit struct {
-	Memory          models.SessionMemory
-	MatchedKeywords []string
-	Score           float64
-}
 
 var ErrStaleSessionMemoryWrite = errors.New("stale session memory write")
 
-func (r *Repository) GetSessionMemory(sessionID string) (*models.SessionMemory, error) {
-	var item models.SessionMemory
+func (r *Repository) GetSessionMemory(sessionID string) (*domain.SessionMemory, error) {
+	var item domain.SessionMemory
 	err := r.db.Where("session_id = ?", strings.TrimSpace(sessionID)).First(&item).Error
 	if err != nil {
 		if isRecordNotFound(err) {
@@ -41,9 +29,9 @@ func (r *Repository) GetSessionMemory(sessionID string) (*models.SessionMemory, 
 	return &item, nil
 }
 
-func (r *Repository) GetSessionMemoriesBySessionIDs(sessionIDs []string) ([]models.SessionMemory, error) {
+func (r *Repository) GetSessionMemoriesBySessionIDs(sessionIDs []string) ([]domain.SessionMemory, error) {
 	if len(sessionIDs) == 0 {
-		return []models.SessionMemory{}, nil
+		return []domain.SessionMemory{}, nil
 	}
 	normalized := make([]string, 0, len(sessionIDs))
 	for _, item := range sessionIDs {
@@ -54,21 +42,21 @@ func (r *Repository) GetSessionMemoriesBySessionIDs(sessionIDs []string) ([]mode
 		normalized = append(normalized, v)
 	}
 	if len(normalized) == 0 {
-		return []models.SessionMemory{}, nil
+		return []domain.SessionMemory{}, nil
 	}
-	var rows []models.SessionMemory
+	var rows []domain.SessionMemory
 	if err := r.db.Where("session_id IN ?", normalized).Find(&rows).Error; err != nil {
 		return nil, err
 	}
 	return rows, nil
 }
 
-func (r *Repository) UpsertSessionMemory(input SessionMemoryUpsertInput) error {
+func (r *Repository) UpsertSessionMemory(input domain.SessionMemoryUpsertInput) error {
 	_, err := r.UpsertSessionMemoryIfNewer(input)
 	return err
 }
 
-func (r *Repository) UpsertSessionMemoryIfNewer(input SessionMemoryUpsertInput) (bool, error) {
+func (r *Repository) UpsertSessionMemoryIfNewer(input domain.SessionMemoryUpsertInput) (bool, error) {
 	now := time.Now()
 	sessionID := strings.TrimSpace(input.SessionID)
 	if sessionID == "" {
@@ -84,14 +72,14 @@ func (r *Repository) UpsertSessionMemoryIfNewer(input SessionMemoryUpsertInput) 
 
 	updated := false
 	err = r.db.Transaction(func(tx *gorm.DB) error {
-		var existing models.SessionMemory
+		var existing domain.SessionMemory
 		query := tx.Where("session_id = ?", sessionID).First(&existing)
 		if query.Error == nil {
 			if input.SourceMessageCount < existing.SourceMessageCount {
 				updated = false
 				return nil
 			}
-			if err := tx.Model(&models.SessionMemory{}).
+			if err := tx.Model(&domain.SessionMemory{}).
 				Where("id = ?", existing.ID).
 				Updates(map[string]any{
 					"summary":              input.Summary,
@@ -109,7 +97,7 @@ func (r *Repository) UpsertSessionMemoryIfNewer(input SessionMemoryUpsertInput) 
 			return query.Error
 		}
 
-		item := models.SessionMemory{
+		item := domain.SessionMemory{
 			ID:                 uuid.NewString(),
 			SessionID:          sessionID,
 			Summary:            input.Summary,
@@ -131,21 +119,21 @@ func (r *Repository) UpsertSessionMemoryIfNewer(input SessionMemoryUpsertInput) 
 	return updated, nil
 }
 
-func (r *Repository) SearchMemoriesByKeywords(keywords []string, limit int, excludeSessionID string) ([]SessionMemorySearchHit, error) {
+func (r *Repository) SearchMemoriesByKeywords(keywords []string, limit int, excludeSessionID string) ([]domain.SessionMemorySearchHit, error) {
 	normalizedKeywords := normalizeKeywords(keywords)
 	if len(normalizedKeywords) == 0 || limit <= 0 {
-		return []SessionMemorySearchHit{}, nil
+		return []domain.SessionMemorySearchHit{}, nil
 	}
 
 	candidateLimit := limit * 20
-	if candidateLimit < consts.DefaultMemoryCandidateLimit {
-		candidateLimit = consts.DefaultMemoryCandidateLimit
+	if candidateLimit < constants.DefaultMemoryCandidateLimit {
+		candidateLimit = constants.DefaultMemoryCandidateLimit
 	}
-	if candidateLimit > consts.MaxMemoryCandidateLimit {
-		candidateLimit = consts.MaxMemoryCandidateLimit
+	if candidateLimit > constants.MaxMemoryCandidateLimit {
+		candidateLimit = constants.MaxMemoryCandidateLimit
 	}
 
-	var candidates []models.SessionMemory
+	var candidates []domain.SessionMemory
 	query := r.db.Order("updated_at desc").Limit(candidateLimit)
 	if sessionID := strings.TrimSpace(excludeSessionID); sessionID != "" {
 		query = query.Where("session_id <> ?", sessionID)
@@ -154,14 +142,14 @@ func (r *Repository) SearchMemoriesByKeywords(keywords []string, limit int, excl
 		return nil, err
 	}
 
-	hits := make([]SessionMemorySearchHit, 0, len(candidates))
+	hits := make([]domain.SessionMemorySearchHit, 0, len(candidates))
 	for _, candidate := range candidates {
 		parsedKeywords := parseStoredKeywords(candidate)
 		matched := intersectKeywords(normalizedKeywords, parsedKeywords)
 		if len(matched) == 0 {
 			continue
 		}
-		hits = append(hits, SessionMemorySearchHit{
+		hits = append(hits, domain.SessionMemorySearchHit{
 			Memory:          candidate,
 			MatchedKeywords: matched,
 			Score:           scoreMemoryHit(len(matched), candidate.UpdatedAt),
@@ -183,7 +171,7 @@ func (r *Repository) SearchMemoriesByKeywords(keywords []string, limit int, excl
 
 func (r *Repository) CountSessionMessages(sessionID string) (int64, error) {
 	var total int64
-	err := r.db.Model(&models.Message{}).
+	err := r.db.Model(&domain.Message{}).
 		Where("session_id = ?", strings.TrimSpace(sessionID)).
 		Count(&total).
 		Error
@@ -211,7 +199,7 @@ func normalizeKeywords(keywords []string) []string {
 	return result
 }
 
-func parseStoredKeywords(memory models.SessionMemory) []string {
+func parseStoredKeywords(memory domain.SessionMemory) []string {
 	if strings.TrimSpace(memory.KeywordsJSON) != "" {
 		var parsed []string
 		if err := json.Unmarshal([]byte(memory.KeywordsJSON), &parsed); err == nil {

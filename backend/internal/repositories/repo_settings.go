@@ -2,15 +2,15 @@ package repositories
 
 import (
 	"errors"
+	"slimebot/backend/internal/domain"
 	"strconv"
 	"time"
 
 	"gorm.io/gorm"
-	"slimebot/backend/internal/models"
 )
 
 func (r *Repository) GetSetting(key string) (string, error) {
-	var item models.AppSetting
+	var item domain.AppSetting
 	err := r.db.First(&item, "key = ?", key).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return "", nil
@@ -19,10 +19,10 @@ func (r *Repository) GetSetting(key string) (string, error) {
 }
 
 func (r *Repository) SetSetting(key, value string) error {
-	setting := models.AppSetting{Key: key, Value: value}
+	setting := domain.AppSetting{Key: key, Value: value}
 	return r.db.
-		Where(models.AppSetting{Key: key}).
-		Assign(models.AppSetting{Value: value, UpdatedAt: time.Now()}).
+		Where(domain.AppSetting{Key: key}).
+		Assign(domain.AppSetting{Value: value, UpdatedAt: time.Now()}).
 		FirstOrCreate(&setting).Error
 }
 

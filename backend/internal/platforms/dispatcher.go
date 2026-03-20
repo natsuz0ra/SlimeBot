@@ -3,12 +3,12 @@ package platforms
 import (
 	"context"
 	"fmt"
+	"slimebot/backend/internal/domain"
 	"strings"
 	"time"
 
-	"slimebot/backend/internal/consts"
-	"slimebot/backend/internal/models"
-	"slimebot/backend/internal/services"
+	"slimebot/backend/internal/constants"
+	chatsvc "slimebot/backend/internal/services/chat"
 
 	"github.com/google/uuid"
 )
@@ -19,7 +19,7 @@ type Dispatcher struct {
 }
 
 type platformChatService interface {
-	EnsureMessagePlatformSession() (*models.Session, error)
+	EnsureMessagePlatformSession() (*domain.Session, error)
 	ResolvePlatformModel() (string, error)
 	HandleChatStream(
 		ctx context.Context,
@@ -28,8 +28,8 @@ type platformChatService interface {
 		content string,
 		modelID string,
 		attachmentIDs []string,
-		callbacks services.AgentCallbacks,
-	) (*services.ChatStreamResult, error)
+		callbacks chatsvc.AgentCallbacks,
+	) (*chatsvc.ChatStreamResult, error)
 }
 
 func NewDispatcher(chat platformChatService, approvals ApprovalBroker) *Dispatcher {
@@ -73,16 +73,16 @@ func (d *Dispatcher) HandleInbound(ctx context.Context, message InboundMessage, 
 		return err
 	}
 
-	callbacks := services.AgentCallbacks{
+	callbacks := chatsvc.AgentCallbacks{
 		OnChunk: func(_ string) error {
 			return nil
 		},
-		OnToolCallStart: func(req services.ApprovalRequest) error {
+		OnToolCallStart: func(req chatsvc.ApprovalRequest) error {
 			if req.RequiresApproval {
 				if d.approvals == nil {
 					return fmt.Errorf("dispatcher approvals is not initialized")
 				}
-				approveData, rejectData, err := d.approvals.Register(req.ToolCallID, chatID, consts.AgentApprovalTimeout+10*time.Second)
+				approveData, rejectData, err := d.approvals.Register(req.ToolCallID, chatID, constants.AgentApprovalTimeout+10*time.Second)
 				if err != nil {
 					return err
 				}
@@ -90,13 +90,13 @@ func (d *Dispatcher) HandleInbound(ctx context.Context, message InboundMessage, 
 			}
 			return sender.SendText(chatID, formatToolStartSummary(req))
 		},
-		WaitApproval: func(waitCtx context.Context, toolCallID string) (*services.ApprovalResponse, error) {
+		WaitApproval: func(waitCtx context.Context, toolCallID string) (*chatsvc.ApprovalResponse, error) {
 			if d.approvals == nil {
 				return nil, fmt.Errorf("dispatcher approvals is not initialized")
 			}
 			return d.approvals.Wait(waitCtx, toolCallID)
 		},
-		OnToolCallResult: func(result services.ToolCallResult) error {
+		OnToolCallResult: func(result chatsvc.ToolCallResult) error {
 			return sender.SendText(chatID, formatToolResultSummary(result))
 		},
 	}
@@ -131,7 +131,7 @@ func (d *Dispatcher) HandleTelegramApprovalCallback(chatID string, callbackData 
 	return d.approvals.ResolveByCallback(chatID, callbackData)
 }
 
-func formatToolStartSummary(req services.ApprovalRequest) string {
+func formatToolStartSummary(req chatsvc.ApprovalRequest) string {
 	details := make([]string, 0, len(req.Params)+1)
 	if command := strings.TrimSpace(req.Command); command != "" {
 		details = append(details, command)
@@ -157,7 +157,7 @@ func formatToolStartSummary(req services.ApprovalRequest) string {
 	return fmt.Sprintf("Tool execution started: %s (%s)", req.ToolName, strings.Join(details, ", "))
 }
 
-func formatToolResultSummary(result services.ToolCallResult) string {
+func formatToolResultSummary(result chatsvc.ToolCallResult) string {
 	statusText := "failed"
 	if strings.EqualFold(strings.TrimSpace(result.Status), "completed") {
 		statusText = "succeeded"
@@ -168,7 +168,7 @@ func formatToolResultSummary(result services.ToolCallResult) string {
 	return fmt.Sprintf("Tool execution %s: %s (%s)", statusText, result.ToolName, strings.TrimSpace(result.Error))
 }
 
-func formatToolApprovalPrompt(req services.ApprovalRequest) string {
+func formatToolApprovalPrompt(req chatsvc.ApprovalRequest) string {
 	base := fmt.Sprintf("Tool execution requires approval: %s", req.ToolName)
 	if strings.TrimSpace(req.Command) != "" {
 		base = fmt.Sprintf("%s (%s)", base, strings.TrimSpace(req.Command))

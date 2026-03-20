@@ -127,8 +127,11 @@ func New(cfg config.Config) (*App, error) {
 
 	return &App{
 		httpServer: &http.Server{
-			Addr:    addr,
-			Handler: engine,
+			Addr:              addr,
+			Handler:           engine,
+			ReadHeaderTimeout: 10 * time.Second,
+			ReadTimeout:       30 * time.Second,
+			IdleTimeout:       120 * time.Second,
 		},
 		telegramWorker: telegramWorker,
 	}, nil

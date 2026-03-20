@@ -140,6 +140,18 @@ func (r *Repository) SearchMemoriesByKeywords(keywords []string, limit int, excl
 	if sessionID := strings.TrimSpace(excludeSessionID); sessionID != "" {
 		query = query.Where("session_id <> ?", sessionID)
 	}
+	orLikeParts := make([]string, 0, len(normalizedKeywords)*2)
+	orLikeArgs := make([]any, 0, len(normalizedKeywords)*2)
+	for _, keyword := range normalizedKeywords {
+		like := "%" + keyword + "%"
+		orLikeParts = append(orLikeParts, "keywords_text LIKE ?")
+		orLikeArgs = append(orLikeArgs, like)
+		orLikeParts = append(orLikeParts, "summary LIKE ?")
+		orLikeArgs = append(orLikeArgs, like)
+	}
+	if len(orLikeParts) > 0 {
+		query = query.Where("("+strings.Join(orLikeParts, " OR ")+")", orLikeArgs...)
+	}
 	if err := query.Find(&candidates).Error; err != nil {
 		return nil, err
 	}

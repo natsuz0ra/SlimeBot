@@ -77,7 +77,7 @@ func (c chiContext) ShouldBindJSON(dst any) error {
 	if dst == nil {
 		return io.ErrUnexpectedEOF
 	}
-	dec := json.NewDecoder(c.r.Body)
+	dec := json.NewDecoder(io.LimitReader(c.r.Body, 1<<20))
 	err := dec.Decode(dst)
 	// 对空 body 保持 gin 行为：返回 io.EOF 以便调用方做特定兼容（例如允许 name 为空）。
 	if err == io.EOF {

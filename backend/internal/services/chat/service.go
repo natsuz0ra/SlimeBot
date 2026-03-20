@@ -23,7 +23,10 @@ type ChatService struct {
 	uploads          *ChatUploadService
 	skillsMu         sync.Mutex
 	skillsBySess     map[string]map[string]struct{}
+	skillTouchedAt   map[string]time.Time
 	systemPromptPath string
+	promptMu         sync.RWMutex
+	systemPrompt     string
 }
 
 type chatStreamAccumulator struct {
@@ -50,6 +53,7 @@ func NewChatService(store domain.ChatStore, openai *OpenAIClient, mcpManager *mc
 		skillRuntime:     skillRuntime,
 		memory:           memory,
 		skillsBySess:     make(map[string]map[string]struct{}),
+		skillTouchedAt:   make(map[string]time.Time),
 		systemPromptPath: systemPromptPath,
 	}
 }
@@ -68,7 +72,11 @@ func (s *ChatService) getSessionActivatedSkills(sessionID string) map[string]str
 	if s.skillsBySess == nil {
 		s.skillsBySess = make(map[string]map[string]struct{})
 	}
+	if s.skillTouchedAt == nil {
+		s.skillTouchedAt = make(map[string]time.Time)
+	}
 	current := s.skillsBySess[sessionID]
+	s.skillTouchedAt[sessionID] = time.Now()
 	copyMap := make(map[string]struct{}, len(current))
 	for name := range current {
 		copyMap[name] = struct{}{}
@@ -85,6 +93,9 @@ func (s *ChatService) mergeSessionActivatedSkills(sessionID string, activated ma
 	if s.skillsBySess == nil {
 		s.skillsBySess = make(map[string]map[string]struct{})
 	}
+	if s.skillTouchedAt == nil {
+		s.skillTouchedAt = make(map[string]time.Time)
+	}
 	existing := s.skillsBySess[sessionID]
 	if existing == nil {
 		existing = make(map[string]struct{}, len(activated))
@@ -93,6 +104,40 @@ func (s *ChatService) mergeSessionActivatedSkills(sessionID string, activated ma
 	for name := range activated {
 		existing[name] = struct{}{}
 	}
+	s.skillTouchedAt[sessionID] = time.Now()
+	if len(s.skillsBySess) > 1024 {
+		s.evictOldSkillsSessionsLocked(256)
+	}
+}
+
+func (s *ChatService) evictOldSkillsSessionsLocked(maxEvict int) {
+	for i := 0; i < maxEvict && len(s.skillTouchedAt) > 0; i++ {
+		var oldestSession string
+		var oldestTime time.Time
+		for sessionID, touchedAt := range s.skillTouchedAt {
+			if oldestSession == "" || touchedAt.Before(oldestTime) {
+				oldestSession = sessionID
+				oldestTime = touchedAt
+			}
+		}
+		if oldestSession == "" {
+			return
+		}
+		delete(s.skillsBySess, oldestSession)
+		delete(s.skillTouchedAt, oldestSession)
+	}
+}
+
+func (s *ChatService) getSystemPromptCached() string {
+	s.promptMu.RLock()
+	defer s.promptMu.RUnlock()
+	return s.systemPrompt
+}
+
+func (s *ChatService) setSystemPromptCached(prompt string) {
+	s.promptMu.Lock()
+	defer s.promptMu.Unlock()
+	s.systemPrompt = prompt
 }
 
 // EnsureSession 确保会话存在；若不存在则创建默认新会话。
@@ -194,7 +239,6 @@ func (b chatContextBuilder) Build(ctx context.Context, sessionID string, modelCo
 }
 
 func (s *ChatService) buildContextMessages(ctx context.Context, sessionID string, modelConfig ModelRuntimeConfig) ([]ChatMessage, error) {
-	_ = ctx
 	_ = modelConfig
 	buildStart := time.Now()
 	systemPrompt, err := s.loadSystemPrompt()
@@ -279,6 +323,9 @@ func buildProtocolDeveloperPrompt(now time.Time) string {
 
 // loadSystemPrompt 从 prompts 目录加载系统提示词模板。
 func (s *ChatService) loadSystemPrompt() (string, error) {
+	if cached := strings.TrimSpace(s.getSystemPromptCached()); cached != "" {
+		return cached, nil
+	}
 	candidates := make([]string, 0, 4)
 	if p := strings.TrimSpace(s.systemPromptPath); p != "" {
 		candidates = append(candidates, p)
@@ -301,6 +348,7 @@ func (s *ChatService) loadSystemPrompt() (string, error) {
 		if prompt == "" {
 			continue
 		}
+		s.setSystemPromptCached(prompt)
 		return prompt, nil
 	}
 
@@ -403,9 +451,28 @@ func (s *ChatService) HandleChatStream(
 		return nil, err
 	}
 
-	contextMessages, err := s.BuildContextMessages(ctx, sessionID, modelConfig)
-	if err != nil {
-		return nil, err
+	var (
+		contextMessages   []ChatMessage
+		enabledMCPConfigs []domain.MCPConfig
+		contextErr        error
+		mcpErr            error
+	)
+	var prepareWG sync.WaitGroup
+	prepareWG.Add(2)
+	go func() {
+		defer prepareWG.Done()
+		contextMessages, contextErr = s.BuildContextMessages(ctx, sessionID, modelConfig)
+	}()
+	go func() {
+		defer prepareWG.Done()
+		enabledMCPConfigs, mcpErr = s.store.ListEnabledMCPConfigsWithContext(ctx)
+	}()
+	prepareWG.Wait()
+	if contextErr != nil {
+		return nil, contextErr
+	}
+	if mcpErr != nil {
+		return nil, mcpErr
 	}
 	if len(attachments) > 0 {
 		// 覆盖本轮最后一条 user message，补齐附件增强内容（文本或结构化 parts）。
@@ -415,12 +482,6 @@ func (s *ChatService) HandleChatStream(
 			overrideLatestUserTurn(contextMessages, userContentForLLM)
 		}
 	}
-	var enabledMCPConfigs []domain.MCPConfig
-	enabledMCPConfigs, err = s.store.ListEnabledMCPConfigsWithContext(ctx)
-	if err != nil {
-		return nil, err
-	}
-
 	isTitleLocked := session.IsTitleLocked
 	parser := newTitleStreamParser(!isTitleLocked)
 	accumulator := &chatStreamAccumulator{}

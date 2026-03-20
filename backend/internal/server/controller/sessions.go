@@ -154,10 +154,12 @@ func (h *HTTPController) ListMessages(c WebContext) {
 		return
 	}
 	messageIDSet := make(map[string]struct{}, len(messages))
+	messageIDs := make([]string, 0, len(messages))
 	for _, message := range messages {
 		messageIDSet[message.ID] = struct{}{}
+		messageIDs = append(messageIDs, message.ID)
 	}
-	records, err := h.sessions.ListToolCallRecords(sessionID)
+	records, err := h.sessions.ListToolCallRecordsByAssistantMessageIDs(sessionID, messageIDs)
 	if err != nil {
 		jsonInternalError(c, err)
 		return

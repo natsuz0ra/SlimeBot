@@ -3,6 +3,7 @@ package repositories
 import (
 	"encoding/json"
 	"errors"
+	"strings"
 	"time"
 
 	"slimebot/backend/internal/domain"
@@ -94,6 +95,32 @@ func (r *Repository) ListSessionToolCallRecords(sessionID string) ([]domain.Tool
 	var records []domain.ToolCallRecord
 	err := r.db.
 		Where("session_id = ?", sessionID).
+		Order("started_at asc").
+		Order("created_at asc").
+		Find(&records).
+		Error
+	return records, err
+}
+
+func (r *Repository) ListSessionToolCallRecordsByAssistantMessageIDs(sessionID string, messageIDs []string) ([]domain.ToolCallRecord, error) {
+	if len(messageIDs) == 0 {
+		return []domain.ToolCallRecord{}, nil
+	}
+	filtered := make([]string, 0, len(messageIDs))
+	for _, id := range messageIDs {
+		trimmed := strings.TrimSpace(id)
+		if trimmed == "" {
+			continue
+		}
+		filtered = append(filtered, trimmed)
+	}
+	if len(filtered) == 0 {
+		return []domain.ToolCallRecord{}, nil
+	}
+	var records []domain.ToolCallRecord
+	err := r.db.
+		Where("session_id = ?", sessionID).
+		Where("assistant_message_id IN ?", filtered).
 		Order("started_at asc").
 		Order("created_at asc").
 		Find(&records).

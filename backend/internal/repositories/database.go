@@ -15,7 +15,7 @@ func NewSQLite(dbPath string) (*gorm.DB, error) {
 		return nil, fmt.Errorf("failed to resolve database path: %w", err)
 	}
 
-	db, err := gorm.Open(sqlite.Open(absPath), &gorm.Config{})
+	db, err := gorm.Open(sqlite.Open(absPath), &gorm.Config{PrepareStmt: true})
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect database: %w", err)
 	}

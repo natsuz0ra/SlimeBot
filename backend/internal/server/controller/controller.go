@@ -24,6 +24,7 @@ type sessionService interface {
 	Delete(id string) error
 	ListMessagesPage(sessionID string, limit int, before *time.Time, after *time.Time) ([]domain.Message, bool, error)
 	ListToolCallRecords(sessionID string) ([]domain.ToolCallRecord, error)
+	ListToolCallRecordsByAssistantMessageIDs(sessionID string, messageIDs []string) ([]domain.ToolCallRecord, error)
 	SetModel(sessionID, modelConfigID string) error
 }
 

@@ -24,6 +24,7 @@ type SessionStore interface {
 	ListSessionMessages(sessionID string) ([]Message, error)
 	ListSessionMessagesPage(sessionID string, limit int, before *time.Time, after *time.Time) ([]Message, bool, error)
 	ListSessionToolCallRecords(sessionID string) ([]ToolCallRecord, error)
+	ListSessionToolCallRecordsByAssistantMessageIDs(sessionID string, messageIDs []string) ([]ToolCallRecord, error)
 	SetSessionModel(sessionID, modelConfigID string) error
 }
 

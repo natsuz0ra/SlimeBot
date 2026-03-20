@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os/exec"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -30,6 +31,15 @@ type ONNXRuntimeEmbeddingService struct {
 	scriptPath    string
 	timeout       time.Duration
 	runner        func(ctx context.Context, name string, args ...string) ([]byte, error)
+	cacheMu       sync.RWMutex
+	cache         map[string][]float32
+	inflightMu    sync.Mutex
+	inflight      map[string][]chan embedResult
+}
+
+type embedResult struct {
+	vector []float32
+	err    error
 }
 
 func NewONNXRuntimeEmbeddingService(cfg ONNXRuntimeEmbeddingConfig) *ONNXRuntimeEmbeddingService {
@@ -53,10 +63,93 @@ func NewONNXRuntimeEmbeddingService(cfg ONNXRuntimeEmbeddingConfig) *ONNXRuntime
 		scriptPath:    strings.TrimSpace(cfg.ScriptPath),
 		timeout:       timeout,
 		runner:        runner,
+		cache:         make(map[string][]float32),
+		inflight:      make(map[string][]chan embedResult),
 	}
 }
 
 func (s *ONNXRuntimeEmbeddingService) Embed(ctx context.Context, text string) ([]float32, error) {
+	trimmed := strings.TrimSpace(text)
+	if trimmed == "" {
+		return nil, fmt.Errorf("text cannot be empty")
+	}
+	if cached, ok := s.getCachedVector(trimmed); ok {
+		return cached, nil
+	}
+	waitCh := s.registerInflight(trimmed)
+	if waitCh != nil {
+		select {
+		case result := <-waitCh:
+			return result.vector, result.err
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	}
+	vectors, err := s.EmbedBatch(ctx, []string{trimmed})
+	if err != nil {
+		s.finishInflight(trimmed, nil, err)
+		return nil, err
+	}
+	if len(vectors) == 0 {
+		err = fmt.Errorf("embedding response is empty")
+		s.finishInflight(trimmed, nil, err)
+		return nil, err
+	}
+	s.setCachedVector(trimmed, vectors[0])
+	s.finishInflight(trimmed, vectors[0], nil)
+	return vectors[0], nil
+}
+
+func (s *ONNXRuntimeEmbeddingService) registerInflight(text string) chan embedResult {
+	s.inflightMu.Lock()
+	defer s.inflightMu.Unlock()
+	if waiters, ok := s.inflight[text]; ok {
+		ch := make(chan embedResult, 1)
+		s.inflight[text] = append(waiters, ch)
+		return ch
+	}
+	s.inflight[text] = []chan embedResult{}
+	return nil
+}
+
+func (s *ONNXRuntimeEmbeddingService) finishInflight(text string, vector []float32, err error) {
+	s.inflightMu.Lock()
+	waiters := s.inflight[text]
+	delete(s.inflight, text)
+	s.inflightMu.Unlock()
+	for _, ch := range waiters {
+		ch <- embedResult{vector: vector, err: err}
+		close(ch)
+	}
+}
+
+func (s *ONNXRuntimeEmbeddingService) getCachedVector(text string) ([]float32, bool) {
+	s.cacheMu.RLock()
+	defer s.cacheMu.RUnlock()
+	vector, ok := s.cache[text]
+	if !ok {
+		return nil, false
+	}
+	copyVector := make([]float32, len(vector))
+	copy(copyVector, vector)
+	return copyVector, true
+}
+
+func (s *ONNXRuntimeEmbeddingService) setCachedVector(text string, vector []float32) {
+	s.cacheMu.Lock()
+	defer s.cacheMu.Unlock()
+	copyVector := make([]float32, len(vector))
+	copy(copyVector, vector)
+	s.cache[text] = copyVector
+	if len(s.cache) > 512 {
+		for key := range s.cache {
+			delete(s.cache, key)
+			break
+		}
+	}
+}
+
+func (s *ONNXRuntimeEmbeddingService) EmbedSingle(ctx context.Context, text string) ([]float32, error) {
 	vectors, err := s.EmbedBatch(ctx, []string{text})
 	if err != nil {
 		return nil, err

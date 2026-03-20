@@ -8,6 +8,8 @@ import (
 	"slimebot/backend/internal/domain"
 	"strconv"
 	"strings"
+	"sync"
+	"time"
 
 	"slimebot/backend/internal/constants"
 	"slimebot/backend/internal/mcp"
@@ -59,10 +61,24 @@ type AgentService struct {
 	mcp          *mcp.Manager
 	skillRuntime *SkillRuntimeService
 	memory       *MemoryService
+	toolCacheMu  sync.Mutex
+	toolCache    map[string]cachedToolDefs
+}
+
+type cachedToolDefs struct {
+	defs       []ToolDef
+	metaByFunc map[string]mcp.ToolMeta
+	expireAt   time.Time
 }
 
 func NewAgentService(openai *OpenAIClient, mcpManager *mcp.Manager, skillRuntime *SkillRuntimeService, memory *MemoryService) *AgentService {
-	return &AgentService{openai: openai, mcp: mcpManager, skillRuntime: skillRuntime, memory: memory}
+	return &AgentService{
+		openai:       openai,
+		mcp:          mcpManager,
+		skillRuntime: skillRuntime,
+		memory:       memory,
+		toolCache:    make(map[string]cachedToolDefs),
+	}
 }
 
 // BuildToolDefs 从全局工具注册中心生成 OpenAI function call 的工具定义列表。
@@ -110,6 +126,10 @@ func BuildToolDefs() []ToolDef {
 
 // buildRuntimeToolDefs 汇总运行时可见工具（内建 + skill + MCP）并返回名称映射。
 func (a *AgentService) buildRuntimeToolDefs(ctx context.Context, configs []domain.MCPConfig) ([]ToolDef, map[string]mcp.ToolMeta, error) {
+	cacheKey := buildToolDefsCacheKey(configs)
+	if defs, metaByFunc, ok := a.getCachedToolDefs(cacheKey); ok {
+		return defs, metaByFunc, nil
+	}
 	defs := BuildToolDefs()
 	metaByFunc := make(map[string]mcp.ToolMeta)
 	if a.memory != nil {
@@ -175,7 +195,51 @@ func (a *AgentService) buildRuntimeToolDefs(ctx context.Context, configs []domai
 			return nil, nil, fmt.Errorf("tool name is too long: %s (len=%d, max=%d)", def.Name, nameLen, constants.MaxToolNameLen)
 		}
 	}
+	a.setCachedToolDefs(cacheKey, defs, metaByFunc)
 	return defs, metaByFunc, nil
+}
+
+func buildToolDefsCacheKey(configs []domain.MCPConfig) string {
+	if len(configs) == 0 {
+		return "none"
+	}
+	parts := make([]string, 0, len(configs))
+	for _, item := range configs {
+		parts = append(parts, item.ID+":"+item.UpdatedAt.UTC().Format(time.RFC3339Nano))
+	}
+	return strings.Join(parts, "|")
+}
+
+func (a *AgentService) getCachedToolDefs(cacheKey string) ([]ToolDef, map[string]mcp.ToolMeta, bool) {
+	a.toolCacheMu.Lock()
+	defer a.toolCacheMu.Unlock()
+	item, ok := a.toolCache[cacheKey]
+	if !ok || time.Now().After(item.expireAt) {
+		return nil, nil, false
+	}
+	defs := make([]ToolDef, len(item.defs))
+	copy(defs, item.defs)
+	metaByFunc := make(map[string]mcp.ToolMeta, len(item.metaByFunc))
+	for k, v := range item.metaByFunc {
+		metaByFunc[k] = v
+	}
+	return defs, metaByFunc, true
+}
+
+func (a *AgentService) setCachedToolDefs(cacheKey string, defs []ToolDef, metaByFunc map[string]mcp.ToolMeta) {
+	a.toolCacheMu.Lock()
+	defer a.toolCacheMu.Unlock()
+	defsCopy := make([]ToolDef, len(defs))
+	copy(defsCopy, defs)
+	metaCopy := make(map[string]mcp.ToolMeta, len(metaByFunc))
+	for k, v := range metaByFunc {
+		metaCopy[k] = v
+	}
+	a.toolCache[cacheKey] = cachedToolDefs{
+		defs:       defsCopy,
+		metaByFunc: metaCopy,
+		expireAt:   time.Now().Add(10 * time.Second),
+	}
 }
 
 // RunAgentLoop 执行完整的 Agent 循环：

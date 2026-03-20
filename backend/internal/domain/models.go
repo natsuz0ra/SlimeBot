@@ -14,7 +14,7 @@ type Session struct {
 
 type Message struct {
 	ID        string `gorm:"primaryKey;size:36" json:"id"`
-	SessionID string `gorm:"size:36;index;not null" json:"sessionId"`
+	SessionID string `gorm:"size:36;index;index:idx_messages_session_created,priority:1;not null" json:"sessionId"`
 	Role      string `gorm:"size:16;index;not null" json:"role"`
 	Content   string `gorm:"type:text;not null" json:"content"`
 	// IsInterrupted 标记 assistant 输出是否在流式阶段被用户主动中断或上下文取消。
@@ -25,7 +25,7 @@ type Message struct {
 	AttachmentsJSON string `gorm:"type:text;not null;default:'[]'" json:"-"`
 	// Attachments 为运行时反序列化字段，对外返回给前端渲染附件卡片。
 	Attachments []MessageAttachment `gorm:"-" json:"attachments"`
-	CreatedAt   time.Time           `gorm:"index" json:"createdAt"`
+	CreatedAt   time.Time           `gorm:"index;index:idx_messages_session_created,priority:2" json:"createdAt"`
 }
 
 // MessageAttachment 描述消息中的附件元信息（不包含源文件内容）。

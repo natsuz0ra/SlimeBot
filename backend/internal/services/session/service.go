@@ -48,6 +48,10 @@ func (s *SessionService) ListToolCallRecords(sessionID string) ([]domain.ToolCal
 	return s.store.ListSessionToolCallRecords(sessionID)
 }
 
+func (s *SessionService) ListToolCallRecordsByAssistantMessageIDs(sessionID string, messageIDs []string) ([]domain.ToolCallRecord, error) {
+	return s.store.ListSessionToolCallRecordsByAssistantMessageIDs(sessionID, messageIDs)
+}
+
 func (s *SessionService) SetModel(sessionID, modelConfigID string) error {
 	return s.store.SetSessionModel(sessionID, strings.TrimSpace(modelConfigID))
 }

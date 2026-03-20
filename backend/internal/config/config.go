@@ -14,17 +14,36 @@ type Config struct {
 	ChatUploadRoot   string
 	JWTSecret        string
 	JWTExpireMinutes int
+
+	EmbeddingProvider      string
+	EmbeddingModelPath     string
+	EmbeddingTokenizerPath string
+	EmbeddingPythonBin     string
+	EmbeddingScriptPath    string
+	EmbeddingTimeoutMS     int
+	QdrantURL              string
+	QdrantCollection       string
+	MemoryVectorTopK       int
 }
 
 func Load() Config {
 	return Config{
-		ServerPort:       getEnv("SERVER_PORT", "8080"),
-		DBPath:           getEnv("DB_PATH", "./storage/data.db"),
-		Frontend:         getEnv("FRONTEND_ORIGIN", "http://localhost:5173"),
-		SkillsRoot:       getEnv("SKILLS_ROOT", "./skills"),
-		ChatUploadRoot:   getEnv("CHAT_UPLOAD_ROOT", "./storage/chat_uploads"),
-		JWTSecret:        getEnv("JWT_SECRET", ""),
-		JWTExpireMinutes: GetIntEnv("JWT_EXPIRE", 15*24*60),
+		ServerPort:             getEnv("SERVER_PORT", "8080"),
+		DBPath:                 getEnv("DB_PATH", "./storage/data.db"),
+		Frontend:               getEnv("FRONTEND_ORIGIN", "http://localhost:5173"),
+		SkillsRoot:             getEnv("SKILLS_ROOT", "./skills"),
+		ChatUploadRoot:         getEnv("CHAT_UPLOAD_ROOT", "./storage/chat_uploads"),
+		JWTSecret:              getEnv("JWT_SECRET", ""),
+		JWTExpireMinutes:       GetIntEnv("JWT_EXPIRE", 15*24*60),
+		EmbeddingProvider:      getEnv("EMBEDDING_PROVIDER", "onnx"),
+		EmbeddingModelPath:     getEnv("EMBEDDING_MODEL_PATH", "./onnx/model.onnx"),
+		EmbeddingTokenizerPath: getEnv("EMBEDDING_TOKENIZER_PATH", "./onnx"),
+		EmbeddingPythonBin:     getEnv("EMBEDDING_PYTHON_BIN", "python"),
+		EmbeddingScriptPath:    getEnv("EMBEDDING_SCRIPT_PATH", "./scripts/onnx_embed.py"),
+		EmbeddingTimeoutMS:     GetIntEnv("EMBEDDING_TIMEOUT_MS", 30000),
+		QdrantURL:              getEnv("QDRANT_URL", "127.0.0.1:6334"),
+		QdrantCollection:       getEnv("QDRANT_COLLECTION", "session_memories"),
+		MemoryVectorTopK:       GetIntEnv("MEMORY_VECTOR_TOPK", 5),
 	}
 }
 

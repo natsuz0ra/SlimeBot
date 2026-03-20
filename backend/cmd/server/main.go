@@ -12,7 +12,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/joho/godotenv"
 	"slimebot/backend/internal/auth"
 	"slimebot/backend/internal/config"
 	"slimebot/backend/internal/consts"
@@ -25,6 +24,8 @@ import (
 	"slimebot/backend/internal/platforms/telegram"
 	"slimebot/backend/internal/repositories"
 	"slimebot/backend/internal/services"
+
+	"github.com/joho/godotenv"
 
 	// 导入 tools 包触发各工具的 init() 自注册
 	_ "slimebot/backend/internal/tools"
@@ -67,6 +68,7 @@ func main() {
 	skillPackageService := services.NewSkillPackageService(repo, cfg.SkillsRoot)
 	skillRuntimeService := services.NewSkillRuntimeService(repo, cfg.SkillsRoot)
 	memoryService := services.NewMemoryService(repo, openaiClient)
+	configureMemoryVectorization(cfg, memoryService)
 	// chatUploadService 负责“上传临时存储 -> 回合消费 -> 结束清理”的附件生命周期管理。
 	chatUploadService := services.NewChatUploadService(cfg.ChatUploadRoot)
 	chatService := services.NewChatService(repo, openaiClient, mcpManager, skillRuntimeService, memoryService)
@@ -103,6 +105,43 @@ func validateConfig(cfg config.Config) error {
 		return errors.New("JWT_EXPIRE must be greater than 0 (minutes)")
 	}
 	return nil
+}
+
+func configureMemoryVectorization(cfg config.Config, memoryService *services.MemoryService) {
+	if !strings.EqualFold(strings.TrimSpace(cfg.EmbeddingProvider), "onnx") {
+		log.Printf("memory_vectorization_disabled reason=embedding_provider provider=%q", cfg.EmbeddingProvider)
+		return
+	}
+	if strings.TrimSpace(cfg.EmbeddingModelPath) == "" || strings.TrimSpace(cfg.EmbeddingTokenizerPath) == "" {
+		log.Printf("memory_vectorization_disabled reason=missing_embedding_paths")
+		return
+	}
+	if strings.TrimSpace(cfg.QdrantURL) == "" || strings.TrimSpace(cfg.QdrantCollection) == "" {
+		log.Printf("memory_vectorization_disabled reason=missing_qdrant_config")
+		return
+	}
+	embedding := services.NewONNXRuntimeEmbeddingService(services.ONNXRuntimeEmbeddingConfig{
+		ModelPath:     cfg.EmbeddingModelPath,
+		TokenizerPath: cfg.EmbeddingTokenizerPath,
+		PythonBin:     cfg.EmbeddingPythonBin,
+		ScriptPath:    cfg.EmbeddingScriptPath,
+		Timeout:       time.Duration(cfg.EmbeddingTimeoutMS) * time.Millisecond,
+	})
+	memoryService.SetEmbeddingService(embedding)
+
+	vectorStore, err := repositories.NewMemoryVectorRepository(cfg.QdrantURL, cfg.QdrantCollection)
+	if err != nil {
+		log.Printf("memory_vectorization_disabled reason=qdrant_init_failed err=%v", err)
+		return
+	}
+	memoryService.SetVectorStore(vectorStore)
+	memoryService.SetVectorSearchTopK(cfg.MemoryVectorTopK)
+	log.Printf(
+		"memory_vectorization_enabled provider=onnx qdrant_url=%s collection=%s topk=%d",
+		cfg.QdrantURL,
+		cfg.QdrantCollection,
+		cfg.MemoryVectorTopK,
+	)
 }
 
 func runServerWithGracefulShutdown(ctx context.Context, server *http.Server) error {

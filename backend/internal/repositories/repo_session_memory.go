@@ -41,6 +41,28 @@ func (r *Repository) GetSessionMemory(sessionID string) (*models.SessionMemory, 
 	return &item, nil
 }
 
+func (r *Repository) GetSessionMemoriesBySessionIDs(sessionIDs []string) ([]models.SessionMemory, error) {
+	if len(sessionIDs) == 0 {
+		return []models.SessionMemory{}, nil
+	}
+	normalized := make([]string, 0, len(sessionIDs))
+	for _, item := range sessionIDs {
+		v := strings.TrimSpace(item)
+		if v == "" {
+			continue
+		}
+		normalized = append(normalized, v)
+	}
+	if len(normalized) == 0 {
+		return []models.SessionMemory{}, nil
+	}
+	var rows []models.SessionMemory
+	if err := r.db.Where("session_id IN ?", normalized).Find(&rows).Error; err != nil {
+		return nil, err
+	}
+	return rows, nil
+}
+
 func (r *Repository) UpsertSessionMemory(input SessionMemoryUpsertInput) error {
 	_, err := r.UpsertSessionMemoryIfNewer(input)
 	return err

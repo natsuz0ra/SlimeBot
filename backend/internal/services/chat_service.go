@@ -528,22 +528,10 @@ func (s *ChatService) HandleChatStream(
 		result.Title = title
 	}
 	if s.memory != nil && strings.TrimSpace(summary) != "" {
-		messageCount, countErr := s.repo.CountSessionMessages(sessionID)
-		if countErr != nil {
-			return nil, countErr
-		}
-		updated, upsertErr := s.repo.UpsertSessionMemoryIfNewer(repositories.SessionMemoryUpsertInput{
-			SessionID:          sessionID,
-			Summary:            summary,
-			Keywords:           s.memory.TokenizeKeywords(summary),
-			SourceMessageCount: int(messageCount),
-		})
-		if upsertErr != nil {
-			return nil, upsertErr
-		}
-		result.SummaryUpdated = updated
+		s.memory.UpdateSummaryAsync(modelConfig, sessionID)
+		log.Printf("memory_summary_async_triggered session=%s", sessionID)
 	} else if s.memory != nil {
-		log.Printf("chat_summary_missing session=%s reason=empty_or_unparsed", sessionID)
+		log.Printf("memory_summary_skipped session=%s reason=empty_or_unparsed", sessionID)
 	}
 	if accumulator.pushErr != nil {
 		result.PushFailed = true

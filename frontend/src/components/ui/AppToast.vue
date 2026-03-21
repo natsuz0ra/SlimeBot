@@ -44,7 +44,7 @@ function iconClass(type: ToastItem['type']) {
               <path stroke-linecap="round" stroke-linejoin="round" :d="iconPath(item.type)" />
             </svg>
           </div>
-          <span class="text-sm leading-relaxed break-words flex-1 pt-0.5" style="color: var(--text-primary)">{{ item.message }}</span>
+          <span class="sb-text-primary text-sm leading-relaxed break-words flex-1 pt-0.5">{{ item.message }}</span>
         </div>
       </TransitionGroup>
     </div>
@@ -87,8 +87,8 @@ function iconClass(type: ToastItem['type']) {
   color: #f59e0b;
 }
 .icon-info {
-  background: rgba(99, 102, 241, 0.12);
-  color: #6366f1;
+  background: var(--primary-alpha-12);
+  color: var(--sb-brand);
 }
 
 /* Transition */

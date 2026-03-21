@@ -1,0 +1,51 @@
+.btn-primary {
+  background: var(--btn-primary-gradient);
+  color: #fff;
+}
+
+.sb-text-primary {
+  color: var(--text-primary);
+}
+
+.sb-text-secondary {
+  color: var(--text-secondary);
+}
+
+.sb-text-muted {
+  color: var(--text-muted);
+}
+
+.cm-editor {
+  height: 100%;
+  background: #1e1e1e;
+}
+.cm-scroller {
+  font-family: var(--font-mono) !important;
+  font-size: 12px !important;
+  line-height: 1.6 !important;
+}
+.cm-gutters {
+  background: #1e1e1e !important;
+  border-right: 1px solid #313131 !important;
+}
+
+.settings-overlay {
+  background: var(--overlay-backdrop);
+}
+
+.settings-modal-size {
+  max-width: min(86vw, 1080px);
+  height: min(80vh, 760px);
+}
+
+.floating-session-menu {
+  background: var(--menu-bg);
+  border: 1px solid var(--menu-border);
+  box-shadow: var(--menu-shadow);
+}
+
+.settings-modal {
+  background: var(--bg-main);
+  border: 1px solid var(--card-border);
+  box-shadow: 0 25px 60px rgba(0, 0, 0, 0.3);
+}

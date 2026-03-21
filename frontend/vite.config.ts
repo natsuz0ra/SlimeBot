@@ -9,4 +9,14 @@ export default defineConfig({
   resolve: {
     alias: { '@': path.resolve(__dirname, './src') },
   },
+  build: {
+    outDir: '../web/dist',
+    emptyOutDir: true,
+  },
+  server: {
+    proxy: {
+      '/api': { target: 'http://localhost:8080', changeOrigin: true },
+      '/ws': { target: 'ws://localhost:8080', ws: true },
+    },
+  },
 })

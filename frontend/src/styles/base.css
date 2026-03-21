@@ -1,0 +1,95 @@
+*, *::before, *::after {
+  box-sizing: border-box;
+}
+
+html, body {
+  margin: 0;
+  padding: 0;
+  font-family: var(--font-sans);
+  min-width: 320px;
+  height: 100%;
+  overflow: hidden;
+  background: var(--bg-main);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+.brand-tech-font {
+  font-family: var(--font-brand-tech);
+}
+
+#app {
+  height: 100%;
+  overflow: hidden;
+  background: var(--bg-main);
+}
+
+.sb-scrollbar::-webkit-scrollbar {
+  width: 4px;
+  height: 4px;
+}
+.sb-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+.sb-scrollbar::-webkit-scrollbar-thumb {
+  background: var(--scrollbar-thumb);
+  border-radius: 4px;
+  transition: background 0.25s;
+}
+.sb-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar-thumb) transparent;
+}
+.sb-scrollbar:hover::-webkit-scrollbar-thumb,
+.sb-scrollbar.is-scrolling::-webkit-scrollbar-thumb {
+  background: var(--scrollbar-thumb);
+}
+.sb-scrollbar:hover::-webkit-scrollbar-thumb:hover {
+  background: var(--scrollbar-thumb-hover);
+}
+.sb-scrollbar:hover,
+.sb-scrollbar.is-scrolling {
+  scrollbar-color: var(--scrollbar-thumb) transparent;
+}
+.sb-scrollbar:hover:active {
+  scrollbar-color: var(--scrollbar-thumb-hover) transparent;
+}
+
+.scroll-area::-webkit-scrollbar,
+textarea::-webkit-scrollbar {
+  width: 4px;
+}
+.scroll-area::-webkit-scrollbar-track,
+textarea::-webkit-scrollbar-track {
+  background: transparent;
+}
+.scroll-area::-webkit-scrollbar-thumb,
+textarea::-webkit-scrollbar-thumb {
+  background: transparent;
+  border-radius: 4px;
+  transition: background 0.25s;
+}
+.scroll-area:hover::-webkit-scrollbar-thumb,
+.scroll-area.is-scrolling::-webkit-scrollbar-thumb,
+textarea:hover::-webkit-scrollbar-thumb {
+  background: var(--scrollbar-thumb);
+}
+.scroll-area:hover::-webkit-scrollbar-thumb:hover {
+  background: var(--scrollbar-thumb-hover);
+}
+
+html.theme-switching *,
+html.theme-switching *::before,
+html.theme-switching *::after {
+  transition-property: background-color, color, border-color, box-shadow, fill, stroke, outline-color, text-decoration-color;
+  transition-duration: var(--theme-transition-duration);
+  transition-timing-function: var(--theme-transition-easing);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html.theme-switching *,
+  html.theme-switching *::before,
+  html.theme-switching *::after {
+    transition: none !important;
+  }
+}

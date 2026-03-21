@@ -224,15 +224,15 @@ onBeforeUnmount(() => {
 }
 
 .language-switcher-trigger:not(:disabled):hover {
-  border-color: rgba(99, 102, 241, 0.38);
-  box-shadow: 0 12px 30px rgba(79, 70, 229, 0.18);
-  background: color-mix(in srgb, var(--input-bg) 88%, #6366f1 12%);
+  border-color: var(--primary-alpha-38);
+  box-shadow: 0 12px 30px var(--primary-alpha-18);
+  background: color-mix(in srgb, var(--input-bg) 88%, var(--sb-brand) 12%);
 }
 
 .language-switcher-trigger:focus-visible {
   outline: none;
-  border-color: rgba(99, 102, 241, 0.62);
-  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.22);
+  border-color: var(--primary-alpha-62);
+  box-shadow: var(--focus-ring-shadow-strong);
 }
 
 .language-switcher--no-shadow .language-switcher-trigger,
@@ -303,18 +303,18 @@ onBeforeUnmount(() => {
 }
 
 .language-switcher-item:hover {
-  background: rgba(99, 102, 241, 0.14);
-  color: #4f46e5;
+  background: var(--primary-alpha-14);
+  color: var(--sb-brand-hover);
 }
 
 .language-switcher-item:focus-visible {
   outline: none;
-  background: rgba(99, 102, 241, 0.18);
-  color: #4f46e5;
+  background: var(--primary-alpha-18);
+  color: var(--sb-brand-hover);
 }
 
 .language-switcher-check {
-  color: #6366f1;
+  color: var(--sb-brand);
   font-weight: 700;
 }
 

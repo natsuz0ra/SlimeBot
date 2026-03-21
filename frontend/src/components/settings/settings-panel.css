@@ -1,0 +1,202 @@
+.settings-root {
+  background: var(--bg-main);
+}
+
+.settings-header {
+  border-bottom: 1px solid var(--card-border);
+  background: var(--header-bg);
+  height: 52px;
+}
+
+.settings-title {
+  color: var(--text-primary);
+}
+
+.settings-close-btn {
+  color: var(--text-muted);
+}
+.settings-close-btn:hover {
+  background: var(--primary-alpha-08);
+  color: var(--text-primary);
+}
+
+.settings-sidebar {
+  border-right: 1px solid var(--card-border);
+  background: var(--sidebar-bg);
+}
+
+.settings-sidebar button.settings-tab.settings-tab-active {
+  background: var(--primary-alpha-12);
+  color: var(--sb-brand);
+  font-weight: 600;
+}
+.settings-sidebar button.settings-tab.settings-tab-inactive {
+  color: var(--text-secondary);
+}
+.settings-sidebar button.settings-tab.settings-tab-inactive:hover {
+  background: var(--primary-alpha-07);
+  color: var(--text-primary);
+}
+
+.settings-content {
+  background: var(--bg-main);
+}
+
+.section-label {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+  margin-bottom: 12px;
+}
+
+.settings-card {
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+}
+
+.settings-field-label {
+  color: var(--text-primary);
+}
+
+.settings-item-name {
+  color: var(--text-primary);
+}
+.settings-item-meta {
+  color: var(--text-muted);
+}
+.settings-item-sub {
+  color: var(--text-muted);
+}
+
+button.action-btn.btn-primary {
+  background: var(--sb-brand);
+  box-shadow: none;
+  transition: background 0.15s;
+}
+button.action-btn.btn-primary:not(:disabled):hover {
+  background: var(--sb-brand-hover);
+  transform: none;
+  box-shadow: none;
+}
+
+button.edit-btn {
+  color: var(--text-muted);
+}
+button.edit-btn:hover {
+  background: var(--primary-alpha-10);
+  color: var(--sb-brand);
+}
+
+button.delete-btn {
+  color: var(--text-muted);
+}
+button.delete-btn:hover {
+  background: var(--danger-alpha-10);
+  color: var(--color-danger);
+}
+
+button.account-edit-btn {
+  border: 1px solid var(--input-border);
+  background: var(--input-bg);
+  color: var(--text-secondary);
+}
+
+button.account-edit-btn:hover {
+  background: var(--primary-alpha-08);
+  color: var(--text-primary);
+}
+
+.logout-btn {
+  color: var(--color-danger);
+  border: 1px solid var(--danger-alpha-18);
+  background: var(--danger-alpha-04);
+  transition: all 0.15s;
+}
+
+.logout-btn:hover {
+  background: var(--danger-alpha-10);
+}
+
+.empty-state {
+  border: 1px dashed var(--card-border);
+  color: var(--text-muted);
+}
+
+.drop-zone {
+  border: 1.5px dashed var(--card-border);
+  color: var(--text-muted);
+}
+.drop-zone-idle:hover {
+  border-color: var(--primary-alpha-40);
+  background: var(--primary-alpha-04);
+  color: var(--sb-brand);
+}
+.drop-zone-active {
+  border-color: var(--sb-brand);
+  background: var(--primary-alpha-08);
+  color: var(--sb-brand);
+}
+
+.settings-input {
+  background: var(--input-bg);
+  border: 1px solid var(--input-border);
+  color: var(--text-primary);
+  width: 100%;
+}
+.settings-input:focus {
+  border-color: var(--sb-brand);
+  box-shadow: var(--focus-ring-shadow);
+}
+.settings-input::placeholder {
+  color: var(--text-muted);
+}
+
+.tpl-btn-active {
+  background: var(--primary-alpha-15);
+  color: var(--sb-brand);
+  border: 1px solid var(--primary-alpha-30);
+  font-weight: 500;
+}
+.tpl-btn-inactive {
+  background: var(--input-bg);
+  border: 1px solid var(--input-border);
+  color: var(--text-secondary);
+}
+.tpl-btn-inactive:hover {
+  background: var(--primary-alpha-07);
+  color: var(--text-primary);
+}
+
+@media (max-width: 640px) {
+  .settings-body {
+    flex-direction: column;
+    min-height: 0;
+  }
+
+  .settings-sidebar {
+    width: 100% !important;
+    flex-direction: row !important;
+    overflow-x: auto;
+    overflow-y: hidden;
+    padding: 8px 10px;
+    gap: 6px;
+    border-right: none !important;
+    border-bottom: 1px solid var(--card-border);
+  }
+
+  .settings-tab {
+    width: auto;
+    min-width: max-content;
+    flex: 0 0 auto;
+    white-space: nowrap;
+  }
+
+  .settings-content {
+    min-width: 0;
+    min-height: 0;
+    flex: 1 1 auto;
+    padding: 12px 14px;
+  }
+}

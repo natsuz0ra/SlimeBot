@@ -1,0 +1,94 @@
+.bubble-markdown p { margin: 0 0 8px; }
+.bubble-markdown p:last-child { margin-bottom: 0; }
+.bubble-markdown ul, .bubble-markdown ol { margin: 0 0 8px; padding-left: 22px; }
+.bubble-markdown li + li { margin-top: 3px; }
+.bubble-markdown blockquote {
+  margin: 0 0 8px;
+  padding: 8px 12px;
+  border-left: 3px solid var(--sb-brand);
+  background: var(--primary-alpha-06);
+  border-radius: 0 6px 6px 0;
+  color: var(--text-secondary);
+}
+.bubble-markdown pre {
+  margin: 8px 0;
+  padding: 14px 16px;
+  border-radius: 10px;
+  background: #0d0d1a;
+  color: #c4b5fd;
+  overflow-x: auto;
+  white-space: pre;
+  font-size: 13px;
+  border: 1px solid var(--primary-alpha-20);
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar-thumb) transparent;
+}
+.dark .bubble-markdown pre {
+  background: rgba(0, 0, 0, 0.4);
+  border-color: var(--primary-alpha-15);
+}
+.bubble-markdown pre::-webkit-scrollbar {
+  width: 4px;
+  height: 4px;
+}
+.bubble-markdown pre::-webkit-scrollbar-track {
+  background: transparent;
+}
+.bubble-markdown pre::-webkit-scrollbar-thumb {
+  background: var(--scrollbar-thumb);
+  border-radius: 4px;
+  transition: background 0.25s;
+}
+.bubble-markdown pre:hover::-webkit-scrollbar-thumb {
+  background: var(--scrollbar-thumb-hover);
+}
+.bubble-markdown pre > code { display: block; }
+.bubble-markdown code {
+  font-family: var(--font-mono);
+  font-size: 0.875em;
+}
+.bubble-markdown :not(pre) > code {
+  padding: 2px 6px;
+  border-radius: 5px;
+  background: var(--primary-alpha-10);
+  color: var(--sb-brand);
+  border: 1px solid var(--primary-alpha-15);
+}
+.dark .bubble-markdown :not(pre) > code {
+  background: var(--primary-alpha-15);
+  color: var(--sb-brand-soft);
+  border-color: var(--primary-alpha-20);
+}
+.bubble-markdown a {
+  color: var(--sb-brand);
+  text-decoration: none;
+  word-break: break-all;
+}
+.dark .bubble-markdown a { color: var(--sb-brand-soft); }
+.bubble-markdown > :first-child { margin-top: 0; }
+.bubble-markdown > :last-child { margin-bottom: 0; }
+.bubble-markdown h1, .bubble-markdown h2, .bubble-markdown h3 {
+  font-weight: 600;
+  margin: 12px 0 6px;
+  line-height: 1.4;
+  color: var(--text-primary);
+}
+.bubble-markdown h1 { font-size: 1.25em; }
+.bubble-markdown h2 { font-size: 1.1em; }
+.bubble-markdown h3 { font-size: 1em; }
+.bubble-markdown table {
+  border-collapse: collapse;
+  margin: 8px 0;
+  width: 100%;
+  font-size: 13px;
+}
+.bubble-markdown th, .bubble-markdown td {
+  border: 1px solid var(--primary-alpha-15);
+  padding: 6px 10px;
+  text-align: left;
+}
+.bubble-markdown th {
+  background: var(--primary-alpha-08);
+  font-weight: 600;
+  color: var(--text-primary);
+}

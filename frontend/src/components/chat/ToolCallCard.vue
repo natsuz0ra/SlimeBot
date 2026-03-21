@@ -2,7 +2,7 @@
 import { computed, ref } from 'vue'
 import { mdiCheck, mdiClose, mdiConsoleLine, mdiWeb } from '@mdi/js'
 import { useI18n } from 'vue-i18n'
-import MdiIcon from '@/components/MdiIcon.vue'
+import MdiIcon from '@/components/ui/MdiIcon.vue'
 import type { ToolCallItem } from '@/api/chat'
 
 const props = withDefaults(defineProps<{

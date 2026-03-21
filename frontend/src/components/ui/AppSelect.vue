@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted } from 'vue'
 import { mdiChevronDown } from '@mdi/js'
-import MdiIcon from '@/components/MdiIcon.vue'
+import MdiIcon from '@/components/ui/MdiIcon.vue'
 
 export interface SelectOption {
   value: string
@@ -122,9 +122,8 @@ onUnmounted(() => {
       <MdiIcon
         :path="mdiChevronDown"
         :size="size === 'xs' ? 12 : 14"
-        class="flex-shrink-0 transition-transform duration-200"
+        class="sb-text-muted flex-shrink-0 transition-transform duration-200"
         :class="open ? 'rotate-180' : ''"
-        style="color: var(--text-muted)"
       />
     </button>
 
@@ -171,18 +170,18 @@ onUnmounted(() => {
   border: 1px solid var(--input-border);
 }
 .select-trigger-default:not(:disabled):hover {
-  border-color: #6366f1;
-  background: rgba(99, 102, 241, 0.05);
+  border-color: var(--sb-brand);
+  background: var(--primary-alpha-05);
 }
 
 .select-trigger-ghost:not(:disabled):hover {
-  background: rgba(99, 102, 241, 0.08);
+  background: var(--primary-alpha-08);
   color: var(--text-primary);
 }
 
 .select-trigger-focused {
-  border-color: #6366f1 !important;
-  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.15);
+  border-color: var(--sb-brand) !important;
+  box-shadow: 0 0 0 2px var(--primary-alpha-15);
 }
 
 .select-panel {
@@ -193,8 +192,8 @@ onUnmounted(() => {
 }
 
 .select-option-active {
-  background: rgba(99, 102, 241, 0.1);
-  color: #6366f1;
+  background: var(--primary-alpha-10);
+  color: var(--sb-brand);
   font-weight: 500;
 }
 
@@ -202,7 +201,7 @@ onUnmounted(() => {
   color: var(--text-secondary);
 }
 .select-option-default:hover {
-  background: rgba(99, 102, 241, 0.07);
+  background: var(--primary-alpha-07);
   color: var(--text-primary);
 }
 

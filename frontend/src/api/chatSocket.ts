@@ -1,4 +1,5 @@
 import { getAuthToken } from '@/utils/authStorage'
+import type { ToolCallStatus } from '@/types/chat'
 
 type Handlers = {
   onSession: (sessionId: string) => void
@@ -31,7 +32,7 @@ export interface ToolCallResultData {
   toolName: string
   command: string
   requiresApproval: boolean
-  status: 'pending' | 'rejected' | 'executing' | 'completed' | 'error'
+  status: ToolCallStatus
   output: string
   error: string
 }
@@ -48,7 +49,7 @@ type WSIncoming = {
   command?: string
   params?: Record<string, string>
   requiresApproval?: boolean
-  status?: 'pending' | 'rejected' | 'executing' | 'completed' | 'error'
+  status?: ToolCallStatus
   preamble?: string
   output?: string
   isInterrupted?: boolean
@@ -126,7 +127,8 @@ export class ChatSocket {
       return
     }
 
-    const wsBase = import.meta.env.VITE_WS_URL || 'ws://localhost:8080'
+    const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:'
+    const wsBase = import.meta.env.VITE_WS_URL || `${protocol}//${location.host}`
     const query = new URLSearchParams({ token })
     const url = `${wsBase}/ws/chat?${query.toString()}`
     this.emitStatus('reconnecting')

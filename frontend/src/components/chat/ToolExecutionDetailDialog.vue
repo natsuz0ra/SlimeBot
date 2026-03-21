@@ -2,14 +2,9 @@
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { ToolCallItem } from '@/api/chat'
-import BaseDialog from '@/components/ui/BaseDialog.vue'
+import type { ToolTimelineEntry } from '@/types/chat'
+import AppDialog from '@/components/ui/AppDialog.vue'
 import ToolCallCard from '@/components/chat/ToolCallCard.vue'
-
-type ToolTimelineEntry = {
-  id: string
-  kind: 'tool_start' | 'tool_result'
-  toolCallId: string
-}
 
 const props = withDefaults(defineProps<{
   visible: boolean
@@ -48,11 +43,13 @@ function closeDialog() {
 </script>
 
 <template>
-  <BaseDialog
+  <AppDialog
     :visible="visible"
     :title="t('toolExecutionDetailTitle')"
     :cancel-text="t('close')"
     :width="width"
+    compact
+    large-title
     hide-footer
     @update:visible="emit('update:visible', $event)"
   >
@@ -84,28 +81,28 @@ function closeDialog() {
           @reject="emit('reject', $event)"
         />
       </div>
-      <p v-else class="tool-detail-empty text-secondary text-sm">
+      <p v-else class="tool-detail-empty sb-text-secondary text-sm">
         {{ t('toolExecutionEmpty') }}
       </p>
     </section>
 
-    <div class="tool-detail-footer flex justify-end mt-4 pt-3">
+    <div class="tool-detail-footer flex justify-end mt-2 pt-2">
       <button
         type="button"
-        class="tool-detail-close-btn px-4 py-1.5 text-sm rounded-xl transition-all duration-150 cursor-pointer"
+        class="tool-detail-close-btn px-3 py-1 text-sm rounded-lg transition-all duration-150 cursor-pointer"
         @click="closeDialog"
       >
         {{ t('close') }}
       </button>
     </div>
-  </BaseDialog>
+  </AppDialog>
 </template>
 
 <style scoped>
 .tool-detail-shell {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 6px;
 }
 
 .tool-detail-summary {
@@ -120,7 +117,7 @@ function closeDialog() {
   border-radius: 999px;
   border: 1px solid var(--tool-summary-border);
   background: var(--tool-summary-bg);
-  padding: 5px 9px;
+  padding: 3px 8px;
 }
 
 .tool-summary-label {
@@ -168,10 +165,6 @@ function closeDialog() {
   padding: 1px 1px 4px 0;
 }
 
-.tool-detail-footer {
-  border-top: 1px solid var(--card-border);
-}
-
 .tool-detail-close-btn {
   background: var(--input-bg);
   border: 1px solid var(--input-border);
@@ -189,17 +182,17 @@ function closeDialog() {
 
 .tool-detail-empty {
   border: 1px dashed var(--card-border);
-  border-radius: 12px;
-  padding: 12px 14px;
+  border-radius: 10px;
+  padding: 8px 10px;
 }
 
 @media (max-width: 640px) {
   .tool-detail-shell {
-    gap: 8px;
+    gap: 5px;
   }
 
   .tool-summary-item {
-    padding: 4px 8px;
+    padding: 3px 7px;
   }
 
   .tool-summary-label {

@@ -1,0 +1,9 @@
+DROP TABLE IF EXISTS skills;
+DROP TABLE IF EXISTS message_platform_configs;
+DROP TABLE IF EXISTS mcp_configs;
+DROP TABLE IF EXISTS llm_configs;
+DROP TABLE IF EXISTS app_settings;
+DROP TABLE IF EXISTS tool_call_records;
+DROP TABLE IF EXISTS session_memories;
+DROP TABLE IF EXISTS messages;
+DROP TABLE IF EXISTS sessions;

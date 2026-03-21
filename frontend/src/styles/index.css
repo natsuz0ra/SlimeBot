@@ -1,0 +1,7 @@
+@import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@500;600;700&family=Plus+Jakarta+Sans:wght@300;400;500;600;700&display=swap');
+@import './variables.css';
+@import './base.css';
+@import './forms.css';
+@import './components.css';
+@import './markdown.css';
+@import './animations.css';

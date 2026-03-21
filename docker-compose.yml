@@ -1,0 +1,25 @@
+services:
+  qdrant:
+    image: qdrant/qdrant:latest
+    ports:
+      - "6333:6333"
+      - "6334:6334"
+    volumes:
+      - qdrant_data:/qdrant/storage
+
+  slimebot:
+    build: .
+    ports:
+      - "8080:8080"
+    env_file:
+      - .env
+    environment:
+      QDRANT_URL: qdrant:6334
+    volumes:
+      - ./storage:/app/storage
+      - ./onnx:/app/onnx
+    depends_on:
+      - qdrant
+
+volumes:
+  qdrant_data:

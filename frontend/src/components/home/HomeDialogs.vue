@@ -1,16 +1,11 @@
 <script setup lang="ts">
 import { useI18n } from 'vue-i18n'
 import type { ToolCallItem } from '@/api/chat'
+import type { ToolTimelineEntry } from '@/types/chat'
 import AccountEditDialog from '@/components/settings/AccountEditDialog.vue'
 import SettingsPanel from '@/components/settings/SettingsPanel.vue'
 import ToolExecutionDetailDialog from '@/components/chat/ToolExecutionDetailDialog.vue'
-import BaseDialog from '@/components/ui/BaseDialog.vue'
-
-type ToolTimelineEntry = {
-  id: string
-  kind: 'tool_start' | 'tool_result'
-  toolCallId: string
-}
+import AppDialog from '@/components/ui/AppDialog.vue'
 
 const props = defineProps<{
   renameVisible: boolean
@@ -43,7 +38,7 @@ const { t } = useI18n()
 </script>
 
 <template>
-  <BaseDialog
+  <AppDialog
     :visible="renameVisible"
     :title="t('rename')"
     :confirm-text="t('confirm')"
@@ -55,13 +50,13 @@ const { t } = useI18n()
     <input
       :value="renameValue"
       type="text"
-      class="w-full px-3 py-2.5 text-sm rounded-xl outline-none transition-all duration-150 dialog-input"
+      class="w-full px-3 py-2.5 text-sm rounded-xl outline-none transition-all duration-150 dialog-input focus-ring"
       @input="emit('update:renameValue', ($event.target as HTMLInputElement).value)"
       @keydown.enter="emit('confirmRename')"
     />
-  </BaseDialog>
+  </AppDialog>
 
-  <BaseDialog
+  <AppDialog
     :visible="deleteConfirmVisible"
     :title="t('delete')"
     :confirm-text="t('confirm')"
@@ -71,8 +66,8 @@ const { t } = useI18n()
     @update:visible="emit('update:deleteConfirmVisible', $event)"
     @confirm="emit('confirmDeleteSession')"
   >
-    <p class="text-secondary text-sm">{{ t('confirmDelete') }}</p>
-  </BaseDialog>
+    <p class="sb-text-secondary text-sm">{{ t('confirmDelete') }}</p>
+  </AppDialog>
 
   <ToolExecutionDetailDialog
     :visible="toolDetailVisible"

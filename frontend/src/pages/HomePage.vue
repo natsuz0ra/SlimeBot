@@ -1,18 +1,20 @@
 <script setup lang="ts">
+import { computed } from 'vue'
 import { useRoute } from 'vue-router'
 import {
   mdiDeleteOutline,
   mdiPencilOutline,
 } from '@mdi/js'
 
-import MdiIcon from '@/components/MdiIcon.vue'
+import MdiIcon from '@/components/ui/MdiIcon.vue'
 import ChatComposer from '@/components/chat/ChatComposer.vue'
 import ChatMessageList from '@/components/chat/ChatMessageList.vue'
 import HomeDialogs from '@/components/home/HomeDialogs.vue'
 import HomeHeaderBar from '@/components/home/HomeHeaderBar.vue'
 import HomeSidebar from '@/components/home/HomeSidebar.vue'
-import SlimeBotLogo from '@/components/ui/SlimeBotLogo.vue'
-import { useHomeChatPage } from '@/composables/useHomeChatPage'
+import AppLogo from '@/components/ui/AppLogo.vue'
+import { provideChatContext } from '@/composables/chat/useChatContext'
+import { useHomeChatPage } from '@/composables/home/useHomeChatPage'
 import { useHomeTransitions } from '@/composables/home/useHomeTransitions'
 import { useTheme } from '@/composables/useTheme'
 import { useAuthStore } from '@/stores/auth'
@@ -20,8 +22,6 @@ import { useAuthStore } from '@/stores/auth'
 const {
   t,
   store,
-  hasMoreHistory,
-  loadingOlderHistory,
   drawerOpen,
   renameVisible,
   renameValue,
@@ -97,6 +97,24 @@ const {
   isEmptySession,
   authStore,
 })
+
+provideChatContext({
+  waiting: computed(() => store.waiting),
+  getReplyToolCount,
+  getReplyToolSummary,
+  getReplyTimeline,
+  getReplyToolItem,
+  shouldShowInlineToolCall,
+  isReplyToolCollapsed,
+  isEmptyPlaceholder,
+  openToolDetail,
+  approveToolCall: store.approveToolCall,
+  isFailedUserMessage: store.isFailedUserMessage,
+  isAssistantErrorMessage: store.isAssistantErrorMessage,
+  isChatAssistantAvatarAnimated,
+  sendBlockedOfflineText: computed(() => t('sendBlockedOffline')),
+  toolExecutionDetailTitle: computed(() => t('toolExecutionDetailTitle')),
+})
 </script>
 
 <template>
@@ -163,7 +181,7 @@ const {
           <template v-if="isEmptySession">
           <div class="flex-1 flex flex-col items-center justify-center px-4 pb-8">
             <!-- 加载中 -->
-            <div v-if="loading" class="text-muted flex items-center gap-2 text-sm mb-8">
+            <div v-if="loading" class="sb-text-muted flex items-center gap-2 text-sm mb-8">
               <svg class="loading-spinner-accent animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24">
                 <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" />
                 <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
@@ -173,7 +191,7 @@ const {
 
             <template v-else>
               <!-- AI 渐变图标 -->
-              <SlimeBotLogo :size="80" animated class="new-chat-logo mb-1.0 drop-shadow-lg" />
+              <AppLogo :size="80" animated class="new-chat-logo mb-1.0 drop-shadow-lg" />
 
               <!-- 欢迎标题 -->
               <h2 v-if="!isMessagePlatformSession" class="text-2xl font-bold mb-2 text-center welcome-title">
@@ -187,7 +205,7 @@ const {
                   |
                 </span>
               </h2>
-              <p class="text-muted text-sm mb-6 text-center">
+              <p class="sb-text-muted text-sm mb-6 text-center">
                 {{ isMessagePlatformSession ? t('messagePlatformEmptySubtitle') : t('welcomeSubtitle') }}
               </p>
 
@@ -218,24 +236,8 @@ const {
           <template v-else>
           <ChatMessageList
             :messages="store.messages"
-            :waiting="store.waiting"
-            :is-message-platform-session="isMessagePlatformSession"
             :show-scroll-to-bottom="showScrollToBottom"
-            :has-more-history="hasMoreHistory"
-            :loading-older-history="loadingOlderHistory"
             :set-messages-ref="setMessagesRef"
-            :is-failed-user-message="store.isFailedUserMessage"
-            :is-assistant-error-message="store.isAssistantErrorMessage"
-            :is-empty-placeholder="isEmptyPlaceholder"
-            :is-chat-assistant-avatar-animated="isChatAssistantAvatarAnimated"
-            :get-reply-tool-count="getReplyToolCount"
-            :get-reply-tool-summary="getReplyToolSummary"
-            :get-reply-timeline="getReplyTimeline"
-            :get-reply-tool-item="getReplyToolItem"
-            :should-show-inline-tool-call="shouldShowInlineToolCall"
-            :is-reply-tool-collapsed="isReplyToolCollapsed"
-            :open-tool-detail="openToolDetail"
-            :approve-tool-call="store.approveToolCall"
             @scroll-to-bottom="scrollToBottomByButton"
           />
 

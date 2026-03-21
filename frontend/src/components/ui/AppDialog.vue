@@ -1,33 +1,41 @@
 <script setup lang="ts">
 import { onMounted, onUnmounted } from 'vue'
 import { mdiClose } from '@mdi/js'
-import MdiIcon from '@/components/MdiIcon.vue'
+import MdiIcon from '@/components/ui/MdiIcon.vue'
+import LoadingSpinner from '@/components/ui/LoadingSpinner.vue'
 
-const props = withDefaults(defineProps<{
-  visible: boolean
-  title?: string
-  confirmText?: string
-  cancelText?: string
-  confirmLoading?: boolean
-  confirmDanger?: boolean
-  width?: string
-  hideFooter?: boolean
-  showClose?: boolean
-  showCancel?: boolean
-  closeOnMask?: boolean
-  closeOnEsc?: boolean
-}>(), {
-  confirmText: '确认',
-  cancelText: '取消',
-  confirmLoading: false,
-  confirmDanger: false,
-  width: '480px',
-  hideFooter: false,
-  showClose: true,
-  showCancel: true,
-  closeOnMask: true,
-  closeOnEsc: true,
-})
+const props = withDefaults(
+  defineProps<{
+    visible: boolean
+    title?: string
+    confirmText?: string
+    cancelText?: string
+    confirmLoading?: boolean
+    confirmDanger?: boolean
+    width?: string
+    hideFooter?: boolean
+    showClose?: boolean
+    showCancel?: boolean
+    closeOnMask?: boolean
+    closeOnEsc?: boolean
+    compact?: boolean
+    largeTitle?: boolean
+  }>(),
+  {
+    confirmText: '确认',
+    cancelText: '取消',
+    confirmLoading: false,
+    confirmDanger: false,
+    width: '480px',
+    hideFooter: false,
+    showClose: true,
+    showCancel: true,
+    closeOnMask: true,
+    closeOnEsc: true,
+    compact: false,
+    largeTitle: false,
+  },
+)
 
 const emit = defineEmits<{
   'update:visible': [value: boolean]
@@ -60,7 +68,7 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown))
       <div
         v-if="visible"
         class="fixed inset-0 z-[200] flex items-center justify-center p-4"
-        style="background: rgba(0,0,0,0.45); backdrop-filter: blur(4px)"
+        style="background: rgba(0, 0, 0, 0.45); backdrop-filter: blur(4px)"
         @click.self="props.closeOnMask ? close() : null"
       >
         <div
@@ -71,9 +79,15 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown))
           :aria-labelledby="title ? titleId : undefined"
           @click.stop
         >
-          <!-- 头部 -->
-          <div class="flex items-center justify-between px-5 py-3 dialog-header">
-            <span :id="titleId" class="text-base font-semibold dialog-title">{{ title }}</span>
+          <div
+            class="flex items-center justify-between dialog-header"
+            :class="compact ? 'px-4 py-2' : 'px-5 py-3'"
+          >
+            <span
+              :id="titleId"
+              class="font-semibold dialog-title"
+              :class="compact ? (largeTitle ? 'text-base' : 'text-sm') : 'text-base'"
+            >{{ title }}</span>
             <button
               v-if="showClose"
               type="button"
@@ -84,13 +98,15 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown))
             </button>
           </div>
 
-          <!-- 内容 -->
-          <div class="flex-1 overflow-y-auto px-5 py-4">
+          <div class="flex-1 overflow-y-auto" :class="compact ? 'px-4 py-3' : 'px-5 py-4'">
             <slot />
           </div>
 
-          <!-- 底部 -->
-          <div v-if="!hideFooter" class="flex items-center justify-end gap-2 px-5 py-3 dialog-footer">
+          <div
+            v-if="!hideFooter"
+            class="flex items-center justify-end gap-2 dialog-footer"
+            :class="compact ? 'px-4 py-2' : 'px-5 py-3'"
+          >
             <button
               v-if="showCancel"
               type="button"
@@ -106,10 +122,7 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown))
               :disabled="confirmLoading"
               @click="onConfirm"
             >
-              <svg v-if="confirmLoading" class="animate-spin w-3.5 h-3.5" viewBox="0 0 24 24" fill="none">
-                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" />
-                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
-              </svg>
+              <LoadingSpinner v-if="confirmLoading" size-class="w-3.5 h-3.5" />
               {{ confirmText }}
             </button>
           </div>
@@ -123,7 +136,7 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown))
 .dialog-panel {
   background: var(--bg-main);
   border: 1px solid var(--card-border);
-  box-shadow: 0 25px 60px rgba(0, 0, 0, 0.35), 0 0 0 1px rgba(99, 102, 241, 0.08);
+  box-shadow: 0 25px 60px rgba(0, 0, 0, 0.35), 0 0 0 1px var(--primary-alpha-08);
 }
 
 .dialog-title {
@@ -134,38 +147,30 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown))
   color: var(--text-muted);
 }
 .dialog-close-btn:hover {
-  background: rgba(99, 102, 241, 0.08);
+  background: var(--primary-alpha-08);
   color: var(--text-primary);
 }
 
-.dialog-cancel-btn {
-  background: var(--input-bg);
-  border: 1px solid var(--input-border);
-  color: var(--text-secondary);
-}
-.dialog-cancel-btn:hover {
-  background: rgba(99, 102, 241, 0.08);
-}
-
 .dialog-confirm-primary {
-  background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%);
-  box-shadow: 0 2px 8px rgba(99, 102, 241, 0.35);
+  background: var(--sb-brand);
+  box-shadow: none;
 }
 .dialog-confirm-primary:hover:not(:disabled) {
-  box-shadow: 0 4px 12px rgba(99, 102, 241, 0.45);
-  transform: translateY(-1px);
+  background: var(--sb-brand-hover);
+  box-shadow: none;
+  transform: none;
 }
 
 .dialog-confirm-danger {
-  background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
-  box-shadow: 0 2px 8px rgba(239, 68, 68, 0.3);
+  background: var(--color-danger);
+  box-shadow: none;
 }
 .dialog-confirm-danger:hover:not(:disabled) {
-  box-shadow: 0 4px 12px rgba(239, 68, 68, 0.4);
-  transform: translateY(-1px);
+  background: #dc2626;
+  box-shadow: none;
+  transform: none;
 }
 
-/* Transition */
 .dialog-fade-enter-active,
 .dialog-fade-leave-active {
   transition: opacity 180ms ease-out;

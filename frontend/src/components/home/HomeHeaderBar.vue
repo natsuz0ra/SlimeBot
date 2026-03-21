@@ -2,7 +2,7 @@
 import { mdiChevronDown, mdiDeleteOutline, mdiMenu, mdiPencilOutline } from '@mdi/js'
 import { useI18n } from 'vue-i18n'
 import type { SessionItem } from '@/api/chat'
-import MdiIcon from '@/components/MdiIcon.vue'
+import MdiIcon from '@/components/ui/MdiIcon.vue'
 
 const props = defineProps<{
   currentSession?: SessionItem
@@ -35,7 +35,7 @@ function onRenameClick() {
   <header class="header-bar relative z-30 flex items-center justify-center h-14 flex-shrink-0 backdrop-blur-sm">
     <button
       type="button"
-      class="icon-muted absolute left-3 w-9 h-9 flex items-center justify-center rounded-xl transition-all duration-150 cursor-pointer"
+      class="sb-text-muted absolute left-3 w-9 h-9 flex items-center justify-center rounded-xl transition-all duration-150 cursor-pointer"
       @click.stop="emit('toggleSidebar')"
     >
       <MdiIcon :path="mdiMenu" :size="19" />
@@ -47,11 +47,11 @@ function onRenameClick() {
       class="flex items-center gap-1.5 px-3 py-1.5 rounded-xl transition-all duration-150 cursor-pointer max-w-[260px] header-title-btn"
       @click.stop="toggleTopMenu"
     >
-      <span class="text-primary text-sm font-semibold truncate">{{ currentSession.name }}</span>
+      <span class="sb-text-primary text-sm font-semibold truncate">{{ currentSession.name }}</span>
       <MdiIcon
         :path="mdiChevronDown"
         :size="14"
-        class="icon-muted flex-shrink-0 transition-transform duration-200"
+        class="sb-text-muted flex-shrink-0 transition-transform duration-200"
         :class="topMenuVisible ? 'rotate-180' : ''"
       />
     </button>
@@ -59,7 +59,7 @@ function onRenameClick() {
       v-else-if="currentSession"
       class="flex items-center gap-1.5 px-3 py-1.5 rounded-xl max-w-[260px]"
     >
-      <span class="text-primary text-sm font-semibold truncate">{{ currentSession.name }}</span>
+      <span class="sb-text-primary text-sm font-semibold truncate">{{ currentSession.name }}</span>
       <span class="text-[10px] px-1.5 py-0.5 rounded-md platform-badge">IM</span>
     </div>
 

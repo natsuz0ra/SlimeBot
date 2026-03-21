@@ -1,15 +1,18 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 
-const props = withDefaults(defineProps<{
-  size?: number
-  white?: boolean
-  animated?: boolean
-}>(), {
-  size: 24,
-  white: false,
-  animated: false,
-})
+const props = withDefaults(
+  defineProps<{
+    size?: number
+    white?: boolean
+    animated?: boolean
+  }>(),
+  {
+    size: 24,
+    white: false,
+    animated: false,
+  },
+)
 
 const idPrefix = `slime-${Math.random().toString(36).slice(2, 10)}`
 const bodyGradientId = `${idPrefix}-body-gradient`
@@ -33,12 +36,28 @@ const logoStyle = computed(() => (props.white ? 'filter: brightness(0) invert(1)
     aria-label="SlimeBot"
   >
     <defs>
-      <linearGradient :id="bodyGradientId" x1="24" y1="20" x2="76" y2="82" gradientUnits="userSpaceOnUse" gradientTransform="translate(50 50) scale(1.14) translate(-50 -50)">
+      <linearGradient
+        :id="bodyGradientId"
+        x1="24"
+        y1="20"
+        x2="76"
+        y2="82"
+        gradientUnits="userSpaceOnUse"
+        gradientTransform="translate(50 50) scale(1.14) translate(-50 -50)"
+      >
         <stop offset="0" stop-color="#6366F1" />
         <stop offset="0.55" stop-color="#A78BFA" />
         <stop offset="1" stop-color="#818CF8" />
       </linearGradient>
-      <linearGradient :id="highlightGradientId" x1="33" y1="26" x2="60" y2="52" gradientUnits="userSpaceOnUse" gradientTransform="translate(50 50) scale(1.14) translate(-50 -50)">
+      <linearGradient
+        :id="highlightGradientId"
+        x1="33"
+        y1="26"
+        x2="60"
+        y2="52"
+        gradientUnits="userSpaceOnUse"
+        gradientTransform="translate(50 50) scale(1.14) translate(-50 -50)"
+      >
         <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.88" />
         <stop offset="1" stop-color="#FFFFFF" stop-opacity="0" />
       </linearGradient>

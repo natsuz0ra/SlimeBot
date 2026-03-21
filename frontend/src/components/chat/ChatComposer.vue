@@ -2,8 +2,9 @@
 import { nextTick, ref, watch } from 'vue'
 import { mdiClose, mdiPaperclip, mdiSend, mdiStop } from '@mdi/js'
 import { useI18n } from 'vue-i18n'
-import MdiIcon from '@/components/MdiIcon.vue'
+import MdiIcon from '@/components/ui/MdiIcon.vue'
 import AppSelect, { type SelectOption } from '@/components/ui/AppSelect.vue'
+import { formatSize } from '@/utils/format'
 
 const props = defineProps<{
   modelValue: string
@@ -70,12 +71,6 @@ function onFileChange(event: Event) {
   input.value = ''
 }
 
-function formatSize(sizeBytes: number) {
-  if (sizeBytes < 1024) return `${sizeBytes}B`
-  if (sizeBytes < 1024 * 1024) return `${(sizeBytes / 1024).toFixed(1)}KB`
-  return `${(sizeBytes / (1024 * 1024)).toFixed(1)}MB`
-}
-
 function getFileExt(name: string) {
   const parts = name.split('.')
   if (parts.length <= 1) return ''
@@ -95,7 +90,7 @@ watch(
 </script>
 
 <template>
-  <div class="input-container rounded-2xl overflow-hidden">
+  <div class="input-container focus-ring rounded-2xl overflow-hidden">
     <div v-if="pendingFiles.length > 0" class="px-3 pt-3 pb-1 flex flex-wrap gap-2">
       <div
         v-for="(file, idx) in pendingFiles"
@@ -167,7 +162,7 @@ watch(
           v-else
           type="button"
           class="w-8 h-8 flex items-center justify-center rounded-xl transition-all duration-150 cursor-pointer flex-shrink-0"
-          :class="sendDisabled ? 'send-btn-disabled' : 'send-btn'"
+          :class="sendDisabled ? 'send-btn-disabled' : 'send-btn btn-primary'"
           :disabled="sendDisabled"
           @click="emit('send')"
         >

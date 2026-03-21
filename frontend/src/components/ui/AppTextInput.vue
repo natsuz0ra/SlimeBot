@@ -50,19 +50,19 @@ function onInput(event: Event) {
 </template>
 
 <style scoped>
-.app-input {
+input.app-input {
   background: var(--input-bg);
   border: 1px solid var(--input-border);
   color: var(--text-primary);
   transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
 }
 
-.app-input:focus {
-  border-color: #6366f1;
-  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.12);
+input.app-input:focus {
+  border-color: var(--sb-brand);
+  box-shadow: var(--focus-ring-shadow);
 }
 
-.app-input::placeholder {
+input.app-input::placeholder {
   color: var(--text-muted);
 }
 </style>

@@ -1,0 +1,21 @@
+.focus-ring:focus-within,
+.dialog-input.focus-ring:focus,
+.settings-input.focus-ring:focus {
+  border-color: var(--sb-brand);
+  box-shadow: var(--focus-ring-shadow);
+}
+
+.dialog-input {
+  background: var(--input-bg);
+  border: 1px solid var(--input-border);
+  color: var(--text-primary);
+}
+
+.dialog-cancel-btn {
+  background: var(--input-bg);
+  border: 1px solid var(--input-border);
+  color: var(--text-secondary);
+}
+.dialog-cancel-btn:hover {
+  background: var(--primary-alpha-08);
+}

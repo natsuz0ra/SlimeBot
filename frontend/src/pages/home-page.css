@@ -1,4 +1,3 @@
-/* ── 布局与基础颜色 ── */
 .page-shell {
   background: var(--bg-base);
 }
@@ -45,47 +44,15 @@
 }
 
 .chat-content-shell--switching.chat-content-shell--from-right {
-  animation: chat-content-switch-in-right 210ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation: chat-content-switch-in-right var(--duration-slide) var(--ease-out-smooth) both;
 }
 
 .chat-content-shell--switching.chat-content-shell--from-left {
-  animation: chat-content-switch-in-left 210ms cubic-bezier(0.22, 1, 0.36, 1) both;
-}
-
-.settings-overlay {
-  background: var(--overlay-backdrop);
-}
-
-.settings-modal-size {
-  max-width: min(86vw, 1080px);
-  height: min(80vh, 760px);
-}
-
-.floating-session-menu {
-  background: var(--menu-bg);
-  border: 1px solid var(--menu-border);
-  box-shadow: var(--menu-shadow);
+  animation: chat-content-switch-in-left var(--duration-slide) var(--ease-out-smooth) both;
 }
 
 .sidebar-mask {
   background: rgba(0, 0, 0, 0.35);
-}
-
-/* ── 文本与图标语义类 ── */
-.text-primary {
-  color: var(--text-primary);
-}
-
-.text-secondary {
-  color: var(--text-secondary);
-}
-
-.text-muted {
-  color: var(--text-muted);
-}
-
-.icon-muted {
-  color: var(--text-muted);
 }
 
 .settings-action-btn {
@@ -93,79 +60,70 @@
 }
 
 .loading-spinner-accent {
-  color: #6366f1;
+  color: var(--sb-brand);
 }
 
 .session-active-indicator {
-  background: #6366f1;
+  background: var(--sb-brand);
 }
 
 .failed-user-icon {
-  color: #ef4444;
+  color: var(--color-danger);
 }
 
 .textarea-primary {
   color: var(--text-primary);
 }
 
-.dialog-footer-separator {
-  border-top: 1px solid var(--card-border);
-}
-
-/* ── 会话项 ── */
 .session-item {
   color: var(--text-secondary);
 }
 .session-item:hover {
-  background: rgba(99, 102, 241, 0.08);
+  background: var(--primary-alpha-08);
   color: var(--text-primary);
 }
 .session-item-active {
-  background: rgba(99, 102, 241, 0.12);
+  background: var(--primary-alpha-12);
   color: var(--text-primary);
 }
 
 .platform-badge {
-  background: rgba(99, 102, 241, 0.12);
-  color: #6366f1;
-  border: 1px solid rgba(99, 102, 241, 0.24);
+  background: var(--primary-alpha-12);
+  color: var(--sb-brand);
+  border: 1px solid var(--primary-alpha-24);
 }
 
-/* ── 顶栏标题按钮 ── */
 .header-title-btn:hover {
-  background: rgba(99, 102, 241, 0.08);
+  background: var(--primary-alpha-08);
 }
 
-/* ── 菜单项 ── */
 .menu-item {
   color: var(--text-secondary);
 }
 .menu-item:hover {
-  background: rgba(99, 102, 241, 0.08);
+  background: var(--primary-alpha-08);
   color: var(--text-primary);
 }
 .menu-item-danger {
-  color: #ef4444;
+  color: var(--color-danger);
 }
 .menu-item-danger:hover {
-  background: rgba(239, 68, 68, 0.08);
+  background: var(--danger-alpha-08);
 }
 
-/* ── 状态 badge ── */
 .status-warning {
-  background: rgba(245, 158, 11, 0.12);
-  color: #f59e0b;
-  border: 1px solid rgba(245, 158, 11, 0.2);
+  background: var(--warning-alpha-12);
+  color: var(--color-warning);
+  border: 1px solid var(--warning-alpha-20);
 }
 .status-error {
-  background: rgba(239, 68, 68, 0.12);
-  color: #ef4444;
-  border: 1px solid rgba(239, 68, 68, 0.2);
+  background: var(--danger-alpha-12);
+  color: var(--color-danger);
+  border: 1px solid var(--danger-alpha-20);
 }
 
-/* ── 欢迎标题渐变 ── */
 .welcome-title {
-  background: linear-gradient(135deg, #6366f1 0%, #a78bfa 50%, #818cf8 100%);
+  background: linear-gradient(135deg, var(--sb-brand) 0%, #a78bfa 50%, var(--sb-brand-soft) 100%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
@@ -174,76 +132,76 @@
 .welcome-cursor {
   display: inline-block;
   margin-left: 2px;
-  color: #818cf8;
-  -webkit-text-fill-color: #818cf8;
+  color: var(--sb-brand-soft);
+  -webkit-text-fill-color: var(--sb-brand-soft);
 }
 
 .welcome-cursor-pre {
-  animation: welcome-cursor-blink 180ms step-end 4;
+  animation: welcome-cursor-blink var(--duration-welcome-blink) step-end 4;
 }
 
 .welcome-cursor-typing {
   animation: welcome-cursor-blink 850ms step-end infinite;
 }
 
-/* ── 输入框容器 ── */
 .input-container {
   position: relative;
   background: var(--input-bg);
   border: 1px solid var(--input-border);
   transition: border-color 0.2s ease, box-shadow 0.2s ease;
 }
-.input-container:focus-within {
-  border-color: #6366f1;
-  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.12);
-}
 
 textarea::placeholder {
   color: var(--text-muted);
 }
 
-/* ── 发送按钮 ── */
 .send-btn {
-  background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%);
-  color: #fff;
-  box-shadow: 0 2px 8px rgba(99, 102, 241, 0.32);
+  box-shadow: var(--btn-primary-shadow-send);
 }
 .send-btn:hover {
-  box-shadow: 0 4px 12px rgba(99, 102, 241, 0.42);
+  box-shadow: var(--btn-primary-shadow-send-hover);
   transform: scale(1.05);
 }
+.send-btn.btn-primary {
+  background: var(--sb-brand);
+  box-shadow: none;
+}
+.send-btn.btn-primary:hover {
+  background: var(--sb-brand-hover);
+  box-shadow: none;
+  transform: none;
+}
 .stop-btn {
-  background: rgba(239, 68, 68, 0.16);
-  color: #ef4444;
-  border: 1px solid rgba(239, 68, 68, 0.24);
+  background: var(--danger-alpha-16);
+  color: var(--color-danger);
+  border: 1px solid var(--danger-alpha-24);
 }
 .stop-btn:hover {
-  background: rgba(239, 68, 68, 0.24);
+  background: var(--danger-alpha-24);
 }
 .attach-btn {
-  background: rgba(99, 102, 241, 0.08);
+  background: var(--primary-alpha-08);
   color: var(--text-secondary);
 }
 .attach-btn:hover {
-  background: rgba(99, 102, 241, 0.14);
+  background: var(--primary-alpha-14);
 }
 .send-btn-disabled {
-  background: rgba(99, 102, 241, 0.08);
+  background: var(--primary-alpha-08);
   color: var(--text-muted);
   cursor: not-allowed;
 }
 
 .chat-upload-chip {
-  background: rgba(99, 102, 241, 0.1);
+  background: var(--primary-alpha-10);
   color: var(--text-primary);
-  border: 1px solid rgba(99, 102, 241, 0.2);
+  border: 1px solid var(--primary-alpha-20);
 }
 
-/* ── 用户气泡 ── */
 .user-bubble {
   background: var(--user-bubble-bg);
   color: var(--user-bubble-text);
-  box-shadow: 0 2px 12px rgba(99, 102, 241, 0.25);
+  box-shadow: 0 2px 12px var(--primary-alpha-25);
 }
 
 .user-attachments-row {
@@ -251,6 +209,9 @@ textarea::placeholder {
   flex-wrap: wrap;
   gap: 8px;
   margin-bottom: 8px;
+}
+.user-attachments-row--solo {
+  margin-bottom: 0;
 }
 
 .user-attachment-card {
@@ -268,14 +229,12 @@ textarea::placeholder {
   white-space: nowrap;
 }
 
-/* ── 错误消息气泡 ── */
 .error-bubble {
-  background: rgba(239, 68, 68, 0.08);
-  border: 1px solid rgba(239, 68, 68, 0.2);
-  color: #ef4444;
+  background: var(--danger-alpha-08);
+  border: 1px solid var(--danger-alpha-20);
+  color: var(--color-danger);
 }
 
-/* ── 工具调用摘要按钮 ── */
 .tool-summary-btn {
   background: var(--tool-summary-bg);
   border: 1px solid var(--tool-summary-border);
@@ -297,75 +256,42 @@ textarea::placeholder {
   align-items: center;
 }
 
-/* ── 设置弹窗 ── */
-.settings-modal {
-  background: var(--bg-main);
-  border: 1px solid var(--card-border);
-  box-shadow: 0 25px 60px rgba(0, 0, 0, 0.3);
-}
-
-/* ── Dialog 输入框 ── */
-.dialog-input {
-  background: var(--input-bg);
-  border: 1px solid var(--input-border);
-  color: var(--text-primary);
-}
-.dialog-input:focus {
-  border-color: #6366f1;
-  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.12);
-}
-
-/* ── Dialog 取消按钮 ── */
-.dialog-cancel-btn {
-  background: var(--input-bg);
-  border: 1px solid var(--input-border);
-  color: var(--text-secondary);
-}
-.dialog-cancel-btn:hover {
-  background: rgba(99, 102, 241, 0.08);
-}
-
-/* ── 侧边栏滑入动画 ── */
 .sidebar-enter-active,
 .sidebar-leave-active {
-  transition: transform 280ms cubic-bezier(0.16, 1, 0.3, 1);
+  transition: transform var(--duration-slow) var(--ease-out-expo);
 }
 .sidebar-enter-from,
 .sidebar-leave-to {
   transform: translateX(-100%);
 }
 
-/* ── 遮罩淡入 ── */
 .mask-fade-enter-active,
 .mask-fade-leave-active {
-  transition: opacity 220ms ease-out;
+  transition: opacity var(--duration-normal) ease-out;
 }
 .mask-fade-enter-from,
 .mask-fade-leave-to {
   opacity: 0;
 }
 
-/* ── 全局遮罩淡入（设置弹窗等） ── */
 .overlay-fade-enter-active,
 .overlay-fade-leave-active {
-  transition: opacity 180ms ease-out;
+  transition: opacity var(--duration-md) ease-out;
 }
 .overlay-fade-enter-from,
 .overlay-fade-leave-to {
   opacity: 0;
 }
 
-/* ── textarea 自适应高度 ── */
 textarea {
   field-sizing: content;
 }
 
-/* ── 浮动会话菜单弹出 ── */
 .session-menu-pop-enter-active {
-  transition: opacity 140ms ease, transform 140ms cubic-bezier(0.16, 1, 0.3, 1);
+  transition: opacity var(--duration-fast) ease, transform var(--duration-fast) var(--ease-out-expo);
 }
 .session-menu-pop-leave-active {
-  transition: opacity 80ms ease, transform 80ms ease;
+  transition: opacity var(--duration-leave-fast) ease, transform var(--duration-leave-fast) ease;
 }
 .session-menu-pop-enter-from,
 .session-menu-pop-leave-to {
@@ -373,12 +299,11 @@ textarea {
   transform: scale(0.92) translateY(-4px);
 }
 
-/* ── 顶部标题下拉菜单弹出 ── */
 .top-menu-pop-enter-active {
-  transition: opacity 140ms ease, transform 140ms cubic-bezier(0.16, 1, 0.3, 1);
+  transition: opacity var(--duration-fast) ease, transform var(--duration-fast) var(--ease-out-expo);
 }
 .top-menu-pop-leave-active {
-  transition: opacity 80ms ease, transform 80ms ease;
+  transition: opacity var(--duration-leave-fast) ease, transform var(--duration-leave-fast) ease;
 }
 .top-menu-pop-enter-from,
 .top-menu-pop-leave-to {
@@ -386,12 +311,11 @@ textarea {
   transform: scale(0.92) translateY(-6px);
 }
 
-/* ── 回到底部按钮淡入淡出 ── */
 .scroll-bottom-fade-enter-active {
-  transition: opacity 140ms ease, transform 140ms cubic-bezier(0.16, 1, 0.3, 1);
+  transition: opacity var(--duration-fast) ease, transform var(--duration-fast) var(--ease-out-expo);
 }
 .scroll-bottom-fade-leave-active {
-  transition: opacity 80ms ease, transform 80ms ease;
+  transition: opacity var(--duration-leave-fast) ease, transform var(--duration-leave-fast) ease;
 }
 .scroll-bottom-fade-enter-from,
 .scroll-bottom-fade-leave-to {
@@ -399,7 +323,6 @@ textarea {
   transform: translateY(6px);
 }
 
-/* ── 顶部菜单毛玻璃面板 ── */
 .top-menu-glass {
   background: var(--top-menu-bg);
   border: 1px solid var(--top-menu-border);
@@ -414,36 +337,10 @@ textarea {
   }
 }
 
-/* ── 滚动条样式（可复用） ── */
-.scroll-area::-webkit-scrollbar {
-  width: 4px;
-}
-.scroll-area::-webkit-scrollbar-track {
-  background: transparent;
-}
-.scroll-area::-webkit-scrollbar-thumb {
-  background: transparent;
-  border-radius: 4px;
-  transition: background 0.25s;
-}
-.scroll-area:hover::-webkit-scrollbar-thumb,
-.scroll-area.is-scrolling::-webkit-scrollbar-thumb {
-  background: var(--scrollbar-thumb);
-}
-.scroll-area:hover::-webkit-scrollbar-thumb:hover {
-  background: var(--scrollbar-thumb-hover);
-}
-
-/* ── 回到底部按钮 ── */
 .scroll-bottom-btn {
   background: var(--input-bg);
   border: 1px solid var(--input-border);
   color: var(--text-secondary);
-  box-shadow: var(--floating-elevation-shadow);
-}
-.scroll-bottom-btn:hover {
-  color: var(--text-secondary);
-  border-color: var(--input-border);
   box-shadow: var(--floating-elevation-shadow);
 }
 .scroll-bottom-arrow {
@@ -454,28 +351,11 @@ textarea {
   transform: translateY(-1px);
 }
 
-/* ── textarea 滚动条 ── */
-textarea::-webkit-scrollbar {
-  width: 4px;
-}
-textarea::-webkit-scrollbar-track {
-  background: transparent;
-}
-textarea::-webkit-scrollbar-thumb {
-  background: transparent;
-  border-radius: 4px;
-  transition: background 0.25s;
-}
-textarea:hover::-webkit-scrollbar-thumb {
-  background: var(--scrollbar-thumb);
-}
-
-/* ── New Chat 欢迎区 logo 动效 ── */
 .new-chat-logo {
   animation: welcome-logo-float 2.4s ease-in-out infinite;
 }
 
-:deep(.new-chat-logo.is-animated .slimebot-logo__eye) {
+.new-chat-logo.is-animated .slimebot-logo__eye {
   animation: welcome-logo-double-blink 2.8s infinite;
 }
 
@@ -483,27 +363,27 @@ textarea:hover::-webkit-scrollbar-thumb {
   animation: welcome-logo-float 2.4s ease-in-out infinite;
 }
 
-:deep(.chat-ai-avatar-animated .slimebot-logo__eye) {
+.chat-ai-avatar-animated .slimebot-logo__eye {
   animation: welcome-logo-double-blink 2.8s infinite;
 }
 
 .home-login-entering .page-card {
-  animation: home-login-card-in 260ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation: home-login-card-in var(--duration-card-in) var(--ease-out-smooth) both;
 }
 
 .home-login-entering .header-bar {
-  animation: home-login-layer-in 240ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation: home-login-layer-in var(--duration-layer-in) var(--ease-out-smooth) both;
   animation-delay: 70ms;
 }
 
 .home-login-entering .sidebar-panel {
-  animation: home-login-layer-in 260ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation: home-login-layer-in var(--duration-card-in) var(--ease-out-smooth) both;
   animation-delay: 140ms;
 }
 
 .home-login-entering .messages-section,
 .home-login-entering .composer-footer {
-  animation: home-login-layer-in 280ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation: home-login-layer-in var(--duration-stagger) var(--ease-out-smooth) both;
   animation-delay: 220ms;
 }
 
@@ -526,29 +406,6 @@ textarea:hover::-webkit-scrollbar-thumb {
   to {
     opacity: 1;
     transform: translateY(0);
-  }
-}
-
-@keyframes welcome-logo-float {
-  0%,
-  100% {
-    transform: translateY(0);
-  }
-  50% {
-    transform: translateY(-4px);
-  }
-}
-
-@keyframes welcome-logo-double-blink {
-  0%,
-  5%,
-  11%,
-  100% {
-    transform: scaleY(1);
-  }
-  2.5%,
-  8.5% {
-    transform: scaleY(0.08);
   }
 }
 
@@ -590,7 +447,7 @@ textarea:hover::-webkit-scrollbar-thumb {
     animation: none;
   }
 
-  :deep(.new-chat-logo.is-animated .slimebot-logo__eye) {
+  .new-chat-logo.is-animated .slimebot-logo__eye {
     animation: none;
   }
 
@@ -598,7 +455,7 @@ textarea:hover::-webkit-scrollbar-thumb {
     animation: none;
   }
 
-  :deep(.chat-ai-avatar-animated .slimebot-logo__eye) {
+  .chat-ai-avatar-animated .slimebot-logo__eye {
     animation: none;
   }
 

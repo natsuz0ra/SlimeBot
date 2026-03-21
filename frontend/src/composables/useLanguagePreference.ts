@@ -51,6 +51,13 @@ export function useLanguagePreference() {
 
   const currentLanguageLabel = computed(() => t(language.value === 'zh-CN' ? 'chinese' : 'english'))
 
+  const languageSelectOptions = computed(() =>
+    languageOptions.map((option) => ({
+      value: option.value,
+      label: t(option.labelKey),
+    })),
+  )
+
   function ensureAuthHydrated() {
     if (!authStore.initialized) authStore.hydrate()
   }
@@ -136,6 +143,7 @@ export function useLanguagePreference() {
   return {
     language,
     languageOptions,
+    languageSelectOptions,
     currentLanguageLabel,
     savingLanguage,
     loadLanguage,

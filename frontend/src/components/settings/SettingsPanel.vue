@@ -1,18 +1,29 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { mdiClose, mdiDeleteOutline, mdiPencilOutline, mdiPlus } from '@mdi/js'
+import { mdiClose } from '@mdi/js'
 import CodeMirror from 'vue-codemirror6'
 import { json } from '@codemirror/lang-json'
 import { oneDark } from '@codemirror/theme-one-dark'
 import { lineNumbers } from '@codemirror/view'
 
-import MdiIcon from '@/components/MdiIcon.vue'
-import BaseDialog from '@/components/ui/BaseDialog.vue'
-import LanguageSwitcher from '@/components/ui/LanguageSwitcher.vue'
-import AppSelect from '@/components/ui/AppSelect.vue'
+import MdiIcon from '@/components/ui/MdiIcon.vue'
+import AppDialog from '@/components/ui/AppDialog.vue'
+import AppTextInput from '@/components/ui/AppTextInput.vue'
+import AppPasswordInput from '@/components/ui/AppPasswordInput.vue'
+import LoadingSpinner from '@/components/ui/LoadingSpinner.vue'
+import SettingsBasicTab from '@/components/settings/SettingsBasicTab.vue'
+import SettingsLLMTab from '@/components/settings/SettingsLLMTab.vue'
+import SettingsMCPTab from '@/components/settings/SettingsMCPTab.vue'
+import SettingsSkillsTab from '@/components/settings/SettingsSkillsTab.vue'
+import SettingsPlatformTab from '@/components/settings/SettingsPlatformTab.vue'
 import AccountEditDialog from '@/components/settings/AccountEditDialog.vue'
-import { llmAPI, mcpAPI, skillsAPI, messagePlatformAPI, settingAPI, type AppSettings } from '@/api/settings'
+import { settingAPI } from '@/api/settings'
+import { llmAPI } from '@/api/llm'
+import { mcpAPI } from '@/api/mcp'
+import { skillsAPI } from '@/api/skills'
+import { messagePlatformAPI } from '@/api/messagePlatform'
+import type { AppSettings } from '@/types/settings'
 import { useToast } from '@/composables/useToast'
 import { useLanguagePreference, type LanguageCode } from '@/composables/useLanguagePreference'
 import { useAuthStore } from '@/stores/auth'
@@ -29,7 +40,7 @@ const toast = useToast()
 const authStore = useAuthStore()
 const chatStore = useChatStore()
 const router = useRouter()
-const { language, languageOptions, savingLanguage, loadLanguage, changeLanguage } = useLanguagePreference()
+const { language, languageSelectOptions, savingLanguage, loadLanguage, changeLanguage } = useLanguagePreference()
 
 const tab = ref<'basic' | 'llm' | 'mcp' | 'skills' | 'platform'>('basic')
 const llmList = ref<any[]>([])
@@ -66,12 +77,6 @@ const mcpEditorExtensions = [lineNumbers(), json(), oneDark]
 
 const llmRows = computed(() => llmList.value || [])
 const mcpRows = computed(() => mcpList.value || [])
-const languageSelectOptions = computed(() =>
-  languageOptions.map((option) => ({
-    value: option.value,
-    label: t(option.labelKey),
-  })),
-)
 const skillsRows = computed(() =>
   [...(skillsList.value || [])].sort((a, b) => {
     const aTime = new Date(a.uploadedAt || 0).getTime()
@@ -460,265 +465,70 @@ onMounted(loadData)
 
       <!-- 右侧内容 -->
       <section class="flex-1 min-w-0 overflow-y-auto px-5 py-5 relative settings-content">
-        <!-- 加载遮罩 -->
         <div v-if="loading" class="absolute inset-0 flex items-center justify-center z-10" style="background: rgba(var(--bg-main), 0.7)">
-          <svg class="animate-spin w-5 h-5" style="color: #6366f1" fill="none" viewBox="0 0 24 24">
-            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" />
-            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
-          </svg>
+          <LoadingSpinner />
         </div>
 
-        <!-- ── 基础设置 ── -->
-        <div v-if="tab === 'basic'">
-          <p class="section-label">{{ t('basicSettings') }}</p>
-          <div class="settings-card flex items-center justify-between px-4 py-3.5 rounded-xl mb-2">
-            <span class="text-sm settings-field-label">{{ t('accountEdit') }}</span>
-            <button
-              type="button"
-              class="px-3 py-1.5 text-xs rounded-lg cursor-pointer account-edit-btn"
-              @click="openAccountDialog"
-            >
-              {{ t('accountEditAction') }}
-            </button>
-          </div>
-          <div class="settings-card flex items-center justify-between px-4 py-3.5 rounded-xl">
-            <span class="text-sm settings-field-label">{{ t('language') }}</span>
-            <LanguageSwitcher
-              :model-value="language"
-              :options="languageSelectOptions"
-              :disabled="savingLanguage"
-              shadow-mode="none"
-              :aria-label="t('selectLanguage')"
-              @update:model-value="onLanguageChange($event as any)"
+        <SettingsBasicTab
+          v-if="tab === 'basic'"
+          :language="language"
+          :language-select-options="languageSelectOptions"
+          :saving-language="savingLanguage"
+          @open-account="openAccountDialog"
+          @logout="logout"
+          @language-change="onLanguageChange"
+        />
+
+        <SettingsLLMTab v-if="tab === 'llm'" :llm-rows="llmRows" @add="openLLMDialog" @delete="deleteLLM" />
+
+        <SettingsMCPTab
+          v-if="tab === 'mcp'"
+          :mcp-rows="mcpRows"
+          :mcp-preview="mcpPreview"
+          :update-mcp="updateMCP"
+          @add="openMCPDialog"
+          @edit="openMCPEditDialog"
+          @delete="deleteMCP"
+        />
+
+        <SettingsSkillsTab
+          v-if="tab === 'skills'"
+          :skills-rows="skillsRows"
+          :skills-uploading="skillsUploading"
+          :skills-drop-active="skillsDropActive"
+          @open-picker="openSkillsPicker"
+          @drop="onSkillsDrop"
+          @drag-over="onSkillsDragOver"
+          @drag-leave="onSkillsDragLeave"
+          @delete="deleteSkill"
+        >
+          <template #file-input>
+            <input
+              ref="skillsFileInputRef"
+              type="file"
+              class="hidden"
+              accept=".zip,application/zip"
+              multiple
+              @change="onSkillsInputChange"
             />
-          </div>
-          <button
-            type="button"
-            class="settings-card w-full mt-2 px-4 py-3.5 rounded-xl text-left text-sm cursor-pointer logout-btn"
-            @click="logout"
-          >
-            {{ t('logout') }}
-          </button>
-        </div>
+          </template>
+        </SettingsSkillsTab>
 
-        <!-- ── LLM 设置 ── -->
-        <div v-if="tab === 'llm'">
-          <div class="flex items-center justify-between mb-4">
-            <p class="section-label mb-0">{{ t('llmSettings') }}</p>
-            <button
-              type="button"
-              class="action-btn flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-xl cursor-pointer"
-              @click="openLLMDialog"
-            >
-              <MdiIcon :path="mdiPlus" :size="13" />
-              {{ t('add') }}
-            </button>
-          </div>
-          <div class="flex flex-col gap-2">
-            <div
-              v-for="item in llmRows"
-              :key="item.id"
-              class="settings-card flex items-center gap-3 px-4 py-3.5 rounded-xl"
-            >
-              <div class="flex-1 min-w-0">
-                <div class="text-sm font-medium settings-item-name truncate">
-                  {{ item.name }}
-                  <span class="font-normal settings-item-meta"> · {{ item.model }}</span>
-                </div>
-                <div class="text-xs settings-item-sub truncate mt-0.5">{{ item.baseUrl }}</div>
-              </div>
-              <button
-                type="button"
-                class="flex-shrink-0 w-7 h-7 flex items-center justify-center rounded-lg transition-all duration-150 cursor-pointer delete-btn"
-                @click="deleteLLM(item.id)"
-              >
-                <MdiIcon :path="mdiDeleteOutline" :size="15" />
-              </button>
-            </div>
-            <div v-if="llmRows.length === 0" class="empty-state text-center py-10 text-sm rounded-xl">
-              {{ t('add') }} LLM
-            </div>
-          </div>
-        </div>
-
-        <!-- ── MCP 设置 ── -->
-        <div v-if="tab === 'mcp'">
-          <div class="flex items-center justify-between mb-4">
-            <p class="section-label mb-0">{{ t('mcpSettings') }}</p>
-            <button
-              type="button"
-              class="action-btn flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-xl cursor-pointer"
-              @click="openMCPDialog"
-            >
-              <MdiIcon :path="mdiPlus" :size="13" />
-              {{ t('add') }}
-            </button>
-          </div>
-          <div class="flex flex-col gap-2">
-            <div
-              v-for="item in mcpRows"
-              :key="item.id"
-              class="settings-card flex items-center gap-3 px-4 py-3.5 rounded-xl"
-            >
-              <div class="flex-1 min-w-0">
-                <div class="text-sm font-medium settings-item-name">{{ item.name }}</div>
-                <div class="text-xs settings-item-sub mt-0.5">{{ mcpPreview(item) }}</div>
-              </div>
-              <div class="flex items-center gap-2 flex-shrink-0">
-                <!-- 开关 -->
-                <button
-                  type="button"
-                  class="relative w-9 h-5 rounded-full transition-all duration-200 cursor-pointer flex-shrink-0"
-                  :class="item.isEnabled ? 'mcp-toggle-on' : 'mcp-toggle-off'"
-                  @click="item.isEnabled = !item.isEnabled; updateMCP(item)"
-                >
-                  <span
-                    class="absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full shadow-sm transition-transform duration-200"
-                    :class="item.isEnabled ? 'translate-x-4' : 'translate-x-0'"
-                  />
-                </button>
-                <!-- 编辑 -->
-                <button
-                  type="button"
-                  class="w-7 h-7 flex items-center justify-center rounded-lg transition-all duration-150 cursor-pointer edit-btn"
-                  @click="openMCPEditDialog(item)"
-                >
-                  <MdiIcon :path="mdiPencilOutline" :size="14" />
-                </button>
-                <!-- 删除 -->
-                <button
-                  type="button"
-                  class="w-7 h-7 flex items-center justify-center rounded-lg transition-all duration-150 cursor-pointer delete-btn"
-                  @click="deleteMCP(item.id)"
-                >
-                  <MdiIcon :path="mdiDeleteOutline" :size="15" />
-                </button>
-              </div>
-            </div>
-            <div v-if="mcpRows.length === 0" class="empty-state text-center py-10 text-sm rounded-xl">
-              {{ t('add') }} MCP
-            </div>
-          </div>
-        </div>
-
-        <!-- ── Skills 设置 ── -->
-        <div v-if="tab === 'skills'">
-          <div class="flex items-center justify-between mb-1">
-            <p class="section-label mb-0">{{ t('skillsSettings') }}</p>
-            <button
-              type="button"
-              class="action-btn flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-xl cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-              :disabled="skillsUploading"
-              @click="openSkillsPicker"
-            >
-              <svg v-if="skillsUploading" class="animate-spin w-3 h-3" fill="none" viewBox="0 0 24 24">
-                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" />
-                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
-              </svg>
-              <MdiIcon v-else :path="mdiPlus" :size="13" />
-              {{ t('skillsUploadButton') }}
-            </button>
-          </div>
-          <p class="text-xs mb-3 settings-item-sub">{{ t('skillsDescription') }}</p>
-
-          <!-- 拖拽上传区 -->
-          <div
-            class="drop-zone rounded-xl px-4 py-6 text-center text-sm cursor-pointer transition-all duration-200 mb-3"
-            :class="skillsDropActive ? 'drop-zone-active' : 'drop-zone-idle'"
-            @dragover="onSkillsDragOver"
-            @dragleave="onSkillsDragLeave"
-            @drop="onSkillsDrop"
-            @click="openSkillsPicker"
-          >
-            {{ t('skillsUploadHint') }}
-          </div>
-          <input
-            ref="skillsFileInputRef"
-            type="file"
-            class="hidden"
-            accept=".zip,application/zip"
-            multiple
-            @change="onSkillsInputChange"
-          />
-
-          <div v-if="skillsRows.length === 0" class="empty-state text-center py-8 text-sm rounded-xl">
-            {{ t('skillsEmpty') }}
-          </div>
-          <div v-else class="flex flex-col gap-2">
-            <div
-              v-for="item in skillsRows"
-              :key="item.id"
-              class="settings-card flex items-start gap-3 px-4 py-3.5 rounded-xl"
-            >
-              <div class="flex-1 min-w-0">
-                <div class="text-sm font-medium settings-item-name">{{ item.name }}</div>
-                <div v-if="item.description" class="text-xs settings-item-sub mt-0.5">{{ item.description }}</div>
-                <div v-if="item.relativePath" class="text-xs mt-0.5 font-mono" style="color: var(--text-muted)">{{ item.relativePath }}</div>
-              </div>
-              <button
-                type="button"
-                class="flex-shrink-0 w-7 h-7 flex items-center justify-center rounded-lg transition-all duration-150 cursor-pointer delete-btn"
-                @click="deleteSkill(item.id)"
-              >
-                <MdiIcon :path="mdiDeleteOutline" :size="15" />
-              </button>
-            </div>
-          </div>
-        </div>
-
-        <!-- ── 消息平台设置 ── -->
-        <div v-if="tab === 'platform'">
-          <p class="section-label">{{ t('messagePlatformSettings') }}</p>
-          <div class="settings-card flex items-center justify-between px-4 py-3.5 rounded-xl mb-2">
-            <span class="text-sm settings-field-label">{{ t('messagePlatformDefaultModel') }}</span>
-            <AppSelect
-              :model-value="messagePlatformDefaultModel"
-              :options="messagePlatformModelOptions"
-              :disabled="llmRows.length === 0"
-              @update:model-value="saveMessagePlatformDefaultModel($event)"
-            />
-          </div>
-          <div class="settings-card flex items-center gap-3 px-4 py-3.5 rounded-xl">
-            <img src="/im_icon/telegram.svg" alt="telegram" class="w-5 h-5 flex-shrink-0" />
-            <div class="flex-1 min-w-0">
-              <div class="text-sm font-medium settings-item-name">{{ t('telegram') }}</div>
-            </div>
-            <template v-if="telegramConfig">
-              <button
-                type="button"
-                class="relative w-9 h-5 rounded-full transition-all duration-200 cursor-pointer flex-shrink-0"
-                :class="telegramConfig.isEnabled ? 'mcp-toggle-on' : 'mcp-toggle-off'"
-                @click="toggleTelegramEnabled"
-              >
-                <span
-                  class="absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full shadow-sm transition-transform duration-200"
-                  :class="telegramConfig.isEnabled ? 'translate-x-4' : 'translate-x-0'"
-                />
-              </button>
-              <button
-                type="button"
-                class="px-3 py-1.5 text-xs rounded-lg cursor-pointer account-edit-btn"
-                @click="openMessagePlatformDialog"
-              >
-                {{ t('editConfig') }}
-              </button>
-            </template>
-            <button
-              v-else
-              type="button"
-              class="action-btn px-3 py-1.5 text-xs font-medium rounded-xl cursor-pointer"
-              @click="openMessagePlatformDialog"
-            >
-              {{ t('bind') }}
-            </button>
-          </div>
-        </div>
+        <SettingsPlatformTab
+          v-if="tab === 'platform'"
+          :message-platform-default-model="messagePlatformDefaultModel"
+          :message-platform-model-options="messagePlatformModelOptions"
+          :llm-rows-empty="llmRows.length === 0"
+          :telegram-config="telegramConfig"
+          @update:message-platform-default-model="saveMessagePlatformDefaultModel($event)"
+          @toggle-telegram="toggleTelegramEnabled"
+          @open-bind="openMessagePlatformDialog"
+        />
       </section>
     </div>
   </div>
 
-  <!-- 新增 LLM 弹窗 -->
-  <BaseDialog
+  <AppDialog
     v-model:visible="llmDialogVisible"
     :title="t('addModel')"
     :confirm-text="t('confirm')"
@@ -728,28 +538,26 @@ onMounted(loadData)
     @confirm="addLLM"
   >
     <div class="flex flex-col gap-4">
-      <div
-        v-for="field in [
-          { key: 'name', label: t('name'), type: 'text' },
-          { key: 'model', label: t('model'), type: 'text' },
-          { key: 'baseUrl', label: t('baseUrl'), type: 'text' },
-          { key: 'apiKey', label: t('apiKey'), type: 'password' },
-        ]"
-        :key="field.key"
-        class="flex flex-col gap-1.5"
-      >
-        <label class="text-xs font-medium" style="color: var(--text-muted)">{{ field.label }}</label>
-        <input
-          v-model="(llmForm as any)[field.key]"
-          :type="field.type"
-          class="settings-input px-3 py-2.5 text-sm rounded-xl outline-none transition-all duration-150"
-        />
+      <div class="flex flex-col gap-1.5">
+        <label class="text-xs font-medium sb-text-muted">{{ t('name') }}</label>
+        <AppTextInput v-model="llmForm.name" />
+      </div>
+      <div class="flex flex-col gap-1.5">
+        <label class="text-xs font-medium sb-text-muted">{{ t('model') }}</label>
+        <AppTextInput v-model="llmForm.model" />
+      </div>
+      <div class="flex flex-col gap-1.5">
+        <label class="text-xs font-medium sb-text-muted">{{ t('baseUrl') }}</label>
+        <AppTextInput v-model="llmForm.baseUrl" />
+      </div>
+      <div class="flex flex-col gap-1.5">
+        <label class="text-xs font-medium sb-text-muted">{{ t('apiKey') }}</label>
+        <AppPasswordInput v-model="llmForm.apiKey" />
       </div>
     </div>
-  </BaseDialog>
+  </AppDialog>
 
-  <!-- 通用确认弹窗 -->
-  <BaseDialog
+  <AppDialog
     v-model:visible="confirmDialogVisible"
     :title="t('delete')"
     :confirm-text="t('confirm')"
@@ -758,11 +566,10 @@ onMounted(loadData)
     width="360px"
     @confirm="runConfirmDialog"
   >
-    <p class="text-sm" style="color: var(--text-secondary)">{{ t('confirmDeleteItem') }}</p>
-  </BaseDialog>
+    <p class="text-sm sb-text-secondary">{{ t('confirmDeleteItem') }}</p>
+  </AppDialog>
 
-  <!-- 新增/编辑 MCP 弹窗 -->
-  <BaseDialog
+  <AppDialog
     v-model:visible="mcpDialogVisible"
     :title="mcpDialogTitle"
     :confirm-text="t('confirm')"
@@ -773,17 +580,13 @@ onMounted(loadData)
   >
     <div class="flex flex-col gap-4">
       <div class="flex flex-col gap-1.5">
-        <label class="text-xs font-medium" style="color: var(--text-muted)">{{ t('name') }}</label>
-        <input
-          v-model="mcpForm.name"
-          type="text"
-          class="settings-input px-3 py-2.5 text-sm rounded-xl outline-none transition-all duration-150"
-        />
+        <label class="text-xs font-medium sb-text-muted">{{ t('name') }}</label>
+        <AppTextInput v-model="mcpForm.name" />
       </div>
 
       <div class="flex flex-col gap-1.5">
         <div class="flex items-center justify-between">
-          <label class="text-xs font-medium" style="color: var(--text-muted)">{{ t('mcpConfigJson') }}</label>
+          <label class="text-xs font-medium sb-text-muted">{{ t('mcpConfigJson') }}</label>
           <div class="flex items-center gap-1">
             <button
               v-for="tpl in ['stdio', 'sse', 'streamable_http'] as const"
@@ -797,7 +600,7 @@ onMounted(loadData)
             </button>
           </div>
         </div>
-        <div class="rounded-xl overflow-hidden" style="border: 1px solid rgba(99,102,241,0.2)">
+        <div class="rounded-xl overflow-hidden" style="border: 1px solid var(--primary-alpha-20)">
           <CodeMirror
             v-model="mcpForm.config"
             class="json-codemirror"
@@ -809,14 +612,14 @@ onMounted(loadData)
         </div>
       </div>
     </div>
-  </BaseDialog>
+  </AppDialog>
 
   <AccountEditDialog
     v-model:visible="accountDialogVisible"
     @success="onAccountUpdated"
   />
 
-  <BaseDialog
+  <AppDialog
     v-model:visible="messagePlatformDialogVisible"
     :title="t('messagePlatformBindTitle')"
     :confirm-text="t('confirm')"
@@ -828,254 +631,13 @@ onMounted(loadData)
     <div class="flex flex-col gap-3">
       <p class="text-xs settings-item-sub">{{ t('messagePlatformBindDesc') }}</p>
       <div class="flex flex-col gap-1.5">
-        <label class="text-xs font-medium" style="color: var(--text-muted)">{{ t('botToken') }}</label>
-        <input
-          v-model="messagePlatformForm.botToken"
-          type="password"
-          class="settings-input px-3 py-2.5 text-sm rounded-xl outline-none transition-all duration-150"
-        />
+        <label class="text-xs font-medium sb-text-muted">{{ t('botToken') }}</label>
+        <AppPasswordInput v-model="messagePlatformForm.botToken" />
       </div>
     </div>
-  </BaseDialog>
+  </AppDialog>
 </template>
 
-<style scoped>
-/* Root */
-.settings-root {
-  background: var(--bg-main);
-}
-
-/* Header */
-.settings-header {
-  border-bottom: 1px solid var(--card-border);
-  background: var(--header-bg);
-  height: 52px;
-}
-
-.settings-title {
-  color: var(--text-primary);
-}
-
-.settings-close-btn {
-  color: var(--text-muted);
-}
-.settings-close-btn:hover {
-  background: rgba(99, 102, 241, 0.08);
-  color: var(--text-primary);
-}
-
-/* Sidebar */
-.settings-sidebar {
-  border-right: 1px solid var(--card-border);
-  background: var(--sidebar-bg);
-}
-
-.settings-tab-active {
-  background: rgba(99, 102, 241, 0.12);
-  color: #6366f1;
-  font-weight: 600;
-}
-.settings-tab-inactive {
-  color: var(--text-secondary);
-}
-.settings-tab-inactive:hover {
-  background: rgba(99, 102, 241, 0.07);
-  color: var(--text-primary);
-}
-
-/* Content */
-.settings-content {
-  background: var(--bg-main);
-}
-
-/* Section label */
-.section-label {
-  font-size: 11px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: var(--text-muted);
-  margin-bottom: 12px;
-}
-
-/* Cards */
-.settings-card {
-  background: var(--card-bg);
-  border: 1px solid var(--card-border);
-}
-
-.settings-field-label {
-  color: var(--text-primary);
-}
-
-.settings-item-name {
-  color: var(--text-primary);
-}
-.settings-item-meta {
-  color: var(--text-muted);
-}
-.settings-item-sub {
-  color: var(--text-muted);
-}
-
-/* Buttons */
-.action-btn {
-  background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%);
-  color: white;
-  box-shadow: 0 2px 8px rgba(99, 102, 241, 0.3);
-  transition: box-shadow 0.15s, transform 0.15s;
-}
-.action-btn:not(:disabled):hover {
-  box-shadow: 0 4px 12px rgba(99, 102, 241, 0.4);
-  transform: translateY(-1px);
-}
-
-.edit-btn {
-  color: var(--text-muted);
-}
-.edit-btn:hover {
-  background: rgba(99, 102, 241, 0.1);
-  color: #6366f1;
-}
-
-.delete-btn {
-  color: var(--text-muted);
-}
-.delete-btn:hover {
-  background: rgba(239, 68, 68, 0.1);
-  color: #ef4444;
-}
-
-.account-edit-btn {
-  border: 1px solid var(--input-border);
-  background: var(--input-bg);
-  color: var(--text-secondary);
-}
-
-.account-edit-btn:hover {
-  background: rgba(99, 102, 241, 0.08);
-  color: var(--text-primary);
-}
-
-.logout-btn {
-  color: #ef4444;
-  border: 1px solid rgba(239, 68, 68, 0.18);
-  background: rgba(239, 68, 68, 0.04);
-  transition: all 0.15s;
-}
-
-.logout-btn:hover {
-  background: rgba(239, 68, 68, 0.1);
-}
-
-/* MCP toggle */
-.mcp-toggle-on {
-  background: #6366f1;
-  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.2);
-}
-.mcp-toggle-off {
-  background: rgba(99, 102, 241, 0.15);
-}
-
-/* Empty state */
-.empty-state {
-  border: 1px dashed var(--card-border);
-  color: var(--text-muted);
-}
-
-/* Drop zone */
-.drop-zone {
-  border: 1.5px dashed var(--card-border);
-  color: var(--text-muted);
-}
-.drop-zone-idle:hover {
-  border-color: rgba(99, 102, 241, 0.4);
-  background: rgba(99, 102, 241, 0.04);
-  color: #6366f1;
-}
-.drop-zone-active {
-  border-color: #6366f1;
-  background: rgba(99, 102, 241, 0.08);
-  color: #6366f1;
-}
-
-/* Input fields */
-.settings-input {
-  background: var(--input-bg);
-  border: 1px solid var(--input-border);
-  color: var(--text-primary);
-  width: 100%;
-}
-.settings-input:focus {
-  border-color: #6366f1;
-  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.12);
-}
-.settings-input::placeholder {
-  color: var(--text-muted);
-}
-
-/* Template buttons */
-.tpl-btn-active {
-  background: rgba(99, 102, 241, 0.15);
-  color: #6366f1;
-  border: 1px solid rgba(99, 102, 241, 0.3);
-  font-weight: 500;
-}
-.tpl-btn-inactive {
-  background: var(--input-bg);
-  border: 1px solid var(--input-border);
-  color: var(--text-secondary);
-}
-.tpl-btn-inactive:hover {
-  background: rgba(99, 102, 241, 0.07);
-  color: var(--text-primary);
-}
-
-/* CodeMirror */
-.json-codemirror :deep(.cm-editor) {
-  height: 100%;
-  background: #1e1e1e;
-}
-.json-codemirror :deep(.cm-scroller) {
-  font-family: 'Consolas', 'Courier New', monospace;
-  font-size: 12px;
-  line-height: 1.6;
-}
-.json-codemirror :deep(.cm-gutters) {
-  background: #1e1e1e;
-  border-right: 1px solid #313131;
-}
-
-/* Responsive */
-@media (max-width: 640px) {
-  .settings-body {
-    flex-direction: column;
-    min-height: 0;
-  }
-
-  .settings-sidebar {
-    width: 100% !important;
-    flex-direction: row !important;
-    overflow-x: auto;
-    overflow-y: hidden;
-    padding: 8px 10px;
-    gap: 6px;
-    border-right: none !important;
-    border-bottom: 1px solid var(--card-border);
-  }
-
-  .settings-tab {
-    width: auto;
-    min-width: max-content;
-    flex: 0 0 auto;
-    white-space: nowrap;
-  }
-
-  .settings-content {
-    min-width: 0;
-    min-height: 0;
-    flex: 1 1 auto;
-    padding: 12px 14px;
-  }
-}
+<style>
+@import './settings-panel.css';
 </style>

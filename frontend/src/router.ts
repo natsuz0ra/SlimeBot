@@ -1,18 +1,39 @@
 import { createRouter, createWebHistory } from 'vue-router'
-
-import HomePage from '@/pages/HomePage.vue'
-import LoginPage from '@/pages/LoginPage.vue'
-import SettingsPage from '@/pages/SettingsPage.vue'
 import { useAuthStore } from '@/stores/auth'
 
 const router = createRouter({
   history: createWebHistory(),
   routes: [
-    { path: '/login', name: 'login', component: LoginPage, meta: { requiresAuth: false } },
-    { path: '/', name: 'home', component: HomePage, meta: { requiresAuth: true } },
-    { path: '/chat/new_chat', name: 'new-chat', component: HomePage, meta: { requiresAuth: true } },
-    { path: '/chat/:sessionId', name: 'chat', component: HomePage, meta: { requiresAuth: true } },
-    { path: '/settings', name: 'settings', component: SettingsPage, meta: { requiresAuth: true } },
+    {
+      path: '/login',
+      name: 'login',
+      component: () => import('@/pages/LoginPage.vue'),
+      meta: { requiresAuth: false },
+    },
+    {
+      path: '/',
+      name: 'home',
+      component: () => import('@/pages/HomePage.vue'),
+      meta: { requiresAuth: true },
+    },
+    {
+      path: '/chat/new_chat',
+      name: 'new-chat',
+      component: () => import('@/pages/HomePage.vue'),
+      meta: { requiresAuth: true },
+    },
+    {
+      path: '/chat/:sessionId',
+      name: 'chat',
+      component: () => import('@/pages/HomePage.vue'),
+      meta: { requiresAuth: true },
+    },
+    {
+      path: '/settings',
+      name: 'settings',
+      component: () => import('@/pages/SettingsPage.vue'),
+      meta: { requiresAuth: true },
+    },
   ],
 })
 

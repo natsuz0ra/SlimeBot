@@ -1,4 +1,7 @@
 import { apiClient } from './client'
+import type { ToolCallStatus } from '@/types/chat'
+
+export type { ToolCallStatus } from '@/types/chat'
 
 export const MESSAGE_PLATFORM_SESSION_ID = 'im-platform-session'
 
@@ -32,8 +35,6 @@ export interface MessageAttachmentItem {
 export interface UploadedAttachmentItem extends MessageAttachmentItem {
   id: string
 }
-
-export type ToolCallStatus = 'pending' | 'rejected' | 'executing' | 'completed' | 'error'
 
 export interface SessionHistoryToolCallItem {
   toolCallId: string

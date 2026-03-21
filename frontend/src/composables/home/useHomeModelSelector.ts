@@ -1,5 +1,6 @@
 import { computed, ref } from 'vue'
-import { llmAPI, type LLMConfig } from '@/api/settings'
+import { llmAPI } from '@/api/llm'
+import type { LLMConfig } from '@/types/settings'
 
 const MODEL_STORAGE_KEY = 'slimebot:selectedModelId'
 

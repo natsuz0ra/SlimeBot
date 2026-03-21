@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
-import BaseDialog from '@/components/ui/BaseDialog.vue'
+import AppDialog from '@/components/ui/AppDialog.vue'
 import AppTextInput from '@/components/ui/AppTextInput.vue'
 import AppPasswordInput from '@/components/ui/AppPasswordInput.vue'
 import { useToast } from '@/composables/useToast'
@@ -132,7 +132,7 @@ function onCancel() {
 </script>
 
 <template>
-  <BaseDialog
+  <AppDialog
     :visible="visible"
     :title="title"
     :confirm-text="t('confirm')"
@@ -191,14 +191,14 @@ function onCancel() {
         <p v-if="newPasswordError" class="account-error-text text-xs">{{ newPasswordError }}</p>
       </div>
     </div>
-  </BaseDialog>
+  </AppDialog>
 </template>
 
 <style scoped>
 .account-force-tip {
-  color: #6366f1;
-  background: rgba(99, 102, 241, 0.08);
-  border: 1px solid rgba(99, 102, 241, 0.2);
+  color: var(--sb-brand);
+  background: var(--primary-alpha-08);
+  border: 1px solid var(--primary-alpha-20);
   border-radius: 12px;
   padding: 10px 12px;
 }
@@ -208,17 +208,17 @@ function onCancel() {
 }
 
 .account-error-text {
-  color: #ef4444;
+  color: var(--color-danger);
 }
 
 :deep(.account-input-error) {
-  border-color: rgba(239, 68, 68, 0.9) !important;
-  box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.14) !important;
+  border-color: color-mix(in srgb, var(--color-danger) 90%, transparent) !important;
+  box-shadow: 0 0 0 3px var(--danger-alpha-14) !important;
 }
 
 :deep(.account-input-error:focus) {
-  border-color: rgba(239, 68, 68, 0.95) !important;
-  box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.16) !important;
+  border-color: color-mix(in srgb, var(--color-danger) 95%, transparent) !important;
+  box-shadow: 0 0 0 3px var(--danger-alpha-16) !important;
 }
 
 :deep(.account-input-shake) {

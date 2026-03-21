@@ -2,8 +2,8 @@
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { mdiWeatherNight, mdiWeatherSunny } from '@mdi/js'
-import MdiIcon from '@/components/MdiIcon.vue'
-import SlimeBotLogo from '@/components/ui/SlimeBotLogo.vue'
+import MdiIcon from '@/components/ui/MdiIcon.vue'
+import AppLogo from '@/components/ui/AppLogo.vue'
 import AppTextInput from '@/components/ui/AppTextInput.vue'
 import AppPasswordInput from '@/components/ui/AppPasswordInput.vue'
 import LanguageSwitcher from '@/components/ui/LanguageSwitcher.vue'
@@ -28,6 +28,7 @@ const submitting = ref(false)
 const {
   language,
   languageOptions,
+  languageSelectOptions,
   savingLanguage,
   loadLanguage,
   changeLanguage,
@@ -35,12 +36,6 @@ const {
 } = useLanguagePreference()
 
 const canSubmit = computed(() => !!username.value.trim() && !!password.value.trim())
-const languageSelectOptions = computed(() =>
-  languageOptions.map((option) => ({
-    value: option.value,
-    label: t(option.labelKey),
-  })),
-)
 
 async function onLanguageChange(nextLanguage: (typeof languageOptions)[number]['value']) {
   await changeLanguage(nextLanguage, { allowRemote: false })
@@ -112,7 +107,7 @@ onMounted(async () => {
     <div class="login-content-layer">
       <div class="login-card w-full max-w-[420px] mx-auto rounded-2xl p-5 sm:p-7">
         <div class="logo-row login-brand-row login-fade-in-up flex items-center justify-center gap-3">
-          <SlimeBotLogo :size="88" animated class="login-brand-logo" />
+          <AppLogo :size="88" animated class="login-brand-logo" />
           <span class="brand-tech-font logo-text">SlimeBot</span>
         </div>
 
@@ -136,7 +131,7 @@ onMounted(async () => {
           </div>
           <button
             type="button"
-            class="login-submit input-animate input-animate-3 w-full rounded-xl py-2.5 text-sm font-semibold cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+            class="btn-primary login-submit input-animate input-animate-3 w-full rounded-xl py-2.5 text-sm font-semibold cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
             :disabled="!canSubmit || submitting"
             @click="login"
           >

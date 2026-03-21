@@ -1,4 +1,5 @@
 import { getAuthToken } from '@/utils/authStorage'
+import type { ToolCallStatus } from '@/types/chat'
 
 type Handlers = {
   onSession: (sessionId: string) => void
@@ -31,7 +32,7 @@ export interface ToolCallResultData {
   toolName: string
   command: string
   requiresApproval: boolean
-  status: 'pending' | 'rejected' | 'executing' | 'completed' | 'error'
+  status: ToolCallStatus
   output: string
   error: string
 }
@@ -48,7 +49,7 @@ type WSIncoming = {
   command?: string
   params?: Record<string, string>
   requiresApproval?: boolean
-  status?: 'pending' | 'rejected' | 'executing' | 'completed' | 'error'
+  status?: ToolCallStatus
   preamble?: string
   output?: string
   isInterrupted?: boolean

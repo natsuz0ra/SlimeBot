@@ -15,7 +15,6 @@ import (
 	"slimebot/internal/domain"
 )
 
-// MemoryVectorRepository 会话记忆向量的 Qdrant 适配：按 session 幂等 upsert 与相似检索。
 type MemoryVectorRepository struct {
 	qdrantURL  string
 	collection string
@@ -31,6 +30,7 @@ type qdrantVectorClient interface {
 	CreateFieldIndex(ctx context.Context, request *qdrant.CreateFieldIndexCollection) (*qdrant.UpdateResult, error)
 	Upsert(ctx context.Context, request *qdrant.UpsertPoints) (*qdrant.UpdateResult, error)
 	Query(ctx context.Context, request *qdrant.QueryPoints) ([]*qdrant.ScoredPoint, error)
+	Delete(ctx context.Context, request *qdrant.DeletePoints) (*qdrant.UpdateResult, error)
 	Close() error
 }
 
@@ -66,12 +66,15 @@ func NewMemoryVectorRepositoryWithClient(client qdrantVectorClient, collection s
 	}
 }
 
-// UpsertSessionMemoryVector 以 session_id 为点 ID（或派生）写入稠密向量与 payload，集合不存在则创建。
 func (r *MemoryVectorRepository) UpsertSessionMemoryVector(ctx context.Context, input domain.MemoryVectorUpsertInput) error {
 	if err := r.validateConfig(); err != nil {
 		return err
 	}
+	memoryID := strings.TrimSpace(input.MemoryID)
 	sessionID := strings.TrimSpace(input.SessionID)
+	if memoryID == "" {
+		return fmt.Errorf("memory_id cannot be empty")
+	}
 	if sessionID == "" {
 		return fmt.Errorf("session_id cannot be empty")
 	}
@@ -84,6 +87,7 @@ func (r *MemoryVectorRepository) UpsertSessionMemoryVector(ctx context.Context, 
 
 	payload := map[string]any{
 		"session_id": sessionID,
+		"memory_id":  memoryID,
 	}
 	for k, v := range input.Payload {
 		payload[k] = v
@@ -99,7 +103,7 @@ func (r *MemoryVectorRepository) UpsertSessionMemoryVector(ctx context.Context, 
 		Wait:           qdrant.PtrOf(false),
 		Points: []*qdrant.PointStruct{
 			{
-				Id:      buildPointID(sessionID),
+				Id:      buildPointID(memoryID),
 				Vectors: qdrant.NewVectorsDense(input.Vector),
 				Payload: payloadValue,
 			},
@@ -111,7 +115,25 @@ func (r *MemoryVectorRepository) UpsertSessionMemoryVector(ctx context.Context, 
 	return nil
 }
 
-// SearchSimilarSessionIDs 余弦相似度查询 TopN，可按 payload.session_id 排除当前会话。
+func (r *MemoryVectorRepository) DeleteMemoryVector(ctx context.Context, memoryID string) error {
+	if err := r.validateConfig(); err != nil {
+		return err
+	}
+	memoryID = strings.TrimSpace(memoryID)
+	if memoryID == "" {
+		return fmt.Errorf("memory_id cannot be empty")
+	}
+	_, err := r.client.Delete(ctx, &qdrant.DeletePoints{
+		CollectionName: r.collection,
+		Wait:           qdrant.PtrOf(false),
+		Points:         qdrant.NewPointsSelector(buildPointID(memoryID)),
+	})
+	if err != nil {
+		return fmt.Errorf("qdrant delete failed: %w", err)
+	}
+	return nil
+}
+
 func (r *MemoryVectorRepository) SearchSimilarSessionIDs(ctx context.Context, queryVector []float32, limit int, excludeSessionID string) ([]domain.MemoryVectorSearchHit, error) {
 	if err := r.validateConfig(); err != nil {
 		return nil, err
@@ -140,21 +162,58 @@ func (r *MemoryVectorRepository) SearchSimilarSessionIDs(ctx context.Context, qu
 	if err != nil {
 		return nil, err
 	}
+	return scoredPointsToMemoryHits(results), nil
+}
+
+func (r *MemoryVectorRepository) SearchMemoriesInSession(ctx context.Context, queryVector []float32, sessionID string, limit int) ([]domain.MemoryVectorSearchHit, error) {
+	if err := r.validateConfig(); err != nil {
+		return nil, err
+	}
+	sessionID = strings.TrimSpace(sessionID)
+	if len(queryVector) == 0 || limit <= 0 || sessionID == "" {
+		return []domain.MemoryVectorSearchHit{}, nil
+	}
+	if err := r.ensureCollection(ctx, len(queryVector)); err != nil {
+		return nil, err
+	}
+	request := &qdrant.QueryPoints{
+		CollectionName: r.collection,
+		Query:          qdrant.NewQueryDense(queryVector),
+		Limit:          qdrant.PtrOf(uint64(limit)),
+		WithPayload:    qdrant.NewWithPayload(true),
+		Filter: &qdrant.Filter{
+			Must: []*qdrant.Condition{
+				qdrant.NewMatch("session_id", sessionID),
+			},
+		},
+	}
+	results, err := r.client.Query(ctx, request)
+	if err != nil {
+		return nil, err
+	}
+	return scoredPointsToMemoryHits(results), nil
+}
+
+func scoredPointsToMemoryHits(results []*qdrant.ScoredPoint) []domain.MemoryVectorSearchHit {
 	hits := make([]domain.MemoryVectorSearchHit, 0, len(results))
 	for _, item := range results {
-		sessionID := extractSessionID(item.GetPayload(), item.GetId())
-		if strings.TrimSpace(sessionID) == "" {
+		sid := extractSessionID(item.GetPayload(), item.GetId())
+		mid := extractMemoryID(item.GetPayload(), item.GetId())
+		if strings.TrimSpace(sid) == "" {
 			continue
 		}
+		if strings.TrimSpace(mid) == "" {
+			mid = sid
+		}
 		hits = append(hits, domain.MemoryVectorSearchHit{
-			SessionID: sessionID,
+			SessionID: sid,
+			MemoryID:  mid,
 			Score:     float64(item.GetScore()),
 		})
 	}
-	return hits, nil
+	return hits
 }
 
-// ensureCollection 懒创建集合（维度与首次写入一致）、session_id 索引，进程内只执行一次。
 func (r *MemoryVectorRepository) ensureCollection(ctx context.Context, vectorDim int) error {
 	r.ensureCollectionMu.Lock()
 	defer r.ensureCollectionMu.Unlock()
@@ -220,7 +279,17 @@ func (r *MemoryVectorRepository) validateConfig() error {
 	return nil
 }
 
-// extractSessionID 优先读 payload.session_id，否则从点 ID（UUID 或数字）还原。
+func extractMemoryID(payload map[string]*qdrant.Value, id *qdrant.PointId) string {
+	if payload != nil {
+		if value, ok := payload["memory_id"]; ok && value != nil {
+			if text := strings.TrimSpace(value.GetStringValue()); text != "" {
+				return text
+			}
+		}
+	}
+	return extractSessionID(payload, id)
+}
+
 func extractSessionID(payload map[string]*qdrant.Value, id *qdrant.PointId) string {
 	if payload != nil {
 		if value, ok := payload["session_id"]; ok && value != nil {
@@ -241,9 +310,8 @@ func extractSessionID(payload map[string]*qdrant.Value, id *qdrant.PointId) stri
 	return ""
 }
 
-// buildPointID UUID 形态直接用；否则对 session_id 做 FNV-1a 映射为数值点 ID。
-func buildPointID(sessionID string) *qdrant.PointId {
-	trimmed := strings.TrimSpace(sessionID)
+func buildPointID(id string) *qdrant.PointId {
+	trimmed := strings.TrimSpace(id)
 	if isUUIDLike(trimmed) {
 		return qdrant.NewID(trimmed)
 	}

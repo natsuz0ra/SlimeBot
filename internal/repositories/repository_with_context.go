@@ -41,6 +41,10 @@ func (r *Repository) GetSessionMemoryWithContext(ctx context.Context, sessionID 
 	return r.withContext(ctx).GetSessionMemory(sessionID)
 }
 
+func (r *Repository) ListActiveSessionMemoriesWithContext(ctx context.Context, sessionID string) ([]domain.SessionMemory, error) {
+	return r.withContext(ctx).ListActiveSessionMemories(sessionID)
+}
+
 func (r *Repository) GetSettingWithContext(ctx context.Context, key string) (string, error) {
 	return r.withContext(ctx).GetSetting(key)
 }

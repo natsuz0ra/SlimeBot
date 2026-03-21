@@ -12,6 +12,13 @@ type SessionMemoryUpsertInput struct {
 	SourceMessageCount int
 }
 
+type SessionMemoryCreateInput struct {
+	SessionID          string
+	Summary            string
+	Keywords           []string
+	SourceMessageCount int
+}
+
 type SessionMemorySearchHit struct {
 	Memory          SessionMemory
 	MatchedKeywords []string
@@ -52,9 +59,12 @@ type ToolCallResultRecordInput struct {
 type MemoryVectorStore interface {
 	UpsertSessionMemoryVector(ctx context.Context, input MemoryVectorUpsertInput) error
 	SearchSimilarSessionIDs(ctx context.Context, queryVector []float32, limit int, excludeSessionID string) ([]MemoryVectorSearchHit, error)
+	SearchMemoriesInSession(ctx context.Context, queryVector []float32, sessionID string, limit int) ([]MemoryVectorSearchHit, error)
+	DeleteMemoryVector(ctx context.Context, memoryID string) error
 }
 
 type MemoryVectorUpsertInput struct {
+	MemoryID  string
 	SessionID string
 	Vector    []float32
 	Payload   map[string]any
@@ -62,5 +72,6 @@ type MemoryVectorUpsertInput struct {
 
 type MemoryVectorSearchHit struct {
 	SessionID string
+	MemoryID  string
 	Score     float64
 }

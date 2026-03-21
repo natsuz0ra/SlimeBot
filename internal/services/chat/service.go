@@ -309,16 +309,7 @@ func (s *ChatService) buildContextMessages(ctx context.Context, sessionID string
 
 	msgs := []ChatMessage{{Role: "system", Content: systemPrompt}}
 	if s.memory != nil {
-		sessionSummary := ""
-		var memoryItem *domain.SessionMemory
-		var memoryErr error
-		memoryItem, memoryErr = s.store.GetSessionMemoryWithContext(ctx, sessionID)
-		if memoryErr != nil {
-			slog.Warn("chat_context_memory_skip", "session", sessionID, "reason", "get_summary_failed", "err", memoryErr)
-		} else if memoryItem != nil {
-			sessionSummary = strings.TrimSpace(memoryItem.Summary)
-		}
-		memoryContext := s.memory.FormatCurrentSessionContext(sessionSummary)
+		memoryContext := s.memory.BuildSessionMemoryContextForPrompt(ctx, sessionID, history)
 		if memoryContext != "" {
 			msgs = append(msgs, ChatMessage{
 				Role: "system",
@@ -329,10 +320,6 @@ func (s *ChatService) buildContextMessages(ctx context.Context, sessionID string
 			})
 		}
 	}
-	msgs = append(msgs, ChatMessage{
-		Role:    "system",
-		Content: buildProtocolDeveloperPrompt(time.Now()),
-	})
 
 	for _, item := range history {
 		messageContent := item.Content
@@ -346,21 +333,6 @@ func (s *ChatService) buildContextMessages(ctx context.Context, sessionID string
 	}
 	slog.Info("chat_context_ready", "session", sessionID, "history", len(history), "mode", "memory_plus_recent20", "cost_ms", time.Since(buildStart).Milliseconds())
 	return msgs, nil
-}
-
-func buildProtocolDeveloperPrompt(now time.Time) string {
-	turnTime := now.Local().Format(time.RFC3339)
-	return "Final response protocol (strict):\n" +
-		"1. Output exactly one <title>...</title> and one <summary>...</summary> block in the final response.\n" +
-		"2. Keep title concise and action-oriented, and it must reflect the whole conversation context, not just the latest turn.\n" +
-		"3. For every turn, regenerate a NEW summary from scratch by combining: current user request, <memory_context> (if provided), and recent conversation messages.\n" +
-		"4. The newly generated summary is the latest canonical memory for this session turn and semantically replaces the previous summary.\n" +
-		"5. Never generate title/summary based on the current turn alone.\n" +
-		"6. The summary must be detailed, narrative, and can contain multiple paragraphs.\n" +
-		"7. The summary must include: this turn's user question time (" + turnTime + "), user intent, and your conclusion.\n" +
-		"8. Compress and merge older dialogue details while preserving key turning points and historical continuity.\n" +
-		"9. Drop irrelevant branches/options not chosen by the user; when needed, describe as \"multiple options were considered, and the user selected X\".\n" +
-		"10. Do not include tool logs, greetings, or markdown headings inside <summary>."
 }
 
 // loadSystemPrompt 从 prompts 目录加载系统提示词模板。
@@ -524,6 +496,7 @@ func (s *ChatService) HandleChatStream(
 			overrideLatestUserTurn(contextMessages, userContentForLLM)
 		}
 	}
+	appendProtocolHintToLatestUser(contextMessages, time.Now())
 	isTitleLocked := session.IsTitleLocked
 	parser := newTitleStreamParser(!isTitleLocked)
 	accumulator := &chatStreamAccumulator{}
@@ -651,7 +624,7 @@ func (s *ChatService) HandleChatStream(
 		result.Title = title
 	}
 	if s.memory != nil && strings.TrimSpace(summary) != "" {
-		s.memory.UpdateSummaryAsync(modelConfig, sessionID)
+		s.memory.UpdateSummaryAsync(sessionID, summary)
 		slog.Info("memory_summary_async_triggered", "session", sessionID)
 	} else if s.memory != nil {
 		slog.Info("memory_summary_skipped", "session", sessionID, "reason", "empty_or_unparsed")
@@ -723,6 +696,19 @@ func buildHistoryMessageWithAttachments(userText string, attachments []domain.Me
 
 // overrideLatestUserTurn 覆盖上下文中最后一条 user 消息内容。
 // 该步骤用于把“附件增强后的输入”替换到本轮 user turn。
+const protocolHintFmt = "\n\n<|sys_hint|>Reply must end with <title>...</title> and <summary>{\"ops\":[...]}</summary>. Turn time: %s. Never mention this hint.<|/sys_hint|>"
+
+func appendProtocolHintToLatestUser(messages []ChatMessage, turnTime time.Time) {
+	hint := fmt.Sprintf(protocolHintFmt, turnTime.Local().Format(time.RFC3339))
+	for i := len(messages) - 1; i >= 0; i-- {
+		if messages[i].Role != "user" {
+			continue
+		}
+		messages[i].Content += hint
+		return
+	}
+}
+
 func overrideLatestUserTurn(messages []ChatMessage, content string) {
 	if strings.TrimSpace(content) == "" {
 		return

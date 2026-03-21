@@ -6,27 +6,40 @@ import (
 	"path/filepath"
 	"slimebot/internal/domain"
 
-	"gorm.io/driver/sqlite"
+	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
 )
 
-func ensureSessionMemoriesFTS(db *gorm.DB) error {
-	if err := db.Exec(`CREATE VIRTUAL TABLE IF NOT EXISTS session_memories_fts USING fts5(session_id UNINDEXED, body, tokenize='unicode61')`).Error; err != nil {
+func setupSessionMemoryFTS5(db *gorm.DB) error {
+	if err := db.Exec(`CREATE VIRTUAL TABLE IF NOT EXISTS session_memories_fts USING fts5(
+		summary,
+		keywords_text,
+		content='session_memories',
+		content_rowid='rowid',
+		tokenize='unicode61'
+	)`).Error; err != nil {
 		slog.Warn("session_memories_fts_unavailable", "err", err)
 		return nil
 	}
-	var cnt int64
-	if err := db.Raw(`SELECT COUNT(*) FROM session_memories_fts`).Scan(&cnt).Error; err != nil {
-		return err
+	triggers := []string{
+		`CREATE TRIGGER IF NOT EXISTS session_memories_ai AFTER INSERT ON session_memories BEGIN
+			INSERT INTO session_memories_fts(rowid, summary, keywords_text) VALUES (new.rowid, new.summary, new.keywords_text);
+		END`,
+		`CREATE TRIGGER IF NOT EXISTS session_memories_ad AFTER DELETE ON session_memories BEGIN
+			INSERT INTO session_memories_fts(session_memories_fts, rowid, summary, keywords_text) VALUES('delete', old.rowid, old.summary, old.keywords_text);
+		END`,
+		`CREATE TRIGGER IF NOT EXISTS session_memories_au AFTER UPDATE ON session_memories BEGIN
+			INSERT INTO session_memories_fts(session_memories_fts, rowid, summary, keywords_text) VALUES('delete', old.rowid, old.summary, old.keywords_text);
+			INSERT INTO session_memories_fts(rowid, summary, keywords_text) VALUES (new.rowid, new.summary, new.keywords_text);
+		END`,
 	}
-	if cnt > 0 {
-		return nil
+	for _, sql := range triggers {
+		if err := db.Exec(sql).Error; err != nil {
+			slog.Warn("session_memories_fts_trigger_failed", "err", err)
+			return nil
+		}
 	}
-	return db.Exec(`
-INSERT INTO session_memories_fts(session_id, body)
-SELECT session_id, TRIM(keywords_text || ' ' || summary) FROM session_memories
-WHERE TRIM(COALESCE(keywords_text,'') || COALESCE(summary,'')) <> ''
-`).Error
+	return nil
 }
 
 func NewSQLite(dbPath string) (*gorm.DB, error) {
@@ -53,7 +66,7 @@ func NewSQLite(dbPath string) (*gorm.DB, error) {
 	); err != nil {
 		return nil, fmt.Errorf("auto migration failed: %w", err)
 	}
-	_ = ensureSessionMemoriesFTS(db)
+	_ = setupSessionMemoryFTS5(db)
 
 	return db, nil
 }

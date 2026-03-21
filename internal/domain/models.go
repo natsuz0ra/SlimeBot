@@ -39,14 +39,15 @@ type MessageAttachment struct {
 	IconType  string `json:"iconType"`
 }
 
-// SessionMemory 维护会话级摘要与关键词，用于上下文压缩与全局记忆检索。
+// SessionMemory 会话内单条原子记忆与关键词，用于上下文与跨会话检索。
 type SessionMemory struct {
 	ID                 string    `gorm:"primaryKey;size:36" json:"id"`
-	SessionID          string    `gorm:"size:36;not null;uniqueIndex" json:"sessionId"`
+	SessionID          string    `gorm:"size:36;not null;index:idx_session_memories_session_active" json:"sessionId"`
 	Summary            string    `gorm:"type:text;not null" json:"summary"`
 	KeywordsJSON       string    `gorm:"type:text;not null" json:"keywordsJson"`
 	KeywordsText       string    `gorm:"type:text;not null" json:"keywordsText"`
 	SourceMessageCount int       `gorm:"not null;default:0" json:"sourceMessageCount"`
+	IsActive           bool      `gorm:"not null;default:true;index:idx_session_memories_session_active" json:"isActive"`
 	CreatedAt          time.Time `json:"createdAt"`
 	UpdatedAt          time.Time `gorm:"index" json:"updatedAt"`
 }

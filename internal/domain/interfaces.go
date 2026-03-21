@@ -62,6 +62,13 @@ type MemoryStore interface {
 	ListRecentSessionMessages(sessionID string, limit int) ([]Message, error)
 	GetSessionMemory(sessionID string) (*SessionMemory, error)
 	GetSessionMemoriesBySessionIDs(sessionIDs []string) ([]SessionMemory, error)
+	GetSessionMemoriesByIDs(ids []string) ([]SessionMemory, error)
+	CountActiveSessionMemories(sessionID string) (int64, error)
+	ListActiveSessionMemories(sessionID string) ([]SessionMemory, error)
+	ListRecentActiveSessionMemories(sessionID string, limit int) ([]SessionMemory, error)
+	CreateSessionMemory(input SessionMemoryCreateInput) (*SessionMemory, error)
+	UpdateSessionMemoryContent(id, sessionID, summary string, keywords []string, sourceMessageCount int) error
+	SoftDeleteSessionMemory(id, sessionID string) error
 }
 
 // ChatStore 聊天主流程数据访问：会话、设置、LLM、历史、记忆、MCP、消息与工具调用落库。
@@ -79,6 +86,7 @@ type ChatStore interface {
 
 	ListRecentSessionMessagesWithContext(ctx context.Context, sessionID string, limit int) ([]Message, error)
 	GetSessionMemoryWithContext(ctx context.Context, sessionID string) (*SessionMemory, error)
+	ListActiveSessionMemoriesWithContext(ctx context.Context, sessionID string) ([]SessionMemory, error)
 
 	ListEnabledMCPConfigsWithContext(ctx context.Context) ([]MCPConfig, error)
 

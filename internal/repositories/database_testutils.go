@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"gorm.io/driver/sqlite"
+	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
 )
 
@@ -31,6 +31,6 @@ func NewSQLiteDBTest(t testing.TB, namespace string) *gorm.DB {
 	); err != nil {
 		t.Fatalf("auto migrate failed: %v", err)
 	}
-	_ = ensureSessionMemoriesFTS(db)
+	_ = setupSessionMemoryFTS5(db)
 	return db
 }

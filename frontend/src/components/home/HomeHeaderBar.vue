@@ -3,6 +3,7 @@ import { mdiChevronDown, mdiDeleteOutline, mdiMenu, mdiPencilOutline } from '@md
 import { useI18n } from 'vue-i18n'
 import type { SessionItem } from '@/api/chat'
 import MdiIcon from '@/components/ui/MdiIcon.vue'
+import TruncationTooltip from '@/components/ui/TruncationTooltip.vue'
 
 const props = defineProps<{
   currentSession?: SessionItem
@@ -44,10 +45,15 @@ function onRenameClick() {
     <button
       v-if="currentSession && canManageCurrentSession"
       type="button"
-      class="flex items-center gap-1.5 px-3 py-1.5 rounded-xl transition-all duration-150 cursor-pointer max-w-[260px] header-title-btn"
+      class="group/tip flex min-w-0 items-center gap-1.5 px-3 py-1.5 rounded-xl transition-all duration-150 cursor-pointer max-w-[260px] header-title-btn"
       @click.stop="toggleTopMenu"
     >
-      <span class="sb-text-primary text-sm font-semibold truncate">{{ currentSession.name }}</span>
+      <TruncationTooltip
+        inherit-group
+        :text="currentSession.name"
+        wrapper-class="min-w-0 flex-1 text-left"
+        content-class="sb-text-primary text-sm font-semibold"
+      />
       <MdiIcon
         :path="mdiChevronDown"
         :size="14"
@@ -57,9 +63,14 @@ function onRenameClick() {
     </button>
     <div
       v-else-if="currentSession"
-      class="flex items-center gap-1.5 px-3 py-1.5 rounded-xl max-w-[260px]"
+      class="group/tip flex min-w-0 items-center gap-1.5 px-3 py-1.5 rounded-xl max-w-[260px]"
     >
-      <span class="sb-text-primary text-sm font-semibold truncate">{{ currentSession.name }}</span>
+      <TruncationTooltip
+        inherit-group
+        :text="currentSession.name"
+        wrapper-class="min-w-0 flex-1"
+        content-class="sb-text-primary text-sm font-semibold"
+      />
       <span class="text-[10px] px-1.5 py-0.5 rounded-md platform-badge">IM</span>
     </div>
 

@@ -3,15 +3,29 @@ package repositories
 import (
 	"errors"
 	"slimebot/internal/domain"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 )
 
-func (r *Repository) ListSessions() ([]domain.Session, error) {
+func escapeSQLiteLikePattern(s string) string {
+	replacer := strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`)
+	return replacer.Replace(s)
+}
+
+func (r *Repository) ListSessions(limit int, offset int, query string) ([]domain.Session, error) {
 	var sessions []domain.Session
-	err := r.db.Order("updated_at desc").Find(&sessions).Error
+	q := r.db.Order("updated_at desc")
+	if trimmed := strings.TrimSpace(query); trimmed != "" {
+		like := "%" + escapeSQLiteLikePattern(trimmed) + "%"
+		q = q.Where("name LIKE ? ESCAPE '\\'", like)
+	}
+	if limit > 0 {
+		q = q.Limit(limit).Offset(offset)
+	}
+	err := q.Find(&sessions).Error
 	return sessions, err
 }
 
@@ -63,6 +77,13 @@ func (r *Repository) DeleteSession(id string) error {
 		}
 		if err := tx.Where("session_id = ?", id).Delete(&domain.ToolCallRecord{}).Error; err != nil {
 			return err
+		}
+		if err := tx.Where("session_id = ?", id).Delete(&domain.SessionMemory{}).Error; err != nil {
+			return err
+		}
+		var ftscount int64
+		if err := tx.Raw(`SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='session_memories_fts'`).Scan(&ftscount).Error; err == nil && ftscount > 0 {
+			_ = tx.Exec(`DELETE FROM session_memories_fts WHERE session_id = ?`, id).Error
 		}
 		return tx.Where("id = ?", id).Delete(&domain.Session{}).Error
 	})

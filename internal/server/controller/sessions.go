@@ -57,14 +57,46 @@ func parseSessionMessagesCursor(raw string) (*time.Time, bool) {
 	return &parsed, true
 }
 
+type listSessionsResponse struct {
+	Sessions []domain.Session `json:"sessions"`
+	HasMore  bool             `json:"hasMore"`
+}
+
 // ListSessions 返回当前用户的会话列表。
 func (h *HTTPController) ListSessions(c WebContext) {
-	sessions, err := h.sessions.List()
+	limit := 100
+	if raw := strings.TrimSpace(c.Query("limit")); raw != "" {
+		parsed, err := strconv.Atoi(raw)
+		if err != nil || parsed <= 0 {
+			jsonError(c, http.StatusBadRequest, "limit must be a positive integer.")
+			return
+		}
+		if parsed > 500 {
+			parsed = 500
+		}
+		limit = parsed
+	}
+	offset := 0
+	if raw := strings.TrimSpace(c.Query("offset")); raw != "" {
+		parsed, err := strconv.Atoi(raw)
+		if err != nil || parsed < 0 {
+			jsonError(c, http.StatusBadRequest, "offset must be a non-negative integer.")
+			return
+		}
+		offset = parsed
+	}
+	q := strings.TrimSpace(c.Query("q"))
+	fetchLimit := limit + 1
+	sessions, err := h.sessions.List(fetchLimit, offset, q)
 	if err != nil {
 		jsonInternalError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, sessions)
+	hasMore := len(sessions) > limit
+	if hasMore {
+		sessions = sessions[:limit]
+	}
+	c.JSON(http.StatusOK, listSessionsResponse{Sessions: sessions, HasMore: hasMore})
 }
 
 // CreateSession 创建会话；未传 name 时使用默认名称。
@@ -148,7 +180,34 @@ func (h *HTTPController) ListMessages(c WebContext) {
 		return
 	}
 
-	messages, hasMore, err := h.sessions.ListMessagesPage(sessionID, limit, before, after)
+	var beforeSeq *int64
+	if raw := strings.TrimSpace(c.Query("beforeSeq")); raw != "" {
+		v, err := strconv.ParseInt(raw, 10, 64)
+		if err != nil {
+			jsonError(c, http.StatusBadRequest, "beforeSeq must be an integer.")
+			return
+		}
+		beforeSeq = &v
+	}
+	var afterSeq *int64
+	if raw := strings.TrimSpace(c.Query("afterSeq")); raw != "" {
+		v, err := strconv.ParseInt(raw, 10, 64)
+		if err != nil {
+			jsonError(c, http.StatusBadRequest, "afterSeq must be an integer.")
+			return
+		}
+		afterSeq = &v
+	}
+	if before != nil && beforeSeq == nil {
+		jsonError(c, http.StatusBadRequest, "beforeSeq is required when before is set.")
+		return
+	}
+	if after != nil && afterSeq == nil {
+		jsonError(c, http.StatusBadRequest, "afterSeq is required when after is set.")
+		return
+	}
+
+	messages, hasMore, err := h.sessions.ListMessagesPage(sessionID, limit, before, beforeSeq, after, afterSeq)
 	if err != nil {
 		jsonInternalError(c, err)
 		return

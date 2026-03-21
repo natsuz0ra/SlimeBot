@@ -87,11 +87,11 @@ function onOutputToggle(event: Event) {
 </script>
 
 <template>
-  <article :class="['tool-card w-full rounded-xl text-sm', { 'tool-card--dense': dense }]">
+  <article :class="['tool-card w-full rounded-xl text-base', { 'tool-card--dense': dense }]">
     <header class="tool-header">
       <div class="tool-header-main">
         <div class="tool-meta">
-          <MdiIcon :path="toolIcon" :size="14" class="tool-icon flex-shrink-0" />
+          <MdiIcon :path="toolIcon" :size="16" class="tool-icon flex-shrink-0" />
           <span class="tool-label">{{ toolLabel }}</span>
           <code
             v-if="item.command"
@@ -129,7 +129,7 @@ function onOutputToggle(event: Event) {
       </template>
 
       <div v-if="showResult" class="tool-result-block">
-        <details v-if="item.output" class="tool-output-details text-xs" @toggle="onOutputToggle">
+        <details v-if="item.output" class="tool-output-details text-sm" @toggle="onOutputToggle">
           <summary
             class="tool-result-summary"
             :aria-expanded="isOutputExpanded ? 'true' : 'false'"
@@ -163,7 +163,7 @@ function onOutputToggle(event: Event) {
         class="tool-action-btn approve-btn"
         @click="emit('approve', item.toolCallId)"
       >
-        <MdiIcon :path="mdiCheck" :size="11" />
+        <MdiIcon :path="mdiCheck" :size="12" />
         {{ t('toolCallApprove') }}
       </button>
       <button
@@ -171,7 +171,7 @@ function onOutputToggle(event: Event) {
         class="tool-action-btn reject-btn"
         @click="emit('reject', item.toolCallId)"
       >
-        <MdiIcon :path="mdiClose" :size="11" />
+        <MdiIcon :path="mdiClose" :size="12" />
         {{ t('toolCallReject') }}
       </button>
     </section>
@@ -200,7 +200,7 @@ function onOutputToggle(event: Event) {
 
 .tool-label {
   color: var(--tool-meta-text);
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 600;
   line-height: 1;
 }
@@ -236,7 +236,7 @@ function onOutputToggle(event: Event) {
   border: 1px solid var(--tool-command-border);
   border-radius: 7px;
   padding: 1px 6px;
-  font-size: 10px;
+  font-size: 12px;
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
   white-space: nowrap;
   overflow: hidden;
@@ -268,7 +268,7 @@ function onOutputToggle(event: Event) {
 }
 
 .tool-status-text {
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 600;
   line-height: 1;
 }
@@ -304,11 +304,11 @@ function onOutputToggle(event: Event) {
 
 .tool-card--dense .tool-label,
 .tool-card--dense .tool-status-text {
-  font-size: 11px;
+  font-size: 13px;
 }
 
 .tool-card--dense .tool-command {
-  font-size: 10px;
+  font-size: 11px;
   padding: 1px 5px;
 }
 
@@ -319,7 +319,7 @@ function onOutputToggle(event: Event) {
 
 .tool-card--dense .tool-section-title {
   margin-bottom: 5px;
-  font-size: 10px;
+  font-size: 11px;
 }
 
 .tool-card--dense .tool-params,
@@ -327,7 +327,7 @@ function onOutputToggle(event: Event) {
 .tool-card--dense .tool-error,
 .tool-card--dense .tool-output,
 .tool-card--dense .tool-output-summary {
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .tool-card--dense .tool-params,
@@ -342,13 +342,13 @@ function onOutputToggle(event: Event) {
 
 .tool-card--dense .tool-action-btn {
   min-height: 28px;
-  font-size: 11px;
+  font-size: 12px;
   padding: 5px 10px;
 }
 
 .tool-section-title {
   margin: 0 0 6px 0;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 700;
   letter-spacing: 0.02em;
   color: var(--tool-summary-text);
@@ -362,7 +362,7 @@ function onOutputToggle(event: Event) {
   border: 1px solid var(--tool-section-border);
   border-radius: 7px;
   padding: 8px;
-  font-size: 12px;
+  font-size: 14px;
   line-height: 1.45;
   scrollbar-width: thin;
   max-height: 176px;
@@ -373,7 +373,7 @@ function onOutputToggle(event: Event) {
 
 .tool-preamble {
   color: var(--tool-content-text);
-  font-size: 12px;
+  font-size: 14px;
   line-height: 1.6;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
@@ -394,7 +394,7 @@ function onOutputToggle(event: Event) {
   min-height: 30px;
   padding: 6px 12px;
   border-radius: 8px;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 600;
   cursor: pointer;
   transition: background-color 180ms ease, color 180ms ease, box-shadow 180ms ease, border-color 180ms ease;
@@ -430,7 +430,7 @@ function onOutputToggle(event: Event) {
   margin-top: 6px;
   margin-bottom: 0;
   color: var(--tool-error-text);
-  font-size: 12px;
+  font-size: 14px;
   line-height: 1.45;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
@@ -461,7 +461,7 @@ function onOutputToggle(event: Event) {
 
 .tool-result-label {
   color: var(--tool-summary-text);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 700;
   letter-spacing: 0.02em;
   text-transform: uppercase;
@@ -477,7 +477,7 @@ function onOutputToggle(event: Event) {
   padding: 2px 8px;
   user-select: none;
   transition: color 150ms ease, border-color 150ms ease, background-color 150ms ease;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 600;
   line-height: 1.25;
 }
@@ -498,7 +498,7 @@ function onOutputToggle(event: Event) {
   color: var(--tool-detail-body-text);
   border: 1px solid var(--tool-section-border);
   border-radius: 7px;
-  font-size: 12px;
+  font-size: 14px;
   line-height: 1.45;
   max-height: 224px;
   overflow-y: auto;

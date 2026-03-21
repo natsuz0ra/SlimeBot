@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 	"io/fs"
-	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
@@ -32,19 +32,19 @@ import (
 	settingssvc "slimebot/internal/services/settings"
 	skillsvc "slimebot/internal/services/skill"
 	"slimebot/web"
-
-	"github.com/joho/godotenv"
 )
 
-// App ????????????
+// App 应用根：HTTP 服务、Telegram、记忆/嵌入/向量与 MCP 等长生命周期资源。
 type App struct {
 	httpServer     *http.Server
 	telegramWorker *telegram.Worker
+	memoryService  *memsvc.MemoryService
+	embedding      *embsvc.ONNXRuntimeEmbeddingService
+	vectorRepo     *repositories.MemoryVectorRepository
+	mcpManager     *mcp.Manager
 }
 
-// RunFromEnv ?? .env + ??????????HTTP + telegram worker??
 func RunFromEnv() error {
-	_ = godotenv.Load()
 	cfg := config.Load()
 
 	if err := ValidateConfig(cfg); err != nil {
@@ -62,7 +62,7 @@ func RunFromEnv() error {
 	return app.Run(appCtx)
 }
 
-// New ????????????????????????????
+// New 初始化目录、SQLite、各业务服务、路由与 http.Server。
 func New(cfg config.Config) (*App, error) {
 	if err := os.MkdirAll(filepath.Dir(cfg.DBPath), os.ModePerm); err != nil {
 		return nil, err
@@ -99,10 +99,10 @@ func New(cfg config.Config) (*App, error) {
 	skillPackageService := skillsvc.NewSkillPackageService(repo, cfg.SkillsRoot)
 	skillRuntimeService := skillsvc.NewSkillRuntimeService(repo, cfg.SkillsRoot)
 	memoryService := memsvc.NewMemoryService(repo, openaiClient)
-	configureMemoryVectorization(cfg, memoryService)
+	embedding, vectorRepo := configureMemoryVectorization(cfg, memoryService)
+	memoryService.WarmupTokenizer()
 	chatUploadService := chatsvc.NewChatUploadService(cfg.ChatUploadRoot)
 	chatService := chatsvc.NewChatService(repo, openaiClient, mcpManager, skillRuntimeService, memoryService, cfg.SystemPromptPath)
-	// ??????? chatService?? WS chat ????? attachmentIds?
 	chatService.SetUploadService(chatUploadService)
 
 	approvalBroker := telegram.NewApprovalBroker()
@@ -129,7 +129,7 @@ func New(cfg config.Config) (*App, error) {
 	engine := router.New(cfg, tokenManager, httpController, wsController, subDist)
 
 	addr := ":" + cfg.ServerPort
-	log.Printf("server listening on %s", addr)
+	slog.Info("server_listening", "addr", addr)
 
 	return &App{
 		httpServer: &http.Server{
@@ -140,16 +140,47 @@ func New(cfg config.Config) (*App, error) {
 			IdleTimeout:       120 * time.Second,
 		},
 		telegramWorker: telegramWorker,
+		memoryService:  memoryService,
+		embedding:      embedding,
+		vectorRepo:     vectorRepo,
+		mcpManager:     mcpManager,
 	}, nil
 }
 
-// Run ?? Telegram worker ??? HTTP ???????
+// Run 启动 Telegram Worker 与 HTTP；ctx 取消时优雅关闭服务并 cleanup。
 func (a *App) Run(ctx context.Context) error {
 	a.telegramWorker.Start(ctx)
-	return runServerWithGracefulShutdown(ctx, a.httpServer)
+	err := runServerWithGracefulShutdown(ctx, a.httpServer)
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 12*time.Second)
+	defer cancel()
+	a.cleanup(shutdownCtx)
+	return err
 }
 
-// ValidateConfig ?????????????
+func (a *App) cleanup(ctx context.Context) {
+	if a == nil {
+		return
+	}
+	if a.memoryService != nil {
+		if err := a.memoryService.Shutdown(ctx); err != nil {
+			slog.Warn("memory_shutdown", "err", err)
+		}
+	}
+	if a.embedding != nil {
+		if err := a.embedding.Close(); err != nil {
+			slog.Warn("embedding_close", "err", err)
+		}
+	}
+	if a.vectorRepo != nil {
+		if err := a.vectorRepo.Close(); err != nil {
+			slog.Warn("vector_repo_close", "err", err)
+		}
+	}
+	if a.mcpManager != nil {
+		a.mcpManager.CloseAll()
+	}
+}
+
 func ValidateConfig(cfg config.Config) error {
 	if strings.TrimSpace(cfg.JWTSecret) == "" {
 		return errors.New("JWT_SECRET is not configured")
@@ -160,18 +191,19 @@ func ValidateConfig(cfg config.Config) error {
 	return nil
 }
 
-func configureMemoryVectorization(cfg config.Config, memoryService *memsvc.MemoryService) {
+// configureMemoryVectorization 当 provider=onnx 且路径与 Qdrant 齐全时注入嵌入与向量库；否则返回 nil 并打日志。
+func configureMemoryVectorization(cfg config.Config, memoryService *memsvc.MemoryService) (*embsvc.ONNXRuntimeEmbeddingService, *repositories.MemoryVectorRepository) {
 	if !strings.EqualFold(strings.TrimSpace(cfg.EmbeddingProvider), "onnx") {
-		log.Printf("memory_vectorization_disabled reason=embedding_provider provider=%q", cfg.EmbeddingProvider)
-		return
+		slog.Info("memory_vectorization_disabled", "reason", "embedding_provider", "provider", cfg.EmbeddingProvider)
+		return nil, nil
 	}
 	if strings.TrimSpace(cfg.EmbeddingModelPath) == "" || strings.TrimSpace(cfg.EmbeddingTokenizerPath) == "" {
-		log.Printf("memory_vectorization_disabled reason=missing_embedding_paths")
-		return
+		slog.Info("memory_vectorization_disabled", "reason", "missing_embedding_paths")
+		return nil, nil
 	}
 	if strings.TrimSpace(cfg.QdrantURL) == "" || strings.TrimSpace(cfg.QdrantCollection) == "" {
-		log.Printf("memory_vectorization_disabled reason=missing_qdrant_config")
-		return
+		slog.Info("memory_vectorization_disabled", "reason", "missing_qdrant_config")
+		return nil, nil
 	}
 	embedding := embsvc.NewONNXRuntimeEmbeddingService(embsvc.ONNXRuntimeEmbeddingConfig{
 		ModelPath:     cfg.EmbeddingModelPath,
@@ -180,24 +212,28 @@ func configureMemoryVectorization(cfg config.Config, memoryService *memsvc.Memor
 		ScriptPath:    cfg.EmbeddingScriptPath,
 		Timeout:       time.Duration(cfg.EmbeddingTimeoutMS) * time.Millisecond,
 	})
+	if err := embedding.StartPipe(context.Background()); err != nil {
+		slog.Warn("embedding_pipe_start_failed", "err", err)
+	}
 	memoryService.SetEmbeddingService(embedding)
 
 	vectorStore, err := repositories.NewMemoryVectorRepository(cfg.QdrantURL, cfg.QdrantCollection)
 	if err != nil {
-		log.Printf("memory_vectorization_disabled reason=qdrant_init_failed err=%v", err)
-		return
+		slog.Warn("memory_vectorization_disabled", "reason", "qdrant_init_failed", "err", err)
+		return embedding, nil
 	}
 	memoryService.SetVectorStore(vectorStore)
 	memoryService.SetVectorSearchTopK(cfg.MemoryVectorTopK)
-	log.Printf(
-		"memory_vectorization_enabled provider=onnx qdrant_url=%s collection=%s topk=%d",
-		cfg.QdrantURL,
-		cfg.QdrantCollection,
-		cfg.MemoryVectorTopK,
+	slog.Info("memory_vectorization_enabled",
+		"provider", "onnx",
+		"qdrant_url", cfg.QdrantURL,
+		"collection", cfg.QdrantCollection,
+		"topk", cfg.MemoryVectorTopK,
 	)
+	return embedding, vectorStore
 }
 
-// runServerWithGracefulShutdown ????????????????? HTTP ???
+// runServerWithGracefulShutdown 监听 errCh；ctx 取消时在 5s 内 Shutdown。
 func runServerWithGracefulShutdown(ctx context.Context, server *http.Server) error {
 	errCh := make(chan error, 1)
 	go func() {

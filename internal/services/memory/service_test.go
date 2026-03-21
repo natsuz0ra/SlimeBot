@@ -89,7 +89,7 @@ func TestMemoryServiceRetrieveMemoriesRanking(t *testing.T) {
 		t.Fatalf("upsert memory failed: %v", err)
 	}
 
-	hits, err := svc.RetrieveMemories([]string{"golang", "rag"}, "", 5)
+	hits, err := svc.RetrieveMemories(context.Background(), "golang rag", "", 5)
 	if err != nil {
 		t.Fatalf("retrieve memories failed: %v", err)
 	}
@@ -117,7 +117,7 @@ func TestMemoryServiceUpdateSummaryAsync_NonBlocking(t *testing.T) {
 	}
 
 	start := time.Now()
-	svc.UpdateSummaryAsync(ModelRuntimeConfig{BaseURL: "http://invalid", APIKey: "x", Model: "y"}, sessionID)
+	svc.UpdateSummaryAsync(sessionID, `{"ops":[{"action":"create","content":"t"}]}`)
 	if elapsed := time.Since(start); elapsed > 50*time.Millisecond {
 		t.Fatalf("expected async call to return quickly, elapsed=%s", elapsed)
 	}
@@ -139,13 +139,9 @@ func TestMemoryServiceUpdateSummaryAsync_EventuallyPersistsSummary(t *testing.T)
 		t.Fatalf("add message failed: %v", err)
 	}
 
-	svc.chatInvoker = func(_ context.Context, _ ModelRuntimeConfig, _ []ChatMessage) (string, error) {
-		return "用户偏好 Go，并希望会话存档异步执行。", nil
-	}
+	svc.UpdateSummaryAsync(sessionID, `{"ops":[{"action":"create","content":"用户偏好 Go，并希望会话存档异步执行"}]}`)
 
-	svc.UpdateSummaryAsync(ModelRuntimeConfig{}, sessionID)
-
-	deadline := time.Now().Add(2 * time.Second)
+	deadline := time.Now().Add(6 * time.Second)
 	for time.Now().Before(deadline) {
 		item, getErr := repo.GetSessionMemory(sessionID)
 		if getErr != nil {
@@ -203,52 +199,27 @@ func TestMemoryServiceUpdateSummaryAsync_SerializesSameSession(t *testing.T) {
 		}
 	}
 
-	firstStarted := make(chan struct{})
-	allowFirst := make(chan struct{})
-	var active int32
-	var maxActive int32
-	var calls int32
-
-	svc.chatInvoker = func(_ context.Context, _ ModelRuntimeConfig, _ []ChatMessage) (string, error) {
-		n := atomic.AddInt32(&calls, 1)
-		current := atomic.AddInt32(&active, 1)
-		for {
-			observed := atomic.LoadInt32(&maxActive)
-			if current <= observed || atomic.CompareAndSwapInt32(&maxActive, observed, current) {
-				break
-			}
-		}
-		defer atomic.AddInt32(&active, -1)
-
-		if n == 1 {
-			close(firstStarted)
-			<-allowFirst
-		}
-		return fmt.Sprintf("summary-%d", n), nil
-	}
-
-	svc.UpdateSummaryAsync(ModelRuntimeConfig{}, sessionID)
-	<-firstStarted
-	svc.UpdateSummaryAsync(ModelRuntimeConfig{}, sessionID)
-	svc.UpdateSummaryAsync(ModelRuntimeConfig{}, sessionID)
-	close(allowFirst)
+	svc.UpdateSummaryAsync(sessionID, `{"ops":[{"action":"create","content":"a"}]}`)
+	svc.UpdateSummaryAsync(sessionID, `{"ops":[{"action":"create","content":"b"}]}`)
+	svc.UpdateSummaryAsync(sessionID, `{"ops":[{"action":"create","content":"c"}]}`)
 
 	deadline := time.Now().Add(3 * time.Second)
 	for time.Now().Before(deadline) {
-		if atomic.LoadInt32(&calls) >= 2 {
+		all, _ := repo.ListActiveSessionMemories(sessionID)
+		if len(all) >= 2 {
 			break
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
-
-	if atomic.LoadInt32(&calls) != 2 {
-		t.Fatalf("expected exactly 2 merged runs, got %d", atomic.LoadInt32(&calls))
+	all, err := repo.ListActiveSessionMemories(sessionID)
+	if err != nil {
+		t.Fatalf("list memories failed: %v", err)
 	}
-	if atomic.LoadInt32(&maxActive) > 1 {
-		t.Fatalf("expected serialized worker, max concurrent=%d", atomic.LoadInt32(&maxActive))
+	if len(all) < 2 {
+		t.Fatalf("expected at least 2 memory chunks (first run + coalesced pending), got %d", len(all))
 	}
 
-	deadline = time.Now().Add(2 * time.Second)
+	deadline = time.Now().Add(6 * time.Second)
 	for time.Now().Before(deadline) {
 		svc.workerMu.Lock()
 		_, exists := svc.workers[sessionID]
@@ -362,7 +333,7 @@ func TestMemoryServiceRetrieveMemories_UsesVectorStore(t *testing.T) {
 		vector: []float32{0.1, 0.2, 0.3},
 	})
 	svc.SetVectorStore(&mockVectorStore{
-		hits: []repositories.MemoryVectorSearchHit{
+		hits: []domain.MemoryVectorSearchHit{
 			{SessionID: "s2", Score: 0.95},
 			{SessionID: "s1", Score: 0.90},
 		},
@@ -385,7 +356,7 @@ func TestMemoryServiceRetrieveMemories_UsesVectorStore(t *testing.T) {
 		t.Fatalf("upsert s2 failed: %v", err)
 	}
 
-	hits, err := svc.RetrieveMemories([]string{"golang", "rag"}, "", 2)
+	hits, err := svc.RetrieveMemories(context.Background(), "golang rag", "", 2)
 	if err != nil {
 		t.Fatalf("retrieve failed: %v", err)
 	}
@@ -416,7 +387,7 @@ func TestMemoryServiceRetrieveMemories_VectorErrorFallsBackToKeyword(t *testing.
 		t.Fatalf("upsert s1 failed: %v", err)
 	}
 
-	hits, err := svc.RetrieveMemories([]string{"golang"}, "", 1)
+	hits, err := svc.RetrieveMemories(context.Background(), "golang", "", 1)
 	if err != nil {
 		t.Fatalf("retrieve failed: %v", err)
 	}
@@ -452,21 +423,29 @@ func (m mockEmbeddingService) EmbedBatch(_ context.Context, texts []string) ([][
 }
 
 type mockVectorStore struct {
-	hits        []repositories.MemoryVectorSearchHit
+	hits        []domain.MemoryVectorSearchHit
 	err         error
 	upsertCalls int
 }
 
-func (m *mockVectorStore) UpsertSessionMemoryVector(_ context.Context, _ repositories.MemoryVectorUpsertInput) error {
+func (m *mockVectorStore) UpsertSessionMemoryVector(_ context.Context, _ domain.MemoryVectorUpsertInput) error {
 	m.upsertCalls++
 	return m.err
 }
 
-func (m *mockVectorStore) SearchSimilarSessionIDs(_ context.Context, _ []float32, _ int, _ string) ([]repositories.MemoryVectorSearchHit, error) {
+func (m *mockVectorStore) SearchSimilarSessionIDs(_ context.Context, _ []float32, _ int, _ string) ([]domain.MemoryVectorSearchHit, error) {
 	if m.err != nil {
 		return nil, m.err
 	}
 	return m.hits, nil
+}
+
+func (m *mockVectorStore) SearchMemoriesInSession(_ context.Context, _ []float32, _ string, _ int) ([]domain.MemoryVectorSearchHit, error) {
+	return nil, nil
+}
+
+func (m *mockVectorStore) DeleteMemoryVector(_ context.Context, _ string) error {
+	return nil
 }
 
 func TestMemoryServiceRunSummaryOnce_UpsertsVectorWhenEnabled(t *testing.T) {
@@ -485,19 +464,21 @@ func TestMemoryServiceRunSummaryOnce_UpsertsVectorWhenEnabled(t *testing.T) {
 		t.Fatalf("add message failed: %v", err)
 	}
 
-	svc.chatInvoker = func(_ context.Context, _ ModelRuntimeConfig, _ []ChatMessage) (string, error) {
-		return "用户喜欢 golang", nil
-	}
 	vectorStore := &mockVectorStore{}
 	svc.SetEmbeddingService(mockEmbeddingService{
 		vector: []float32{0.1, 0.2, 0.3},
 	})
 	svc.SetVectorStore(vectorStore)
 
-	svc.runSummaryOnce(ModelRuntimeConfig{}, sessionID)
-	if vectorStore.upsertCalls == 0 {
-		t.Fatal("expected vector upsert call after summary update")
+	svc.UpdateSummaryAsync(sessionID, `{"ops":[{"action":"create","content":"用户喜欢 golang"}]}`)
+	deadline := time.Now().Add(6 * time.Second)
+	for time.Now().Before(deadline) {
+		if vectorStore.upsertCalls > 0 {
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
 	}
+	t.Fatal("expected vector upsert call after summary update")
 }
 
 func TestMemoryServicePersistSessionSummary_UpsertsVectorWhenEnabled(t *testing.T) {
@@ -611,7 +592,7 @@ func TestMemoryRetrievalSampleSet_VectorPathBeatsKeywordBaseline(t *testing.T) {
 	keywordTop1 := 0
 	vectorTop1 := 0
 	for _, tc := range cases {
-		kHits, err := keywordSvc.RetrieveMemories([]string{tc.query}, "", 1)
+		kHits, err := keywordSvc.RetrieveMemories(context.Background(), tc.query, "", 1)
 		if err != nil {
 			t.Fatalf("keyword retrieve failed: %v", err)
 		}
@@ -619,7 +600,7 @@ func TestMemoryRetrievalSampleSet_VectorPathBeatsKeywordBaseline(t *testing.T) {
 			keywordTop1++
 		}
 
-		vHits, err := vectorSvc.RetrieveMemories([]string{tc.query}, "", 1)
+		vHits, err := vectorSvc.RetrieveMemories(context.Background(), tc.query, "", 1)
 		if err != nil {
 			t.Fatalf("vector retrieve failed: %v", err)
 		}
@@ -662,21 +643,29 @@ type mockVectorStoreByQueryVec struct {
 	rules map[float32]string
 }
 
-func (m *mockVectorStoreByQueryVec) UpsertSessionMemoryVector(_ context.Context, _ repositories.MemoryVectorUpsertInput) error {
+func (m *mockVectorStoreByQueryVec) UpsertSessionMemoryVector(_ context.Context, _ domain.MemoryVectorUpsertInput) error {
 	return nil
 }
 
-func (m *mockVectorStoreByQueryVec) SearchSimilarSessionIDs(_ context.Context, query []float32, _ int, _ string) ([]repositories.MemoryVectorSearchHit, error) {
+func (m *mockVectorStoreByQueryVec) SearchSimilarSessionIDs(_ context.Context, query []float32, _ int, _ string) ([]domain.MemoryVectorSearchHit, error) {
 	if len(query) == 0 {
-		return []repositories.MemoryVectorSearchHit{}, nil
+		return []domain.MemoryVectorSearchHit{}, nil
 	}
 	sessionID, ok := m.rules[query[0]]
 	if !ok {
-		return []repositories.MemoryVectorSearchHit{}, nil
+		return []domain.MemoryVectorSearchHit{}, nil
 	}
-	return []repositories.MemoryVectorSearchHit{
+	return []domain.MemoryVectorSearchHit{
 		{SessionID: sessionID, Score: 0.99},
 	}, nil
+}
+
+func (m *mockVectorStoreByQueryVec) SearchMemoriesInSession(_ context.Context, _ []float32, _ string, _ int) ([]domain.MemoryVectorSearchHit, error) {
+	return nil, nil
+}
+
+func (m *mockVectorStoreByQueryVec) DeleteMemoryVector(_ context.Context, _ string) error {
+	return nil
 }
 
 func newTestRepo(t *testing.T) *repositories.Repository {

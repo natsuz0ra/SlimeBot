@@ -1,6 +1,7 @@
 package tools
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -41,16 +42,16 @@ func (h *httpRequestTool) Commands() []Command {
 	}
 }
 
-func (h *httpRequestTool) Execute(command string, params map[string]string) (*ExecuteResult, error) {
+func (h *httpRequestTool) Execute(ctx context.Context, command string, params map[string]string) (*ExecuteResult, error) {
 	switch command {
 	case "request":
-		return h.request(params)
+		return h.request(ctx, params)
 	default:
 		return nil, fmt.Errorf("http_request tool does not support command: %s", command)
 	}
 }
 
-func (h *httpRequestTool) request(params map[string]string) (*ExecuteResult, error) {
+func (h *httpRequestTool) request(ctx context.Context, params map[string]string) (*ExecuteResult, error) {
 	method := strings.ToUpper(strings.TrimSpace(params["method"]))
 	if method == "" {
 		return nil, fmt.Errorf("method is required.")
@@ -66,10 +67,14 @@ func (h *httpRequestTool) request(params map[string]string) (*ExecuteResult, err
 		bodyReader = strings.NewReader(body)
 	}
 
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	req, err := http.NewRequest(method, rawURL, bodyReader)
 	if err != nil {
 		return nil, fmt.Errorf("failed to build request: %w", err)
 	}
+	req = req.WithContext(ctx)
 
 	if headersStr := strings.TrimSpace(params["headers"]); headersStr != "" {
 		var headers map[string]string

@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
+	"log/slog"
 	"slimebot/internal/domain"
 	"strconv"
 	"strings"
@@ -191,7 +191,7 @@ func (a *AgentService) buildRuntimeToolDefs(ctx context.Context, configs []domai
 	for _, def := range defs {
 		nameLen := len(def.Name)
 		if nameLen > constants.MaxToolNameLen {
-			log.Printf("tool_name_too_long name=%s len=%d", def.Name, nameLen)
+			slog.Warn("tool_name_too_long", "name", def.Name, "len", nameLen)
 			return nil, nil, fmt.Errorf("tool name is too long: %s (len=%d, max=%d)", def.Name, nameLen, constants.MaxToolNameLen)
 		}
 	}
@@ -267,7 +267,7 @@ func (a *AgentService) RunAgentLoop(
 	memoryToolUsed := false
 
 	for i := 0; i < constants.AgentMaxIterations; i++ {
-		log.Printf("agent_iteration iteration=%d messages=%d", i+1, len(messages))
+		slog.Info("agent_iteration", "iteration", i+1, "messages", len(messages))
 
 		var chunkBuf strings.Builder
 		result, err := a.openai.StreamChatWithTools(ctx, modelConfig, messages, toolDefs, func(chunk string) error {
@@ -406,12 +406,12 @@ func parseOptionalInt(raw string, defaultValue int) int {
 }
 
 // executeToolCall 执行内建工具命令并统一错误返回格式。
-func executeToolCall(toolName, command string, params map[string]string) *tools.ExecuteResult {
+func executeToolCall(ctx context.Context, toolName, command string, params map[string]string) *tools.ExecuteResult {
 	t, ok := tools.Get(toolName)
 	if !ok {
 		return &tools.ExecuteResult{Error: fmt.Sprintf("tool %s not found", toolName)}
 	}
-	result, err := t.Execute(command, params)
+	result, err := t.Execute(ctx, command, params)
 	if err != nil {
 		return &tools.ExecuteResult{Error: err.Error()}
 	}

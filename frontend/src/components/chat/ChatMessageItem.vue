@@ -12,6 +12,7 @@ import {
 import { unref } from 'vue'
 import type { MessageItem } from '@/api/chat'
 import MdiIcon from '@/components/ui/MdiIcon.vue'
+import TruncationTooltip from '@/components/ui/TruncationTooltip.vue'
 import AppLogo from '@/components/ui/AppLogo.vue'
 import AssistantMessageBody from '@/components/chat/AssistantMessageBody.vue'
 import { formatSize } from '@/utils/format'
@@ -83,7 +84,10 @@ function attachmentIcon(iconType?: string, category?: string) {
       class="text-sm leading-relaxed"
       :class="[
         item.role === 'user'
-          ? 'user-bubble max-w-[calc(100%-52px)] rounded-2xl rounded-tr-sm px-4 py-2.5'
+          ? [
+              'user-bubble max-w-[calc(100%-52px)] rounded-2xl rounded-tr-sm px-4',
+              item.attachments && item.attachments.length > 0 ? 'py-4' : 'py-2.5',
+            ]
           : 'w-full',
         item.role === 'assistant' && ctx.isAssistantErrorMessage(item.id)
           ? 'error-bubble rounded-xl px-4 py-3'
@@ -102,9 +106,14 @@ function attachmentIcon(iconType?: string, category?: string) {
             :key="`${file.name}-${idx}`"
             class="user-attachment-card"
           >
-            <div class="flex items-center gap-2 mb-1">
-              <MdiIcon :path="attachmentIcon(file.iconType, file.category)" :size="16" />
-              <span class="user-attachment-name text-xs font-medium">{{ file.name }}</span>
+            <div class="group/tip flex min-w-0 items-center gap-2 mb-1">
+              <MdiIcon class="flex-shrink-0" :path="attachmentIcon(file.iconType, file.category)" :size="16" />
+              <TruncationTooltip
+                inherit-group
+                :text="file.name"
+                wrapper-class="min-w-0 flex-1"
+                content-class="user-attachment-name text-xs font-medium"
+              />
             </div>
             <div class="text-[11px] opacity-80">
               {{ file.ext }} · {{ formatSize(file.sizeBytes) }}

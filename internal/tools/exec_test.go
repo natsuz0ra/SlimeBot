@@ -1,6 +1,7 @@
 package tools
 
 import (
+	"context"
 	"os/exec"
 	"runtime"
 	"strings"
@@ -159,7 +160,7 @@ func TestFormatExecErrorNotFound(t *testing.T) {
 
 func TestExecRunProgramArgsSuccess(t *testing.T) {
 	e := &execTool{}
-	result, err := e.run(map[string]string{
+	result, err := e.run(context.Background(), map[string]string{
 		"program": "go",
 		"args":    `["version"]`,
 		"timeout": "10",
@@ -184,7 +185,7 @@ func TestExecRunTimeout(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		command = "Start-Sleep -Seconds 2"
 	}
-	result, err := e.run(map[string]string{
+	result, err := e.run(context.Background(), map[string]string{
 		"command": command,
 		"timeout": "1",
 	})

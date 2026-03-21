@@ -13,6 +13,7 @@ var defaultMemoryStopWords = map[string]struct{}{
 	"一个": {}, "一些": {}, "可以": {}, "需要": {}, "然后": {}, "就是": {}, "这里": {}, "这个": {}, "那个": {},
 }
 
+// tokenizeKeywordsImpl gse 搜索分词 + 停用词过滤 + 去重上限；无候选时回退 Unicode 切词。
 func tokenizeKeywordsImpl(m *MemoryService, text string) []string {
 	m.segOnce.Do(func() {
 		// 使用嵌入词典快速初始化，避免每次分词重复加载。

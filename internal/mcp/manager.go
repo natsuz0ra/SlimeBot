@@ -40,6 +40,25 @@ func NewManager() *Manager {
 	}
 }
 
+// CloseAll 关闭并清空所有已托管的 MCP 客户端连接。
+func (m *Manager) CloseAll() {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	entries := make([]*managedClient, 0, len(m.clients))
+	for _, e := range m.clients {
+		entries = append(entries, e)
+	}
+	m.clients = make(map[string]*managedClient)
+	m.mu.Unlock()
+	for _, entry := range entries {
+		entry.clientMu.Lock()
+		_ = entry.client.Close()
+		entry.clientMu.Unlock()
+	}
+}
+
 // LoadTools 加载当前启用服务的工具定义，并返回函数映射与 OpenAI 工具描述。
 func (m *Manager) LoadTools(ctx context.Context, configs []domain.MCPConfig) ([]ToolMeta, []map[string]any, error) {
 	alive := make(map[string]bool, len(configs))
@@ -222,6 +241,7 @@ func sanitizeToken(input string) string {
 	return out
 }
 
+// buildMCPFuncName 生成 server__tool 函数名；超长时截断两段并追加 SHA1 前缀以满足长度上限且降低冲突。
 func buildMCPFuncName(serverAlias, toolName string) string {
 	serverToken := sanitizeToken(serverAlias)
 	toolToken := sanitizeToken(toolName)

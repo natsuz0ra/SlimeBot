@@ -16,6 +16,7 @@ export interface MessageItem {
   sessionId: string
   role: 'user' | 'assistant' | 'system'
   content: string
+  seq?: number
   isInterrupted?: boolean
   isStopPlaceholder?: boolean
   attachments?: MessageAttachmentItem[]
@@ -58,7 +59,20 @@ export interface SessionHistoryPayload {
 export interface SessionHistoryQuery {
   limit?: number
   before?: string
+  beforeSeq?: number
   after?: string
+  afterSeq?: number
+}
+
+export interface SessionListQuery {
+  limit?: number
+  offset?: number
+  q?: string
+}
+
+export interface SessionListResponse {
+  sessions: SessionItem[]
+  hasMore: boolean
 }
 
 export interface ToolCallItem {
@@ -74,7 +88,8 @@ export interface ToolCallItem {
 }
 
 export const sessionAPI = {
-  list: async () => (await apiClient.get<SessionItem[]>('/api/sessions')).data,
+  list: async (query: SessionListQuery = {}) =>
+    (await apiClient.get<SessionListResponse>('/api/sessions', { params: query })).data,
   create: async (name?: string) => (await apiClient.post<SessionItem>('/api/sessions', { name })).data,
   rename: async (id: string, name: string) => apiClient.patch(`/api/sessions/${id}/name`, { name }),
   remove: async (id: string) => apiClient.delete(`/api/sessions/${id}`),

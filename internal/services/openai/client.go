@@ -195,6 +195,7 @@ func (c *OpenAIClient) StreamChatWithTools(
 	return &StreamResult{Type: StreamResultType(constants.StreamResultText)}, nil
 }
 
+// supportsDeveloperRole 部分兼容端（如阿里云）不支持 developer role，需降级为 system。
 func supportsDeveloperRole(baseURL string) bool {
 	parsed, err := url.Parse(strings.TrimSpace(baseURL))
 	if err != nil {
@@ -213,6 +214,7 @@ func supportsDeveloperRole(baseURL string) bool {
 	return true
 }
 
+// buildRequestMessages 将内部 ChatMessage 转为 SDK 消息：处理 system/assistant+tool_calls/tool/user 多模态与 developer 降级。
 func buildRequestMessages(messages []ChatMessage, supportDeveloperRole bool) []openai.ChatCompletionMessageParamUnion {
 	var result []openai.ChatCompletionMessageParamUnion
 	for _, msg := range messages {
@@ -287,6 +289,7 @@ func buildRequestMessages(messages []ChatMessage, supportDeveloperRole bool) []o
 	return result
 }
 
+// buildRequestUserContentParts 将多模态 ContentParts 转为 OpenAI 图文/音频/文件等内容块列表。
 func buildRequestUserContentParts(parts []ChatMessageContentPart) []openai.ChatCompletionContentPartUnionParam {
 	result := make([]openai.ChatCompletionContentPartUnionParam, 0, len(parts))
 	for _, part := range parts {

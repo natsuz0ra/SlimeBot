@@ -13,14 +13,15 @@ import (
 	"github.com/google/uuid"
 )
 
+// Dispatcher 消息平台入站统一入口：解析会话与模型，组装 AgentCallbacks 并调用 HandleChatStream。
 type Dispatcher struct {
 	chat      platformChatService
 	approvals ApprovalBroker
 }
 
 type platformChatService interface {
-	EnsureMessagePlatformSession() (*domain.Session, error)
-	ResolvePlatformModel() (string, error)
+	EnsureMessagePlatformSession(ctx context.Context) (*domain.Session, error)
+	ResolvePlatformModel(ctx context.Context) (string, error)
 	HandleChatStream(
 		ctx context.Context,
 		sessionID string,
@@ -64,11 +65,11 @@ func (d *Dispatcher) HandleInbound(ctx context.Context, message InboundMessage, 
 		return fmt.Errorf("chat id is required")
 	}
 
-	session, err := d.chat.EnsureMessagePlatformSession()
+	session, err := d.chat.EnsureMessagePlatformSession(ctx)
 	if err != nil {
 		return err
 	}
-	modelID, err := d.chat.ResolvePlatformModel()
+	modelID, err := d.chat.ResolvePlatformModel(ctx)
 	if err != nil {
 		return err
 	}

@@ -1,5 +1,7 @@
 package tools
 
+import "context"
+
 // CommandParam 描述工具命令的一个参数
 type CommandParam struct {
 	Name        string `json:"name"`
@@ -30,6 +32,5 @@ type Tool interface {
 	Description() string
 	// Commands 返回工具支持的所有命令列表
 	Commands() []Command
-	// Execute 执行指定命令，params 的 key 为参数名，value 为参数值
-	Execute(command string, params map[string]string) (*ExecuteResult, error)
+	Execute(ctx context.Context, command string, params map[string]string) (*ExecuteResult, error)
 }

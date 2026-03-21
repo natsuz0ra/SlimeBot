@@ -1,6 +1,7 @@
 package chat
 
 import (
+	"context"
 	"slimebot/internal/domain"
 	"testing"
 
@@ -12,7 +13,7 @@ func TestEnsureMessagePlatformSession_StableID(t *testing.T) {
 	repo := repositories.New(repositories.NewSQLiteDBTest(t, "platform_session"))
 	service := &ChatService{store: repo}
 
-	session, err := service.EnsureMessagePlatformSession()
+	session, err := service.EnsureMessagePlatformSession(context.Background())
 	if err != nil {
 		t.Fatalf("ensure platform session failed: %v", err)
 	}
@@ -20,7 +21,7 @@ func TestEnsureMessagePlatformSession_StableID(t *testing.T) {
 		t.Fatalf("expected fixed session id=%s, got=%s", constants.MessagePlatformSessionID, session.ID)
 	}
 
-	second, err := service.EnsureMessagePlatformSession()
+	second, err := service.EnsureMessagePlatformSession(context.Background())
 	if err != nil {
 		t.Fatalf("ensure existing platform session failed: %v", err)
 	}
@@ -59,7 +60,7 @@ func TestResolvePlatformModel_FallbackAndPersist(t *testing.T) {
 		t.Fatalf("set global default failed: %v", err)
 	}
 
-	modelID, err := service.ResolvePlatformModel()
+	modelID, err := service.ResolvePlatformModel(context.Background())
 	if err != nil {
 		t.Fatalf("resolve platform model failed: %v", err)
 	}
@@ -86,7 +87,7 @@ func TestResolvePlatformModel_FallbackAndPersist(t *testing.T) {
 		t.Fatalf("delete second model failed: %v", err)
 	}
 
-	modelID, err = service.ResolvePlatformModel()
+	modelID, err = service.ResolvePlatformModel(context.Background())
 	if err != nil {
 		t.Fatalf("resolve platform model without defaults failed: %v", err)
 	}

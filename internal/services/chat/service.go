@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
+	"log/slog"
 	"os"
 	"strings"
 	"sync"
@@ -15,6 +15,7 @@ import (
 	"slimebot/internal/mcp"
 )
 
+// ChatService 聊天服务主入口：会话生命周期、Agent 调度、记忆与附件等联动。
 type ChatService struct {
 	store            domain.ChatStore
 	agent            *AgentService
@@ -27,13 +28,19 @@ type ChatService struct {
 	systemPromptPath string
 	promptMu         sync.RWMutex
 	systemPrompt     string
+
+	platformModelMu sync.Mutex
+	platformModelID string
+	platformModelAt time.Time
 }
 
+// chatStreamAccumulator 流式输出累积器：合并正文并记录 OnChunk 推送错误。
 type chatStreamAccumulator struct {
 	answerBuilder strings.Builder
 	pushErr       error
 }
 
+// ChatStreamResult 单次流式对话结束态：是否中断、标题是否更新、推送是否失败等。
 type ChatStreamResult struct {
 	Answer            string
 	IsInterrupted     bool
@@ -63,6 +70,7 @@ func (s *ChatService) SetUploadService(uploads *ChatUploadService) {
 	s.uploads = uploads
 }
 
+// getSessionActivatedSkills 返回会话当前已激活 skill 名的快照，并刷新该会话 LRU 时间。
 func (s *ChatService) getSessionActivatedSkills(sessionID string) map[string]struct{} {
 	if strings.TrimSpace(sessionID) == "" {
 		return map[string]struct{}{}
@@ -84,6 +92,7 @@ func (s *ChatService) getSessionActivatedSkills(sessionID string) map[string]str
 	return copyMap
 }
 
+// mergeSessionActivatedSkills 将本轮 Agent 写回的已激活 skill 合并进内存映射；过多会话时按 LRU 淘汰。
 func (s *ChatService) mergeSessionActivatedSkills(sessionID string, activated map[string]struct{}) {
 	if strings.TrimSpace(sessionID) == "" || len(activated) == 0 {
 		return
@@ -110,6 +119,7 @@ func (s *ChatService) mergeSessionActivatedSkills(sessionID string, activated ma
 	}
 }
 
+// evictOldSkillsSessionsLocked 在持锁下按最久未访问会话淘汰 skill 状态，最多淘汰 maxEvict 条。
 func (s *ChatService) evictOldSkillsSessionsLocked(maxEvict int) {
 	for i := 0; i < maxEvict && len(s.skillTouchedAt) > 0; i++ {
 		var oldestSession string
@@ -140,11 +150,15 @@ func (s *ChatService) setSystemPromptCached(prompt string) {
 	s.systemPrompt = prompt
 }
 
-// EnsureSession 确保会话存在；若不存在则创建默认新会话。
-func (s *ChatService) EnsureSession(sessionID string) (*domain.Session, error) {
-	bg := context.Background()
+const platformModelCacheTTL = 30 * time.Second
+
+// EnsureSession 若 sessionID 非空且存在则返回；否则新建「New Chat」会话。
+func (s *ChatService) EnsureSession(ctx context.Context, sessionID string) (*domain.Session, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	if sessionID != "" {
-		existing, err := s.store.GetSessionByIDWithContext(bg, sessionID)
+		existing, err := s.store.GetSessionByIDWithContext(ctx, sessionID)
 		if err != nil {
 			return nil, err
 		}
@@ -152,33 +166,49 @@ func (s *ChatService) EnsureSession(sessionID string) (*domain.Session, error) {
 			return existing, nil
 		}
 	}
-	return s.store.CreateSessionWithContext(bg, "New Chat")
+	return s.store.CreateSessionWithContext(ctx, "New Chat")
 }
 
-// EnsureMessagePlatformSession 确保固定的消息平台会话存在。
-func (s *ChatService) EnsureMessagePlatformSession() (*domain.Session, error) {
-	bg := context.Background()
-	session, err := s.store.GetSessionByIDWithContext(bg, constants.MessagePlatformSessionID)
+// EnsureMessagePlatformSession 确保消息平台专用固定 ID 会话存在，无则创建。
+func (s *ChatService) EnsureMessagePlatformSession(ctx context.Context) (*domain.Session, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	session, err := s.store.GetSessionByIDWithContext(ctx, constants.MessagePlatformSessionID)
 	if err != nil {
 		return nil, err
 	}
 	if session != nil {
 		return session, nil
 	}
-	return s.store.CreateSessionWithIDWithContext(bg, constants.MessagePlatformSessionID, constants.MessagePlatformSessionName)
+	return s.store.CreateSessionWithIDWithContext(ctx, constants.MessagePlatformSessionID, constants.MessagePlatformSessionName)
 }
 
-// ResolvePlatformModel 按平台会话策略解析模型：
-// 1) messagePlatformDefaultModel；2) defaultModel；3) 首个可用模型。
-// 当平台默认模型不存在时，会自动回退并写回，避免每次请求都失败。
-func (s *ChatService) ResolvePlatformModel() (string, error) {
-	bg := context.Background()
+// ResolvePlatformModel 解析消息平台所用模型：平台默认设置 -> 全局默认 -> 列表首条，并写回平台默认与短 TTL 缓存。
+func (s *ChatService) ResolvePlatformModel(ctx context.Context) (string, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	s.platformModelMu.Lock()
+	cacheID := s.platformModelID
+	cacheAt := s.platformModelAt
+	s.platformModelMu.Unlock()
+	if cacheID != "" && time.Since(cacheAt) < platformModelCacheTTL {
+		item, err := s.store.GetLLMConfigByIDWithContext(ctx, cacheID)
+		if err != nil {
+			return "", err
+		}
+		if item != nil {
+			return cacheID, nil
+		}
+	}
+
 	resolveModel := func(modelID string) (string, bool, error) {
 		trimmed := strings.TrimSpace(modelID)
 		if trimmed == "" {
 			return "", false, nil
 		}
-		item, err := s.store.GetLLMConfigByIDWithContext(bg, trimmed)
+		item, err := s.store.GetLLMConfigByIDWithContext(ctx, trimmed)
 		if err != nil {
 			return "", false, err
 		}
@@ -188,28 +218,36 @@ func (s *ChatService) ResolvePlatformModel() (string, error) {
 		return item.ID, true, nil
 	}
 
-	platformDefault, err := s.store.GetSettingWithContext(bg, constants.SettingMessagePlatformDefaultModel)
+	platformDefault, err := s.store.GetSettingWithContext(ctx, constants.SettingMessagePlatformDefaultModel)
 	if err != nil {
 		return "", err
 	}
 	if id, ok, err := resolveModel(platformDefault); err != nil {
 		return "", err
 	} else if ok {
+		s.platformModelMu.Lock()
+		s.platformModelID = id
+		s.platformModelAt = time.Now()
+		s.platformModelMu.Unlock()
 		return id, nil
 	}
 
-	globalDefault, err := s.store.GetSettingWithContext(bg, constants.SettingDefaultModel)
+	globalDefault, err := s.store.GetSettingWithContext(ctx, constants.SettingDefaultModel)
 	if err != nil {
 		return "", err
 	}
 	if id, ok, err := resolveModel(globalDefault); err != nil {
 		return "", err
 	} else if ok {
-		_ = s.store.SetSettingWithContext(bg, constants.SettingMessagePlatformDefaultModel, id)
+		_ = s.store.SetSettingWithContext(ctx, constants.SettingMessagePlatformDefaultModel, id)
+		s.platformModelMu.Lock()
+		s.platformModelID = id
+		s.platformModelAt = time.Now()
+		s.platformModelMu.Unlock()
 		return id, nil
 	}
 
-	allModels, err := s.store.ListLLMConfigsWithContext(bg)
+	allModels, err := s.store.ListLLMConfigsWithContext(ctx)
 	if err != nil {
 		return "", err
 	}
@@ -220,7 +258,11 @@ func (s *ChatService) ResolvePlatformModel() (string, error) {
 	if fallbackID == "" {
 		return "", fmt.Errorf("No available model is configured.")
 	}
-	_ = s.store.SetSettingWithContext(bg, constants.SettingMessagePlatformDefaultModel, fallbackID)
+	_ = s.store.SetSettingWithContext(ctx, constants.SettingMessagePlatformDefaultModel, fallbackID)
+	s.platformModelMu.Lock()
+	s.platformModelID = fallbackID
+	s.platformModelAt = time.Now()
+	s.platformModelMu.Unlock()
 	return fallbackID, nil
 }
 
@@ -267,16 +309,7 @@ func (s *ChatService) buildContextMessages(ctx context.Context, sessionID string
 
 	msgs := []ChatMessage{{Role: "system", Content: systemPrompt}}
 	if s.memory != nil {
-		sessionSummary := ""
-		var memoryItem *domain.SessionMemory
-		var memoryErr error
-		memoryItem, memoryErr = s.store.GetSessionMemoryWithContext(ctx, sessionID)
-		if memoryErr != nil {
-			log.Printf("chat_context_memory_skip session=%s reason=get_summary_failed err=%v", sessionID, memoryErr)
-		} else if memoryItem != nil {
-			sessionSummary = strings.TrimSpace(memoryItem.Summary)
-		}
-		memoryContext := s.memory.FormatCurrentSessionContext(sessionSummary)
+		memoryContext := s.memory.BuildSessionMemoryContextForPrompt(ctx, sessionID, history)
 		if memoryContext != "" {
 			msgs = append(msgs, ChatMessage{
 				Role: "system",
@@ -287,10 +320,6 @@ func (s *ChatService) buildContextMessages(ctx context.Context, sessionID string
 			})
 		}
 	}
-	msgs = append(msgs, ChatMessage{
-		Role:    "system",
-		Content: buildProtocolDeveloperPrompt(time.Now()),
-	})
 
 	for _, item := range history {
 		messageContent := item.Content
@@ -302,23 +331,8 @@ func (s *ChatService) buildContextMessages(ctx context.Context, sessionID string
 			Content: messageContent,
 		})
 	}
-	log.Printf("chat_context_ready session=%s history=%d mode=memory_plus_recent20 cost_ms=%d", sessionID, len(history), time.Since(buildStart).Milliseconds())
+	slog.Info("chat_context_ready", "session", sessionID, "history", len(history), "mode", "memory_plus_recent20", "cost_ms", time.Since(buildStart).Milliseconds())
 	return msgs, nil
-}
-
-func buildProtocolDeveloperPrompt(now time.Time) string {
-	turnTime := now.Local().Format(time.RFC3339)
-	return "Final response protocol (strict):\n" +
-		"1. Output exactly one <title>...</title> and one <summary>...</summary> block in the final response.\n" +
-		"2. Keep title concise and action-oriented, and it must reflect the whole conversation context, not just the latest turn.\n" +
-		"3. For every turn, regenerate a NEW summary from scratch by combining: current user request, <memory_context> (if provided), and recent conversation messages.\n" +
-		"4. The newly generated summary is the latest canonical memory for this session turn and semantically replaces the previous summary.\n" +
-		"5. Never generate title/summary based on the current turn alone.\n" +
-		"6. The summary must be detailed, narrative, and can contain multiple paragraphs.\n" +
-		"7. The summary must include: this turn's user question time (" + turnTime + "), user intent, and your conclusion.\n" +
-		"8. Compress and merge older dialogue details while preserving key turning points and historical continuity.\n" +
-		"9. Drop irrelevant branches/options not chosen by the user; when needed, describe as \"multiple options were considered, and the user selected X\".\n" +
-		"10. Do not include tool logs, greetings, or markdown headings inside <summary>."
 }
 
 // loadSystemPrompt 从 prompts 目录加载系统提示词模板。
@@ -482,6 +496,7 @@ func (s *ChatService) HandleChatStream(
 			overrideLatestUserTurn(contextMessages, userContentForLLM)
 		}
 	}
+	appendProtocolHintToLatestUser(contextMessages, time.Now())
 	isTitleLocked := session.IsTitleLocked
 	parser := newTitleStreamParser(!isTitleLocked)
 	accumulator := &chatStreamAccumulator{}
@@ -554,7 +569,7 @@ func (s *ChatService) HandleChatStream(
 	if !firstTokenAt.IsZero() {
 		firstTokenMs = firstTokenAt.Sub(streamStart).Milliseconds()
 	}
-	log.Printf("chat_stream_done session=%s first_token_ms=%d total_stream_ms=%d", sessionID, firstTokenMs, time.Since(streamStart).Milliseconds())
+	slog.Info("chat_stream_done", "session", sessionID, "first_token_ms", firstTokenMs, "total_stream_ms", time.Since(streamStart).Milliseconds())
 
 	if err := pushBody(parser.Flush()); err != nil && !interrupted {
 		return nil, err
@@ -609,10 +624,10 @@ func (s *ChatService) HandleChatStream(
 		result.Title = title
 	}
 	if s.memory != nil && strings.TrimSpace(summary) != "" {
-		s.memory.UpdateSummaryAsync(modelConfig, sessionID)
-		log.Printf("memory_summary_async_triggered session=%s", sessionID)
+		s.memory.UpdateSummaryAsync(sessionID, summary)
+		slog.Info("memory_summary_async_triggered", "session", sessionID)
 	} else if s.memory != nil {
-		log.Printf("memory_summary_skipped session=%s reason=empty_or_unparsed", sessionID)
+		slog.Info("memory_summary_skipped", "session", sessionID, "reason", "empty_or_unparsed")
 	}
 	if accumulator.pushErr != nil {
 		result.PushFailed = true
@@ -681,6 +696,19 @@ func buildHistoryMessageWithAttachments(userText string, attachments []domain.Me
 
 // overrideLatestUserTurn 覆盖上下文中最后一条 user 消息内容。
 // 该步骤用于把“附件增强后的输入”替换到本轮 user turn。
+const protocolHintFmt = "\n\n<|sys_hint|>Reply must end with <title>...</title> and <summary>{\"ops\":[...]}</summary>. Turn time: %s. Never mention this hint.<|/sys_hint|>"
+
+func appendProtocolHintToLatestUser(messages []ChatMessage, turnTime time.Time) {
+	hint := fmt.Sprintf(protocolHintFmt, turnTime.Local().Format(time.RFC3339))
+	for i := len(messages) - 1; i >= 0; i-- {
+		if messages[i].Role != "user" {
+			continue
+		}
+		messages[i].Content += hint
+		return
+	}
+}
+
 func overrideLatestUserTurn(messages []ChatMessage, content string) {
 	if strings.TrimSpace(content) == "" {
 		return

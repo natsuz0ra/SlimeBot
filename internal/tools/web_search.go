@@ -2,6 +2,7 @@ package tools
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -76,16 +77,16 @@ func (w *webSearchTool) Commands() []Command {
 	}
 }
 
-func (w *webSearchTool) Execute(command string, params map[string]string) (*ExecuteResult, error) {
+func (w *webSearchTool) Execute(ctx context.Context, command string, params map[string]string) (*ExecuteResult, error) {
 	switch command {
 	case "search":
-		return w.search(params)
+		return w.search(ctx, params)
 	default:
 		return nil, fmt.Errorf("web_search tool does not support command: %s", command)
 	}
 }
 
-func (w *webSearchTool) search(params map[string]string) (*ExecuteResult, error) {
+func (w *webSearchTool) search(ctx context.Context, params map[string]string) (*ExecuteResult, error) {
 	query := strings.TrimSpace(params["query"])
 	if query == "" {
 		return nil, fmt.Errorf("query is required.")
@@ -102,10 +103,14 @@ func (w *webSearchTool) search(params map[string]string) (*ExecuteResult, error)
 	}
 
 	endpoint := w.baseURL + "/search"
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	req, err := http.NewRequest(http.MethodPost, endpoint, bytes.NewReader(reqBody))
 	if err != nil {
 		return nil, fmt.Errorf("failed to build request: %w", err)
 	}
+	req = req.WithContext(ctx)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+apiKey)
 

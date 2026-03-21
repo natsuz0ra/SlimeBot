@@ -2,16 +2,15 @@ package tools
 
 import (
 	"fmt"
-	"log"
+	"log/slog"
 	"sync"
 )
 
 var (
-	globalRegistry = &Registry{tools: make(map[string]Tool)}
+	globalRegistry = &registry{tools: make(map[string]Tool)}
 )
 
-// Registry 管理所有已注册的工具
-type Registry struct {
+type registry struct {
 	mu    sync.RWMutex
 	tools map[string]Tool
 }
@@ -27,7 +26,7 @@ func Register(tool Tool) {
 		panic(fmt.Sprintf("duplicate tool name: %s", name))
 	}
 	globalRegistry.tools[name] = tool
-	log.Printf("tool_registered name=%s commands=%d", name, len(tool.Commands()))
+	slog.Info("tool_registered", "name", name, "commands", len(tool.Commands()))
 }
 
 // Get 根据名称获取已注册的工具

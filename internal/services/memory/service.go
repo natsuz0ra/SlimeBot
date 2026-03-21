@@ -3,7 +3,7 @@ package memory
 import (
 	"context"
 	"fmt"
-	"log"
+	"log/slog"
 	"strings"
 	"sync"
 	"time"
@@ -38,24 +38,44 @@ type MemoryService struct {
 	workerMu sync.Mutex
 	workers  map[string]*memoryWorkerState
 
+	workerCtx    context.Context
+	workerCancel context.CancelFunc
+	workerWg     sync.WaitGroup
+
 	segOnce   sync.Once
 	segmenter gse.Segmenter
 }
 
-type memoryWorkerState struct {
-	running bool
-	pending bool
-}
-
 func NewMemoryService(store domain.MemoryStore, openai *OpenAIClient) *MemoryService {
+	wctx, wcancel := context.WithCancel(context.Background())
 	service := &MemoryService{
-		store:      store,
-		openai:     openai,
-		workers:    make(map[string]*memoryWorkerState),
-		vectorTopK: constants.MemorySearchTopK,
+		store:        store,
+		openai:       openai,
+		workers:      make(map[string]*memoryWorkerState),
+		vectorTopK:   constants.MemorySearchTopK,
+		workerCtx:    wctx,
+		workerCancel: wcancel,
 	}
 	service.chatInvoker = service.chatOnce
 	return service
+}
+
+func (m *MemoryService) Shutdown(ctx context.Context) error {
+	if m == nil {
+		return nil
+	}
+	m.workerCancel()
+	done := make(chan struct{})
+	go func() {
+		m.workerWg.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 func (m *MemoryService) SetEmbeddingService(embedding EmbeddingService) {
@@ -71,6 +91,13 @@ func (m *MemoryService) SetVectorSearchTopK(topK int) {
 		return
 	}
 	m.vectorTopK = topK
+}
+
+func (m *MemoryService) WarmupTokenizer() {
+	if m == nil {
+		return
+	}
+	m.TokenizeKeywords(" ")
 }
 
 // PersistSessionSummary 统一处理会话摘要持久化：摘要+关键词写库，并在启用时写入向量库。
@@ -89,7 +116,7 @@ func (m *MemoryService) PersistSessionSummary(sessionID string, summary string) 
 		return false, err
 	}
 	keywords := m.TokenizeKeywords(normalizedSummary)
-	updated, err := m.store.UpsertSessionMemoryIfNewer(domain.SessionMemoryUpsertInput{
+	created, err := m.store.CreateSessionMemory(domain.SessionMemoryCreateInput{
 		SessionID:          normalizedSessionID,
 		Summary:            normalizedSummary,
 		Keywords:           keywords,
@@ -98,15 +125,8 @@ func (m *MemoryService) PersistSessionSummary(sessionID string, summary string) 
 	if err != nil {
 		return false, err
 	}
-	if !updated {
-		return false, nil
-	}
-
-	if m.embedding != nil && m.vectorStore != nil {
-		if err := m.upsertSessionMemoryVector(context.Background(), normalizedSessionID, normalizedSummary, keywords, int(messageCount)); err != nil {
-			// 向量写入失败不阻断主流程，保障摘要可持续落库。
-			// 详细失败日志已在 upsertSessionMemoryVector 内记录，这里避免重复打印。
-		}
+	if m.embedding != nil && m.vectorStore != nil && created != nil {
+		_ = upsertMemoryVector(m, context.Background(), created.ID, normalizedSessionID, normalizedSummary, keywords, int(messageCount))
 	}
 	return true, nil
 }
@@ -148,42 +168,41 @@ Requirements:
 	if !decision.NeedMemory {
 		decision.Keywords = nil
 	}
-	log.Printf(
-		"memory_decision_done need_memory=%t keywords=%d attempts=%d cost_ms=%d timeout_ms=%d",
-		decision.NeedMemory,
-		len(decision.Keywords),
-		attempts,
-		elapsed.Milliseconds(),
-		constants.MemoryDecisionTimeout.Milliseconds(),
+	slog.Info("memory_decision_done",
+		"need_memory", decision.NeedMemory,
+		"keywords", len(decision.Keywords),
+		"attempts", attempts,
+		"cost_ms", elapsed.Milliseconds(),
+		"timeout_ms", constants.MemoryDecisionTimeout.Milliseconds(),
 	)
 	return decision, nil
 }
 
-// RetrieveMemories 根据关键词检索跨会话记忆，并可排除当前会话。
-func (m *MemoryService) RetrieveMemories(keywords []string, excludeSessionID string, limit int) ([]domain.SessionMemorySearchHit, error) {
+// RetrieveMemories 根据查询文本检索跨会话记忆，并可排除当前会话。
+func (m *MemoryService) RetrieveMemories(ctx context.Context, query string, excludeSessionID string, limit int) ([]domain.SessionMemorySearchHit, error) {
 	startAt := time.Now()
 	if limit <= 0 {
 		limit = constants.MemorySearchTopK
 	}
-	normalizedKeywords := m.TokenizeKeywords(strings.Join(keywords, " "))
+	normalizedKeywords := m.TokenizeKeywords(strings.TrimSpace(query))
 
 	if m.embedding != nil && m.vectorStore != nil {
-		hits, err := m.retrieveMemoriesByVector(normalizedKeywords, excludeSessionID, limit)
+		hits, err := m.retrieveMemoriesByVector(ctx, query, excludeSessionID, limit)
 		if err != nil {
-			log.Printf("memory_vector_retrieve_fallback reason=vector_error err=%v", err)
+			slog.Warn("memory_vector_retrieve_fallback", "reason", "vector_error", "err", err)
 		} else if len(hits) > 0 {
-			log.Printf(
-				"memory_retrieve mode=vector hit_count=%d keyword_count=%d cost_ms=%d",
-				len(hits),
-				len(normalizedKeywords),
-				time.Since(startAt).Milliseconds(),
+			slog.Info("memory_retrieve",
+				"mode", "vector",
+				"hit_count", len(hits),
+				"keyword_count", len(normalizedKeywords),
+				"cost_ms", time.Since(startAt).Milliseconds(),
 			)
 			return hits, nil
 		} else {
-			log.Printf(
-				"memory_vector_retrieve_fallback reason=empty_result keyword_count=%d cost_ms=%d",
-				len(normalizedKeywords),
-				time.Since(startAt).Milliseconds(),
+			slog.Info("memory_vector_retrieve_fallback",
+				"reason", "empty_result",
+				"keyword_count", len(normalizedKeywords),
+				"cost_ms", time.Since(startAt).Milliseconds(),
 			)
 		}
 	}
@@ -191,11 +210,11 @@ func (m *MemoryService) RetrieveMemories(keywords []string, excludeSessionID str
 	if err != nil {
 		return nil, err
 	}
-	log.Printf(
-		"memory_retrieve mode=keyword hit_count=%d keyword_count=%d cost_ms=%d",
-		len(hits),
-		len(normalizedKeywords),
-		time.Since(startAt).Milliseconds(),
+	slog.Info("memory_retrieve",
+		"mode", "keyword",
+		"hit_count", len(hits),
+		"keyword_count", len(normalizedKeywords),
+		"cost_ms", time.Since(startAt).Milliseconds(),
 	)
 	return hits, nil
 }
@@ -211,7 +230,7 @@ func (m *MemoryService) FormatMemoryContext(summary string, hits []domain.Sessio
 	if len(hits) > 0 {
 		b.WriteString("\n<retrieved_memories>\n")
 		for idx, hit := range hits {
-			b.WriteString(fmt.Sprintf("  <memory index=\"%d\" session_id=\"%s\" matched=\"%s\">\n", idx+1, hit.Memory.SessionID, strings.Join(hit.MatchedKeywords, ",")))
+			b.WriteString(fmt.Sprintf("  <memory index=\"%d\" id=\"%s\" session_id=\"%s\" matched=\"%s\">\n", idx+1, hit.Memory.ID, hit.Memory.SessionID, strings.Join(hit.MatchedKeywords, ",")))
 			b.WriteString("    ")
 			b.WriteString(strings.TrimSpace(hit.Memory.Summary))
 			b.WriteString("\n  </memory>\n")
@@ -221,20 +240,40 @@ func (m *MemoryService) FormatMemoryContext(summary string, hits []domain.Sessio
 	return strings.TrimSpace(b.String())
 }
 
-// FormatCurrentSessionContext 仅组织当前会话摘要为 memory_context 块，避免引入跨会话检索结果。
-func (m *MemoryService) FormatCurrentSessionContext(summary string) string {
-	if strings.TrimSpace(summary) == "" {
+func FormatMemoriesListXMLWithBudget(memories []domain.SessionMemory, maxRunes int) string {
+	if len(memories) == 0 {
+		return ""
+	}
+	if maxRunes <= 0 {
+		return ""
+	}
+	prefix := "<memories>\n"
+	suffix := "</memories>"
+	used := len([]rune(prefix)) + len([]rune(suffix))
+	if used > maxRunes {
 		return ""
 	}
 	var b strings.Builder
-	b.WriteString("<current_session_summary>\n")
-	b.WriteString(strings.TrimSpace(summary))
-	b.WriteString("\n</current_session_summary>")
+	b.WriteString(prefix)
+	for _, mem := range memories {
+		entry := fmt.Sprintf(`  <memory id="%s" created="%s" updated="%s">%s</memory>`+"\n",
+			mem.ID,
+			mem.CreatedAt.Format(time.RFC3339),
+			mem.UpdatedAt.Format(time.RFC3339),
+			strings.TrimSpace(mem.Summary))
+		entryRunes := len([]rune(entry))
+		if used+entryRunes > maxRunes {
+			break
+		}
+		b.WriteString(entry)
+		used += entryRunes
+	}
+	b.WriteString(suffix)
 	return b.String()
 }
 
 // QueryForAgent 是 memory 工具入口，返回标准化的检索结果文本。
-func (m *MemoryService) QueryForAgent(sessionID string, query string, topK int) (MemoryQueryResult, error) {
+func (m *MemoryService) QueryForAgent(ctx context.Context, sessionID string, query string, topK int) (MemoryQueryResult, error) {
 	result := MemoryQueryResult{
 		Query: strings.TrimSpace(query),
 	}
@@ -248,16 +287,11 @@ func (m *MemoryService) QueryForAgent(sessionID string, query string, topK int) 
 		topK = 5
 	}
 
-	result.Keywords = m.TokenizeKeywords(result.Query)
-	if len(result.Keywords) == 0 {
-		result.Output = "<memory_query_result>\nNo retrievable keywords extracted. Please refine the query and try again.\n</memory_query_result>"
-		return result, nil
-	}
-
-	hits, err := m.RetrieveMemories(result.Keywords, strings.TrimSpace(sessionID), topK)
+	hits, err := m.RetrieveMemories(ctx, result.Query, strings.TrimSpace(sessionID), topK)
 	if err != nil {
 		return result, err
 	}
+	result.Keywords = m.TokenizeKeywords(result.Query)
 	result.Hits = hits
 	result.Output = m.buildMemoryQueryOutput(result.Query, result.Keywords, hits)
 	return result, nil
@@ -283,7 +317,7 @@ func (m *MemoryService) buildMemoryQueryOutput(query string, keywords []string, 
 		return b.String()
 	}
 	for idx, hit := range hits {
-		b.WriteString(fmt.Sprintf("- [%d] session_id=%s score=%.1f matched=%s\n", idx+1, hit.Memory.SessionID, hit.Score, strings.Join(hit.MatchedKeywords, ",")))
+		b.WriteString(fmt.Sprintf("- [%d] id=%s session_id=%s score=%.1f matched=%s created_at=%s updated_at=%s\n", idx+1, hit.Memory.ID, hit.Memory.SessionID, hit.Score, strings.Join(hit.MatchedKeywords, ","), hit.Memory.CreatedAt.Format(time.RFC3339), hit.Memory.UpdatedAt.Format(time.RFC3339)))
 		b.WriteString("  summary: ")
 		b.WriteString(strings.TrimSpace(hit.Memory.Summary))
 		b.WriteString("\n")
@@ -305,47 +339,15 @@ func (m *MemoryService) BuildRecentHistory(sessionID string, limit int) ([]domai
 	return m.store.ListRecentSessionMessages(sessionID, limit)
 }
 
-// UpdateSummaryAsync 异步触发摘要更新，并保证同一会话串行执行。
-func (m *MemoryService) UpdateSummaryAsync(modelConfig ModelRuntimeConfig, sessionID string) {
-	updateSummaryAsyncImpl(m, modelConfig, sessionID)
+func (m *MemoryService) UpdateSummaryAsync(sessionID string, rawSummary string) {
+	updateSummaryAsyncImpl(m, sessionID, rawSummary)
 }
 
-// runSummaryWorker 串行消费同会话的摘要更新任务，合并并发触发。
-func (m *MemoryService) runSummaryWorker(modelConfig ModelRuntimeConfig, sessionID string) {
-	runSummaryWorkerImpl(m, modelConfig, sessionID)
-}
-
-// runSummaryOnce 执行一次完整摘要更新：读取近期消息 -> 生成摘要 -> 持久化。
-func (m *MemoryService) runSummaryOnce(modelConfig ModelRuntimeConfig, sessionID string) {
-	runSummaryOnceImpl(m, modelConfig, sessionID)
-}
-
-// MergeSummary 合并历史摘要与近期消息，生成新的会话记忆摘要。
-func (m *MemoryService) MergeSummary(ctx context.Context, modelConfig ModelRuntimeConfig, oldSummary string, recent []domain.Message) (string, int, time.Duration, error) {
-	systemPrompt := `You are a conversation summarizer. Merge the historical summary and latest conversation snippets into a new high-quality memory summary.
-Output requirements:
-1. Output summary text only. Do not use markdown headings and do not output JSON.
-2. Write in a natural narrative style and allow multiple paragraphs.
-3. Include user question time, user asks, and conclusion/decision whenever the timeline is clear from inputs.
-4. Keep user preferences, key facts, completed/pending tasks, important constraints, and useful context clues.
-5. For older history, merge and compress repetitive details while preserving key turning points.
-6. Remove greetings, repeated details, irrelevant tool logs, and branches/options the user did not continue to pursue.
-7. If there were multiple options, summarize as "multiple options were considered and user selected X" when helpful.`
-	userPrompt := fmt.Sprintf("Historical summary:\n%s\n\nLatest conversation snippets:\n%s", strings.TrimSpace(oldSummary), flattenMessages(recent))
-
-	reply, attempts, elapsed, err := m.chatOnceWithRetry(ctx, modelConfig, []ChatMessage{
-		{Role: "system", Content: systemPrompt},
-		{Role: "user", Content: userPrompt},
-	}, constants.MemorySummaryTimeout, "memory_summary")
-	if err != nil {
-		return "", attempts, elapsed, err
+func (m *MemoryService) BuildSessionMemoryContextForPrompt(ctx context.Context, sessionID string, history []domain.Message) string {
+	if m == nil {
+		return ""
 	}
-
-	summary := strings.TrimSpace(reply)
-	if summary == "" {
-		return "", attempts, elapsed, fmt.Errorf("summary generation returned empty output")
-	}
-	return summary, attempts, elapsed, nil
+	return m.buildSessionMemoryContextForPrompt(ctx, sessionID, history)
 }
 
 // chatOnce 以流式接口调用模型并收集完整文本输出。
@@ -393,14 +395,12 @@ func (m *MemoryService) chatOnceWithRetry(
 		lastErr = err
 
 		retryable := attempt < constants.MemoryCallMaxAttempts && isRetryableMemoryError(err) && parent.Err() == nil
-		log.Printf(
-			"%s_attempt_failed attempt=%d timeout_ms=%d retryable=%t err_class=%s err=%v",
-			stage,
-			attempt,
-			timeout.Milliseconds(),
-			retryable,
-			classifyMemoryError(err),
-			err,
+		slog.Warn(stage+"_attempt_failed",
+			"attempt", attempt,
+			"timeout_ms", timeout.Milliseconds(),
+			"retryable", retryable,
+			"err_class", classifyMemoryError(err),
+			"err", err,
 		)
 		if !retryable {
 			break
@@ -413,14 +413,6 @@ func (m *MemoryService) chatOnceWithRetry(
 	}
 
 	return "", attempts, time.Since(startAt), lastErr
-}
-
-func (m *MemoryService) retrieveMemoriesByVector(keywords []string, excludeSessionID string, limit int) ([]domain.SessionMemorySearchHit, error) {
-	return retrieveMemoriesByVectorImpl(m, keywords, excludeSessionID, limit)
-}
-
-func (m *MemoryService) upsertSessionMemoryVector(ctx context.Context, sessionID string, summary string, keywords []string, messageCount int) error {
-	return upsertSessionMemoryVectorImpl(m, ctx, sessionID, summary, keywords, messageCount)
 }
 
 func intersectKeywordSlices(left []string, right []string) []string {

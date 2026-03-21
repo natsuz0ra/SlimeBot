@@ -13,9 +13,14 @@ import {
 } from '@/utils/replyBatchBuilder'
 
 const HISTORY_PAGE_SIZE = 10
+const MAX_SESSION_PAGE_SIZE = 100
 
 export const useChatStore = defineStore('chat', () => {
   const sessions = ref<SessionItem[]>([])
+  const sessionPageSize = ref(30)
+  const hasMoreSessions = ref(true)
+  const loadingMoreSessions = ref(false)
+  const sessionSearchQuery = ref('')
   const currentSessionId = ref<string>()
   const messages = ref<MessageItem[]>([])
   const waiting = ref(false)
@@ -169,8 +174,15 @@ export const useChatStore = defineStore('chat', () => {
     markAssistantError(assistantMessageId)
   }
 
+  function setSessionPageSize(size: number) {
+    sessionPageSize.value = Math.min(Math.max(size, 10), MAX_SESSION_PAGE_SIZE)
+  }
+
   async function loadSessions() {
-    sessions.value = await sessionAPI.list()
+    sessionSearchQuery.value = ''
+    const res = await sessionAPI.list({ limit: sessionPageSize.value, offset: 0 })
+    sessions.value = res.sessions
+    hasMoreSessions.value = res.hasMore
     const isVirtualMessagePlatformSession =
       currentSessionId.value === MESSAGE_PLATFORM_SESSION_ID &&
       !sessions.value.some((item) => item.id === MESSAGE_PLATFORM_SESSION_ID)
@@ -180,6 +192,42 @@ export const useChatStore = defineStore('chat', () => {
       messages.value = []
       resetSessionRuntimeState()
       resetHistoryState()
+    }
+  }
+
+  async function loadMoreSessions() {
+    if (loadingMoreSessions.value || !hasMoreSessions.value) return
+    loadingMoreSessions.value = true
+    try {
+      const q = sessionSearchQuery.value.trim()
+      const res = await sessionAPI.list({
+        limit: sessionPageSize.value,
+        offset: sessions.value.length,
+        ...(q ? { q } : {}),
+      })
+      const existing = new Set(sessions.value.map((s) => s.id))
+      const next = res.sessions.filter((s) => !existing.has(s.id))
+      sessions.value = [...sessions.value, ...next]
+      hasMoreSessions.value = res.hasMore
+    } finally {
+      loadingMoreSessions.value = false
+    }
+  }
+
+  async function searchSessions(query: string) {
+    const q = query.trim()
+    sessionSearchQuery.value = q
+    if (!q) {
+      await loadSessions()
+      return
+    }
+    loadingMoreSessions.value = true
+    try {
+      const res = await sessionAPI.list({ q, limit: sessionPageSize.value, offset: 0 })
+      sessions.value = res.sessions
+      hasMoreSessions.value = res.hasMore
+    } finally {
+      loadingMoreSessions.value = false
     }
   }
 
@@ -242,12 +290,14 @@ export const useChatStore = defineStore('chat', () => {
   async function loadOlderMessages() {
     const sessionId = currentSessionId.value
     const first = messages.value[0]
-    if (!sessionId || !first || !hasMoreHistory.value || loadingOlderHistory.value) return false
+    if (!sessionId || !first || typeof first.seq !== 'number' || !hasMoreHistory.value || loadingOlderHistory.value)
+      return false
     loadingOlderHistory.value = true
     try {
       const history = await sessionAPI.history(sessionId, {
         limit: HISTORY_PAGE_SIZE,
         before: first.createdAt,
+        beforeSeq: first.seq,
       })
       prependUniqueMessages(materializeMessages(history.messages))
       hasMoreHistory.value = history.hasMore
@@ -264,9 +314,11 @@ export const useChatStore = defineStore('chat', () => {
     loadingNewerMessages.value = true
     try {
       const latest = messages.value[messages.value.length - 1]
+      if (!latest || typeof latest.seq !== 'number') return false
       const history = await sessionAPI.history(sessionId, {
         limit: 50,
-        after: latest?.createdAt,
+        after: latest.createdAt,
+        afterSeq: latest.seq,
       })
       appendUniqueMessages(materializeMessages(history.messages))
       mergeReplyBatchesFromHistory(sessionId, history, 'append')
@@ -546,6 +598,8 @@ export const useChatStore = defineStore('chat', () => {
 
   return {
     sessions,
+    sessionPageSize,
+    setSessionPageSize,
     currentSessionId,
     messages,
     waiting,
@@ -559,6 +613,11 @@ export const useChatStore = defineStore('chat', () => {
     replyBatches,
     currentBatchId,
     loadSessions,
+    loadMoreSessions,
+    searchSessions,
+    hasMoreSessions,
+    loadingMoreSessions,
+    sessionSearchQuery,
     resetToNewSession,
     createSession,
     selectSession,

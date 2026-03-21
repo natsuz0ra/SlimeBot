@@ -86,10 +86,10 @@ function closeDialog() {
       </p>
     </section>
 
-    <div class="tool-detail-footer flex justify-end mt-2 pt-2">
+    <div class="tool-detail-footer flex justify-end gap-2 mt-2 pt-2">
       <button
         type="button"
-        class="tool-detail-close-btn px-3 py-1 text-sm rounded-lg transition-all duration-150 cursor-pointer"
+        class="px-4 py-2 text-sm rounded-xl transition-all duration-150 cursor-pointer dialog-cancel-btn"
         @click="closeDialog"
       >
         {{ t('close') }}
@@ -117,7 +117,7 @@ function closeDialog() {
   border-radius: 999px;
   border: 1px solid var(--tool-summary-border);
   background: var(--tool-summary-bg);
-  padding: 3px 8px;
+  padding: 6px 12px;
 }
 
 .tool-summary-label {
@@ -165,21 +165,6 @@ function closeDialog() {
   padding: 1px 1px 4px 0;
 }
 
-.tool-detail-close-btn {
-  background: var(--input-bg);
-  border: 1px solid var(--input-border);
-  color: var(--text-secondary);
-}
-
-.tool-detail-close-btn:hover {
-  background: var(--tool-summary-bg);
-}
-
-.tool-detail-close-btn:focus-visible {
-  outline: 2px solid var(--focus-ring);
-  outline-offset: 2px;
-}
-
 .tool-detail-empty {
   border: 1px dashed var(--card-border);
   border-radius: 10px;
@@ -192,7 +177,7 @@ function closeDialog() {
   }
 
   .tool-summary-item {
-    padding: 3px 7px;
+    padding: 5px 10px;
   }
 
   .tool-summary-label {

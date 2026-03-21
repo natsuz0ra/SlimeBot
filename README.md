@@ -135,7 +135,7 @@ onnx/
 - `EMBEDDING_MODEL_PATH`：ONNX 模型路径，默认 `./onnx/model.onnx`
 - `EMBEDDING_TOKENIZER_PATH`：tokenizer 路径，默认 `./onnx/tokenizer.json`
 - `EMBEDDING_PYTHON_BIN`：Python 可执行程序，默认 `python`
-- `EMBEDDING_SCRIPT_PATH`：embedding 脚本路径，默认 `./scripts/onnx_embed.py`
+- `EMBEDDING_SCRIPT_PATH`：embedding 脚本路径，默认 `./scripts/onnx_embed_server.py`
 - `EMBEDDING_TIMEOUT_MS`：embedding 超时毫秒数，默认 `30000`
 - `QDRANT_URL`：Qdrant gRPC 地址，默认 `127.0.0.1:6334`
 - `QDRANT_COLLECTION`：向量集合名，默认 `session_memories`
@@ -155,7 +155,7 @@ EMBEDDING_PROVIDER=onnx
 EMBEDDING_MODEL_PATH=./onnx/model.onnx
 EMBEDDING_TOKENIZER_PATH=./onnx/tokenizer.json
 EMBEDDING_PYTHON_BIN=python
-EMBEDDING_SCRIPT_PATH=./scripts/onnx_embed.py
+EMBEDDING_SCRIPT_PATH=./scripts/onnx_embed_server.py
 EMBEDDING_TIMEOUT_MS=30000
 QDRANT_URL=127.0.0.1:6334
 QDRANT_COLLECTION=session_memories

@@ -41,7 +41,7 @@ func Load() Config {
 		EmbeddingModelPath:     getEnv("EMBEDDING_MODEL_PATH", "./onnx/model.onnx"),
 		EmbeddingTokenizerPath: getEnv("EMBEDDING_TOKENIZER_PATH", "./onnx"),
 		EmbeddingPythonBin:     getEnv("EMBEDDING_PYTHON_BIN", "python"),
-		EmbeddingScriptPath:    getEnv("EMBEDDING_SCRIPT_PATH", "./scripts/onnx_embed.py"),
+		EmbeddingScriptPath:    getEnv("EMBEDDING_SCRIPT_PATH", "./scripts/onnx_embed_server.py"),
 		EmbeddingTimeoutMS:     GetIntEnv("EMBEDDING_TIMEOUT_MS", 30000),
 		QdrantURL:              getEnv("QDRANT_URL", "127.0.0.1:6334"),
 		QdrantCollection:       getEnv("QDRANT_COLLECTION", "session_memories"),

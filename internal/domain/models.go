@@ -26,6 +26,7 @@ type Message struct {
 	// Attachments 为运行时反序列化字段，对外返回给前端渲染附件卡片。
 	Attachments []MessageAttachment `gorm:"-" json:"attachments"`
 	CreatedAt   time.Time           `gorm:"index;index:idx_messages_session_created,priority:2" json:"createdAt"`
+	Seq         int64               `gorm:"not null;default:0;index:idx_messages_session_created,priority:3" json:"seq"`
 }
 
 // MessageAttachment 描述消息中的附件元信息（不包含源文件内容）。
@@ -39,14 +40,15 @@ type MessageAttachment struct {
 	IconType  string `json:"iconType"`
 }
 
-// SessionMemory 维护会话级摘要与关键词，用于上下文压缩与全局记忆检索。
+// SessionMemory 会话内单条原子记忆与关键词，用于上下文与跨会话检索。
 type SessionMemory struct {
 	ID                 string    `gorm:"primaryKey;size:36" json:"id"`
-	SessionID          string    `gorm:"size:36;not null;uniqueIndex" json:"sessionId"`
+	SessionID          string    `gorm:"size:36;not null;index:idx_session_memories_session_active" json:"sessionId"`
 	Summary            string    `gorm:"type:text;not null" json:"summary"`
 	KeywordsJSON       string    `gorm:"type:text;not null" json:"keywordsJson"`
 	KeywordsText       string    `gorm:"type:text;not null" json:"keywordsText"`
 	SourceMessageCount int       `gorm:"not null;default:0" json:"sourceMessageCount"`
+	IsActive           bool      `gorm:"not null;default:true;index:idx_session_memories_session_active" json:"isActive"`
 	CreatedAt          time.Time `json:"createdAt"`
 	UpdatedAt          time.Time `gorm:"index" json:"updatedAt"`
 }

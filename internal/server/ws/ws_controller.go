@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"log"
+	"log/slog"
 	"net/http"
 	"strings"
 	"sync"
@@ -16,6 +16,7 @@ import (
 	"github.com/gorilla/websocket"
 )
 
+// Controller WebSocket 聊天：升级连接、读写分离、串行处理 chat 与工具审批桥接。
 type Controller struct {
 	// 聊天业务入口，负责会话与流式输出处理。
 	chatService *chatsvc.ChatService
@@ -127,6 +128,7 @@ func (b *approvalBroker) Remove(toolCallID string) {
 	delete(b.channels, toolCallID)
 }
 
+// Chat 将 HTTP 升级为 WebSocket，启动写循环、读循环与串行 chat 消费循环。
 func (w *Controller) Chat(wr http.ResponseWriter, req *http.Request) {
 	conn, err := w.upgrader.Upgrade(wr, req, nil)
 	if err != nil {
@@ -283,7 +285,7 @@ func (w *Controller) handleChatIncoming(
 		})
 	}
 
-	session, err := w.chatService.EnsureSession(sessionID)
+	session, err := w.chatService.EnsureSession(sessionCtx, sessionID)
 	if err != nil {
 		return enqueue(map[string]any{
 			"type":      "error",
@@ -359,13 +361,12 @@ func (w *Controller) handleChatIncoming(
 		startToFirstChunkMs = firstChunkSentAt.Sub(startSentAt).Milliseconds()
 		firstChunkToDoneMs = doneSentAt.Sub(firstChunkSentAt).Milliseconds()
 	}
-	log.Printf(
-		"ws_chat_timing session=%s receive_to_start_ms=%d start_to_first_chunk_ms=%d first_chunk_to_done_ms=%d total_ms=%d",
-		session.ID,
-		startSentAt.Sub(receivedAt).Milliseconds(),
-		startToFirstChunkMs,
-		firstChunkToDoneMs,
-		doneSentAt.Sub(receivedAt).Milliseconds(),
+	slog.Info("ws_chat_timing",
+		"session", session.ID,
+		"receive_to_start_ms", startSentAt.Sub(receivedAt).Milliseconds(),
+		"start_to_first_chunk_ms", startToFirstChunkMs,
+		"first_chunk_to_done_ms", firstChunkToDoneMs,
+		"total_ms", doneSentAt.Sub(receivedAt).Milliseconds(),
 	)
 	return true
 }

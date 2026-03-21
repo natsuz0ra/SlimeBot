@@ -5,6 +5,7 @@ import ChatMessageItem from '@/components/chat/ChatMessageItem.vue'
 defineProps<{
   messages: MessageItem[]
   showScrollToBottom: boolean
+  loadingOlderHistory: boolean
   setMessagesRef: (el: unknown) => void
 }>()
 
@@ -16,6 +17,15 @@ const emit = defineEmits<{
 <template>
   <section :ref="setMessagesRef" class="messages-section scroll-area flex-1 overflow-y-auto px-4 py-6">
     <div class="flex flex-col gap-5 max-w-[720px] mx-auto">
+      <div
+        v-if="loadingOlderHistory"
+        class="flex justify-center py-2"
+      >
+        <svg class="loading-spinner-accent animate-spin w-5 h-5" fill="none" viewBox="0 0 24 24">
+          <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" />
+          <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
+        </svg>
+      </div>
       <ChatMessageItem v-for="item in messages" :key="item.id" :item="item" />
     </div>
   </section>

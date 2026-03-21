@@ -18,6 +18,7 @@ CREATE TABLE IF NOT EXISTS messages (
     is_interrupted INTEGER NOT NULL DEFAULT 0,
     is_stop_placeholder INTEGER NOT NULL DEFAULT 0,
     attachments_json TEXT NOT NULL DEFAULT '[]',
+    seq INTEGER NOT NULL DEFAULT 0,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 CREATE INDEX IF NOT EXISTS idx_messages_session_id ON messages(session_id);
@@ -26,15 +27,38 @@ CREATE INDEX IF NOT EXISTS idx_messages_created_at ON messages(created_at);
 
 CREATE TABLE IF NOT EXISTS session_memories (
     id TEXT PRIMARY KEY,
-    session_id TEXT NOT NULL UNIQUE,
+    session_id TEXT NOT NULL,
     summary TEXT NOT NULL,
     keywords_json TEXT NOT NULL,
     keywords_text TEXT NOT NULL,
     source_message_count INTEGER NOT NULL DEFAULT 0,
+    is_active INTEGER NOT NULL DEFAULT 1,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
+CREATE INDEX IF NOT EXISTS idx_session_memories_session_active ON session_memories(session_id, is_active);
 CREATE INDEX IF NOT EXISTS idx_session_memories_updated_at ON session_memories(updated_at);
+
+CREATE VIRTUAL TABLE IF NOT EXISTS session_memories_fts USING fts5(
+    summary,
+    keywords_text,
+    content='session_memories',
+    content_rowid='rowid',
+    tokenize='unicode61'
+);
+
+CREATE TRIGGER IF NOT EXISTS session_memories_ai AFTER INSERT ON session_memories BEGIN
+    INSERT INTO session_memories_fts(rowid, summary, keywords_text) VALUES (new.rowid, new.summary, new.keywords_text);
+END;
+
+CREATE TRIGGER IF NOT EXISTS session_memories_ad AFTER DELETE ON session_memories BEGIN
+    INSERT INTO session_memories_fts(session_memories_fts, rowid, summary, keywords_text) VALUES('delete', old.rowid, old.summary, old.keywords_text);
+END;
+
+CREATE TRIGGER IF NOT EXISTS session_memories_au AFTER UPDATE ON session_memories BEGIN
+    INSERT INTO session_memories_fts(session_memories_fts, rowid, summary, keywords_text) VALUES('delete', old.rowid, old.summary, old.keywords_text);
+    INSERT INTO session_memories_fts(rowid, summary, keywords_text) VALUES (new.rowid, new.summary, new.keywords_text);
+END;
 
 CREATE TABLE IF NOT EXISTS tool_call_records (
     id TEXT PRIMARY KEY,

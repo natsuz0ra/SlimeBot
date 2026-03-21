@@ -15,11 +15,11 @@ import (
 	"gorm.io/gorm"
 )
 
-var ErrStaleSessionMemoryWrite = errors.New("stale session memory write")
-
 func (r *Repository) GetSessionMemory(sessionID string) (*domain.SessionMemory, error) {
 	var item domain.SessionMemory
-	err := r.db.Where("session_id = ?", strings.TrimSpace(sessionID)).First(&item).Error
+	err := r.db.Where("session_id = ? AND is_active = ?", strings.TrimSpace(sessionID), true).
+		Order("updated_at DESC").
+		First(&item).Error
 	if err != nil {
 		if isRecordNotFound(err) {
 			return nil, nil
@@ -45,10 +45,162 @@ func (r *Repository) GetSessionMemoriesBySessionIDs(sessionIDs []string) ([]doma
 		return []domain.SessionMemory{}, nil
 	}
 	var rows []domain.SessionMemory
-	if err := r.db.Where("session_id IN ?", normalized).Find(&rows).Error; err != nil {
+	if err := r.db.Where("session_id IN ? AND is_active = ?", normalized, true).Find(&rows).Error; err != nil {
 		return nil, err
 	}
 	return rows, nil
+}
+
+func (r *Repository) GetSessionMemoriesByIDs(ids []string) ([]domain.SessionMemory, error) {
+	if len(ids) == 0 {
+		return []domain.SessionMemory{}, nil
+	}
+	normalized := make([]string, 0, len(ids))
+	for _, id := range ids {
+		if v := strings.TrimSpace(id); v != "" {
+			normalized = append(normalized, v)
+		}
+	}
+	if len(normalized) == 0 {
+		return []domain.SessionMemory{}, nil
+	}
+	var rows []domain.SessionMemory
+	if err := r.db.Where("id IN ? AND is_active = ?", normalized, true).Find(&rows).Error; err != nil {
+		return nil, err
+	}
+	return rows, nil
+}
+
+func (r *Repository) CountActiveSessionMemories(sessionID string) (int64, error) {
+	sid := strings.TrimSpace(sessionID)
+	if sid == "" {
+		return 0, fmt.Errorf("session_id cannot be empty")
+	}
+	var count int64
+	if err := r.db.Model(&domain.SessionMemory{}).Where("session_id = ? AND is_active = ?", sid, true).Count(&count).Error; err != nil {
+		return 0, err
+	}
+	return count, nil
+}
+
+func (r *Repository) ListActiveSessionMemories(sessionID string) ([]domain.SessionMemory, error) {
+	sid := strings.TrimSpace(sessionID)
+	if sid == "" {
+		return nil, fmt.Errorf("session_id cannot be empty")
+	}
+	var rows []domain.SessionMemory
+	if err := r.db.Where("session_id = ? AND is_active = ?", sid, true).
+		Order("updated_at ASC").
+		Find(&rows).Error; err != nil {
+		return nil, err
+	}
+	return rows, nil
+}
+
+func (r *Repository) ListRecentActiveSessionMemories(sessionID string, limit int) ([]domain.SessionMemory, error) {
+	sid := strings.TrimSpace(sessionID)
+	if sid == "" {
+		return nil, fmt.Errorf("session_id cannot be empty")
+	}
+	if limit <= 0 {
+		return []domain.SessionMemory{}, nil
+	}
+	var rows []domain.SessionMemory
+	if err := r.db.Where("session_id = ? AND is_active = ?", sid, true).
+		Order("updated_at DESC").
+		Limit(limit).
+		Find(&rows).Error; err != nil {
+		return nil, err
+	}
+	return rows, nil
+}
+
+func (r *Repository) CreateSessionMemory(input domain.SessionMemoryCreateInput) (*domain.SessionMemory, error) {
+	sessionID := strings.TrimSpace(input.SessionID)
+	if sessionID == "" {
+		return nil, fmt.Errorf("session_id cannot be empty")
+	}
+	summary := strings.TrimSpace(input.Summary)
+	if summary == "" {
+		return nil, fmt.Errorf("summary cannot be empty")
+	}
+	keywords := normalizeKeywords(input.Keywords)
+	keywordsJSONBytes, err := json.Marshal(keywords)
+	if err != nil {
+		return nil, err
+	}
+	now := time.Now()
+	item := domain.SessionMemory{
+		ID:                 uuid.NewString(),
+		SessionID:          sessionID,
+		Summary:            summary,
+		KeywordsJSON:       string(keywordsJSONBytes),
+		KeywordsText:       strings.Join(keywords, " "),
+		SourceMessageCount: input.SourceMessageCount,
+		IsActive:           true,
+		CreatedAt:          now,
+		UpdatedAt:          now,
+	}
+	if err := r.db.Create(&item).Error; err != nil {
+		return nil, err
+	}
+	return &item, nil
+}
+
+func (r *Repository) UpdateSessionMemoryContent(id, sessionID, summary string, keywords []string, sourceMessageCount int) error {
+	id = strings.TrimSpace(id)
+	sid := strings.TrimSpace(sessionID)
+	if id == "" || sid == "" {
+		return fmt.Errorf("id and session_id required")
+	}
+	summary = strings.TrimSpace(summary)
+	if summary == "" {
+		return fmt.Errorf("summary cannot be empty")
+	}
+	kw := normalizeKeywords(keywords)
+	kwJSON, err := json.Marshal(kw)
+	if err != nil {
+		return err
+	}
+	now := time.Now()
+	res := r.db.Model(&domain.SessionMemory{}).
+		Where("id = ? AND session_id = ? AND is_active = ?", id, sid, true).
+		Updates(map[string]any{
+			"summary":              summary,
+			"keywords_json":        string(kwJSON),
+			"keywords_text":        strings.Join(kw, " "),
+			"source_message_count": sourceMessageCount,
+			"updated_at":           now,
+		})
+	if res.Error != nil {
+		return res.Error
+	}
+	if res.RowsAffected == 0 {
+		return gorm.ErrRecordNotFound
+	}
+	return nil
+}
+
+func (r *Repository) SoftDeleteSessionMemory(id, sessionID string) error {
+	id = strings.TrimSpace(id)
+	sid := strings.TrimSpace(sessionID)
+	if id == "" || sid == "" {
+		return fmt.Errorf("id and session_id required")
+	}
+	now := time.Now()
+	res := r.db.Model(&domain.SessionMemory{}).
+		Where("id = ? AND session_id = ? AND is_active = ?", id, sid, true).
+		Updates(map[string]any{
+			"is_active":  false,
+			"updated_at": now,
+		})
+	if res.Error != nil {
+		return res.Error
+	}
+	if res.RowsAffected == 0 {
+		return gorm.ErrRecordNotFound
+	}
+	return nil
 }
 
 func (r *Repository) UpsertSessionMemory(input domain.SessionMemoryUpsertInput) error {
@@ -56,71 +208,91 @@ func (r *Repository) UpsertSessionMemory(input domain.SessionMemoryUpsertInput) 
 	return err
 }
 
-// UpsertSessionMemoryIfNewer 仅在消息计数不倒退时更新记忆，防止旧摘要覆盖新摘要。
 func (r *Repository) UpsertSessionMemoryIfNewer(input domain.SessionMemoryUpsertInput) (bool, error) {
-	now := time.Now()
 	sessionID := strings.TrimSpace(input.SessionID)
 	if sessionID == "" {
 		return false, fmt.Errorf("session_id cannot be empty")
 	}
+	var existing domain.SessionMemory
+	err := r.db.Where("session_id = ? AND is_active = ?", sessionID, true).
+		Order("source_message_count DESC, updated_at DESC").
+		First(&existing).Error
+	if err != nil && !isRecordNotFound(err) {
+		return false, err
+	}
+	if err == nil {
+		if input.SourceMessageCount < existing.SourceMessageCount {
+			return false, nil
+		}
+		keywords := normalizeKeywords(input.Keywords)
+		keywordsJSONBytes, err := json.Marshal(keywords)
+		if err != nil {
+			return false, err
+		}
+		now := time.Now()
+		if err := r.db.Model(&domain.SessionMemory{}).
+			Where("id = ?", existing.ID).
+			Updates(map[string]any{
+				"summary":              input.Summary,
+				"keywords_json":        string(keywordsJSONBytes),
+				"keywords_text":        strings.Join(keywords, " "),
+				"source_message_count": input.SourceMessageCount,
+				"updated_at":           now,
+			}).Error; err != nil {
+			return false, err
+		}
+		return true, nil
+	}
+
 	keywords := normalizeKeywords(input.Keywords)
 	keywordsJSONBytes, err := json.Marshal(keywords)
 	if err != nil {
 		return false, err
 	}
-	keywordsJSON := string(keywordsJSONBytes)
-	keywordsText := strings.Join(keywords, " ")
-
-	updated := false
-	err = r.db.Transaction(func(tx *gorm.DB) error {
-		var existing domain.SessionMemory
-		query := tx.Where("session_id = ?", sessionID).First(&existing)
-		if query.Error == nil {
-			if input.SourceMessageCount < existing.SourceMessageCount {
-				updated = false
-				return nil
-			}
-			if err := tx.Model(&domain.SessionMemory{}).
-				Where("id = ?", existing.ID).
-				Updates(map[string]any{
-					"summary":              input.Summary,
-					"keywords_json":        keywordsJSON,
-					"keywords_text":        keywordsText,
-					"source_message_count": input.SourceMessageCount,
-					"updated_at":           now,
-				}).Error; err != nil {
-				return err
-			}
-			updated = true
-			return nil
-		}
-		if query.Error != nil && !isRecordNotFound(query.Error) {
-			return query.Error
-		}
-
-		item := domain.SessionMemory{
-			ID:                 uuid.NewString(),
-			SessionID:          sessionID,
-			Summary:            input.Summary,
-			KeywordsJSON:       keywordsJSON,
-			KeywordsText:       keywordsText,
-			SourceMessageCount: input.SourceMessageCount,
-			CreatedAt:          now,
-			UpdatedAt:          now,
-		}
-		if err := tx.Create(&item).Error; err != nil {
-			return err
-		}
-		updated = true
-		return nil
-	})
-	if err != nil {
+	now := time.Now()
+	item := domain.SessionMemory{
+		ID:                 uuid.NewString(),
+		SessionID:          sessionID,
+		Summary:            input.Summary,
+		KeywordsJSON:       string(keywordsJSONBytes),
+		KeywordsText:       strings.Join(keywords, " "),
+		SourceMessageCount: input.SourceMessageCount,
+		IsActive:           true,
+		CreatedAt:          now,
+		UpdatedAt:          now,
+	}
+	if err := r.db.Create(&item).Error; err != nil {
 		return false, err
 	}
-	return updated, nil
+	return true, nil
 }
 
-// SearchMemoriesByKeywords 基于关键词匹配和时间衰减评分返回 TopN 记忆。
+func ftsMatchPhrase(keyword string) string {
+	k := strings.TrimSpace(keyword)
+	if k == "" {
+		return ""
+	}
+	k = strings.ReplaceAll(k, `"`, `""`)
+	return `"` + k + `"`
+}
+
+func buildFTSMatchQuery(keywords []string) string {
+	parts := make([]string, 0, len(keywords))
+	for _, kw := range keywords {
+		p := ftsMatchPhrase(kw)
+		if p != "" {
+			parts = append(parts, p)
+		}
+	}
+	return strings.Join(parts, " OR ")
+}
+
+func (r *Repository) ftsSessionMemoriesTableExists() bool {
+	var n int64
+	_ = r.db.Raw(`SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='session_memories_fts'`).Scan(&n)
+	return n > 0
+}
+
 func (r *Repository) SearchMemoriesByKeywords(keywords []string, limit int, excludeSessionID string) ([]domain.SessionMemorySearchHit, error) {
 	normalizedKeywords := normalizeKeywords(keywords)
 	if len(normalizedKeywords) == 0 || limit <= 0 {
@@ -136,24 +308,65 @@ func (r *Repository) SearchMemoriesByKeywords(keywords []string, limit int, excl
 	}
 
 	var candidates []domain.SessionMemory
-	query := r.db.Order("updated_at desc").Limit(candidateLimit)
-	if sessionID := strings.TrimSpace(excludeSessionID); sessionID != "" {
-		query = query.Where("session_id <> ?", sessionID)
+	match := buildFTSMatchQuery(normalizedKeywords)
+	if r.ftsSessionMemoriesTableExists() && match != "" {
+		raw := `SELECT sm.id FROM session_memories sm
+INNER JOIN session_memories_fts ON session_memories_fts.rowid = sm.rowid
+WHERE session_memories_fts MATCH ? AND sm.is_active = 1`
+		args := []any{match}
+		if sid := strings.TrimSpace(excludeSessionID); sid != "" {
+			raw += ` AND sm.session_id <> ?`
+			args = append(args, sid)
+		}
+		raw += ` LIMIT ?`
+		args = append(args, candidateLimit)
+		var idRows []struct {
+			ID string `gorm:"column:id"`
+		}
+		if err := r.db.Raw(raw, args...).Scan(&idRows).Error; err == nil && len(idRows) > 0 {
+			ids := make([]string, 0, len(idRows))
+			for _, row := range idRows {
+				if strings.TrimSpace(row.ID) != "" {
+					ids = append(ids, row.ID)
+				}
+			}
+			if len(ids) > 0 {
+				if err := r.db.Where("id IN ? AND is_active = ?", ids, true).Find(&candidates).Error; err != nil {
+					return nil, err
+				}
+				byID := make(map[string]domain.SessionMemory, len(candidates))
+				for _, c := range candidates {
+					byID[c.ID] = c
+				}
+				candidates = candidates[:0]
+				for _, id := range ids {
+					if row, ok := byID[id]; ok {
+						candidates = append(candidates, row)
+					}
+				}
+			}
+		}
 	}
-	orLikeParts := make([]string, 0, len(normalizedKeywords)*2)
-	orLikeArgs := make([]any, 0, len(normalizedKeywords)*2)
-	for _, keyword := range normalizedKeywords {
-		like := "%" + keyword + "%"
-		orLikeParts = append(orLikeParts, "keywords_text LIKE ?")
-		orLikeArgs = append(orLikeArgs, like)
-		orLikeParts = append(orLikeParts, "summary LIKE ?")
-		orLikeArgs = append(orLikeArgs, like)
-	}
-	if len(orLikeParts) > 0 {
-		query = query.Where("("+strings.Join(orLikeParts, " OR ")+")", orLikeArgs...)
-	}
-	if err := query.Find(&candidates).Error; err != nil {
-		return nil, err
+	if len(candidates) == 0 {
+		query := r.db.Where("is_active = ?", true).Order("updated_at desc").Limit(candidateLimit)
+		if sessionID := strings.TrimSpace(excludeSessionID); sessionID != "" {
+			query = query.Where("session_id <> ?", sessionID)
+		}
+		orLikeParts := make([]string, 0, len(normalizedKeywords)*2)
+		orLikeArgs := make([]any, 0, len(normalizedKeywords)*2)
+		for _, keyword := range normalizedKeywords {
+			like := "%" + keyword + "%"
+			orLikeParts = append(orLikeParts, "keywords_text LIKE ?")
+			orLikeArgs = append(orLikeArgs, like)
+			orLikeParts = append(orLikeParts, "summary LIKE ?")
+			orLikeArgs = append(orLikeArgs, like)
+		}
+		if len(orLikeParts) > 0 {
+			query = query.Where("("+strings.Join(orLikeParts, " OR ")+")", orLikeArgs...)
+		}
+		if err := query.Find(&candidates).Error; err != nil {
+			return nil, err
+		}
 	}
 
 	hits := make([]domain.SessionMemorySearchHit, 0, len(candidates))
@@ -196,7 +409,6 @@ func isRecordNotFound(err error) bool {
 	return errors.Is(err, gorm.ErrRecordNotFound)
 }
 
-// normalizeKeywords 归一化、去空和去重关键词。
 func normalizeKeywords(keywords []string) []string {
 	seen := make(map[string]struct{}, len(keywords))
 	result := make([]string, 0, len(keywords))
@@ -214,7 +426,6 @@ func normalizeKeywords(keywords []string) []string {
 	return result
 }
 
-// parseStoredKeywords 优先解析 JSON 关键词，失败时回退到文本字段。
 func parseStoredKeywords(memory domain.SessionMemory) []string {
 	if strings.TrimSpace(memory.KeywordsJSON) != "" {
 		var parsed []string
@@ -228,7 +439,6 @@ func parseStoredKeywords(memory domain.SessionMemory) []string {
 	return normalizeKeywords(strings.Fields(memory.KeywordsText))
 }
 
-// intersectKeywords 计算查询词与候选词集合的交集。
 func intersectKeywords(queries []string, candidate []string) []string {
 	if len(queries) == 0 || len(candidate) == 0 {
 		return []string{}
@@ -247,7 +457,6 @@ func intersectKeywords(queries []string, candidate []string) []string {
 	return result
 }
 
-// scoreMemoryHit 按匹配数量与更新时间计算检索排序分值。
 func scoreMemoryHit(matchedCount int, updatedAt time.Time) float64 {
 	score := float64(matchedCount) * 100
 	ageHours := time.Since(updatedAt).Hours()

@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/qdrant/go-client/qdrant"
+	"slimebot/internal/domain"
 )
 
 func TestMemoryVectorRepository_UpsertAndSearch(t *testing.T) {
@@ -20,7 +21,8 @@ func TestMemoryVectorRepository_UpsertAndSearch(t *testing.T) {
 		},
 	}
 	repo := NewMemoryVectorRepositoryWithClient(client, "session_memories")
-	err := repo.UpsertSessionMemoryVector(context.Background(), MemoryVectorUpsertInput{
+	err := repo.UpsertSessionMemoryVector(context.Background(), domain.MemoryVectorUpsertInput{
+		MemoryID:  "m1",
 		SessionID: "s1",
 		Vector:    []float32{0.1, 0.2, 0.3},
 		Payload: map[string]any{
@@ -40,6 +42,9 @@ func TestMemoryVectorRepository_UpsertAndSearch(t *testing.T) {
 	}
 	if hits[0].SessionID != "s1" {
 		t.Fatalf("expected session id s1, got %q", hits[0].SessionID)
+	}
+	if hits[0].MemoryID != "s1" && hits[0].MemoryID != "m1" {
+		t.Fatalf("unexpected memory id %q", hits[0].MemoryID)
 	}
 	if client.collectionCreated != 1 {
 		t.Fatalf("expected collection created once, got=%d", client.collectionCreated)
@@ -76,7 +81,8 @@ func TestMemoryVectorRepository_CollectionExistsError(t *testing.T) {
 		existsErr: errors.New("exists failed"),
 	}
 	repo := NewMemoryVectorRepositoryWithClient(client, "session_memories")
-	err := repo.UpsertSessionMemoryVector(context.Background(), MemoryVectorUpsertInput{
+	err := repo.UpsertSessionMemoryVector(context.Background(), domain.MemoryVectorUpsertInput{
+		MemoryID:  "m1",
 		SessionID: "s1",
 		Vector:    []float32{1, 2, 3},
 	})
@@ -112,10 +118,18 @@ func (m *mockQdrantClient) CreateCollection(_ context.Context, _ *qdrant.CreateC
 	return nil
 }
 
+func (m *mockQdrantClient) CreateFieldIndex(_ context.Context, _ *qdrant.CreateFieldIndexCollection) (*qdrant.UpdateResult, error) {
+	return &qdrant.UpdateResult{}, nil
+}
+
 func (m *mockQdrantClient) Upsert(_ context.Context, _ *qdrant.UpsertPoints) (*qdrant.UpdateResult, error) {
 	if m.upsertErr != nil {
 		return nil, m.upsertErr
 	}
+	return &qdrant.UpdateResult{}, nil
+}
+
+func (m *mockQdrantClient) Delete(_ context.Context, _ *qdrant.DeletePoints) (*qdrant.UpdateResult, error) {
 	return &qdrant.UpdateResult{}, nil
 }
 

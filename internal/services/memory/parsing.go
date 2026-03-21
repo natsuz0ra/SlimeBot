@@ -4,11 +4,90 @@ import (
 	"encoding/json"
 	"fmt"
 	"regexp"
+	"slimebot/internal/constants"
 	"slimebot/internal/domain"
 	"strings"
 	"time"
 	"unicode"
 )
+
+type MemoryOp struct {
+	Action  string `json:"action"`
+	ID      string `json:"id"`
+	Content string `json:"content"`
+}
+
+type memoryOpsEnvelope struct {
+	Ops []MemoryOp `json:"ops"`
+}
+
+func parseMemoryOps(raw string) ([]MemoryOp, error) {
+	text := strings.TrimSpace(raw)
+	if text == "" {
+		return nil, fmt.Errorf("empty summary")
+	}
+	text = strings.TrimPrefix(text, "```json")
+	text = strings.TrimPrefix(text, "```")
+	text = strings.TrimSuffix(text, "```")
+	text = strings.TrimSpace(text)
+
+	start := strings.Index(text, "{")
+	end := strings.LastIndex(text, "}")
+	if start < 0 || end <= start {
+		return nil, fmt.Errorf("no json object in summary")
+	}
+	jsonText := text[start : end+1]
+
+	var env memoryOpsEnvelope
+	if err := json.Unmarshal([]byte(jsonText), &env); err != nil {
+		return nil, err
+	}
+	if len(env.Ops) == 0 {
+		return []MemoryOp{}, nil
+	}
+	out := make([]MemoryOp, 0, len(env.Ops))
+	for _, op := range env.Ops {
+		op.Action = strings.ToLower(strings.TrimSpace(op.Action))
+		op.ID = strings.TrimSpace(op.ID)
+		op.Content = strings.TrimSpace(op.Content)
+		if op.Content != "" {
+			runes := []rune(op.Content)
+			if len(runes) > constants.MemoryChunkMaxLength {
+				op.Content = string(runes[:constants.MemoryChunkMaxLength])
+			}
+		}
+		switch op.Action {
+		case "create":
+			if op.Content == "" {
+				continue
+			}
+			out = append(out, op)
+		case "update":
+			if op.ID == "" || op.Content == "" {
+				continue
+			}
+			out = append(out, op)
+		case "delete":
+			if op.ID == "" {
+				continue
+			}
+			out = append(out, op)
+		}
+	}
+	return out, nil
+}
+
+func parseMemoryOpsOrFallback(raw string) []MemoryOp {
+	text := strings.TrimSpace(raw)
+	if text == "" {
+		return nil
+	}
+	runes := []rune(text)
+	if len(runes) > constants.MemoryChunkMaxLength {
+		text = string(runes[:constants.MemoryChunkMaxLength])
+	}
+	return []MemoryOp{{Action: "create", Content: text}}
+}
 
 var nonWordRuneRegex = regexp.MustCompile(`[^\p{L}\p{N}_\-]+`)
 

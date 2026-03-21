@@ -3,7 +3,7 @@ package constants
 import "time"
 
 const (
-	ContextHistoryLimit                = 20
+	ContextHistoryLimit                = 10
 	MessagePlatformSessionID           = "im-platform-session"
 	MessagePlatformSessionName         = "Message Platform Session"
 	SettingLanguage                    = "language"
@@ -17,13 +17,20 @@ const (
 	AgentMaxIterations                 = 50
 	AgentApprovalTimeout               = 120 * time.Second
 	MaxToolNameLen                     = 64
-	MemoryToolDefaultTopK              = 3
+	MemoryToolDefaultTopK              = 10
 	StreamResultText                   = 0
 	StreamResultToolCalls              = 1
 	CompressHistoryThreshold           = 10
 	CompressedRecentHistoryLimit       = 10
 	CompactRawHistoryLimit             = 6
 	MemorySearchTopK                   = 5
+	MemoryChunkMaxLength               = 300
+	MemoryContextTopK                  = 10
+	MemoryVectorScoreThreshold         = 0.45
+	MemoryContextMaxRunes              = 4000
+	MemorySearchQueryMaxRunes          = 500
+	MemoryRecentFallback               = 3
+	MemoryFullInjectThreshold          = 10
 	MemoryDecisionTimeout              = 20 * time.Second
 	MemorySummaryTimeout               = 45 * time.Second
 	MemoryCallMaxAttempts              = 2

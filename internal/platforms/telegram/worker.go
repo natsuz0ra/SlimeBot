@@ -3,7 +3,7 @@ package telegram
 import (
 	"context"
 	"fmt"
-	"log"
+	"log/slog"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -70,7 +70,7 @@ func (w *Worker) run(ctx context.Context) {
 
 		cfg, err := w.repo.GetMessagePlatformConfigByPlatform(constants.TelegramPlatformName)
 		if err != nil {
-			log.Printf("telegram_worker_load_config_failed err=%v", err)
+			slog.Warn("telegram_worker_load_config_failed", "err", err)
 			time.Sleep(constants.TelegramErrorBackoff)
 			continue
 		}
@@ -87,7 +87,7 @@ func (w *Worker) run(ctx context.Context) {
 		adapter := NewAdapter(token)
 		updates, err := adapter.GetUpdates(ctx, updateOffset, constants.TelegramPollTimeoutSeconds)
 		if err != nil {
-			log.Printf("telegram_worker_poll_failed err=%v", err)
+			slog.Warn("telegram_worker_poll_failed", "err", err)
 			time.Sleep(constants.TelegramErrorBackoff)
 			continue
 		}
@@ -126,8 +126,10 @@ func (w *Worker) processUpdates(ctx context.Context, adapter *Adapter, updates [
 			inbound.AttachmentIDs = attachmentIDs
 			inbound.Attachments = attachments
 			if warnErr != nil {
-				log.Printf("telegram_worker_media_partial_failed chat_id=%s err=%v", chatID, warnErr)
-				_ = adapter.SendText(chatID, "Some attachments failed to process and were skipped.")
+				slog.Warn("telegram_worker_media_partial_failed", "chat_id", chatID, "err", warnErr)
+				if err := adapter.SendText(chatID, "Some attachments failed to process and were skipped."); err != nil {
+					slog.Warn("telegram_send_text_failed", "chat_id", chatID, "err", err)
+				}
 			}
 		}
 		if strings.TrimSpace(inbound.Text) == "" && len(inbound.AttachmentIDs) == 0 {
@@ -156,8 +158,10 @@ func (w *Worker) dispatchInboundAsync(ctx context.Context, inbound platforms.Inb
 	select {
 	case w.dispatchSlots <- struct{}{}:
 	default:
-		log.Printf("telegram_worker_dispatch_throttled chat_id=%s", chatID)
-		_ = sender.SendText(chatID, "System is busy. Please try again later.")
+		slog.Warn("telegram_worker_dispatch_throttled", "chat_id", chatID)
+		if err := sender.SendText(chatID, "System is busy. Please try again later."); err != nil {
+			slog.Warn("telegram_send_text_failed", "chat_id", chatID, "err", err)
+		}
 		return
 	}
 
@@ -166,8 +170,10 @@ func (w *Worker) dispatchInboundAsync(ctx context.Context, inbound platforms.Inb
 		taskCtx, cancel := context.WithTimeout(ctx, workerDispatchTimeout)
 		defer cancel()
 		if err := w.dispatchInbound(taskCtx, inbound, sender); err != nil {
-			log.Printf("telegram_worker_dispatch_failed chat_id=%s err=%v", chatID, err)
-			_ = sender.SendText(chatID, "Failed to process the message. Please try again later.")
+			slog.Warn("telegram_worker_dispatch_failed", "chat_id", chatID, "err", err)
+			if sendErr := sender.SendText(chatID, "Failed to process the message. Please try again later."); sendErr != nil {
+				slog.Warn("telegram_send_text_failed", "chat_id", chatID, "err", sendErr)
+			}
 		}
 	}()
 }
@@ -271,29 +277,39 @@ func (w *Worker) handleApprovalCallback(query *callbackQuery, adapter *Adapter) 
 		return
 	}
 	if query.Message == nil {
-		log.Printf("telegram_worker_callback_missing_message callback_id=%s", strings.TrimSpace(query.ID))
-		_ = adapter.AnswerCallbackQuery(query.ID, "Approval message context is missing.")
+		slog.Warn("telegram_worker_callback_missing_message", "callback_id", strings.TrimSpace(query.ID))
+		if err := adapter.AnswerCallbackQuery(query.ID, "Approval message context is missing."); err != nil {
+			slog.Warn("telegram_answer_callback_failed", "callback_id", query.ID, "err", err)
+		}
 		return
 	}
 	chatID := strconv.FormatInt(query.Message.Chat.ID, 10)
 	data := strings.TrimSpace(query.Data)
-	log.Printf("telegram_worker_callback_received chat_id=%s callback_id=%s", chatID, strings.TrimSpace(query.ID))
+	slog.Info("telegram_worker_callback_received", "chat_id", chatID, "callback_id", strings.TrimSpace(query.ID))
 	if data == "" {
-		log.Printf("telegram_worker_callback_empty_data chat_id=%s callback_id=%s", chatID, strings.TrimSpace(query.ID))
-		_ = adapter.AnswerCallbackQuery(query.ID, "Approval command is empty.")
+		slog.Warn("telegram_worker_callback_empty_data", "chat_id", chatID, "callback_id", strings.TrimSpace(query.ID))
+		if err := adapter.AnswerCallbackQuery(query.ID, "Approval command is empty."); err != nil {
+			slog.Warn("telegram_answer_callback_failed", "callback_id", query.ID, "err", err)
+		}
 		return
 	}
 	approved, err := w.dispatcher.HandleTelegramApprovalCallback(chatID, data)
 	if err != nil {
-		log.Printf("telegram_worker_callback_resolve_failed chat_id=%s callback_id=%s err=%v", chatID, strings.TrimSpace(query.ID), err)
-		_ = adapter.AnswerCallbackQuery(query.ID, "Approval failed: "+err.Error())
+		slog.Warn("telegram_worker_callback_resolve_failed", "chat_id", chatID, "callback_id", strings.TrimSpace(query.ID), "err", err)
+		if aerr := adapter.AnswerCallbackQuery(query.ID, "Approval failed: "+err.Error()); aerr != nil {
+			slog.Warn("telegram_answer_callback_failed", "callback_id", query.ID, "err", aerr)
+		}
 		return
 	}
 	if approved {
-		log.Printf("telegram_worker_callback_approved chat_id=%s callback_id=%s", chatID, strings.TrimSpace(query.ID))
-		_ = adapter.AnswerCallbackQuery(query.ID, "Approved. Executing now.")
+		slog.Info("telegram_worker_callback_approved", "chat_id", chatID, "callback_id", strings.TrimSpace(query.ID))
+		if err := adapter.AnswerCallbackQuery(query.ID, "Approved. Executing now."); err != nil {
+			slog.Warn("telegram_answer_callback_failed", "callback_id", query.ID, "err", err)
+		}
 		return
 	}
-	log.Printf("telegram_worker_callback_rejected chat_id=%s callback_id=%s", chatID, strings.TrimSpace(query.ID))
-	_ = adapter.AnswerCallbackQuery(query.ID, "Execution has been rejected.")
+	slog.Info("telegram_worker_callback_rejected", "chat_id", chatID, "callback_id", strings.TrimSpace(query.ID))
+	if err := adapter.AnswerCallbackQuery(query.ID, "Execution has been rejected."); err != nil {
+		slog.Warn("telegram_answer_callback_failed", "callback_id", query.ID, "err", err)
+	}
 }

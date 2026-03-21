@@ -115,10 +115,26 @@ func (c *stdioClient) request(ctx context.Context, method string, params map[str
 	return result, nil
 }
 
-// readRPCMessage 按 MCP/JSON-RPC over stdio 协议读取一条完整消息体。
 func readRPCMessage(ctx context.Context, r io.Reader) ([]byte, error) {
+	type rpcResult struct {
+		data []byte
+		err  error
+	}
+	ch := make(chan rpcResult, 1)
+	go func() {
+		data, err := readRPCMessageBlocking(r)
+		ch <- rpcResult{data: data, err: err}
+	}()
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	case res := <-ch:
+		return res.data, res.err
+	}
+}
+
+func readRPCMessageBlocking(r io.Reader) ([]byte, error) {
 	reader := bufio.NewReader(r)
-	_ = ctx
 	contentLength := 0
 	for {
 		line, err := reader.ReadString('\n')

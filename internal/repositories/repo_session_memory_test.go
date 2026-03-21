@@ -2,12 +2,14 @@ package repositories
 
 import (
 	"testing"
+
+	"slimebot/internal/domain"
 )
 
 func TestUpsertSessionMemoryIfNewer_MonotonicBySourceMessageCount(t *testing.T) {
 	repo := newSessionMemoryRepo(t)
 
-	updated, err := repo.UpsertSessionMemoryIfNewer(SessionMemoryUpsertInput{
+	updated, err := repo.UpsertSessionMemoryIfNewer(domain.SessionMemoryUpsertInput{
 		SessionID:          "s1",
 		Summary:            "summary-v1",
 		Keywords:           []string{"v1"},
@@ -20,7 +22,7 @@ func TestUpsertSessionMemoryIfNewer_MonotonicBySourceMessageCount(t *testing.T) 
 		t.Fatal("expected initial upsert to update")
 	}
 
-	updated, err = repo.UpsertSessionMemoryIfNewer(SessionMemoryUpsertInput{
+	updated, err = repo.UpsertSessionMemoryIfNewer(domain.SessionMemoryUpsertInput{
 		SessionID:          "s1",
 		Summary:            "summary-stale",
 		Keywords:           []string{"stale"},
@@ -47,7 +49,7 @@ func TestUpsertSessionMemoryIfNewer_MonotonicBySourceMessageCount(t *testing.T) 
 		t.Fatalf("stale write should keep source_message_count=5, got=%d", item.SourceMessageCount)
 	}
 
-	updated, err = repo.UpsertSessionMemoryIfNewer(SessionMemoryUpsertInput{
+	updated, err = repo.UpsertSessionMemoryIfNewer(domain.SessionMemoryUpsertInput{
 		SessionID:          "s1",
 		Summary:            "summary-v2",
 		Keywords:           []string{"v2"},

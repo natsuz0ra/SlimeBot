@@ -3,7 +3,7 @@ package chat
 import (
 	"context"
 	"fmt"
-	"log"
+	"log/slog"
 	"slimebot/internal/domain"
 	"strings"
 
@@ -63,7 +63,7 @@ func notifyToolResult(callbacks AgentCallbacks, result ToolCallResult) {
 		return
 	}
 	if err := callbacks.OnToolCallResult(result); err != nil {
-		log.Printf("failed to push tool result: %v", err)
+		slog.Warn("failed_to_push_tool_result", "err", err)
 	}
 }
 
@@ -134,13 +134,13 @@ func (a *AgentService) executeInvocation(
 		}
 		*memoryToolUsed = true
 		topK := parseOptionalInt(params["top_k"], constants.MemoryToolDefaultTopK)
-		queryResult, queryErr := a.memory.QueryForAgent(sessionID, params["query"], topK)
+		queryResult, queryErr := a.memory.QueryForAgent(ctx, sessionID, params["query"], topK)
 		if queryErr != nil {
 			return &tools.ExecuteResult{Output: queryResult.Output, Error: queryErr.Error()}
 		}
 		return &tools.ExecuteResult{Output: queryResult.Output}
 	}
-	return executeToolCall(invocation.toolName, invocation.command, params)
+	return executeToolCall(ctx, invocation.toolName, invocation.command, params)
 }
 
 // buildToolResultStatus 将执行结果映射为标准状态字段。

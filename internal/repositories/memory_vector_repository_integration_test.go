@@ -5,6 +5,8 @@ import (
 	"os"
 	"testing"
 	"time"
+
+	"slimebot/internal/domain"
 )
 
 func TestMemoryVectorRepository_Integration_UpsertAndSearch(t *testing.T) {
@@ -19,7 +21,8 @@ func TestMemoryVectorRepository_Integration_UpsertAndSearch(t *testing.T) {
 	}
 	defer func() { _ = repo.Close() }()
 
-	if err := repo.UpsertSessionMemoryVector(context.Background(), MemoryVectorUpsertInput{
+	if err := repo.UpsertSessionMemoryVector(context.Background(), domain.MemoryVectorUpsertInput{
+		MemoryID:  "00000000-0000-0000-0000-000000000001",
 		SessionID: "integration-s1",
 		Vector:    []float32{0.12, 0.23, 0.34},
 		Payload: map[string]any{

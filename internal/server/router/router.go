@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"path"
 	"strings"
+	"time"
 
 	"slimebot/internal/auth"
 	"slimebot/internal/config"
@@ -15,6 +16,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	chimiddleware "github.com/go-chi/chi/v5/middleware"
+	"github.com/go-chi/httprate"
 )
 
 // New 构建 HTTP 路由树并注册 REST 与 WebSocket 入口。
@@ -32,7 +34,8 @@ func New(cfg config.Config, tokenManager *auth.TokenManager, httpController *con
 
 	// REST API
 	r.Route("/api", func(api chi.Router) {
-		api.Post("/login", adapt(httpController.Login))
+		api.Use(httprate.LimitByIP(400, time.Minute))
+		api.With(httprate.LimitByIP(30, time.Minute)).Post("/login", adapt(httpController.Login))
 
 		api.With(middleware.RequireJWT(tokenManager)).Route("/", func(api chi.Router) {
 			api.Put("/account", adapt(httpController.UpdateAccount))

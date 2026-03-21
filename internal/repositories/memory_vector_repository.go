@@ -10,6 +10,8 @@ import (
 	"sync"
 
 	"github.com/qdrant/go-client/qdrant"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"slimebot/internal/domain"
 )
 
@@ -25,8 +27,10 @@ type MemoryVectorRepository struct {
 type qdrantVectorClient interface {
 	CollectionExists(ctx context.Context, collectionName string) (bool, error)
 	CreateCollection(ctx context.Context, request *qdrant.CreateCollection) error
+	CreateFieldIndex(ctx context.Context, request *qdrant.CreateFieldIndexCollection) (*qdrant.UpdateResult, error)
 	Upsert(ctx context.Context, request *qdrant.UpsertPoints) (*qdrant.UpdateResult, error)
 	Query(ctx context.Context, request *qdrant.QueryPoints) ([]*qdrant.ScoredPoint, error)
+	Delete(ctx context.Context, request *qdrant.DeletePoints) (*qdrant.UpdateResult, error)
 	Close() error
 }
 
@@ -66,7 +70,11 @@ func (r *MemoryVectorRepository) UpsertSessionMemoryVector(ctx context.Context, 
 	if err := r.validateConfig(); err != nil {
 		return err
 	}
+	memoryID := strings.TrimSpace(input.MemoryID)
 	sessionID := strings.TrimSpace(input.SessionID)
+	if memoryID == "" {
+		return fmt.Errorf("memory_id cannot be empty")
+	}
 	if sessionID == "" {
 		return fmt.Errorf("session_id cannot be empty")
 	}
@@ -79,6 +87,7 @@ func (r *MemoryVectorRepository) UpsertSessionMemoryVector(ctx context.Context, 
 
 	payload := map[string]any{
 		"session_id": sessionID,
+		"memory_id":  memoryID,
 	}
 	for k, v := range input.Payload {
 		payload[k] = v
@@ -91,10 +100,10 @@ func (r *MemoryVectorRepository) UpsertSessionMemoryVector(ctx context.Context, 
 
 	_, err = r.client.Upsert(ctx, &qdrant.UpsertPoints{
 		CollectionName: r.collection,
-		Wait:           qdrant.PtrOf(true),
+		Wait:           qdrant.PtrOf(false),
 		Points: []*qdrant.PointStruct{
 			{
-				Id:      buildPointID(sessionID),
+				Id:      buildPointID(memoryID),
 				Vectors: qdrant.NewVectorsDense(input.Vector),
 				Payload: payloadValue,
 			},
@@ -102,6 +111,25 @@ func (r *MemoryVectorRepository) UpsertSessionMemoryVector(ctx context.Context, 
 	})
 	if err != nil {
 		return fmt.Errorf("qdrant upsert failed: %w", err)
+	}
+	return nil
+}
+
+func (r *MemoryVectorRepository) DeleteMemoryVector(ctx context.Context, memoryID string) error {
+	if err := r.validateConfig(); err != nil {
+		return err
+	}
+	memoryID = strings.TrimSpace(memoryID)
+	if memoryID == "" {
+		return fmt.Errorf("memory_id cannot be empty")
+	}
+	_, err := r.client.Delete(ctx, &qdrant.DeletePoints{
+		CollectionName: r.collection,
+		Wait:           qdrant.PtrOf(false),
+		Points:         qdrant.NewPointsSelector(buildPointID(memoryID)),
+	})
+	if err != nil {
+		return fmt.Errorf("qdrant delete failed: %w", err)
 	}
 	return nil
 }
@@ -134,18 +162,56 @@ func (r *MemoryVectorRepository) SearchSimilarSessionIDs(ctx context.Context, qu
 	if err != nil {
 		return nil, err
 	}
+	return scoredPointsToMemoryHits(results), nil
+}
+
+func (r *MemoryVectorRepository) SearchMemoriesInSession(ctx context.Context, queryVector []float32, sessionID string, limit int) ([]domain.MemoryVectorSearchHit, error) {
+	if err := r.validateConfig(); err != nil {
+		return nil, err
+	}
+	sessionID = strings.TrimSpace(sessionID)
+	if len(queryVector) == 0 || limit <= 0 || sessionID == "" {
+		return []domain.MemoryVectorSearchHit{}, nil
+	}
+	if err := r.ensureCollection(ctx, len(queryVector)); err != nil {
+		return nil, err
+	}
+	request := &qdrant.QueryPoints{
+		CollectionName: r.collection,
+		Query:          qdrant.NewQueryDense(queryVector),
+		Limit:          qdrant.PtrOf(uint64(limit)),
+		WithPayload:    qdrant.NewWithPayload(true),
+		Filter: &qdrant.Filter{
+			Must: []*qdrant.Condition{
+				qdrant.NewMatch("session_id", sessionID),
+			},
+		},
+	}
+	results, err := r.client.Query(ctx, request)
+	if err != nil {
+		return nil, err
+	}
+	return scoredPointsToMemoryHits(results), nil
+}
+
+func scoredPointsToMemoryHits(results []*qdrant.ScoredPoint) []domain.MemoryVectorSearchHit {
 	hits := make([]domain.MemoryVectorSearchHit, 0, len(results))
 	for _, item := range results {
-		sessionID := extractSessionID(item.GetPayload(), item.GetId())
-		if strings.TrimSpace(sessionID) == "" {
+		sid := extractSessionID(item.GetPayload(), item.GetId())
+		mid := extractMemoryID(item.GetPayload(), item.GetId())
+		if strings.TrimSpace(sid) == "" {
 			continue
 		}
+		if strings.TrimSpace(mid) == "" {
+			mid = sid
+		}
 		hits = append(hits, domain.MemoryVectorSearchHit{
-			SessionID: sessionID,
+			SessionID: sid,
+			MemoryID:  mid,
 			Score:     float64(item.GetScore()),
 		})
 	}
-	return hits, nil
+	return hits
 }
 
 func (r *MemoryVectorRepository) ensureCollection(ctx context.Context, vectorDim int) error {
@@ -160,24 +226,40 @@ func (r *MemoryVectorRepository) ensureCollection(ctx context.Context, vectorDim
 	if err != nil {
 		return err
 	}
-	if exists {
-		r.collectionEnsured = true
-		return nil
+	if !exists {
+		err = r.client.CreateCollection(ctx, &qdrant.CreateCollection{
+			CollectionName: r.collection,
+			VectorsConfig: qdrant.NewVectorsConfig(&qdrant.VectorParams{
+				Size:     uint64(vectorDim),
+				Distance: qdrant.Distance_Cosine,
+			}),
+		})
+		if err != nil {
+			return fmt.Errorf("qdrant ensure collection failed: %w", err)
+		}
 	}
-
-	err = r.client.CreateCollection(ctx, &qdrant.CreateCollection{
-		CollectionName: r.collection,
-		VectorsConfig: qdrant.NewVectorsConfig(&qdrant.VectorParams{
-			Size:     uint64(vectorDim),
-			Distance: qdrant.Distance_Cosine,
-		}),
-	})
-	if err != nil {
-		return fmt.Errorf("qdrant ensure collection failed: %w", err)
+	if err := r.ensureSessionIDPayloadIndex(ctx); err != nil {
+		return err
 	}
 
 	r.collectionEnsured = true
 	return nil
+}
+
+func (r *MemoryVectorRepository) ensureSessionIDPayloadIndex(ctx context.Context) error {
+	_, err := r.client.CreateFieldIndex(ctx, &qdrant.CreateFieldIndexCollection{
+		CollectionName: r.collection,
+		FieldName:      "session_id",
+		FieldType:      qdrant.PtrOf(qdrant.FieldType_FieldTypeKeyword),
+		Wait:           qdrant.PtrOf(true),
+	})
+	if err == nil {
+		return nil
+	}
+	if st, ok := status.FromError(err); ok && st.Code() == codes.AlreadyExists {
+		return nil
+	}
+	return fmt.Errorf("qdrant session_id payload index: %w", err)
 }
 
 func (r *MemoryVectorRepository) Close() error {
@@ -195,6 +277,17 @@ func (r *MemoryVectorRepository) validateConfig() error {
 		return fmt.Errorf("qdrant collection cannot be empty")
 	}
 	return nil
+}
+
+func extractMemoryID(payload map[string]*qdrant.Value, id *qdrant.PointId) string {
+	if payload != nil {
+		if value, ok := payload["memory_id"]; ok && value != nil {
+			if text := strings.TrimSpace(value.GetStringValue()); text != "" {
+				return text
+			}
+		}
+	}
+	return extractSessionID(payload, id)
 }
 
 func extractSessionID(payload map[string]*qdrant.Value, id *qdrant.PointId) string {
@@ -217,8 +310,8 @@ func extractSessionID(payload map[string]*qdrant.Value, id *qdrant.PointId) stri
 	return ""
 }
 
-func buildPointID(sessionID string) *qdrant.PointId {
-	trimmed := strings.TrimSpace(sessionID)
+func buildPointID(id string) *qdrant.PointId {
+	trimmed := strings.TrimSpace(id)
 	if isUUIDLike(trimmed) {
 		return qdrant.NewID(trimmed)
 	}

@@ -1,9 +1,12 @@
-import { computed, nextTick, onUnmounted, ref, watch, type Ref } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref, watch, type Ref } from 'vue'
 import { useChatStore } from '@/stores/chat'
 
 const BOTTOM_STICK_THRESHOLD_PX = 32
-const TOP_LOAD_THRESHOLD_PX = 24
+const TOP_LOAD_THRESHOLD_PX = 200
+const SIDEBAR_BOTTOM_LOAD_THRESHOLD_PX = 80
 const SCROLL_TO_BOTTOM_PENDING_MAX_MS = 2000
+const SIDEBAR_SESSION_ITEM_HEIGHT_PX = 38
+const SIDEBAR_SCROLL_AREA_PADDING_PX = 8
 
 export function useHomeScroll(options: {
   store: ReturnType<typeof useChatStore>
@@ -29,6 +32,16 @@ export function useHomeScroll(options: {
 
   function setSidebarListRef(el: unknown) {
     sidebarListRef.value = (el as { $el?: HTMLElement } | null)?.$el ?? (el as HTMLElement | null)
+  }
+
+  function syncSessionPageSizeFromSidebar(el: HTMLElement | null) {
+    if (!el) return
+    const visibleCount = Math.floor((el.clientHeight - SIDEBAR_SCROLL_AREA_PADDING_PX) / SIDEBAR_SESSION_ITEM_HEIGHT_PX)
+    store.setSessionPageSize(visibleCount)
+  }
+
+  function onWindowResizeForSidebarPageSize() {
+    syncSessionPageSizeFromSidebar(sidebarListRef.value)
   }
 
   function isNearBottom(el: HTMLElement, threshold = BOTTOM_STICK_THRESHOLD_PX) {
@@ -144,18 +157,43 @@ export function useHomeScroll(options: {
     if (store.loadingOlderHistory || !store.hasMoreHistory) return
     if (el.scrollTop > TOP_LOAD_THRESHOLD_PX) return
     loadingOlderFromScroll.value = true
-    const previousScrollHeight = el.scrollHeight
+    const heightBeforeLoad = el.scrollHeight
+    const loadingPromise = store.loadOlderMessages()
+    await nextTick()
+    const spinnerHeight = el.scrollHeight - heightBeforeLoad
+    if (spinnerHeight > 0) el.scrollTop += spinnerHeight
+    const heightWithSpinner = el.scrollHeight
     try {
-      const loaded = await store.loadOlderMessages()
-      if (!loaded) return
+      await loadingPromise
       await nextTick()
-      const addedHeight = el.scrollHeight - previousScrollHeight
-      if (addedHeight > 0) {
-        el.scrollTop = el.scrollTop + addedHeight
-      }
+      const addedHeight = el.scrollHeight - heightWithSpinner
+      if (addedHeight !== 0) el.scrollTop += addedHeight
     } finally {
       loadingOlderFromScroll.value = false
     }
+  }
+
+  async function tryFillOlderUntilScrollable() {
+    const el = messagesRef.value
+    if (!el || isEmptySession.value) return
+    let safety = 0
+    while (safety++ < 100) {
+      if (el.scrollHeight > el.clientHeight) return
+      if (!store.hasMoreHistory) return
+      if (store.loadingOlderHistory || loadingOlderFromScroll.value) {
+        await new Promise<void>((r) => requestAnimationFrame(() => r()))
+        continue
+      }
+      await maybeLoadOlderMessages(el)
+      await nextTick()
+    }
+  }
+
+  async function maybeLoadMoreSessionsOnScroll(el: HTMLElement) {
+    if (store.loadingMoreSessions || !store.hasMoreSessions) return
+    const distanceToBottom = el.scrollHeight - (el.scrollTop + el.clientHeight)
+    if (distanceToBottom > SIDEBAR_BOTTOM_LOAD_THRESHOLD_PX) return
+    await store.loadMoreSessions()
   }
 
   watch(messagesRef, (el, prev) => {
@@ -166,12 +204,24 @@ export function useHomeScroll(options: {
         void maybeLoadOlderMessages(el)
       })
       syncAutoStickToBottom(el)
+      void nextTick(() => {
+        void tryFillOlderUntilScrollable()
+      })
     }
   })
 
   watch(sidebarListRef, (el, prev) => {
     if (prev) unbindScrollFade(prev)
-    if (el) bindScrollFade(el)
+    if (el) {
+      syncSessionPageSizeFromSidebar(el)
+      bindScrollFade(el, () => {
+        void maybeLoadMoreSessionsOnScroll(el)
+      })
+    }
+  })
+
+  onMounted(() => {
+    window.addEventListener('resize', onWindowResizeForSidebarPageSize)
   })
 
   watch(
@@ -187,6 +237,9 @@ export function useHomeScroll(options: {
     () => store.messages.length,
     () => {
       queueScrollMessagesToBottom()
+      void nextTick(() => {
+        void tryFillOlderUntilScrollable()
+      })
     },
   )
 
@@ -224,6 +277,7 @@ export function useHomeScroll(options: {
   )
 
   onUnmounted(() => {
+    window.removeEventListener('resize', onWindowResizeForSidebarPageSize)
     clearScrollToBottomPendingTimer()
     clearScrollToBottomEndHandler()
     unbindScrollFade(messagesRef.value)

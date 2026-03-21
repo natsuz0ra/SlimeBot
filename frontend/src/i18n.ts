@@ -4,6 +4,7 @@ const messages = {
   'zh-CN': {
     newSession: '新会话',
     settings: '设置',
+    searchSessionsPlaceholder: '搜索会话标题',
     rename: '重命名',
     delete: '删除',
     confirmDelete: '确认删除该会话吗？此操作不可撤销。',
@@ -120,6 +121,7 @@ const messages = {
   'en-US': {
     newSession: 'New Session',
     settings: 'Settings',
+    searchSessionsPlaceholder: 'Search sessions',
     rename: 'Rename',
     delete: 'Delete',
     confirmDelete: 'Delete this session? This action cannot be undone.',

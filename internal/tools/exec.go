@@ -54,17 +54,17 @@ func (e *execTool) Commands() []Command {
 	}
 }
 
-func (e *execTool) Execute(command string, params map[string]string) (*ExecuteResult, error) {
+func (e *execTool) Execute(ctx context.Context, command string, params map[string]string) (*ExecuteResult, error) {
 	switch command {
 	case "run":
-		return e.run(params)
+		return e.run(ctx, params)
 	default:
 		return nil, fmt.Errorf("exec tool does not support command: %s", command)
 	}
 }
 
 // run 解析入参并执行命令，统一返回输出与错误信息。
-func (e *execTool) run(params map[string]string) (*ExecuteResult, error) {
+func (e *execTool) run(ctx context.Context, params map[string]string) (*ExecuteResult, error) {
 	program := strings.TrimSpace(params["program"])
 	cmdStr := strings.TrimSpace(params["command"])
 	argsRaw := strings.TrimSpace(params["args"])
@@ -80,7 +80,10 @@ func (e *execTool) run(params map[string]string) (*ExecuteResult, error) {
 		timeout = constants.ExecMaxTimeout
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeout)*time.Second)
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	ctx, cancel := context.WithTimeout(ctx, time.Duration(timeout)*time.Second)
 	defer cancel()
 
 	invocation, parseErr := buildExecInvocation(runtime.GOOS, program, argsRaw, cmdStr, shell)

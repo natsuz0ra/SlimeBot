@@ -15,11 +15,11 @@ import (
 
 type mockPlatformChatService struct{}
 
-func (m *mockPlatformChatService) EnsureMessagePlatformSession() (*domain.Session, error) {
+func (m *mockPlatformChatService) EnsureMessagePlatformSession(_ context.Context) (*domain.Session, error) {
 	return &domain.Session{ID: constants.MessagePlatformSessionID, Name: constants.MessagePlatformSessionName}, nil
 }
 
-func (m *mockPlatformChatService) ResolvePlatformModel() (string, error) {
+func (m *mockPlatformChatService) ResolvePlatformModel(_ context.Context) (string, error) {
 	return "mock-model-id", nil
 }
 
@@ -54,11 +54,11 @@ type captureAttachmentChatService struct {
 	lastAttachmentIDs []string
 }
 
-func (m *captureAttachmentChatService) EnsureMessagePlatformSession() (*domain.Session, error) {
+func (m *captureAttachmentChatService) EnsureMessagePlatformSession(_ context.Context) (*domain.Session, error) {
 	return &domain.Session{ID: constants.MessagePlatformSessionID, Name: constants.MessagePlatformSessionName}, nil
 }
 
-func (m *captureAttachmentChatService) ResolvePlatformModel() (string, error) {
+func (m *captureAttachmentChatService) ResolvePlatformModel(_ context.Context) (string, error) {
 	return "mock-model-id", nil
 }
 
@@ -78,11 +78,11 @@ func (m *captureAttachmentChatService) HandleChatStream(
 
 type mockApprovalChatService struct{}
 
-func (m *mockApprovalChatService) EnsureMessagePlatformSession() (*domain.Session, error) {
+func (m *mockApprovalChatService) EnsureMessagePlatformSession(_ context.Context) (*domain.Session, error) {
 	return &domain.Session{ID: constants.MessagePlatformSessionID, Name: constants.MessagePlatformSessionName}, nil
 }
 
-func (m *mockApprovalChatService) ResolvePlatformModel() (string, error) {
+func (m *mockApprovalChatService) ResolvePlatformModel(_ context.Context) (string, error) {
 	return "mock-model-id", nil
 }
 

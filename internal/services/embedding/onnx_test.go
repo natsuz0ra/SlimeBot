@@ -11,7 +11,7 @@ func TestONNXRuntimeEmbeddingService_Embed(t *testing.T) {
 		ModelPath:     "./models/bge-m3/model.onnx",
 		TokenizerPath: "./models/bge-m3/tokenizer.json",
 		PythonBin:     "python",
-		ScriptPath:    "./scripts/onnx_embed.py",
+		ScriptPath:    "./scripts/onnx_embed_server.py",
 		Runner: func(_ context.Context, _ string, _ ...string) ([]byte, error) {
 			return []byte(`{"vectors":[[0.11,0.22,0.33]]}`), nil
 		},
@@ -31,7 +31,7 @@ func TestONNXRuntimeEmbeddingService_EmbedBatch(t *testing.T) {
 		ModelPath:     "./models/bge-m3/model.onnx",
 		TokenizerPath: "./models/bge-m3/tokenizer.json",
 		PythonBin:     "python",
-		ScriptPath:    "./scripts/onnx_embed.py",
+		ScriptPath:    "./scripts/onnx_embed_server.py",
 		Runner: func(_ context.Context, _ string, _ ...string) ([]byte, error) {
 			return []byte(`{"vectors":[[0.1,0.2],[0.3,0.4]]}`), nil
 		},
@@ -51,7 +51,7 @@ func TestONNXRuntimeEmbeddingService_EmbedBatchPropagatesRunnerError(t *testing.
 		ModelPath:     "./models/bge-m3/model.onnx",
 		TokenizerPath: "./models/bge-m3/tokenizer.json",
 		PythonBin:     "python",
-		ScriptPath:    "./scripts/onnx_embed.py",
+		ScriptPath:    "./scripts/onnx_embed_server.py",
 		Runner: func(_ context.Context, _ string, _ ...string) ([]byte, error) {
 			return nil, errors.New("runner failed")
 		},

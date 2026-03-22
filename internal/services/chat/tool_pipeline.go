@@ -30,6 +30,7 @@ func resolveToolInvocation(tc ToolCallInfo, mcpToolMeta map[string]mcp.ToolMeta)
 		}, nil
 	}
 	if tc.Name == constants.SearchMemoryTool {
+		// memory 查询走内建工具路径，不需要审批。
 		return resolvedToolInvocation{
 			toolName:         constants.SearchMemoryTool,
 			command:          "query",
@@ -126,6 +127,7 @@ func (a *AgentService) executeInvocation(
 
 	if (invocation.toolName == "memory" && invocation.command == "query") ||
 		(invocation.toolName == constants.SearchMemoryTool && invocation.command == "query") {
+		// memory 工具每轮最多调用一次，避免上下文被重复污染。
 		if *memoryToolUsed {
 			return &tools.ExecuteResult{Error: "search_memory can be called at most once per response."}
 		}

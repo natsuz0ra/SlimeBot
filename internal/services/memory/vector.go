@@ -10,12 +10,14 @@ import (
 	"slimebot/internal/domain"
 )
 
+// retrieveMemoriesByVectorImpl 通过向量检索命中会话 ID，再回查并拼装记忆结果。
 func retrieveMemoriesByVectorImpl(m *MemoryService, ctx context.Context, query string, excludeSessionID string, limit int) ([]domain.SessionMemorySearchHit, error) {
 	q := strings.TrimSpace(query)
 	if q == "" {
 		return []domain.SessionMemorySearchHit{}, nil
 	}
 	queryKeywords := m.TokenizeKeywords(q)
+	// 先生成查询向量，失败直接返回错误。
 	queryVector, err := m.embedding.Embed(ctx, q)
 	if err != nil {
 		slog.Warn("memory_vector_query_embedding_failed",
@@ -31,6 +33,7 @@ func retrieveMemoriesByVectorImpl(m *MemoryService, ctx context.Context, query s
 		"exclude_session", strings.TrimSpace(excludeSessionID),
 	)
 
+	// 搜索上限取请求 limit 与配置 topK 的较大值。
 	searchLimit := limit
 	if m.vectorTopK > searchLimit {
 		searchLimit = m.vectorTopK
@@ -46,6 +49,7 @@ func retrieveMemoriesByVectorImpl(m *MemoryService, ctx context.Context, query s
 		return nil, err
 	}
 	if len(vectorHits) == 0 {
+		// 无命中直接返回空结果，便于上层回退关键词检索。
 		slog.Info("memory_vector_query_no_hit",
 			"keyword_count", len(queryKeywords),
 			"search_limit", searchLimit,
@@ -60,6 +64,7 @@ func retrieveMemoriesByVectorImpl(m *MemoryService, ctx context.Context, query s
 		"exclude_session", strings.TrimSpace(excludeSessionID),
 	)
 
+	// 命中可能只带 sessionID，需回查最近记忆 ID。
 	memoryIDs := make([]string, 0, len(vectorHits))
 	for _, hit := range vectorHits {
 		if strings.TrimSpace(hit.MemoryID) != "" {
@@ -82,6 +87,7 @@ func retrieveMemoriesByVectorImpl(m *MemoryService, ctx context.Context, query s
 		memoryByID[item.ID] = item
 	}
 
+	// 按向量命中顺序拼装结果，并补充关键词匹配信息。
 	results := make([]domain.SessionMemorySearchHit, 0, len(vectorHits))
 	for _, hit := range vectorHits {
 		lookupID := strings.TrimSpace(hit.MemoryID)
@@ -114,6 +120,7 @@ func retrieveMemoriesByVectorImpl(m *MemoryService, ctx context.Context, query s
 	return results, nil
 }
 
+// upsertMemoryVector 将摘要向量写入向量库并附带关键词等 payload。
 func upsertMemoryVector(m *MemoryService, ctx context.Context, memoryID, sessionID, summary string, keywords []string, messageCount int) error {
 	vector, err := m.embedding.Embed(ctx, summary)
 	if err != nil {
@@ -187,6 +194,7 @@ func intersectKeywordSlicesImpl(left []string, right []string) []string {
 	return result
 }
 
+// buildSearchQuery 将近期消息拼成检索 query，并限制 rune 数量。
 func buildSearchQuery(history []domain.Message, maxRunes int) string {
 	if maxRunes <= 0 {
 		return ""
@@ -209,6 +217,7 @@ func buildSearchQuery(history []domain.Message, maxRunes int) string {
 	return strings.Join(parts, "\n")
 }
 
+// filterVectorHitsByScore 过滤低分命中并按分值降序去重。
 func filterVectorHitsByScore(hits []domain.MemoryVectorSearchHit, minScore float64) []domain.MemoryVectorSearchHit {
 	if len(hits) == 0 {
 		return nil
@@ -235,6 +244,7 @@ func filterVectorHitsByScore(hits []domain.MemoryVectorSearchHit, minScore float
 	return out
 }
 
+// orderedMemoriesFromVectorHits 按向量命中顺序重排记忆。
 func orderedMemoriesFromVectorHits(hits []domain.MemoryVectorSearchHit, mems []domain.SessionMemory) []domain.SessionMemory {
 	byID := make(map[string]domain.SessionMemory, len(mems))
 	for _, m := range mems {
@@ -255,6 +265,7 @@ func orderedMemoriesFromVectorHits(hits []domain.MemoryVectorSearchHit, mems []d
 	return out
 }
 
+// mergeMemoriesByID 以 primary 为先去重合并两组记忆。
 func mergeMemoriesByID(primary []domain.SessionMemory, extra []domain.SessionMemory) []domain.SessionMemory {
 	seen := make(map[string]struct{}, len(primary)+len(extra))
 	out := make([]domain.SessionMemory, 0, len(primary)+len(extra))
@@ -275,6 +286,7 @@ func mergeMemoriesByID(primary []domain.SessionMemory, extra []domain.SessionMem
 	return out
 }
 
+// buildSessionMemoryContextForPrompt 生成会话记忆上下文：小量全量注入，超限时走向量筛选。
 func (m *MemoryService) buildSessionMemoryContextForPrompt(ctx context.Context, sessionID string, history []domain.Message) string {
 	sid := strings.TrimSpace(sessionID)
 	if sid == "" {
@@ -289,6 +301,7 @@ func (m *MemoryService) buildSessionMemoryContextForPrompt(ctx context.Context, 
 		return FormatMemoriesListXMLWithBudget(recent, constants.MemoryContextMaxRunes)
 	}
 	if n <= int64(constants.MemoryFullInjectThreshold) {
+		// 记忆数量较少时全量注入。
 		all, lerr := m.store.ListActiveSessionMemories(sid)
 		if lerr != nil || len(all) == 0 {
 			return ""
@@ -314,6 +327,7 @@ func (m *MemoryService) buildSessionMemoryContextForPrompt(ctx context.Context, 
 	if len(filtered) == 0 {
 		return fallback()
 	}
+	// 过滤后按向量排序获取正文，并合并最近记忆作补充。
 	ids := make([]string, 0, len(filtered))
 	for _, h := range filtered {
 		if id := strings.TrimSpace(h.MemoryID); id != "" {

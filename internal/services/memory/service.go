@@ -46,6 +46,7 @@ type MemoryService struct {
 	segmenter gse.Segmenter
 }
 
+// NewMemoryService 初始化记忆服务及其 worker 上下文。
 func NewMemoryService(store domain.MemoryStore, openai *OpenAIClient) *MemoryService {
 	wctx, wcancel := context.WithCancel(context.Background())
 	service := &MemoryService{
@@ -60,6 +61,7 @@ func NewMemoryService(store domain.MemoryStore, openai *OpenAIClient) *MemorySer
 	return service
 }
 
+// Shutdown 关闭 worker 并等待所有摘要任务收尾。
 func (m *MemoryService) Shutdown(ctx context.Context) error {
 	if m == nil {
 		return nil
@@ -78,14 +80,17 @@ func (m *MemoryService) Shutdown(ctx context.Context) error {
 	}
 }
 
+// SetEmbeddingService 注入向量化嵌入服务。
 func (m *MemoryService) SetEmbeddingService(embedding EmbeddingService) {
 	m.embedding = embedding
 }
 
+// SetVectorStore 注入向量存储实现。
 func (m *MemoryService) SetVectorStore(store domain.MemoryVectorStore) {
 	m.vectorStore = store
 }
 
+// SetVectorSearchTopK 更新向量检索的 topK 上限。
 func (m *MemoryService) SetVectorSearchTopK(topK int) {
 	if topK <= 0 {
 		return
@@ -93,6 +98,7 @@ func (m *MemoryService) SetVectorSearchTopK(topK int) {
 	m.vectorTopK = topK
 }
 
+// WarmupTokenizer 预热分词器，避免首轮分词延迟。
 func (m *MemoryService) WarmupTokenizer() {
 	if m == nil {
 		return
@@ -240,6 +246,7 @@ func (m *MemoryService) FormatMemoryContext(summary string, hits []domain.Sessio
 	return strings.TrimSpace(b.String())
 }
 
+// FormatMemoriesListXMLWithBudget 以 rune 预算拼接记忆列表（超出即截断）。
 func FormatMemoriesListXMLWithBudget(memories []domain.SessionMemory, maxRunes int) string {
 	if len(memories) == 0 {
 		return ""
@@ -297,6 +304,7 @@ func (m *MemoryService) QueryForAgent(ctx context.Context, sessionID string, que
 	return result, nil
 }
 
+// buildMemoryQueryOutput 构造可直接写回模型上下文的检索结果文本。
 func (m *MemoryService) buildMemoryQueryOutput(query string, keywords []string, hits []domain.SessionMemorySearchHit) string {
 	var b strings.Builder
 	b.WriteString("<memory_query_result>\n")
@@ -339,10 +347,12 @@ func (m *MemoryService) BuildRecentHistory(sessionID string, limit int) ([]domai
 	return m.store.ListRecentSessionMessages(sessionID, limit)
 }
 
+// UpdateSummaryAsync 异步执行摘要解析与记忆更新。
 func (m *MemoryService) UpdateSummaryAsync(sessionID string, rawSummary string) {
 	updateSummaryAsyncImpl(m, sessionID, rawSummary)
 }
 
+// BuildSessionMemoryContextForPrompt 构造当前会话的记忆上下文（含向量检索/回退）。
 func (m *MemoryService) BuildSessionMemoryContextForPrompt(ctx context.Context, sessionID string, history []domain.Message) string {
 	if m == nil {
 		return ""
@@ -368,6 +378,7 @@ func (m *MemoryService) TokenizeKeywords(text string) []string {
 	return tokenizeKeywordsImpl(m, text)
 }
 
+// chatOnceWithRetry 为 memory 阶段调用增加超时与有限重试，避免后台任务长期阻塞。
 func (m *MemoryService) chatOnceWithRetry(
 	parent context.Context,
 	modelConfig ModelRuntimeConfig,

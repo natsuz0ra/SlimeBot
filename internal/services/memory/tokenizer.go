@@ -14,6 +14,7 @@ var defaultMemoryStopWords = map[string]struct{}{
 }
 
 // tokenizeKeywordsImpl gse 搜索分词 + 停用词过滤 + 去重上限；无候选时回退 Unicode 切词。
+// 结果数量受 MemoryKeywordMaxCount 限制。
 func tokenizeKeywordsImpl(m *MemoryService, text string) []string {
 	m.segOnce.Do(func() {
 		// 使用嵌入词典快速初始化，避免每次分词重复加载。

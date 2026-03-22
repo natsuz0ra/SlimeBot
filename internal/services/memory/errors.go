@@ -7,7 +7,7 @@ import (
 	"strings"
 )
 
-// isRetryableMemoryError 判定 memory 阶段是否可进行一次重试。
+// isRetryableMemoryError 判定 memory 阶段是否可进行一次重试（超时/网络抖动）。
 func isRetryableMemoryError(err error) bool {
 	if err == nil {
 		return false

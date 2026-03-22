@@ -16,6 +16,7 @@ type memoryWorkerState struct {
 	pendingRawSummary string
 }
 
+// updateSummaryAsyncImpl 为单会话启动摘要 worker；若已运行则排队最新摘要。
 func updateSummaryAsyncImpl(m *MemoryService, sessionID string, rawSummary string) {
 	sessionID = strings.TrimSpace(sessionID)
 	rawSummary = strings.TrimSpace(rawSummary)
@@ -31,6 +32,7 @@ func updateSummaryAsyncImpl(m *MemoryService, sessionID string, rawSummary strin
 	}
 	state.lastRawSummary = rawSummary
 	if state.running {
+		// worker 运行中只保留最新待处理摘要。
 		state.pending = true
 		state.pendingRawSummary = rawSummary
 		m.workerMu.Unlock()
@@ -47,6 +49,7 @@ func updateSummaryAsyncImpl(m *MemoryService, sessionID string, rawSummary strin
 	}()
 }
 
+// runSummaryWorkerImpl 单会话 worker 循环：处理摘要并在 pending 时继续。
 func runSummaryWorkerImpl(m *MemoryService, sessionID string) {
 	defer func() {
 		if recovered := recover(); recovered != nil {
@@ -83,6 +86,7 @@ func runSummaryWorkerImpl(m *MemoryService, sessionID string) {
 			return
 		}
 		if state.pending {
+			// 有新摘要待处理则继续下一轮。
 			state.pending = false
 			state.lastRawSummary = state.pendingRawSummary
 			state.pendingRawSummary = ""
@@ -95,6 +99,7 @@ func runSummaryWorkerImpl(m *MemoryService, sessionID string) {
 	}
 }
 
+// runSummaryOnceImpl 解析摘要 ops 并执行增删改，同步向量库。
 func runSummaryOnceImpl(m *MemoryService, sessionID string, rawSummary string) {
 	startAt := time.Now()
 	ctx := m.workerCtx
@@ -104,6 +109,7 @@ func runSummaryOnceImpl(m *MemoryService, sessionID string, rawSummary string) {
 
 	ops, err := parseMemoryOps(rawSummary)
 	if err != nil {
+		// 解析失败时降级为单条 create。
 		ops = parseMemoryOpsOrFallback(rawSummary)
 	}
 	if len(ops) == 0 {

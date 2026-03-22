@@ -99,6 +99,7 @@ func New(cfg config.Config) (*App, error) {
 	skillPackageService := skillsvc.NewSkillPackageService(repo, cfg.SkillsRoot)
 	skillRuntimeService := skillsvc.NewSkillRuntimeService(repo, cfg.SkillsRoot)
 	memoryService := memsvc.NewMemoryService(repo, openaiClient)
+	// 记忆向量化依赖可选，未满足条件时保持 nil 并降级为关键词检索。
 	embedding, vectorRepo := configureMemoryVectorization(cfg, memoryService)
 	memoryService.WarmupTokenizer()
 	chatUploadService := chatsvc.NewChatUploadService(cfg.ChatUploadRoot)
@@ -162,6 +163,7 @@ func (a *App) cleanup(ctx context.Context) {
 		return
 	}
 	if a.memoryService != nil {
+		// 先关闭 memory worker，避免写入过程中资源被释放。
 		if err := a.memoryService.Shutdown(ctx); err != nil {
 			slog.Warn("memory_shutdown", "err", err)
 		}
@@ -192,6 +194,7 @@ func ValidateConfig(cfg config.Config) error {
 }
 
 // configureMemoryVectorization 当 provider=onnx 且路径与 Qdrant 齐全时注入嵌入与向量库；否则返回 nil 并打日志。
+// 该步骤只影响记忆检索能力，不阻塞主流程启动。
 func configureMemoryVectorization(cfg config.Config, memoryService *memsvc.MemoryService) (*embsvc.ONNXRuntimeEmbeddingService, *repositories.MemoryVectorRepository) {
 	if !strings.EqualFold(strings.TrimSpace(cfg.EmbeddingProvider), "onnx") {
 		slog.Info("memory_vectorization_disabled", "reason", "embedding_provider", "provider", cfg.EmbeddingProvider)

@@ -309,6 +309,7 @@ func (s *ChatService) buildContextMessages(ctx context.Context, sessionID string
 
 	msgs := []ChatMessage{{Role: "system", Content: systemPrompt}}
 	if s.memory != nil {
+		// 注入记忆上下文，优先用于历史偏好/约束，不应覆盖当前输入。
 		memoryContext := s.memory.BuildSessionMemoryContextForPrompt(ctx, sessionID, history)
 		if memoryContext != "" {
 			msgs = append(msgs, ChatMessage{
@@ -624,6 +625,7 @@ func (s *ChatService) HandleChatStream(
 		result.Title = title
 	}
 	if s.memory != nil && strings.TrimSpace(summary) != "" {
+		// summary 由协议解析得到，异步更新记忆。
 		s.memory.UpdateSummaryAsync(sessionID, summary)
 		slog.Info("memory_summary_async_triggered", "session", sessionID)
 	} else if s.memory != nil {

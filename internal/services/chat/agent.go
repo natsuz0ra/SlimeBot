@@ -133,6 +133,7 @@ func (a *AgentService) buildRuntimeToolDefs(ctx context.Context, configs []domai
 	defs := BuildToolDefs()
 	metaByFunc := make(map[string]mcp.ToolMeta)
 	if a.memory != nil {
+		// 注入 memory 工具定义，供模型在需要时检索历史记忆。
 		defs = append(defs, ToolDef{
 			Name:        constants.SearchMemoryTool,
 			Description: "[memory] Search historical memory on demand. Use only when the response depends on past preferences, decisions, or cross-session constraints.",
@@ -288,6 +289,7 @@ func (a *AgentService) RunAgentLoop(
 		preamble := strings.TrimSpace(result.AssistantMessage.Content)
 
 		for _, tc := range result.ToolCalls {
+			// tool_calls 阶段会逐个审批并执行（含 memory 工具）。
 			invocation, err := resolveToolInvocation(tc, mcpToolMeta)
 			if err != nil {
 				messages = appendToolMessage(messages, tc.ID, fmt.Sprintf("failed to parse tool invocation: %s", err.Error()))

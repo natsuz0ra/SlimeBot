@@ -21,6 +21,7 @@ type memoryOpsEnvelope struct {
 	Ops []MemoryOp `json:"ops"`
 }
 
+// parseMemoryOps 从 summary 输出中提取 ops，并清洗/截断内容。
 func parseMemoryOps(raw string) ([]MemoryOp, error) {
 	text := strings.TrimSpace(raw)
 	if text == "" {
@@ -31,6 +32,7 @@ func parseMemoryOps(raw string) ([]MemoryOp, error) {
 	text = strings.TrimSuffix(text, "```")
 	text = strings.TrimSpace(text)
 
+	// 仅取最外层 JSON 对象。
 	start := strings.Index(text, "{")
 	end := strings.LastIndex(text, "}")
 	if start < 0 || end <= start {
@@ -77,6 +79,7 @@ func parseMemoryOps(raw string) ([]MemoryOp, error) {
 	return out, nil
 }
 
+// parseMemoryOpsOrFallback 解析失败时将原文作为 create 记忆。
 func parseMemoryOpsOrFallback(raw string) []MemoryOp {
 	text := strings.TrimSpace(raw)
 	if text == "" {
@@ -92,6 +95,7 @@ func parseMemoryOpsOrFallback(raw string) []MemoryOp {
 var nonWordRuneRegex = regexp.MustCompile(`[^\p{L}\p{N}_\-]+`)
 
 // parseMemoryDecision 兼容代码块包裹的 JSON 输出，提取记忆检索决策。
+// 提取失败会返回错误，交由上层决定回退策略。
 func parseMemoryDecision(raw string) (MemoryDecision, error) {
 	text := strings.TrimSpace(raw)
 	if text == "" {
@@ -102,6 +106,7 @@ func parseMemoryDecision(raw string) (MemoryDecision, error) {
 	text = strings.TrimSuffix(text, "```")
 	text = strings.TrimSpace(text)
 
+	// 仅取最外层 JSON 对象。
 	start := strings.Index(text, "{")
 	end := strings.LastIndex(text, "}")
 	if start < 0 || end <= start {

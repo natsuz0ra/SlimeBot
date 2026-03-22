@@ -65,17 +65,37 @@ func retrieveMemoriesByVectorImpl(m *MemoryService, ctx context.Context, query s
 	)
 
 	sessionLatest := make(map[string]string)
+	sessionIDsNeedingLookup := make([]string, 0, len(vectorHits))
+	sessionSeen := make(map[string]struct{}, len(vectorHits))
 	for _, hit := range vectorHits {
 		sid := strings.TrimSpace(hit.SessionID)
 		if sid == "" || strings.TrimSpace(hit.MemoryID) != "" {
 			continue
 		}
-		if _, ok := sessionLatest[sid]; ok {
+		if _, ok := sessionSeen[sid]; ok {
 			continue
 		}
-		rows, rerr := m.store.ListRecentActiveSessionMemories(sid, 1)
-		if rerr == nil && len(rows) > 0 {
-			sessionLatest[sid] = rows[0].ID
+		sessionSeen[sid] = struct{}{}
+		sessionIDsNeedingLookup = append(sessionIDsNeedingLookup, sid)
+	}
+	if len(sessionIDsNeedingLookup) > 0 {
+		rows, rerr := m.store.GetSessionMemoriesBySessionIDs(sessionIDsNeedingLookup)
+		if rerr != nil {
+			return nil, rerr
+		}
+		latestBySession := make(map[string]domain.SessionMemory, len(rows))
+		for _, row := range rows {
+			sid := strings.TrimSpace(row.SessionID)
+			if sid == "" {
+				continue
+			}
+			existing, ok := latestBySession[sid]
+			if !ok || row.UpdatedAt.After(existing.UpdatedAt) {
+				latestBySession[sid] = row
+			}
+		}
+		for sid, row := range latestBySession {
+			sessionLatest[sid] = row.ID
 		}
 	}
 	memoryIDs := make([]string, 0, len(vectorHits))

@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"runtime"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -22,24 +23,37 @@ type EnvInfo struct {
 	TimezoneOffset string `json:"timezone_offset"`
 }
 
+var (
+	staticEnvInfo     EnvInfo
+	staticEnvInfoOnce sync.Once
+)
+
 // CollectEnvInfo 采集当前设备的环境信息
 func CollectEnvInfo() *EnvInfo {
+	staticEnvInfoOnce.Do(func() {
+		staticEnvInfo = EnvInfo{
+			OS:      runtime.GOOS,
+			Arch:    runtime.GOARCH,
+			Version: detectOSVersion(),
+			Shell:   detectShell(),
+		}
+		if hostname, err := os.Hostname(); err == nil {
+			staticEnvInfo.Hostname = hostname
+		}
+	})
+
 	now := time.Now()
 	info := &EnvInfo{
-		OS:             runtime.GOOS,
-		Arch:           runtime.GOARCH,
+		OS:             staticEnvInfo.OS,
+		Arch:           staticEnvInfo.Arch,
+		Hostname:       staticEnvInfo.Hostname,
+		Version:        staticEnvInfo.Version,
+		Shell:          staticEnvInfo.Shell,
 		CurrentDate:    now.Format("2006-01-02"),
 		CurrentTime:    now.Format("15:04:05"),
 		Timezone:       now.Location().String(),
 		TimezoneOffset: now.Format("-07:00"),
 	}
-
-	if hostname, err := os.Hostname(); err == nil {
-		info.Hostname = hostname
-	}
-
-	info.Version = detectOSVersion()
-	info.Shell = detectShell()
 
 	return info
 }

@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"slimebot/internal/constants"
@@ -61,6 +62,8 @@ func (w *Worker) Start(ctx context.Context) {
 // - 将文本消息转给 dispatcher，将按钮回调转给审批处理。
 func (w *Worker) run(ctx context.Context) {
 	var updateOffset int64
+	var adapter *Adapter
+	lastToken := ""
 	for {
 		select {
 		case <-ctx.Done():
@@ -81,10 +84,15 @@ func (w *Worker) run(ctx context.Context) {
 
 		token := platforms.ParseTelegramBotToken(cfg.AuthConfigJSON)
 		if token == "" {
+			adapter = nil
+			lastToken = ""
 			time.Sleep(constants.TelegramIdleWaitInterval)
 			continue
 		}
-		adapter := NewAdapter(token)
+		if adapter == nil || token != lastToken {
+			adapter = NewAdapter(token)
+			lastToken = token
+		}
 		updates, err := adapter.GetUpdates(ctx, updateOffset, constants.TelegramPollTimeoutSeconds)
 		if err != nil {
 			slog.Warn("telegram_worker_poll_failed", "err", err)
@@ -189,24 +197,57 @@ func (w *Worker) buildInboundAttachments(ctx context.Context, adapter *Adapter, 
 	inboundMeta := make([]platforms.InboundAttachment, 0, len(candidates))
 	var skipped int
 
-	for _, candidate := range candidates {
-		data, fallbackName, err := adapter.DownloadFile(ctx, candidate.ProviderFileID, workerMaxMediaBytes)
-		if err != nil {
+	type downloadedCandidate struct {
+		idx          int
+		candidate    mediaCandidate
+		data         []byte
+		fallbackName string
+		err          error
+	}
+	downloads := make([]downloadedCandidate, len(candidates))
+	var wg sync.WaitGroup
+	sem := make(chan struct{}, 3)
+	for i, candidate := range candidates {
+		wg.Add(1)
+		go func(i int, candidate mediaCandidate) {
+			defer wg.Done()
+			select {
+			case <-ctx.Done():
+				downloads[i] = downloadedCandidate{idx: i, candidate: candidate, err: ctx.Err()}
+				return
+			case sem <- struct{}{}:
+			}
+			defer func() { <-sem }()
+
+			data, fallbackName, err := adapter.DownloadFile(ctx, candidate.ProviderFileID, workerMaxMediaBytes)
+			downloads[i] = downloadedCandidate{
+				idx:          i,
+				candidate:    candidate,
+				data:         data,
+				fallbackName: fallbackName,
+				err:          err,
+			}
+		}(i, candidate)
+	}
+	wg.Wait()
+
+	for _, downloaded := range downloads {
+		if downloaded.err != nil {
 			skipped++
 			continue
 		}
-		name := selectAttachmentName(candidate.Name, fallbackName, candidate.Source, candidate.MimeType)
+		name := selectAttachmentName(downloaded.candidate.Name, downloaded.fallbackName, downloaded.candidate.Source, downloaded.candidate.MimeType)
 		inputs = append(inputs, chatsvc.LocalAttachmentFile{
 			Name:     name,
-			MimeType: candidate.MimeType,
-			Data:     data,
+			MimeType: downloaded.candidate.MimeType,
+			Data:     downloaded.data,
 		})
 		inboundMeta = append(inboundMeta, platforms.InboundAttachment{
-			Source:         candidate.Source,
-			ProviderFileID: candidate.ProviderFileID,
+			Source:         downloaded.candidate.Source,
+			ProviderFileID: downloaded.candidate.ProviderFileID,
 			Name:           name,
-			MimeType:       strings.TrimSpace(candidate.MimeType),
-			SizeBytes:      int64(len(data)),
+			MimeType:       strings.TrimSpace(downloaded.candidate.MimeType),
+			SizeBytes:      int64(len(downloaded.data)),
 		})
 	}
 	if len(inputs) == 0 {

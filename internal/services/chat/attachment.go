@@ -14,6 +14,7 @@ const (
 	attachmentCategoryImage    = "image"
 	attachmentCategoryAudio    = "audio"
 	attachmentCategoryDocument = "document"
+	maxInlineAttachmentBytes   = 256 * 1024
 )
 
 // classifyAttachmentCategory 将任意上传文件收敛到三类：
@@ -88,6 +89,9 @@ func buildUserMessageContentParts(userText string, attachments []UploadedAttachm
 func buildAttachmentContentPart(file UploadedAttachment) (ChatMessageContentPart, error) {
 	if strings.TrimSpace(file.Path) == "" {
 		return ChatMessageContentPart{}, fmt.Errorf("empty file path")
+	}
+	if file.SizeBytes > maxInlineAttachmentBytes {
+		return ChatMessageContentPart{}, fmt.Errorf("attachment too large for inline content")
 	}
 	raw, err := os.ReadFile(file.Path)
 	if err != nil {

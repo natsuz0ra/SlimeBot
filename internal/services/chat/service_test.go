@@ -1,6 +1,8 @@
 package chat
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -148,5 +150,33 @@ func TestExtractProtocolMetaAndBody_RemovesEmptyTagBlocks(t *testing.T) {
 	}
 	if body != "ABC" {
 		t.Fatalf("unexpected cleaned body: %q", body)
+	}
+}
+
+func TestReadAttachmentExcerpt_TruncatesLargeText(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "long.txt")
+	raw := strings.Repeat("x", maxAttachmentExcerptBytes*2)
+	if err := os.WriteFile(path, []byte(raw), 0o644); err != nil {
+		t.Fatalf("write file failed: %v", err)
+	}
+	text, ok := readAttachmentExcerpt(path, "text/plain", "txt")
+	if !ok {
+		t.Fatal("expected excerpt to be available")
+	}
+	if len(text) == 0 || len(text) > maxAttachmentExcerptBytes {
+		t.Fatalf("unexpected excerpt length: %d", len(text))
+	}
+}
+
+func TestReadAttachmentExcerpt_SkipsUnsupportedBinaryFile(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "file.bin")
+	if err := os.WriteFile(path, []byte{0, 1, 2, 3}, 0o644); err != nil {
+		t.Fatalf("write file failed: %v", err)
+	}
+	_, ok := readAttachmentExcerpt(path, "application/octet-stream", "bin")
+	if ok {
+		t.Fatal("expected excerpt disabled for unsupported binary files")
 	}
 }

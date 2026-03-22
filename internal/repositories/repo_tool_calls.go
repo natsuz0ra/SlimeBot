@@ -2,14 +2,13 @@ package repositories
 
 import (
 	"encoding/json"
-	"errors"
 	"strings"
 	"time"
 
 	"slimebot/internal/domain"
 
 	"github.com/google/uuid"
-	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 func (r *Repository) UpsertToolCallStart(input domain.ToolCallStartRecordInput) error {
@@ -24,30 +23,6 @@ func (r *Repository) UpsertToolCallStart(input domain.ToolCallStartRecordInput) 
 		startedAt = time.Now()
 	}
 
-	var existing domain.ToolCallRecord
-	query := r.db.Where("session_id = ? AND request_id = ? AND tool_call_id = ?", input.SessionID, input.RequestID, input.ToolCallID).First(&existing)
-	if query.Error == nil {
-		return r.db.Model(&domain.ToolCallRecord{}).
-			Where("id = ?", existing.ID).
-			Updates(map[string]any{
-				"tool_name":            input.ToolName,
-				"command":              input.Command,
-				"params_json":          paramsJSON,
-				"status":               input.Status,
-				"requires_approval":    input.RequiresApproval,
-				"started_at":           startedAt,
-				"finished_at":          nil,
-				"output":               "",
-				"error":                "",
-				"assistant_message_id": nil,
-				"updated_at":           time.Now(),
-			}).
-			Error
-	}
-	if query.Error != nil && !errors.Is(query.Error, gorm.ErrRecordNotFound) {
-		return query.Error
-	}
-
 	record := domain.ToolCallRecord{
 		ID:               uuid.NewString(),
 		SessionID:        input.SessionID,
@@ -60,7 +35,26 @@ func (r *Repository) UpsertToolCallStart(input domain.ToolCallStartRecordInput) 
 		RequiresApproval: input.RequiresApproval,
 		StartedAt:        startedAt,
 	}
-	return r.db.Create(&record).Error
+	return r.db.Clauses(clause.OnConflict{
+		Columns: []clause.Column{
+			{Name: "session_id"},
+			{Name: "request_id"},
+			{Name: "tool_call_id"},
+		},
+		DoUpdates: clause.Assignments(map[string]any{
+			"tool_name":            input.ToolName,
+			"command":              input.Command,
+			"params_json":          paramsJSON,
+			"status":               input.Status,
+			"requires_approval":    input.RequiresApproval,
+			"started_at":           startedAt,
+			"finished_at":          nil,
+			"output":               "",
+			"error":                "",
+			"assistant_message_id": nil,
+			"updated_at":           time.Now(),
+		}),
+	}).Create(&record).Error
 }
 
 func (r *Repository) UpdateToolCallResult(input domain.ToolCallResultRecordInput) error {

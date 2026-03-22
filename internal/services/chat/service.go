@@ -1,9 +1,11 @@
 package chat
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"strings"
@@ -774,6 +776,11 @@ var attachmentExcerptExts = map[string]struct{}{
 	"go": {}, "py": {}, "js": {}, "ts": {}, "tsx": {}, "java": {}, "sql": {},
 }
 
+const (
+	maxAttachmentExcerptBytes = 8 * 1024
+	maxAttachmentExcerptRunes = 2000
+)
+
 func readAttachmentExcerpt(path, mimeType, ext string) (string, bool) {
 	if strings.TrimSpace(path) == "" {
 		return "", false
@@ -785,13 +792,25 @@ func readAttachmentExcerpt(path, mimeType, ext string) (string, bool) {
 			return "", false
 		}
 	}
-	raw, err := os.ReadFile(path)
+	file, err := os.Open(path)
 	if err != nil {
 		return "", false
 	}
-	text := strings.TrimSpace(string(raw))
+	defer file.Close()
+	raw, err := io.ReadAll(io.LimitReader(file, maxAttachmentExcerptBytes+1))
+	if err != nil {
+		return "", false
+	}
+	if len(raw) > maxAttachmentExcerptBytes {
+		raw = raw[:maxAttachmentExcerptBytes]
+	}
+	text := strings.TrimSpace(string(bytes.TrimSpace(raw)))
 	if text == "" {
 		return "", false
+	}
+	runes := []rune(text)
+	if len(runes) > maxAttachmentExcerptRunes {
+		text = string(runes[:maxAttachmentExcerptRunes])
 	}
 	return text, true
 }

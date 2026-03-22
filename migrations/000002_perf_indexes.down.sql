@@ -1,0 +1,4 @@
+DROP INDEX IF EXISTS idx_tool_call_records_session_assistant_started_created;
+DROP INDEX IF EXISTS idx_session_memories_session_active_updated;
+DROP INDEX IF EXISTS idx_messages_session_seq;
+DROP INDEX IF EXISTS idx_messages_session_created_seq;

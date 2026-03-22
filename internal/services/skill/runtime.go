@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
+	"time"
 
 	"slimebot/internal/constants"
 	"slimebot/internal/domain"
@@ -15,7 +17,13 @@ import (
 type SkillRuntimeService struct {
 	store         domain.SkillStore
 	skillsRootAbs string
+	catalogMu     sync.RWMutex
+	cachedPrompt  string
+	cachedSkills  []domain.Skill
+	cacheUntil    time.Time
 }
+
+const catalogCacheTTL = 30 * time.Second
 
 // NewSkillRuntimeService 创建技能运行时服务。
 func NewSkillRuntimeService(store domain.SkillStore, skillsRoot string) *SkillRuntimeService {
@@ -33,11 +41,26 @@ func (s *SkillRuntimeService) ListSkills() ([]domain.Skill, error) {
 
 // BuildCatalogPrompt 生成可注入模型上下文的技能目录描述。
 func (s *SkillRuntimeService) BuildCatalogPrompt() (string, []domain.Skill, error) {
+	s.catalogMu.RLock()
+	if time.Now().Before(s.cacheUntil) {
+		prompt := s.cachedPrompt
+		items := make([]domain.Skill, len(s.cachedSkills))
+		copy(items, s.cachedSkills)
+		s.catalogMu.RUnlock()
+		return prompt, items, nil
+	}
+	s.catalogMu.RUnlock()
+
 	items, err := s.store.ListSkills()
 	if err != nil {
 		return "", nil, err
 	}
 	if len(items) == 0 {
+		s.catalogMu.Lock()
+		s.cachedPrompt = ""
+		s.cachedSkills = nil
+		s.cacheUntil = time.Now().Add(catalogCacheTTL)
+		s.catalogMu.Unlock()
 		return "", items, nil
 	}
 
@@ -54,7 +77,16 @@ func (s *SkillRuntimeService) BuildCatalogPrompt() (string, []domain.Skill, erro
 		b.WriteString("  </skill>\n")
 	}
 	b.WriteString("</available_skills>\n")
-	return b.String(), items, nil
+	prompt := b.String()
+
+	s.catalogMu.Lock()
+	s.cachedPrompt = prompt
+	s.cachedSkills = make([]domain.Skill, len(items))
+	copy(s.cachedSkills, items)
+	s.cacheUntil = time.Now().Add(catalogCacheTTL)
+	s.catalogMu.Unlock()
+
+	return prompt, items, nil
 }
 
 // BuildActivateSkillToolDef 构造 activate_skill 工具定义，供模型触发技能加载。

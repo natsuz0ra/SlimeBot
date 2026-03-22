@@ -43,19 +43,15 @@ type ToolCallResult struct {
 	Error            string `json:"error"`
 }
 
-// AgentCallbacks 是 Agent 循环与外部（WebSocket 控制器）交互的回调集合
+// AgentCallbacks Agent 循环与外部交互的回调集合
 type AgentCallbacks struct {
-	// OnChunk 推送流式文本片段
-	OnChunk func(chunk string) error
-	// OnToolCallStart 通知前端模型请求调用工具，等待审批
-	OnToolCallStart func(req ApprovalRequest) error
-	// WaitApproval 阻塞等待前端用户审批结果
-	WaitApproval func(ctx context.Context, toolCallID string) (*ApprovalResponse, error)
-	// OnToolCallResult 通知前端工具执行结果
-	OnToolCallResult func(result ToolCallResult) error
+	OnChunk          func(chunk string) error                                                // 推送流式文本片段
+	OnToolCallStart  func(req ApprovalRequest) error                                         // 通知前端工具调用等待审批
+	WaitApproval     func(ctx context.Context, toolCallID string) (*ApprovalResponse, error) // 阻塞等待审批结果
+	OnToolCallResult func(result ToolCallResult) error                                       // 通知前端工具执行结果
 }
 
-// AgentService 封装 Agent 循环逻辑
+// AgentService Agent 服务：封装与 LLM 的交互循环、工具调用、审批流与 MCP/Skill 工具加载
 type AgentService struct {
 	openai       *OpenAIClient
 	mcp          *mcp.Manager
@@ -65,12 +61,14 @@ type AgentService struct {
 	toolCache    map[string]cachedToolDefs
 }
 
+// cachedToolDefs 工具定义缓存项
 type cachedToolDefs struct {
 	defs       []ToolDef
 	metaByFunc map[string]mcp.ToolMeta
 	expireAt   time.Time
 }
 
+// NewAgentService 创建 Agent 服务实例
 func NewAgentService(openai *OpenAIClient, mcpManager *mcp.Manager, skillRuntime *SkillRuntimeService, memory *MemoryService) *AgentService {
 	return &AgentService{
 		openai:       openai,
@@ -81,8 +79,8 @@ func NewAgentService(openai *OpenAIClient, mcpManager *mcp.Manager, skillRuntime
 	}
 }
 
-// BuildToolDefs 从全局工具注册中心生成 OpenAI function call 的工具定义列表。
-// 每个工具的每个命令映射为一个 function，名称格式为 {tool}__{command}。
+// BuildToolDefs 从全局工具注册中心生成 OpenAI function call 的工具定义列表
+// 每个工具的每个命令映射为一个 function，名称格式为 {tool}__{command}
 func BuildToolDefs() []ToolDef {
 	var defs []ToolDef
 	for _, t := range tools.All() {
@@ -124,7 +122,7 @@ func BuildToolDefs() []ToolDef {
 	return defs
 }
 
-// buildRuntimeToolDefs 汇总运行时可见工具（内建 + skill + MCP）并返回名称映射。
+// buildRuntimeToolDefs 汇总运行时可见工具（内建 + skill + MCP）并返回名称映射
 func (a *AgentService) buildRuntimeToolDefs(ctx context.Context, configs []domain.MCPConfig) ([]ToolDef, map[string]mcp.ToolMeta, error) {
 	cacheKey := buildToolDefsCacheKey(configs)
 	if defs, metaByFunc, ok := a.getCachedToolDefs(cacheKey); ok {
@@ -133,7 +131,7 @@ func (a *AgentService) buildRuntimeToolDefs(ctx context.Context, configs []domai
 	defs := BuildToolDefs()
 	metaByFunc := make(map[string]mcp.ToolMeta)
 	if a.memory != nil {
-		// 注入 memory 工具定义，供模型在需要时检索历史记忆。
+		// 注入 memory 工具定义，供模型在需要时检索历史记忆
 		defs = append(defs, ToolDef{
 			Name:        constants.SearchMemoryTool,
 			Description: "[memory] Search historical memory on demand. Use only when the response depends on past preferences, decisions, or cross-session constraints.",

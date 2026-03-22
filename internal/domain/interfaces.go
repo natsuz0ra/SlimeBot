@@ -5,20 +5,20 @@ import (
 	"time"
 )
 
-// SettingsReaderWriter 设置读写（含布尔便捷方法）。
+// SettingsReaderWriter 设置读写接口（含布尔便捷方法）
 type SettingsReaderWriter interface {
 	GetSetting(key string) (string, error)
 	GetSettingBool(key string, defaultVal bool) (bool, error)
 	SetSetting(key, value string) error
 }
 
-// SettingsStore 键值设置持久化。
+// SettingsStore 键值设置持久化接口
 type SettingsStore interface {
 	GetSetting(key string) (string, error)
 	SetSetting(key, value string) error
 }
 
-// SessionStore 会话 CRUD、消息列表/分页与工具调用记录查询。
+// SessionStore 会话存储接口：CRUD、消息列表/分页与工具调用记录查询
 type SessionStore interface {
 	ListSessions(limit int, offset int, query string) ([]Session, error)
 	CreateSession(name string) (*Session, error)
@@ -31,14 +31,14 @@ type SessionStore interface {
 	SetSessionModel(sessionID, modelConfigID string) error
 }
 
-// LLMConfigStore LLM 配置列表与增删。
+// LLMConfigStore LLM 配置存储接口
 type LLMConfigStore interface {
 	ListLLMConfigs() ([]LLMConfig, error)
 	CreateLLMConfig(item LLMConfig) (*LLMConfig, error)
 	DeleteLLMConfig(id string) error
 }
 
-// MCPConfigStore MCP 服务配置的 CRUD。
+// MCPConfigStore MCP 服务配置存储接口
 type MCPConfigStore interface {
 	ListMCPConfigs() ([]MCPConfig, error)
 	CreateMCPConfig(item MCPConfig) (*MCPConfig, error)
@@ -46,7 +46,7 @@ type MCPConfigStore interface {
 	DeleteMCPConfig(id string) error
 }
 
-// MessagePlatformConfigStore 消息平台（如 Telegram）接入配置 CRUD。
+// MessagePlatformConfigStore 消息平台配置存储接口
 type MessagePlatformConfigStore interface {
 	ListMessagePlatformConfigs() ([]MessagePlatformConfig, error)
 	CreateMessagePlatformConfig(item MessagePlatformConfig) (*MessagePlatformConfig, error)
@@ -54,7 +54,7 @@ type MessagePlatformConfigStore interface {
 	DeleteMessagePlatformConfig(id string) error
 }
 
-// MemoryStore 记忆服务持久化：消息计数、会话记忆 upsert、关键词检索与按 ID 批量取记忆。
+// MemoryStore 记忆服务持久化接口
 type MemoryStore interface {
 	CountSessionMessages(sessionID string) (int64, error)
 	UpsertSessionMemoryIfNewer(input SessionMemoryUpsertInput) (bool, error)
@@ -71,7 +71,7 @@ type MemoryStore interface {
 	SoftDeleteSessionMemory(id, sessionID string) error
 }
 
-// ChatStore 聊天主流程数据访问：会话、设置、LLM、历史、记忆、MCP、消息与工具调用落库。
+// ChatStore 聊天主流程数据访问接口
 type ChatStore interface {
 	GetSessionByIDWithContext(ctx context.Context, id string) (*Session, error)
 	CreateSessionWithContext(ctx context.Context, name string) (*Session, error)
@@ -97,7 +97,7 @@ type ChatStore interface {
 	UpdateToolCallResultWithContext(ctx context.Context, input ToolCallResultRecordInput) error
 }
 
-// SkillStore 用户上传技能的列表与按名/ID 查询及增删。
+// SkillStore 技能存储接口
 type SkillStore interface {
 	ListSkills() ([]Skill, error)
 	GetSkillByName(name string) (*Skill, error)

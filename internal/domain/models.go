@@ -29,7 +29,7 @@ type Message struct {
 	Seq         int64               `gorm:"not null;default:0;index:idx_messages_session_created,priority:3" json:"seq"`
 }
 
-// MessageAttachment 描述消息中的附件元信息（不包含源文件内容）。
+// MessageAttachment 描述消息中的附件元信息（不包含源文件内容）
 type MessageAttachment struct {
 	ID        string `json:"id,omitempty"`
 	Name      string `json:"name"`
@@ -40,7 +40,7 @@ type MessageAttachment struct {
 	IconType  string `json:"iconType"`
 }
 
-// SessionMemory 会话内单条原子记忆与关键词，用于上下文与跨会话检索。
+// SessionMemory 会话内单条原子记忆与关键词，用于上下文与跨会话检索
 type SessionMemory struct {
 	ID                 string    `gorm:"primaryKey;size:36" json:"id"`
 	SessionID          string    `gorm:"size:36;not null;index:idx_session_memories_session_active" json:"sessionId"`
@@ -53,7 +53,7 @@ type SessionMemory struct {
 	UpdatedAt          time.Time `gorm:"index" json:"updatedAt"`
 }
 
-// ToolCallRecord 持久化一次工具调用完整链路，支持历史会话回放工具详情。
+// ToolCallRecord 持久化一次工具调用完整链路，支持历史会话回放工具详情
 type ToolCallRecord struct {
 	ID                 string     `gorm:"primaryKey;size:36" json:"id"`
 	SessionID          string     `gorm:"size:36;index;not null;uniqueIndex:idx_tool_call_request,priority:1" json:"sessionId"`

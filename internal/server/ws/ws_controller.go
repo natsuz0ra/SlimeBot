@@ -16,29 +16,21 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-// Controller WebSocket 聊天：升级连接、读写分离、串行处理 chat 与工具审批桥接。
+// Controller WebSocket 控制器：处理 WebSocket 连接升级、读写分离、串行处理聊天与工具审批
 type Controller struct {
-	// 聊天业务入口，负责会话与流式输出处理。
 	chatService *chatsvc.ChatService
-	// WebSocket 升级与连接参数配置。
-	upgrader websocket.Upgrader
+	upgrader    websocket.Upgrader
 }
 
+// chatIncoming 客户端发送的 WebSocket 消息结构
 type chatIncoming struct {
-	// 客户端消息类型：chat/ping/tool_approve 等。
-	Type string `json:"type"`
-	// 会话标识，用于路由到指定聊天上下文。
-	SessionID string `json:"sessionId"`
-	// 用户输入内容（聊天消息正文）。
-	Content string `json:"content"`
-	// 期望使用的模型标识。
-	ModelID string `json:"modelId"`
-	// 本次聊天携带的临时附件 ID。
-	AttachmentIDs []string `json:"attachmentIds"`
-	// 工具调用审批对应的调用 ID。
-	ToolCallID string `json:"toolCallId"`
-	// 工具审批结果；nil 表示未携带审批字段。
-	Approved *bool `json:"approved"`
+	Type          string   `json:"type"`          // 消息类型：chat/ping/tool_approve 等
+	SessionID     string   `json:"sessionId"`     // 会话ID
+	Content       string   `json:"content"`       // 用户输入内容
+	ModelID       string   `json:"modelId"`       // 模型配置ID
+	AttachmentIDs []string `json:"attachmentIds"` // 附件ID列表
+	ToolCallID    string   `json:"toolCallId"`    // 工具调用ID（用于审批）
+	Approved      *bool    `json:"approved"`      // 审批结果
 }
 
 type activeChatCanceler struct {
@@ -46,14 +38,14 @@ type activeChatCanceler struct {
 	cancel context.CancelFunc
 }
 
-// Set 记录当前正在处理的 chat cancel 句柄（同连接仅维护一个活跃任务）。
+// Set 设置当前活跃的聊天取消函数
 func (a *activeChatCanceler) Set(cancel context.CancelFunc) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.cancel = cancel
 }
 
-// Clear 清空活跃 cancel 句柄；请求结束后调用，避免后续 stop 命中陈旧任务。
+// Clear 清除当前活跃的取消函数
 func (a *activeChatCanceler) Clear(cancel context.CancelFunc) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -61,7 +53,7 @@ func (a *activeChatCanceler) Clear(cancel context.CancelFunc) {
 	a.cancel = nil
 }
 
-// Cancel 尝试终止当前活跃 chat；若无活跃任务则返回 false。
+// Cancel 取消当前活跃的聊天任务，若无活跃任务返回 false
 func (a *activeChatCanceler) Cancel() bool {
 	a.mu.Lock()
 	cancel := a.cancel
@@ -98,37 +90,36 @@ func newApprovalBroker() *approvalBroker {
 	return &approvalBroker{channels: make(map[string]chan chatsvc.ApprovalResponse)}
 }
 
+// Register 注册工具调用审批通道，返回用于接收审批结果的通道
 func (b *approvalBroker) Register(toolCallID string) chan chatsvc.ApprovalResponse {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	// 使用容量 1 的缓冲通道，确保回调线程不会因等待方尚未 select 而阻塞。
 	ch := make(chan chatsvc.ApprovalResponse, 1)
 	b.channels[toolCallID] = ch
 	return ch
 }
 
+// Resolve 处理工具调用审批结果，将结果发送到对应通道
 func (b *approvalBroker) Resolve(toolCallID string, resp chatsvc.ApprovalResponse) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	if ch, ok := b.channels[toolCallID]; ok {
 		select {
 		case ch <- resp:
-			// 成功投递后立即删除，保证每个 toolCallID 只消费一次审批结果。
 		default:
-			// 等待方已取消或通道已满时直接丢弃，避免回调链路卡住。
 		}
 		delete(b.channels, toolCallID)
 	}
 }
 
+// Remove 移除指定工具调用的审批通道（超时或取消时调用）
 func (b *approvalBroker) Remove(toolCallID string) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	// 超时/取消路径调用 Remove，确保悬挂审批不会泄漏在 map 中。
 	delete(b.channels, toolCallID)
 }
 
-// Chat 将 HTTP 升级为 WebSocket，启动写循环、读循环与串行 chat 消费循环。
+// Chat 处理 WebSocket 连接：升级 HTTP 连接，启动读写循环和聊天处理循环
 func (w *Controller) Chat(wr http.ResponseWriter, req *http.Request) {
 	conn, err := w.upgrader.Upgrade(wr, req, nil)
 	if err != nil {

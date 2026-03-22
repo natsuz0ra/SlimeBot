@@ -15,7 +15,7 @@ import (
 	"slimebot/internal/mcp"
 )
 
-// ChatService 聊天服务主入口：会话生命周期、Agent 调度、记忆与附件等联动。
+// ChatService 聊天服务主入口：管理会话生命周期、Agent 调度、记忆检索与附件处理等联动逻辑
 type ChatService struct {
 	store            domain.ChatStore
 	agent            *AgentService
@@ -34,13 +34,13 @@ type ChatService struct {
 	platformModelAt time.Time
 }
 
-// chatStreamAccumulator 流式输出累积器：合并正文并记录 OnChunk 推送错误。
+// chatStreamAccumulator 流式输出累积器：合并AI回复内容并记录推送过程中的错误
 type chatStreamAccumulator struct {
 	answerBuilder strings.Builder
 	pushErr       error
 }
 
-// ChatStreamResult 单次流式对话结束态：是否中断、标题是否更新、推送是否失败等。
+// ChatStreamResult 单次流式对话结果：包含AI回复内容、是否被中断、会话标题是否更新等信息
 type ChatStreamResult struct {
 	Answer            string
 	IsInterrupted     bool
@@ -52,7 +52,7 @@ type ChatStreamResult struct {
 	PushError         string
 }
 
-// NewChatService 组装聊天服务及其依赖的 agent/memory 子能力。
+// NewChatService 创建聊天服务实例，组装Agent、记忆、MCP等子能力
 func NewChatService(store domain.ChatStore, openai *OpenAIClient, mcpManager *mcp.Manager, skillRuntime *SkillRuntimeService, memory *MemoryService, systemPromptPath string) *ChatService {
 	return &ChatService{
 		store:            store,
@@ -65,7 +65,7 @@ func NewChatService(store domain.ChatStore, openai *OpenAIClient, mcpManager *mc
 	}
 }
 
-// SetUploadService 注入临时附件服务；用于聊天回合内消费与清理上传文件。
+// SetUploadService 注入附件上传服务，用于处理聊天中的文件上传
 func (s *ChatService) SetUploadService(uploads *ChatUploadService) {
 	s.uploads = uploads
 }

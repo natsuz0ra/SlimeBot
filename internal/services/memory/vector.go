@@ -349,7 +349,7 @@ func (m *MemoryService) buildSessionMemoryContextForPrompt(ctx context.Context, 
 	}
 	if n <= int64(constants.MemoryFullInjectThreshold) {
 		// 记忆数量较少时全量注入。
-		all, lerr := m.store.ListActiveSessionMemories(sid)
+		all, lerr := m.store.ListActiveSessionMemories(ctx, sid)
 		if lerr != nil || len(all) == 0 {
 			return ""
 		}

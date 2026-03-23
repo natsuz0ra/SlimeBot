@@ -1,6 +1,7 @@
 package repositories
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -15,9 +16,9 @@ import (
 	"gorm.io/gorm"
 )
 
-func (r *Repository) GetSessionMemory(sessionID string) (*domain.SessionMemory, error) {
+func (r *Repository) GetSessionMemory(ctx context.Context, sessionID string) (*domain.SessionMemory, error) {
 	var item domain.SessionMemory
-	err := r.db.Where("session_id = ? AND is_active = ?", strings.TrimSpace(sessionID), true).
+	err := r.dbWithContext(ctx).Where("session_id = ? AND is_active = ?", strings.TrimSpace(sessionID), true).
 		Order("updated_at DESC").
 		First(&item).Error
 	if err != nil {
@@ -83,13 +84,13 @@ func (r *Repository) CountActiveSessionMemories(sessionID string) (int64, error)
 	return count, nil
 }
 
-func (r *Repository) ListActiveSessionMemories(sessionID string) ([]domain.SessionMemory, error) {
+func (r *Repository) ListActiveSessionMemories(ctx context.Context, sessionID string) ([]domain.SessionMemory, error) {
 	sid := strings.TrimSpace(sessionID)
 	if sid == "" {
 		return nil, fmt.Errorf("session_id cannot be empty")
 	}
 	var rows []domain.SessionMemory
-	if err := r.db.Where("session_id = ? AND is_active = ?", sid, true).
+	if err := r.dbWithContext(ctx).Where("session_id = ? AND is_active = ?", sid, true).
 		Order("updated_at ASC").
 		Find(&rows).Error; err != nil {
 		return nil, err
@@ -201,11 +202,6 @@ func (r *Repository) SoftDeleteSessionMemory(id, sessionID string) error {
 		return gorm.ErrRecordNotFound
 	}
 	return nil
-}
-
-func (r *Repository) UpsertSessionMemory(input domain.SessionMemoryUpsertInput) error {
-	_, err := r.UpsertSessionMemoryIfNewer(input)
-	return err
 }
 
 func (r *Repository) UpsertSessionMemoryIfNewer(input domain.SessionMemoryUpsertInput) (bool, error) {

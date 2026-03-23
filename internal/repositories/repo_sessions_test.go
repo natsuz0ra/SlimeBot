@@ -1,6 +1,7 @@
 package repositories
 
 import (
+	"context"
 	"slimebot/internal/domain"
 	"testing"
 	"time"
@@ -12,7 +13,7 @@ func TestDeleteSession_DeletesSessionAndRelatedRecords(t *testing.T) {
 	repo := New(NewSQLiteDBTest(t, "repo_sessions_delete_ok"))
 	sessionID := uuid.NewString()
 
-	if _, err := repo.CreateSessionWithID(sessionID, "to-delete"); err != nil {
+	if _, err := repo.CreateSessionWithID(context.Background(), sessionID, "to-delete"); err != nil {
 		t.Fatalf("create session failed: %v", err)
 	}
 	if err := repo.db.Create(&domain.Message{
@@ -72,7 +73,7 @@ func TestDeleteSession_RollsBackWhenToolCallDeleteFails(t *testing.T) {
 	repo := New(NewSQLiteDBTest(t, "repo_sessions_delete_rollback"))
 	sessionID := uuid.NewString()
 
-	if _, err := repo.CreateSessionWithID(sessionID, "rollback-case"); err != nil {
+	if _, err := repo.CreateSessionWithID(context.Background(), sessionID, "rollback-case"); err != nil {
 		t.Fatalf("create session failed: %v", err)
 	}
 	if err := repo.db.Create(&domain.Message{

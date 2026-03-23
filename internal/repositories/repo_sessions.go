@@ -1,6 +1,7 @@
 package repositories
 
 import (
+	"context"
 	"errors"
 	"slimebot/internal/domain"
 	"strings"
@@ -29,30 +30,30 @@ func (r *Repository) ListSessions(limit int, offset int, query string) ([]domain
 	return sessions, err
 }
 
-func (r *Repository) GetSessionByID(id string) (*domain.Session, error) {
+func (r *Repository) GetSessionByID(ctx context.Context, id string) (*domain.Session, error) {
 	var session domain.Session
-	err := r.db.First(&session, "id = ?", id).Error
+	err := r.dbWithContext(ctx).First(&session, "id = ?", id).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, nil
 	}
 	return &session, err
 }
 
-func (r *Repository) CreateSession(name string) (*domain.Session, error) {
+func (r *Repository) CreateSession(ctx context.Context, name string) (*domain.Session, error) {
 	session := &domain.Session{
 		ID:   uuid.NewString(),
 		Name: name,
 	}
-	err := r.db.Create(session).Error
+	err := r.dbWithContext(ctx).Create(session).Error
 	return session, err
 }
 
-func (r *Repository) CreateSessionWithID(id, name string) (*domain.Session, error) {
+func (r *Repository) CreateSessionWithID(ctx context.Context, id, name string) (*domain.Session, error) {
 	session := &domain.Session{
 		ID:   id,
 		Name: name,
 	}
-	err := r.db.Create(session).Error
+	err := r.dbWithContext(ctx).Create(session).Error
 	return session, err
 }
 
@@ -63,8 +64,8 @@ func (r *Repository) RenameSessionByUser(id, name string) error {
 		Error
 }
 
-func (r *Repository) UpdateSessionTitle(id, name string) error {
-	return r.db.Model(&domain.Session{}).
+func (r *Repository) UpdateSessionTitle(ctx context.Context, id, name string) error {
+	return r.dbWithContext(ctx).Model(&domain.Session{}).
 		Where("id = ?", id).
 		Updates(map[string]any{"name": name, "updated_at": time.Now()}).
 		Error

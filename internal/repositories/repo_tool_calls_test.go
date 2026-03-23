@@ -1,6 +1,7 @@
 package repositories
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -9,7 +10,7 @@ import (
 
 func TestUpsertToolCallStart_UpdatesExistingRow(t *testing.T) {
 	repo := New(NewSQLiteDBTest(t, "repo_tool_calls_upsert"))
-	session, err := repo.CreateSession("s")
+	session, err := repo.CreateSession(context.Background(), "s")
 	if err != nil {
 		t.Fatalf("create session failed: %v", err)
 	}
@@ -25,7 +26,7 @@ func TestUpsertToolCallStart_UpdatesExistingRow(t *testing.T) {
 		RequiresApproval: true,
 		StartedAt:        time.Now().Add(-1 * time.Minute),
 	}
-	if err := repo.UpsertToolCallStart(first); err != nil {
+	if err := repo.UpsertToolCallStart(context.Background(), first); err != nil {
 		t.Fatalf("first upsert failed: %v", err)
 	}
 
@@ -36,7 +37,7 @@ func TestUpsertToolCallStart_UpdatesExistingRow(t *testing.T) {
 	second.RequiresApproval = false
 	second.Params = map[string]string{"q": "golang"}
 	second.StartedAt = time.Now()
-	if err := repo.UpsertToolCallStart(second); err != nil {
+	if err := repo.UpsertToolCallStart(context.Background(), second); err != nil {
 		t.Fatalf("second upsert failed: %v", err)
 	}
 

@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"context"
 	"strings"
 
 	coreauth "slimebot/internal/auth"
@@ -20,11 +21,11 @@ func NewAuthService(store domain.SettingsReaderWriter) *AuthService {
 
 // VerifyLogin 校验用户名与密码是否匹配当前账户设置。
 func (s *AuthService) VerifyLogin(username, password string) (bool, error) {
-	storedUsername, err := s.store.GetSetting(constants.SettingAuthUsername)
+	storedUsername, err := s.store.GetSetting(context.Background(), constants.SettingAuthUsername)
 	if err != nil {
 		return false, err
 	}
-	storedHash, err := s.store.GetSetting(constants.SettingAuthPasswordHash)
+	storedHash, err := s.store.GetSetting(context.Background(), constants.SettingAuthPasswordHash)
 	if err != nil {
 		return false, err
 	}
@@ -49,14 +50,14 @@ func (s *AuthService) UpdateAccount(username, oldPassword, newPassword string) e
 	newUsername := strings.TrimSpace(username)
 	newPass := strings.TrimSpace(newPassword)
 	if newUsername != "" {
-		if err := s.store.SetSetting(constants.SettingAuthUsername, newUsername); err != nil {
+		if err := s.store.SetSetting(context.Background(), constants.SettingAuthUsername, newUsername); err != nil {
 			return err
 		}
 	}
 	if newPass == "" {
 		return nil
 	}
-	storedHash, err := s.store.GetSetting(constants.SettingAuthPasswordHash)
+	storedHash, err := s.store.GetSetting(context.Background(), constants.SettingAuthPasswordHash)
 	if err != nil {
 		return err
 	}
@@ -76,19 +77,19 @@ func (s *AuthService) UpdateAccount(username, oldPassword, newPassword string) e
 	if err != nil {
 		return err
 	}
-	if err := s.store.SetSetting(constants.SettingAuthPasswordHash, hashed); err != nil {
+	if err := s.store.SetSetting(context.Background(), constants.SettingAuthPasswordHash, hashed); err != nil {
 		return err
 	}
-	return s.store.SetSetting(constants.SettingAuthForcePasswordChange, "false")
+	return s.store.SetSetting(context.Background(), constants.SettingAuthForcePasswordChange, "false")
 }
 
 // EnsureDefaultAdmin 在未初始化时创建默认 admin 账号并要求首次改密。
 func (s *AuthService) EnsureDefaultAdmin() error {
-	username, err := s.store.GetSetting(constants.SettingAuthUsername)
+	username, err := s.store.GetSetting(context.Background(), constants.SettingAuthUsername)
 	if err != nil {
 		return err
 	}
-	passwordHash, err := s.store.GetSetting(constants.SettingAuthPasswordHash)
+	passwordHash, err := s.store.GetSetting(context.Background(), constants.SettingAuthPasswordHash)
 	if err != nil {
 		return err
 	}
@@ -98,21 +99,21 @@ func (s *AuthService) EnsureDefaultAdmin() error {
 		if hashErr != nil {
 			return hashErr
 		}
-		if err := s.store.SetSetting(constants.SettingAuthUsername, "admin"); err != nil {
+		if err := s.store.SetSetting(context.Background(), constants.SettingAuthUsername, "admin"); err != nil {
 			return err
 		}
-		if err := s.store.SetSetting(constants.SettingAuthPasswordHash, defaultHash); err != nil {
+		if err := s.store.SetSetting(context.Background(), constants.SettingAuthPasswordHash, defaultHash); err != nil {
 			return err
 		}
-		return s.store.SetSetting(constants.SettingAuthForcePasswordChange, "true")
+		return s.store.SetSetting(context.Background(), constants.SettingAuthForcePasswordChange, "true")
 	}
 
-	forceFlag, err := s.store.GetSetting(constants.SettingAuthForcePasswordChange)
+	forceFlag, err := s.store.GetSetting(context.Background(), constants.SettingAuthForcePasswordChange)
 	if err != nil {
 		return err
 	}
 	if strings.TrimSpace(forceFlag) == "" {
-		return s.store.SetSetting(constants.SettingAuthForcePasswordChange, "false")
+		return s.store.SetSetting(context.Background(), constants.SettingAuthForcePasswordChange, "false")
 	}
 	return nil
 }

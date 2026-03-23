@@ -1,6 +1,7 @@
 package session
 
 import (
+	"context"
 	"strings"
 	"time"
 
@@ -34,7 +35,7 @@ func (s *SessionService) Create(name string) (*domain.Session, error) {
 	if trimmed == "" {
 		trimmed = "New Chat"
 	}
-	return s.store.CreateSession(trimmed)
+	return s.store.CreateSession(context.Background(), trimmed)
 }
 
 func (s *SessionService) RenameByUser(id string, name string) error {

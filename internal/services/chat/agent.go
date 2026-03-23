@@ -14,6 +14,9 @@ import (
 
 	"slimebot/internal/constants"
 	"slimebot/internal/mcp"
+	memsvc "slimebot/internal/services/memory"
+	oaisvc "slimebot/internal/services/openai"
+	skillsvc "slimebot/internal/services/skill"
 	"slimebot/internal/tools"
 )
 
@@ -54,23 +57,23 @@ type AgentCallbacks struct {
 
 // AgentService Agent 服务：封装与 LLM 的交互循环、工具调用、审批流与 MCP/Skill 工具加载
 type AgentService struct {
-	openai       *OpenAIClient
+	openai       *oaisvc.OpenAIClient
 	mcp          *mcp.Manager
-	skillRuntime *SkillRuntimeService
-	memory       *MemoryService
+	skillRuntime *skillsvc.SkillRuntimeService
+	memory       *memsvc.MemoryService
 	toolCacheMu  sync.Mutex
 	toolCache    map[string]cachedToolDefs
 }
 
 // cachedToolDefs 工具定义缓存项
 type cachedToolDefs struct {
-	defs       []ToolDef
+	defs       []oaisvc.ToolDef
 	metaByFunc map[string]mcp.ToolMeta
 	expireAt   time.Time
 }
 
 // NewAgentService 创建 Agent 服务实例
-func NewAgentService(openai *OpenAIClient, mcpManager *mcp.Manager, skillRuntime *SkillRuntimeService, memory *MemoryService) *AgentService {
+func NewAgentService(openai *oaisvc.OpenAIClient, mcpManager *mcp.Manager, skillRuntime *skillsvc.SkillRuntimeService, memory *memsvc.MemoryService) *AgentService {
 	return &AgentService{
 		openai:       openai,
 		mcp:          mcpManager,
@@ -82,8 +85,8 @@ func NewAgentService(openai *OpenAIClient, mcpManager *mcp.Manager, skillRuntime
 
 // BuildToolDefs 从全局工具注册中心生成 OpenAI function call 的工具定义列表
 // 每个工具的每个命令映射为一个 function，名称格式为 {tool}__{command}
-func BuildToolDefs() []ToolDef {
-	var defs []ToolDef
+func BuildToolDefs() []oaisvc.ToolDef {
+	var defs []oaisvc.ToolDef
 	for _, t := range tools.All() {
 		for _, cmd := range t.Commands() {
 			properties := make(map[string]any)
@@ -113,7 +116,7 @@ func BuildToolDefs() []ToolDef {
 				params["required"] = required
 			}
 
-			defs = append(defs, ToolDef{
+			defs = append(defs, oaisvc.ToolDef{
 				Name:        funcName,
 				Description: desc,
 				Parameters:  params,
@@ -124,7 +127,7 @@ func BuildToolDefs() []ToolDef {
 }
 
 // buildRuntimeToolDefs 汇总运行时可见工具（内建 + skill + MCP）并返回名称映射
-func (a *AgentService) buildRuntimeToolDefs(ctx context.Context, configs []domain.MCPConfig) ([]ToolDef, map[string]mcp.ToolMeta, error) {
+func (a *AgentService) buildRuntimeToolDefs(ctx context.Context, configs []domain.MCPConfig) ([]oaisvc.ToolDef, map[string]mcp.ToolMeta, error) {
 	cacheKey := buildToolDefsCacheKey(configs)
 	if defs, metaByFunc, ok := a.getCachedToolDefs(cacheKey); ok {
 		return defs, metaByFunc, nil
@@ -133,7 +136,7 @@ func (a *AgentService) buildRuntimeToolDefs(ctx context.Context, configs []domai
 	metaByFunc := make(map[string]mcp.ToolMeta)
 	if a.memory != nil {
 		// 注入 memory 工具定义，供模型在需要时检索历史记忆
-		defs = append(defs, ToolDef{
+		defs = append(defs, oaisvc.ToolDef{
 			Name:        constants.SearchMemoryTool,
 			Description: "[memory] Search historical memory on demand. Use only when the response depends on past preferences, decisions, or cross-session constraints.",
 			Parameters: map[string]any{
@@ -181,7 +184,7 @@ func (a *AgentService) buildRuntimeToolDefs(ctx context.Context, configs []domai
 		if name == "" {
 			continue
 		}
-		defs = append(defs, ToolDef{
+		defs = append(defs, oaisvc.ToolDef{
 			Name:        name,
 			Description: description,
 			Parameters:  parameters,
@@ -212,14 +215,14 @@ func buildToolDefsCacheKey(configs []domain.MCPConfig) string {
 	return strings.Join(parts, "|")
 }
 
-func (a *AgentService) getCachedToolDefs(cacheKey string) ([]ToolDef, map[string]mcp.ToolMeta, bool) {
+func (a *AgentService) getCachedToolDefs(cacheKey string) ([]oaisvc.ToolDef, map[string]mcp.ToolMeta, bool) {
 	a.toolCacheMu.Lock()
 	defer a.toolCacheMu.Unlock()
 	item, ok := a.toolCache[cacheKey]
 	if !ok || time.Now().After(item.expireAt) {
 		return nil, nil, false
 	}
-	defs := make([]ToolDef, len(item.defs))
+	defs := make([]oaisvc.ToolDef, len(item.defs))
 	copy(defs, item.defs)
 	metaByFunc := make(map[string]mcp.ToolMeta, len(item.metaByFunc))
 	for k, v := range item.metaByFunc {
@@ -228,10 +231,10 @@ func (a *AgentService) getCachedToolDefs(cacheKey string) ([]ToolDef, map[string
 	return defs, metaByFunc, true
 }
 
-func (a *AgentService) setCachedToolDefs(cacheKey string, defs []ToolDef, metaByFunc map[string]mcp.ToolMeta) {
+func (a *AgentService) setCachedToolDefs(cacheKey string, defs []oaisvc.ToolDef, metaByFunc map[string]mcp.ToolMeta) {
 	a.toolCacheMu.Lock()
 	defer a.toolCacheMu.Unlock()
-	defsCopy := make([]ToolDef, len(defs))
+	defsCopy := make([]oaisvc.ToolDef, len(defs))
 	copy(defsCopy, defs)
 	metaCopy := make(map[string]mcp.ToolMeta, len(metaByFunc))
 	for k, v := range metaByFunc {
@@ -251,9 +254,9 @@ func (a *AgentService) setCachedToolDefs(cacheKey string, defs []ToolDef, metaBy
 // 返回最终的纯文本回答。
 func (a *AgentService) RunAgentLoop(
 	ctx context.Context,
-	modelConfig ModelRuntimeConfig,
+	modelConfig oaisvc.ModelRuntimeConfig,
 	sessionID string,
-	contextMessages []ChatMessage,
+	contextMessages []oaisvc.ChatMessage,
 	mcpConfigs []domain.MCPConfig,
 	activatedSkills map[string]struct{},
 	callbacks AgentCallbacks,
@@ -262,7 +265,7 @@ func (a *AgentService) RunAgentLoop(
 	if err != nil {
 		return "", fmt.Errorf("failed to load MCP tools: %w", err)
 	}
-	messages := make([]ChatMessage, len(contextMessages))
+	messages := make([]oaisvc.ChatMessage, len(contextMessages))
 	copy(messages, contextMessages)
 
 	var finalAnswer strings.Builder
@@ -280,7 +283,7 @@ func (a *AgentService) RunAgentLoop(
 			return "", fmt.Errorf("agent LLM call failed at iteration %d: %w", i+1, err)
 		}
 
-		if result.Type == StreamResultType(constants.StreamResultText) {
+		if result.Type == oaisvc.StreamResultType(constants.StreamResultText) {
 			finalAnswer.WriteString(chunkBuf.String())
 			return finalAnswer.String(), nil
 		}
@@ -429,8 +432,8 @@ func requiresToolApproval(toolName string, isMCP bool) bool {
 	return toolName == constants.ExecToolName
 }
 
-func appendToolMessage(messages []ChatMessage, toolCallID string, content string) []ChatMessage {
-	return append(messages, ChatMessage{
+func appendToolMessage(messages []oaisvc.ChatMessage, toolCallID string, content string) []oaisvc.ChatMessage {
+	return append(messages, oaisvc.ChatMessage{
 		Role:       "tool",
 		ToolCallID: toolCallID,
 		Content:    content,

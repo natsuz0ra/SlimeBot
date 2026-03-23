@@ -1,6 +1,7 @@
 package repositories
 
 import (
+	"context"
 	"errors"
 	"slimebot/internal/domain"
 
@@ -8,15 +9,15 @@ import (
 	"gorm.io/gorm"
 )
 
-func (r *Repository) ListLLMConfigs() ([]domain.LLMConfig, error) {
+func (r *Repository) ListLLMConfigs(ctx context.Context) ([]domain.LLMConfig, error) {
 	var items []domain.LLMConfig
-	err := r.db.Order("name asc").Order("created_at asc").Find(&items).Error
+	err := r.dbWithContext(ctx).Order("name asc").Order("created_at asc").Find(&items).Error
 	return items, err
 }
 
-func (r *Repository) GetLLMConfigByID(id string) (*domain.LLMConfig, error) {
+func (r *Repository) GetLLMConfigByID(ctx context.Context, id string) (*domain.LLMConfig, error) {
 	var item domain.LLMConfig
-	err := r.db.First(&item, "id = ?", id).Error
+	err := r.dbWithContext(ctx).First(&item, "id = ?", id).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, nil
 	}

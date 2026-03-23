@@ -1,6 +1,7 @@
 package settings
 
 import (
+	"context"
 	"slimebot/internal/constants"
 	"slimebot/internal/domain"
 	"strings"
@@ -30,18 +31,18 @@ func NewSettingsService(store domain.SettingsStore) *SettingsService {
 
 // Get 读取设置并补齐默认值，保证接口返回稳定字段。
 func (s *SettingsService) Get() (*AppSettings, error) {
-	language, err := s.store.GetSetting(constants.SettingLanguage)
+	language, err := s.store.GetSetting(context.Background(), constants.SettingLanguage)
 	if err != nil {
 		return nil, err
 	}
 	if strings.TrimSpace(language) == "" {
 		language = "zh-CN"
 	}
-	defaultModel, err := s.store.GetSetting(constants.SettingDefaultModel)
+	defaultModel, err := s.store.GetSetting(context.Background(), constants.SettingDefaultModel)
 	if err != nil {
 		return nil, err
 	}
-	messagePlatformDefaultModel, err := s.store.GetSetting(constants.SettingMessagePlatformDefaultModel)
+	messagePlatformDefaultModel, err := s.store.GetSetting(context.Background(), constants.SettingMessagePlatformDefaultModel)
 	if err != nil {
 		return nil, err
 	}
@@ -55,17 +56,17 @@ func (s *SettingsService) Get() (*AppSettings, error) {
 // Update 仅更新请求中显式提供的字段，避免覆盖未传值配置。
 func (s *SettingsService) Update(input UpdateSettingsInput) error {
 	if strings.TrimSpace(input.Language) != "" {
-		if err := s.store.SetSetting(constants.SettingLanguage, input.Language); err != nil {
+		if err := s.store.SetSetting(context.Background(), constants.SettingLanguage, input.Language); err != nil {
 			return err
 		}
 	}
 	if strings.TrimSpace(input.DefaultModel) != "" {
-		if err := s.store.SetSetting(constants.SettingDefaultModel, input.DefaultModel); err != nil {
+		if err := s.store.SetSetting(context.Background(), constants.SettingDefaultModel, input.DefaultModel); err != nil {
 			return err
 		}
 	}
 	if strings.TrimSpace(input.MessagePlatformDefaultModel) != "" {
-		if err := s.store.SetSetting(constants.SettingMessagePlatformDefaultModel, input.MessagePlatformDefaultModel); err != nil {
+		if err := s.store.SetSetting(context.Background(), constants.SettingMessagePlatformDefaultModel, input.MessagePlatformDefaultModel); err != nil {
 			return err
 		}
 	}

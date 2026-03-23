@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	oaisvc "slimebot/internal/services/openai"
 )
 
 func TestBuildUserMessageContentParts_LargeDocumentFallsBackToMetadata(t *testing.T) {
@@ -58,7 +60,7 @@ func TestBuildUserMessageContentParts_SmallDocumentKeepsInlineFileData(t *testin
 	if len(parts) != 1 {
 		t.Fatalf("expected 1 part, got %d", len(parts))
 	}
-	if parts[0].Type != ChatMessageContentPartTypeFile {
+	if parts[0].Type != oaisvc.ChatMessageContentPartTypeFile {
 		t.Fatalf("expected file part, got %q", parts[0].Type)
 	}
 	expect := base64.StdEncoding.EncodeToString([]byte(raw))

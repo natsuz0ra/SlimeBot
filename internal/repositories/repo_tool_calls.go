@@ -1,6 +1,7 @@
 package repositories
 
 import (
+	"context"
 	"encoding/json"
 	"strings"
 	"time"
@@ -11,7 +12,7 @@ import (
 	"gorm.io/gorm/clause"
 )
 
-func (r *Repository) UpsertToolCallStart(input domain.ToolCallStartRecordInput) error {
+func (r *Repository) UpsertToolCallStart(ctx context.Context, input domain.ToolCallStartRecordInput) error {
 	paramsJSONBytes, err := json.Marshal(input.Params)
 	if err != nil {
 		return err
@@ -35,7 +36,7 @@ func (r *Repository) UpsertToolCallStart(input domain.ToolCallStartRecordInput) 
 		RequiresApproval: input.RequiresApproval,
 		StartedAt:        startedAt,
 	}
-	return r.db.Clauses(clause.OnConflict{
+	return r.dbWithContext(ctx).Clauses(clause.OnConflict{
 		Columns: []clause.Column{
 			{Name: "session_id"},
 			{Name: "request_id"},
@@ -57,7 +58,7 @@ func (r *Repository) UpsertToolCallStart(input domain.ToolCallStartRecordInput) 
 	}).Create(&record).Error
 }
 
-func (r *Repository) UpdateToolCallResult(input domain.ToolCallResultRecordInput) error {
+func (r *Repository) UpdateToolCallResult(ctx context.Context, input domain.ToolCallResultRecordInput) error {
 	updates := map[string]any{
 		"status":      input.Status,
 		"output":      input.Output,
@@ -69,14 +70,14 @@ func (r *Repository) UpdateToolCallResult(input domain.ToolCallResultRecordInput
 		updates["finished_at"] = time.Now()
 	}
 
-	return r.db.Model(&domain.ToolCallRecord{}).
+	return r.dbWithContext(ctx).Model(&domain.ToolCallRecord{}).
 		Where("session_id = ? AND request_id = ? AND tool_call_id = ?", input.SessionID, input.RequestID, input.ToolCallID).
 		Updates(updates).
 		Error
 }
 
-func (r *Repository) BindToolCallsToAssistantMessage(sessionID, requestID, assistantMessageID string) error {
-	return r.db.Model(&domain.ToolCallRecord{}).
+func (r *Repository) BindToolCallsToAssistantMessage(ctx context.Context, sessionID, requestID, assistantMessageID string) error {
+	return r.dbWithContext(ctx).Model(&domain.ToolCallRecord{}).
 		Where("session_id = ? AND request_id = ?", sessionID, requestID).
 		Updates(map[string]any{
 			"assistant_message_id": assistantMessageID,

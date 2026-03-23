@@ -6,12 +6,15 @@ import (
 	"testing"
 
 	"slimebot/internal/constants"
+	"slimebot/internal/domain"
 	"slimebot/internal/mcp"
 	"slimebot/internal/repositories"
+	memsvc "slimebot/internal/services/memory"
+	oaisvc "slimebot/internal/services/openai"
 )
 
 func TestResolveToolInvocation_ActivateSkill(t *testing.T) {
-	tc := ToolCallInfo{
+	tc := oaisvc.ToolCallInfo{
 		ID:        "call_1",
 		Name:      "activate_skill",
 		Arguments: `{"name":"demo-skill"}`,
@@ -33,7 +36,7 @@ func TestResolveToolInvocation_ActivateSkill(t *testing.T) {
 }
 
 func TestResolveToolInvocation_SearchMemory(t *testing.T) {
-	tc := ToolCallInfo{
+	tc := oaisvc.ToolCallInfo{
 		ID:        "call_2",
 		Name:      constants.SearchMemoryTool,
 		Arguments: `{"query":"golang"}`,
@@ -56,12 +59,12 @@ func TestResolveToolInvocation_SearchMemory(t *testing.T) {
 
 func TestExecuteInvocation_SearchMemory_OncePerResponse(t *testing.T) {
 	repo := newTestRepo(t)
-	memorySvc := NewMemoryService(repo, nil)
+	memorySvc := memsvc.NewMemoryService(repo, nil)
 	agent := &AgentService{memory: memorySvc}
 
-	if err := repo.UpsertSessionMemory(repositories.SessionMemoryUpsertInput{
+	if err := upsertSessionMemory(t, repo, domain.SessionMemoryUpsertInput{
 		SessionID:          "other-session",
-		Summary:            "用户偏好 golang",
+		Summary:            "鐢ㄦ埛鍋忓ソ golang",
 		Keywords:           []string{"golang"},
 		SourceMessageCount: 12,
 	}); err != nil {
@@ -71,7 +74,7 @@ func TestExecuteInvocation_SearchMemory_OncePerResponse(t *testing.T) {
 	memoryUsed := false
 	first := agent.executeInvocation(
 		context.Background(),
-		ToolCallInfo{ID: "call_3", Name: constants.SearchMemoryTool},
+		oaisvc.ToolCallInfo{ID: "call_3", Name: constants.SearchMemoryTool},
 		resolvedToolInvocation{toolName: constants.SearchMemoryTool, command: "query"},
 		map[string]string{"query": "golang"},
 		"current-session",
@@ -87,7 +90,7 @@ func TestExecuteInvocation_SearchMemory_OncePerResponse(t *testing.T) {
 
 	second := agent.executeInvocation(
 		context.Background(),
-		ToolCallInfo{ID: "call_4", Name: constants.SearchMemoryTool},
+		oaisvc.ToolCallInfo{ID: "call_4", Name: constants.SearchMemoryTool},
 		resolvedToolInvocation{toolName: constants.SearchMemoryTool, command: "query"},
 		map[string]string{"query": "golang"},
 		"current-session",
@@ -97,4 +100,9 @@ func TestExecuteInvocation_SearchMemory_OncePerResponse(t *testing.T) {
 	if second == nil || !strings.Contains(second.Error, "at most once") {
 		t.Fatalf("expected once-per-response error, got: %+v", second)
 	}
+}
+
+func upsertSessionMemory(_ *testing.T, repo *repositories.Repository, input domain.SessionMemoryUpsertInput) error {
+	_, err := repo.UpsertSessionMemoryIfNewer(input)
+	return err
 }

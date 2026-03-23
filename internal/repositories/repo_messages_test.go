@@ -1,6 +1,7 @@
 package repositories
 
 import (
+	"context"
 	"slimebot/internal/domain"
 	"testing"
 	"time"
@@ -8,12 +9,12 @@ import (
 
 func TestAddMessageWithInput_PersistsFlagsAndAttachments(t *testing.T) {
 	repo := New(NewSQLiteDBTest(t, "repo_messages_test"))
-	session, err := repo.CreateSession("s")
+	session, err := repo.CreateSession(context.Background(), "s")
 	if err != nil {
 		t.Fatalf("create session failed: %v", err)
 	}
 
-	_, err = repo.AddMessageWithInput(AddMessageInput{
+	_, err = repo.AddMessageWithInput(context.Background(), domain.AddMessageInput{
 		SessionID:         session.ID,
 		Role:              "assistant",
 		Content:           "",
@@ -52,13 +53,13 @@ func TestAddMessageWithInput_PersistsFlagsAndAttachments(t *testing.T) {
 
 func TestListSessionMessagesPage_HasMoreWithLimitPlusOne(t *testing.T) {
 	repo := New(NewSQLiteDBTest(t, "repo_messages_pagination_test"))
-	session, err := repo.CreateSession("s")
+	session, err := repo.CreateSession(context.Background(), "s")
 	if err != nil {
 		t.Fatalf("create session failed: %v", err)
 	}
 
 	for i := 0; i < 3; i++ {
-		if _, err := repo.AddMessageWithInput(AddMessageInput{
+		if _, err := repo.AddMessageWithInput(context.Background(), domain.AddMessageInput{
 			SessionID: session.ID,
 			Role:      "user",
 			Content:   "m",
@@ -82,12 +83,12 @@ func TestListSessionMessagesPage_HasMoreWithLimitPlusOne(t *testing.T) {
 
 func TestAddMessageWithInput_AssignsIncreasingSeq(t *testing.T) {
 	repo := New(NewSQLiteDBTest(t, "repo_messages_seq_test"))
-	session, err := repo.CreateSession("s")
+	session, err := repo.CreateSession(context.Background(), "s")
 	if err != nil {
 		t.Fatalf("create session failed: %v", err)
 	}
 
-	first, err := repo.AddMessageWithInput(AddMessageInput{
+	first, err := repo.AddMessageWithInput(context.Background(), domain.AddMessageInput{
 		SessionID: session.ID,
 		Role:      "user",
 		Content:   "a",
@@ -95,7 +96,7 @@ func TestAddMessageWithInput_AssignsIncreasingSeq(t *testing.T) {
 	if err != nil {
 		t.Fatalf("add first message failed: %v", err)
 	}
-	second, err := repo.AddMessageWithInput(AddMessageInput{
+	second, err := repo.AddMessageWithInput(context.Background(), domain.AddMessageInput{
 		SessionID: session.ID,
 		Role:      "assistant",
 		Content:   "b",

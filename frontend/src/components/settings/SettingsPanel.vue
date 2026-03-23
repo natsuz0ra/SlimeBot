@@ -3,9 +3,6 @@ import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { mdiClose } from '@mdi/js'
 import CodeMirror from 'vue-codemirror6'
-import { json } from '@codemirror/lang-json'
-import { oneDark } from '@codemirror/theme-one-dark'
-import { lineNumbers } from '@codemirror/view'
 
 import MdiIcon from '@/components/ui/MdiIcon.vue'
 import AppDialog from '@/components/ui/AppDialog.vue'
@@ -18,13 +15,17 @@ import SettingsMCPTab from '@/components/settings/SettingsMCPTab.vue'
 import SettingsSkillsTab from '@/components/settings/SettingsSkillsTab.vue'
 import SettingsPlatformTab from '@/components/settings/SettingsPlatformTab.vue'
 import AccountEditDialog from '@/components/settings/AccountEditDialog.vue'
-import { settingAPI } from '@/api/settings'
 import { llmAPI } from '@/api/llm'
 import { mcpAPI } from '@/api/mcp'
+import { settingAPI } from '@/api/settings'
 import { skillsAPI } from '@/api/skills'
 import { messagePlatformAPI } from '@/api/messagePlatform'
 import type { AppSettings } from '@/types/settings'
 import { useToast } from '@/composables/useToast'
+import { useSettingsLLM } from '@/composables/settings/useSettingsLLM'
+import { useSettingsMCP } from '@/composables/settings/useSettingsMCP'
+import { useSettingsSkills } from '@/composables/settings/useSettingsSkills'
+import { useSettingsMessagePlatform } from '@/composables/settings/useSettingsMessagePlatform'
 import { useLanguagePreference, type LanguageCode } from '@/composables/useLanguagePreference'
 import { useAuthStore } from '@/stores/auth'
 import { useChatStore } from '@/stores/chat'
@@ -52,7 +53,6 @@ const llmDialogVisible = ref(false)
 const mcpDialogVisible = ref(false)
 const llmSubmitting = ref(false)
 const mcpSubmitting = ref(false)
-const mcpEditingID = ref('')
 const skillsUploading = ref(false)
 const skillsDropActive = ref(false)
 const skillsFileInputRef = ref<HTMLInputElement | null>(null)
@@ -61,22 +61,45 @@ const messagePlatformDialogVisible = ref(false)
 const messagePlatformSubmitting = ref(false)
 const messagePlatformDefaultModel = ref('')
 
-const llmForm = ref({ name: '', baseUrl: '', apiKey: '', model: '' })
-const mcpForm = ref({ name: '', config: '', isEnabled: true })
-const messagePlatformForm = ref({
-  id: '',
-  platform: 'telegram',
-  displayName: 'Telegram',
-  botToken: '',
-  isEnabled: true,
-})
 const confirmDialogVisible = ref(false)
 const confirmDialogCallback = ref<(() => Promise<void>) | null>(null)
-const mcpTemplateType = ref<'stdio' | 'sse' | 'streamable_http'>('stdio')
-const mcpEditorExtensions = [lineNumbers(), json(), oneDark]
 
-const llmRows = computed(() => llmList.value || [])
-const mcpRows = computed(() => mcpList.value || [])
+const {
+  llmForm,
+  llmRows,
+  openLLMDialog,
+  addLLM,
+  deleteLLM: removeLLM,
+} = useSettingsLLM({
+  llmList,
+  llmDialogVisible,
+  llmSubmitting,
+  toast,
+  t: (key) => t(key),
+  onChanged: () => emit('llmChanged'),
+})
+
+const {
+  mcpForm,
+  mcpRows,
+  mcpDialogTitle,
+  mcpTemplateType,
+  mcpEditorExtensions,
+  applyTemplate,
+  openMCPDialog,
+  openMCPEditDialog,
+  saveMCP,
+  updateMCP,
+  deleteMCP: removeMCP,
+  mcpPreview,
+} = useSettingsMCP({
+  mcpList,
+  mcpDialogVisible,
+  mcpSubmitting,
+  toast,
+  t: (key) => t(key),
+})
+
 const skillsRows = computed(() =>
   [...(skillsList.value || [])].sort((a, b) => {
     const aTime = new Date(a.uploadedAt || 0).getTime()
@@ -84,25 +107,42 @@ const skillsRows = computed(() =>
     return bTime - aTime
   }),
 )
-const mcpDialogTitle = computed(() => (mcpEditingID.value ? t('editMcp') : t('addMcp')))
-const messagePlatformModelOptions = computed(() => {
-  const base = llmRows.value.map((item) => ({ value: item.id, label: item.name }))
-  return [{ value: '', label: t('messagePlatformModelUnset') }, ...base]
+
+const skillsActions = useSettingsSkills({
+  skillsList,
+  skillsUploading,
+  skillsDropActive,
+  skillsFileInputRef,
+  toast,
+  t: (key) => t(key),
 })
-const telegramConfig = computed(() => messagePlatformList.value.find((item: any) => item.platform === 'telegram'))
 
-function getBotTokenFromAuthConfig(raw: string) {
-  try {
-    const parsed = JSON.parse(raw || '{}')
-    return String(parsed?.botToken || '')
-  } catch {
-    return ''
-  }
-}
+const {
+  openSkillsPicker,
+  onSkillsInputChange,
+  onSkillsDrop,
+  onSkillsDragOver,
+  onSkillsDragLeave,
+  deleteSkill: removeSkill,
+} = skillsActions
 
-function buildPlatformAuthConfigJson(botToken: string) {
-  return JSON.stringify({ botToken: botToken.trim() })
-}
+const {
+  messagePlatformForm,
+  telegramConfig,
+  messagePlatformModelOptions,
+  openMessagePlatformDialog,
+  saveMessagePlatformConfig,
+  toggleTelegramEnabled,
+  saveMessagePlatformDefaultModel,
+} = useSettingsMessagePlatform({
+  messagePlatformList,
+  messagePlatformDialogVisible,
+  messagePlatformSubmitting,
+  messagePlatformDefaultModel,
+  llmRows,
+  toast,
+  t: (key) => t(key),
+})
 
 async function loadData() {
   loading.value = true
@@ -138,28 +178,6 @@ function onAccountUpdated() {
   accountDialogVisible.value = false
 }
 
-function openLLMDialog() {
-  llmForm.value = { name: '', baseUrl: '', apiKey: '', model: '' }
-  llmDialogVisible.value = true
-}
-
-async function addLLM() {
-  if (!llmForm.value.name || !llmForm.value.baseUrl || !llmForm.value.apiKey || !llmForm.value.model) {
-    toast.error(t('llmFormIncomplete'))
-    return
-  }
-  llmSubmitting.value = true
-  try {
-    await llmAPI.create(llmForm.value)
-    llmForm.value = { name: '', baseUrl: '', apiKey: '', model: '' }
-    llmList.value = await llmAPI.list()
-    emit('llmChanged')
-    llmDialogVisible.value = false
-  } finally {
-    llmSubmitting.value = false
-  }
-}
-
 function openConfirmDialog(callback: () => Promise<void>) {
   confirmDialogCallback.value = callback
   confirmDialogVisible.value = true
@@ -173,243 +191,20 @@ async function runConfirmDialog() {
 
 function deleteLLM(id: string) {
   openConfirmDialog(async () => {
-    await llmAPI.remove(id)
-    llmList.value = await llmAPI.list()
-    emit('llmChanged')
+    await removeLLM(id)
   })
-}
-
-function buildTemplate(transport: 'stdio' | 'sse' | 'streamable_http') {
-  if (transport === 'stdio') {
-    return JSON.stringify({ command: 'python', args: ['-m', 'your_module'] }, null, 2)
-  }
-  return JSON.stringify(
-    { transport, url: 'https://your-mcp-server-url', headers: {}, timeout: 5, sse_read_timeout: 300 },
-    null,
-    2,
-  )
-}
-
-function applyTemplate(transport: 'stdio' | 'sse' | 'streamable_http') {
-  mcpTemplateType.value = transport
-  mcpForm.value.config = buildTemplate(transport)
-}
-
-function openMCPDialog() {
-  mcpEditingID.value = ''
-  mcpForm.value = { name: '', config: buildTemplate('stdio'), isEnabled: true }
-  mcpTemplateType.value = 'stdio'
-  mcpDialogVisible.value = true
-}
-
-function openMCPEditDialog(item: any) {
-  mcpEditingID.value = item.id
-  mcpForm.value = { name: item.name, config: item.config, isEnabled: item.isEnabled }
-  mcpDialogVisible.value = true
-}
-
-async function saveMCP() {
-  if (!mcpForm.value.name || !mcpForm.value.config) {
-    toast.error(t('mcpFormIncomplete'))
-    return
-  }
-  let parsed: any
-  try {
-    parsed = JSON.parse(mcpForm.value.config)
-  } catch {
-    toast.error(t('mcpJsonInvalid'))
-    return
-  }
-  if (parsed?.mcpServers) {
-    toast.error(t('mcpWrapperNotSupported'))
-    return
-  }
-
-  mcpSubmitting.value = true
-  try {
-    const payload = {
-      name: mcpForm.value.name.trim(),
-      config: JSON.stringify(parsed, null, 2),
-      isEnabled: mcpForm.value.isEnabled,
-    }
-    if (mcpEditingID.value) {
-      await mcpAPI.update(mcpEditingID.value, payload)
-    } else {
-      await mcpAPI.create(payload)
-    }
-    mcpForm.value = { name: '', config: buildTemplate('stdio'), isEnabled: true }
-    mcpList.value = await mcpAPI.list()
-    mcpDialogVisible.value = false
-  } finally {
-    mcpSubmitting.value = false
-  }
-}
-
-async function updateMCP(item: any) {
-  await mcpAPI.update(item.id, { name: item.name, config: item.config, isEnabled: item.isEnabled })
-}
-
-function mcpPreview(item: any) {
-  try {
-    const cfg = JSON.parse(item.config || '{}')
-    const transport = cfg.transport || 'stdio'
-    if (transport === 'stdio') return `${transport} · ${cfg.command || '-'}`
-    return `${transport} · ${cfg.url || '-'}`
-  } catch {
-    return t('mcpJsonInvalid')
-  }
 }
 
 function deleteMCP(id: string) {
   openConfirmDialog(async () => {
-    await mcpAPI.remove(id)
-    mcpList.value = await mcpAPI.list()
+    await removeMCP(id)
   })
-}
-
-function openSkillsPicker() {
-  skillsFileInputRef.value?.click()
-}
-
-function getZipFiles(fileList: FileList | null | undefined) {
-  if (!fileList) return []
-  return Array.from(fileList).filter((file) => file.name.toLowerCase().endsWith('.zip'))
-}
-
-async function uploadSkills(files: File[]) {
-  if (!files.length) return
-  const invalidCount = files.filter((file) => !file.name.toLowerCase().endsWith('.zip')).length
-  if (invalidCount > 0) {
-    toast.error(t('onlyZipAllowed'))
-    return
-  }
-
-  skillsUploading.value = true
-  try {
-    const result = await skillsAPI.upload(files)
-    const failed = Array.isArray(result?.failed) ? result.failed : []
-    if (failed.length > 0) {
-      const detail = failed.map((x: any) => `${x.file}: ${x.error}`).join('\n')
-      toast.error(`${t('skillsUploadPartial')}\n${detail}`)
-    } else {
-      toast.success(t('skillsUploadSuccess'))
-    }
-    skillsList.value = await skillsAPI.list()
-  } catch (err: any) {
-    const failed = err?.response?.data?.failed
-    if (Array.isArray(failed) && failed.length > 0) {
-      const detail = failed.map((x: any) => `${x.file}: ${x.error}`).join('\n')
-      toast.error(`${t('skillsUploadFailed')}\n${detail}`)
-    } else {
-      toast.error(err?.response?.data?.error || t('skillsUploadFailed'))
-    }
-  } finally {
-    skillsUploading.value = false
-    if (skillsFileInputRef.value) skillsFileInputRef.value.value = ''
-  }
-}
-
-function onSkillsInputChange(event: Event) {
-  const target = event.target as HTMLInputElement
-  const files = getZipFiles(target.files)
-  if (!files.length && target.files?.length) {
-    toast.error(t('onlyZipAllowed'))
-    return
-  }
-  void uploadSkills(files)
-}
-
-function onSkillsDrop(event: DragEvent) {
-  event.preventDefault()
-  skillsDropActive.value = false
-  const files = getZipFiles(event.dataTransfer?.files)
-  if (!files.length && event.dataTransfer?.files?.length) {
-    toast.error(t('onlyZipAllowed'))
-    return
-  }
-  void uploadSkills(files)
-}
-
-function onSkillsDragOver(event: DragEvent) {
-  event.preventDefault()
-  skillsDropActive.value = true
-}
-
-function onSkillsDragLeave(event: DragEvent) {
-  event.preventDefault()
-  skillsDropActive.value = false
 }
 
 function deleteSkill(id: string) {
   openConfirmDialog(async () => {
-    await skillsAPI.remove(id)
-    skillsList.value = await skillsAPI.list()
+    await removeSkill(id)
   })
-}
-
-function openMessagePlatformDialog() {
-  const row = telegramConfig.value
-  if (!row) {
-    messagePlatformForm.value = {
-      id: '',
-      platform: 'telegram',
-      displayName: 'Telegram',
-      botToken: '',
-      isEnabled: true,
-    }
-  } else {
-    messagePlatformForm.value = {
-      id: row.id,
-      platform: row.platform,
-      displayName: row.displayName,
-      botToken: getBotTokenFromAuthConfig(row.authConfigJson),
-      isEnabled: !!row.isEnabled,
-    }
-  }
-  messagePlatformDialogVisible.value = true
-}
-
-async function saveMessagePlatformConfig() {
-  if (!messagePlatformForm.value.botToken.trim()) {
-    toast.error(t('botTokenRequired'))
-    return
-  }
-  messagePlatformSubmitting.value = true
-  try {
-    const payload = {
-      platform: messagePlatformForm.value.platform,
-      displayName: messagePlatformForm.value.displayName,
-      authConfigJson: buildPlatformAuthConfigJson(messagePlatformForm.value.botToken),
-      isEnabled: messagePlatformForm.value.isEnabled,
-    }
-    if (messagePlatformForm.value.id) {
-      await messagePlatformAPI.update(messagePlatformForm.value.id, payload)
-    } else {
-      await messagePlatformAPI.create(payload)
-    }
-    messagePlatformList.value = await messagePlatformAPI.list()
-    messagePlatformDialogVisible.value = false
-  } finally {
-    messagePlatformSubmitting.value = false
-  }
-}
-
-async function toggleTelegramEnabled() {
-  const row = telegramConfig.value
-  if (!row) return
-  await messagePlatformAPI.update(row.id, {
-    platform: row.platform,
-    displayName: row.displayName,
-    authConfigJson: row.authConfigJson,
-    isEnabled: !row.isEnabled,
-  })
-  messagePlatformList.value = await messagePlatformAPI.list()
-}
-
-async function saveMessagePlatformDefaultModel(modelId: string) {
-  messagePlatformDefaultModel.value = modelId
-  if (!modelId) return
-  await settingAPI.update({ messagePlatformDefaultModel: modelId } as any)
 }
 
 onMounted(loadData)
@@ -417,7 +212,6 @@ onMounted(loadData)
 
 <template>
   <div class="h-full flex flex-col overflow-hidden settings-root">
-    <!-- 面板顶栏 -->
     <div class="flex items-center justify-between px-5 h-13 flex-shrink-0 settings-header">
       <div class="flex items-center gap-2.5">
         <div class="w-6 h-6 rounded-lg flex items-center justify-center" style="background: linear-gradient(135deg, #6366f1 0%, #a78bfa 100%)">
@@ -436,9 +230,7 @@ onMounted(loadData)
       </button>
     </div>
 
-    <!-- 面板主体 -->
     <div class="flex flex-1 overflow-hidden settings-body">
-      <!-- 左侧 Tab 导航 -->
       <aside class="w-44 flex-shrink-0 p-2.5 flex flex-col gap-1 overflow-y-auto settings-sidebar">
         <button
           v-for="item in [
@@ -463,7 +255,6 @@ onMounted(loadData)
         </button>
       </aside>
 
-      <!-- 右侧内容 -->
       <section class="flex-1 min-w-0 overflow-y-auto px-5 py-5 relative settings-content">
         <div v-if="loading" class="absolute inset-0 flex items-center justify-center z-10" style="background: rgba(var(--bg-main), 0.7)">
           <LoadingSpinner />

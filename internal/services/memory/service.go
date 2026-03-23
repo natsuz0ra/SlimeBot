@@ -10,6 +10,8 @@ import (
 
 	"slimebot/internal/constants"
 	"slimebot/internal/domain"
+	embsvc "slimebot/internal/services/embedding"
+	oaisvc "slimebot/internal/services/openai"
 
 	"github.com/go-ego/gse"
 )
@@ -29,9 +31,9 @@ type MemoryQueryResult struct {
 
 type MemoryService struct {
 	store       domain.MemoryStore
-	openai      *OpenAIClient
-	chatInvoker func(context.Context, ModelRuntimeConfig, []ChatMessage) (string, error)
-	embedding   EmbeddingService
+	openai      *oaisvc.OpenAIClient
+	chatInvoker func(context.Context, oaisvc.ModelRuntimeConfig, []oaisvc.ChatMessage) (string, error)
+	embedding   embsvc.EmbeddingService
 	vectorStore domain.MemoryVectorStore
 	vectorTopK  int
 
@@ -47,7 +49,7 @@ type MemoryService struct {
 }
 
 // NewMemoryService 初始化记忆服务及其 worker 上下文。
-func NewMemoryService(store domain.MemoryStore, openai *OpenAIClient) *MemoryService {
+func NewMemoryService(store domain.MemoryStore, openai *oaisvc.OpenAIClient) *MemoryService {
 	wctx, wcancel := context.WithCancel(context.Background())
 	service := &MemoryService{
 		store:        store,
@@ -81,7 +83,7 @@ func (m *MemoryService) Shutdown(ctx context.Context) error {
 }
 
 // SetEmbeddingService 注入向量化嵌入服务。
-func (m *MemoryService) SetEmbeddingService(embedding EmbeddingService) {
+func (m *MemoryService) SetEmbeddingService(embedding embsvc.EmbeddingService) {
 	m.embedding = embedding
 }
 
@@ -104,84 +106,6 @@ func (m *MemoryService) WarmupTokenizer() {
 		return
 	}
 	m.TokenizeKeywords(" ")
-}
-
-// PersistSessionSummary 统一处理会话摘要持久化：摘要+关键词写库，并在启用时写入向量库。
-func (m *MemoryService) PersistSessionSummary(sessionID string, summary string) (bool, error) {
-	normalizedSessionID := strings.TrimSpace(sessionID)
-	normalizedSummary := strings.TrimSpace(summary)
-	if normalizedSessionID == "" {
-		return false, fmt.Errorf("session_id cannot be empty")
-	}
-	if normalizedSummary == "" {
-		return false, fmt.Errorf("summary cannot be empty")
-	}
-
-	messageCount, err := m.store.CountSessionMessages(normalizedSessionID)
-	if err != nil {
-		return false, err
-	}
-	keywords := m.TokenizeKeywords(normalizedSummary)
-	created, err := m.store.CreateSessionMemory(domain.SessionMemoryCreateInput{
-		SessionID:          normalizedSessionID,
-		Summary:            normalizedSummary,
-		Keywords:           keywords,
-		SourceMessageCount: int(messageCount),
-	})
-	if err != nil {
-		return false, err
-	}
-	if m.embedding != nil && m.vectorStore != nil && created != nil {
-		_ = upsertMemoryVector(m, context.Background(), created.ID, normalizedSessionID, normalizedSummary, keywords, int(messageCount))
-	}
-	return true, nil
-}
-
-// ShouldCompressContext 根据消息数量判断是否进入记忆压缩策略。
-func (m *MemoryService) ShouldCompressContext(sessionID string) (bool, int64, error) {
-	total, err := m.store.CountSessionMessages(sessionID)
-	if err != nil {
-		return false, 0, err
-	}
-	return total >= constants.CompressHistoryThreshold, total, nil
-}
-
-// DecideMemoryQuery 通过小模型决策当前提问是否需要检索历史记忆。
-func (m *MemoryService) DecideMemoryQuery(ctx context.Context, modelConfig ModelRuntimeConfig, userInput string, summary string) (MemoryDecision, error) {
-	systemPrompt := `You are a memory retrieval decision engine. Based on the current user input and session summary, decide whether historical memory retrieval is needed to answer.
-Return JSON only. Do not output any extra text.
-JSON format:
-{"need_memory":true/false,"keywords":["keyword1","keyword2"],"reason":"brief reason"}
-Requirements:
-1. Set need_memory=true only when the request depends on historical facts, preferences, long-term tasks, or cross-session context.
-2. Keep 1-8 retrievable keywords in keywords, avoiding stop words.
-3. If retrieval is not needed, return an empty keywords array.`
-
-	userPrompt := fmt.Sprintf("User input:\n%s\n\nCurrent session summary:\n%s", strings.TrimSpace(userInput), strings.TrimSpace(summary))
-	reply, attempts, elapsed, err := m.chatOnceWithRetry(ctx, modelConfig, []ChatMessage{
-		{Role: "system", Content: systemPrompt},
-		{Role: "user", Content: userPrompt},
-	}, constants.MemoryDecisionTimeout, "memory_decision")
-	if err != nil {
-		return MemoryDecision{}, err
-	}
-
-	decision, err := parseMemoryDecision(reply)
-	if err != nil {
-		return MemoryDecision{}, err
-	}
-	decision.Keywords = m.TokenizeKeywords(strings.Join(decision.Keywords, " "))
-	if !decision.NeedMemory {
-		decision.Keywords = nil
-	}
-	slog.Info("memory_decision_done",
-		"need_memory", decision.NeedMemory,
-		"keywords", len(decision.Keywords),
-		"attempts", attempts,
-		"cost_ms", elapsed.Milliseconds(),
-		"timeout_ms", constants.MemoryDecisionTimeout.Milliseconds(),
-	)
-	return decision, nil
 }
 
 // RetrieveMemories 根据查询文本检索跨会话记忆，并可排除当前会话。
@@ -334,17 +258,17 @@ func (m *MemoryService) buildMemoryQueryOutput(query string, keywords []string, 
 	return strings.TrimSpace(b.String())
 }
 
-// BuildCompactHistory 返回用于上下文压缩的近期消息切片。
-func (m *MemoryService) BuildCompactHistory(sessionID string) ([]domain.Message, error) {
-	return m.BuildRecentHistory(sessionID, constants.CompactRawHistoryLimit)
-}
-
 // BuildRecentHistory 返回用于上下文构建的近期消息切片。
 func (m *MemoryService) BuildRecentHistory(sessionID string, limit int) ([]domain.Message, error) {
 	if limit <= 0 {
 		limit = constants.CompressedRecentHistoryLimit
 	}
-	return m.store.ListRecentSessionMessages(sessionID, limit)
+	return m.store.ListRecentSessionMessages(context.Background(), sessionID, limit)
+}
+
+// TokenizeKeywords 将输入分词去重并过滤停用词，产出检索关键词。
+func (m *MemoryService) TokenizeKeywords(text string) []string {
+	return tokenizeKeywordsImpl(m, text)
 }
 
 // UpdateSummaryAsync 异步执行摘要解析与记忆更新。
@@ -361,7 +285,7 @@ func (m *MemoryService) BuildSessionMemoryContextForPrompt(ctx context.Context, 
 }
 
 // chatOnce 以流式接口调用模型并收集完整文本输出。
-func (m *MemoryService) chatOnce(ctx context.Context, modelConfig ModelRuntimeConfig, messages []ChatMessage) (string, error) {
+func (m *MemoryService) chatOnce(ctx context.Context, modelConfig oaisvc.ModelRuntimeConfig, messages []oaisvc.ChatMessage) (string, error) {
 	var builder strings.Builder
 	err := m.openai.StreamChat(ctx, modelConfig, messages, func(chunk string) error {
 		builder.WriteString(chunk)
@@ -373,16 +297,11 @@ func (m *MemoryService) chatOnce(ctx context.Context, modelConfig ModelRuntimeCo
 	return builder.String(), nil
 }
 
-// TokenizeKeywords 将输入分词去重并过滤停用词，产出检索关键词。
-func (m *MemoryService) TokenizeKeywords(text string) []string {
-	return tokenizeKeywordsImpl(m, text)
-}
-
 // chatOnceWithRetry 为 memory 阶段调用增加超时与有限重试，避免后台任务长期阻塞。
 func (m *MemoryService) chatOnceWithRetry(
 	parent context.Context,
-	modelConfig ModelRuntimeConfig,
-	messages []ChatMessage,
+	modelConfig oaisvc.ModelRuntimeConfig,
+	messages []oaisvc.ChatMessage,
 	timeout time.Duration,
 	stage string,
 ) (string, int, time.Duration, error) {
@@ -424,8 +343,4 @@ func (m *MemoryService) chatOnceWithRetry(
 	}
 
 	return "", attempts, time.Since(startAt), lastErr
-}
-
-func intersectKeywordSlices(left []string, right []string) []string {
-	return intersectKeywordSlicesImpl(left, right)
 }

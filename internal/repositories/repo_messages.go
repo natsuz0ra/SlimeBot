@@ -1,6 +1,7 @@
 package repositories
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"time"
@@ -106,13 +107,13 @@ func (r *Repository) ListSessionMessagesPage(sessionID string, limit int, before
 	return messages, hasMore, nil
 }
 
-func (r *Repository) ListRecentSessionMessages(sessionID string, limit int) ([]domain.Message, error) {
+func (r *Repository) ListRecentSessionMessages(ctx context.Context, sessionID string, limit int) ([]domain.Message, error) {
 	if limit <= 0 {
 		return []domain.Message{}, nil
 	}
 
 	var messages []domain.Message
-	err := r.db.
+	err := r.dbWithContext(ctx).
 		Where("session_id = ?", sessionID).
 		Order("created_at desc, seq desc").
 		Limit(limit).
@@ -129,15 +130,7 @@ func (r *Repository) ListRecentSessionMessages(sessionID string, limit int) ([]d
 	return messages, nil
 }
 
-func (r *Repository) AddMessage(sessionID, role, content string) (*domain.Message, error) {
-	return r.AddMessageWithInput(domain.AddMessageInput{
-		SessionID: sessionID,
-		Role:      role,
-		Content:   content,
-	})
-}
-
-func (r *Repository) AddMessageWithInput(input domain.AddMessageInput) (*domain.Message, error) {
+func (r *Repository) AddMessageWithInput(ctx context.Context, input domain.AddMessageInput) (*domain.Message, error) {
 	message := &domain.Message{
 		ID:                uuid.NewString(),
 		SessionID:         input.SessionID,
@@ -148,7 +141,7 @@ func (r *Repository) AddMessageWithInput(input domain.AddMessageInput) (*domain.
 		AttachmentsJSON:   encodeMessageAttachments(input.Attachments),
 		Attachments:       input.Attachments,
 	}
-	err := r.db.Transaction(func(tx *gorm.DB) error {
+	err := r.dbWithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		var last domain.Message
 		if err := tx.Model(&domain.Message{}).
 			Select("seq").

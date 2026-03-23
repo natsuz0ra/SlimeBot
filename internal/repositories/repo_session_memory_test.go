@@ -1,6 +1,7 @@
 package repositories
 
 import (
+	"context"
 	"testing"
 
 	"slimebot/internal/domain"
@@ -35,7 +36,7 @@ func TestUpsertSessionMemoryIfNewer_MonotonicBySourceMessageCount(t *testing.T) 
 		t.Fatal("expected stale upsert to be ignored")
 	}
 
-	item, err := repo.GetSessionMemory("s1")
+	item, err := repo.GetSessionMemory(context.Background(), "s1")
 	if err != nil {
 		t.Fatalf("get memory failed: %v", err)
 	}
@@ -62,7 +63,7 @@ func TestUpsertSessionMemoryIfNewer_MonotonicBySourceMessageCount(t *testing.T) 
 		t.Fatal("expected newer upsert to update")
 	}
 
-	item, err = repo.GetSessionMemory("s1")
+	item, err = repo.GetSessionMemory(context.Background(), "s1")
 	if err != nil {
 		t.Fatalf("get memory failed: %v", err)
 	}

@@ -16,6 +16,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	chimiddleware "github.com/go-chi/chi/v5/middleware"
+	"github.com/go-chi/cors"
 	"github.com/go-chi/httprate"
 )
 
@@ -23,7 +24,12 @@ import (
 func New(cfg config.Config, tokenManager *auth.TokenManager, httpController *controller.HTTPController, wsController *ws.Controller, staticFS fs.FS) http.Handler {
 	r := chi.NewRouter()
 	if strings.TrimSpace(cfg.Frontend) != "" {
-		r.Use(cors(cfg.Frontend))
+		r.Use(cors.Handler(cors.Options{
+			AllowedOrigins:   []string{cfg.Frontend},
+			AllowedMethods:   []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
+			AllowedHeaders:   []string{"Content-Type", "Authorization"},
+			AllowCredentials: true,
+		}))
 	}
 	r.Use(chimiddleware.Compress(5))
 
@@ -102,22 +108,5 @@ func serveSPA(staticFS fs.FS) http.HandlerFunc {
 func adapt(fn func(controller.WebContext)) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		fn(controller.NewChiContext(w, r))
-	}
-}
-
-// cors 返回基础跨域中间件，统一处理预检请求。
-func cors(allowOrigin string) func(http.Handler) http.Handler {
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			w.Header().Set("Access-Control-Allow-Origin", allowOrigin)
-			w.Header().Set("Access-Control-Allow-Credentials", "true")
-			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
-			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
-			if r.Method == http.MethodOptions {
-				w.WriteHeader(http.StatusNoContent)
-				return
-			}
-			next.ServeHTTP(w, r)
-		})
 	}
 }

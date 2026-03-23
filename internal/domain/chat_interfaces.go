@@ -7,7 +7,7 @@ type ChatStore interface {
 	GetSessionByID(ctx context.Context, id string) (*Session, error)
 	CreateSession(ctx context.Context, name string) (*Session, error)
 	CreateSessionWithID(ctx context.Context, id, name string) (*Session, error)
-	UpdateSessionTitle(ctx context.Context, id, name string) error
+	UpdateSessionTitle(ctx context.Context, id, name string) (bool, error)
 
 	GetSetting(ctx context.Context, key string) (string, error)
 	SetSetting(ctx context.Context, key, value string) error

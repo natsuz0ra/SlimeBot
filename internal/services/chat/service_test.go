@@ -1,10 +1,13 @@
 package chat
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"slimebot/internal/domain"
 )
 
 func TestTitleStreamParser_ExtractsTitleOnFirstTurn(t *testing.T) {
@@ -150,6 +153,80 @@ func TestExtractProtocolMetaAndBody_RemovesEmptyTagBlocks(t *testing.T) {
 	}
 	if body != "ABC" {
 		t.Fatalf("unexpected cleaned body: %q", body)
+	}
+}
+
+func TestExtractProtocolMetaAndBody_PreservesBodyParagraphSpacing(t *testing.T) {
+	title, summary, body := extractProtocolMetaAndBody("第一段\n\n<title>标题</title>\n\n第二段\n\n第三段")
+	if title != "标题" {
+		t.Fatalf("unexpected title: %q", title)
+	}
+	if summary != "" {
+		t.Fatalf("unexpected summary: %q", summary)
+	}
+	if body != "第一段\n\n第二段\n\n第三段" {
+		t.Fatalf("unexpected cleaned body: %q", body)
+	}
+}
+
+func TestExtractProtocolMetaAndBody_TrimsOnlyAdjacentProtocolWhitespace(t *testing.T) {
+	title, summary, body := extractProtocolMetaAndBody("正文A\n \t\r\n<title>标题</title>\n\t \r\n正文B")
+	if title != "标题" {
+		t.Fatalf("unexpected title: %q", title)
+	}
+	if summary != "" {
+		t.Fatalf("unexpected summary: %q", summary)
+	}
+	if body != "正文A\n正文B" {
+		t.Fatalf("unexpected cleaned body: %q", body)
+	}
+}
+
+func TestApplySessionTitleUpdate_OnlyMarksUpdatedWhenStoreChanges(t *testing.T) {
+	svc := &ChatService{}
+	ctx := context.Background()
+
+	result := &ChatStreamResult{}
+	session := &domain.Session{ID: "session-1", Name: "New Chat"}
+	store := &stubTitleUpdateStore{updated: false}
+
+	if err := svc.applySessionTitleUpdate(ctx, store, session, "自动标题", result); err != nil {
+		t.Fatalf("apply title update failed: %v", err)
+	}
+	if result.TitleUpdated {
+		t.Fatal("expected TitleUpdated to stay false when store does not update")
+	}
+	if result.Title != "" {
+		t.Fatalf("expected empty result title, got: %q", result.Title)
+	}
+
+	store.updated = true
+	if err := svc.applySessionTitleUpdate(ctx, store, session, "自动标题", result); err != nil {
+		t.Fatalf("apply title update failed: %v", err)
+	}
+	if !result.TitleUpdated {
+		t.Fatal("expected TitleUpdated to be true after successful store update")
+	}
+	if result.Title != "自动标题" {
+		t.Fatalf("unexpected result title: %q", result.Title)
+	}
+}
+
+type stubTitleUpdateStore struct {
+	updated bool
+	err     error
+}
+
+func (s *stubTitleUpdateStore) UpdateSessionTitle(_ context.Context, _, _ string) (bool, error) {
+	return s.updated, s.err
+}
+
+func BenchmarkTitleStreamParser_Feed(b *testing.B) {
+	payload := strings.Repeat("正文内容。", 256) + "<title>这是一个标题</title>" + strings.Repeat("更多正文。", 256) + "<summary>这是总结</summary>"
+	for i := 0; i < b.N; i++ {
+		parser := newTitleStreamParser(true)
+		parser.Feed(payload)
+		parser.Flush()
 	}
 }
 

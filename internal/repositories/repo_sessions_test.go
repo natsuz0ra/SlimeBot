@@ -9,6 +9,59 @@ import (
 	"github.com/google/uuid"
 )
 
+func TestUpdateSessionTitle_UpdatesOnlyWhenUnlockedAndChanged(t *testing.T) {
+	repo := New(NewSQLiteDBTest(t, "repo_sessions_update_title"))
+	ctx := context.Background()
+
+	session, err := repo.CreateSession(ctx, "New Chat")
+	if err != nil {
+		t.Fatalf("create session failed: %v", err)
+	}
+
+	updated, err := repo.UpdateSessionTitle(ctx, session.ID, "新的标题")
+	if err != nil {
+		t.Fatalf("update title failed: %v", err)
+	}
+	if !updated {
+		t.Fatal("expected title update to report true")
+	}
+
+	reloaded, err := repo.GetSessionByID(ctx, session.ID)
+	if err != nil {
+		t.Fatalf("reload session failed: %v", err)
+	}
+	if reloaded == nil || reloaded.Name != "新的标题" {
+		t.Fatalf("unexpected session title after update: %+v", reloaded)
+	}
+
+	updated, err = repo.UpdateSessionTitle(ctx, session.ID, "新的标题")
+	if err != nil {
+		t.Fatalf("update title with same value failed: %v", err)
+	}
+	if updated {
+		t.Fatal("expected same title update to report false")
+	}
+
+	if err := repo.RenameSessionByUser(session.ID, "用户标题"); err != nil {
+		t.Fatalf("rename session by user failed: %v", err)
+	}
+	updated, err = repo.UpdateSessionTitle(ctx, session.ID, "自动标题")
+	if err != nil {
+		t.Fatalf("update title on locked session failed: %v", err)
+	}
+	if updated {
+		t.Fatal("expected locked session update to report false")
+	}
+
+	reloaded, err = repo.GetSessionByID(ctx, session.ID)
+	if err != nil {
+		t.Fatalf("reload locked session failed: %v", err)
+	}
+	if reloaded == nil || reloaded.Name != "用户标题" || !reloaded.IsTitleLocked {
+		t.Fatalf("unexpected locked session state: %+v", reloaded)
+	}
+}
+
 func TestDeleteSession_DeletesSessionAndRelatedRecords(t *testing.T) {
 	repo := New(NewSQLiteDBTest(t, "repo_sessions_delete_ok"))
 	sessionID := uuid.NewString()

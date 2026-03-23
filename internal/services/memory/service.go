@@ -145,9 +145,6 @@ func (m *MemoryService) QueryForAgent(ctx context.Context, sessionID string, que
 	if topK <= 0 {
 		topK = 3
 	}
-	if topK > 5 {
-		topK = 5
-	}
 	hits, err := m.RetrieveMemories(ctx, result.Query, strings.TrimSpace(sessionID), topK)
 	if err != nil {
 		return result, err

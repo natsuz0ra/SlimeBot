@@ -64,11 +64,14 @@ func (r *Repository) RenameSessionByUser(id, name string) error {
 		Error
 }
 
-func (r *Repository) UpdateSessionTitle(ctx context.Context, id, name string) error {
-	return r.dbWithContext(ctx).Model(&domain.Session{}).
-		Where("id = ?", id).
-		Updates(map[string]any{"name": name, "updated_at": time.Now()}).
-		Error
+func (r *Repository) UpdateSessionTitle(ctx context.Context, id, name string) (bool, error) {
+	result := r.dbWithContext(ctx).Model(&domain.Session{}).
+		Where("id = ? AND is_title_locked = ? AND name <> ?", id, false, name).
+		Updates(map[string]any{"name": name, "updated_at": time.Now()})
+	if result.Error != nil {
+		return false, result.Error
+	}
+	return result.RowsAffected > 0, nil
 }
 
 func (r *Repository) DeleteSession(id string) error {

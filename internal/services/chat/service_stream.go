@@ -226,12 +226,8 @@ func (s *ChatService) HandleChatStream(
 		IsInterrupted:     interrupted,
 		IsStopPlaceholder: interrupted && strings.TrimSpace(finalAnswer) == "",
 	}
-	if title != "" {
-		if err := s.store.UpdateSessionTitle(ctx, sessionID, title); err != nil {
-			return nil, err
-		}
-		result.TitleUpdated = true
-		result.Title = title
+	if err := s.applySessionTitleUpdate(ctx, s.store, session, title, result); err != nil {
+		return nil, err
 	}
 	if s.memory != nil && strings.TrimSpace(summary) != "" {
 		s.memory.UpdateSummaryAsync(sessionID, summary)
@@ -244,4 +240,31 @@ func (s *ChatService) HandleChatStream(
 		result.PushError = accumulator.pushErr.Error()
 	}
 	return result, nil
+}
+
+type sessionTitleUpdater interface {
+	UpdateSessionTitle(ctx context.Context, id, name string) (bool, error)
+}
+
+func (s *ChatService) applySessionTitleUpdate(ctx context.Context, store sessionTitleUpdater, session *domain.Session, title string, result *ChatStreamResult) error {
+	_ = s
+	if store == nil || session == nil || result == nil {
+		return nil
+	}
+	title = strings.TrimSpace(title)
+	if title == "" || session.IsTitleLocked {
+		return nil
+	}
+	if session.Name != "" && session.Name != "New Chat" && session.Name == title {
+		return nil
+	}
+	updated, err := store.UpdateSessionTitle(ctx, session.ID, title)
+	if err != nil {
+		return err
+	}
+	if updated {
+		result.TitleUpdated = true
+		result.Title = title
+	}
+	return nil
 }

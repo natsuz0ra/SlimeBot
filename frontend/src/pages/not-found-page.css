@@ -1,0 +1,99 @@
+.not-found-shell {
+  background:
+    radial-gradient(circle at top, var(--primary-alpha-10), transparent 42%),
+    var(--bg-base);
+}
+
+.not-found-card {
+  border: 1px solid var(--card-border);
+  background:
+    linear-gradient(180deg, var(--bg-main) 0%, color-mix(in srgb, var(--bg-main) 92%, rgba(99, 102, 241, 0.04)) 100%);
+  box-shadow: var(--page-card-shadow);
+  isolation: isolate;
+}
+
+.not-found-content {
+  overflow: hidden;
+}
+
+.not-found-copy {
+  position: relative;
+  max-width: 620px;
+  animation: not-found-fade-in var(--duration-card-in) var(--ease-out-smooth) both;
+}
+
+.not-found-title {
+  margin: 0;
+  font-family: var(--font-brand-tech);
+  font-size: clamp(5.5rem, 20vw, 11rem);
+  font-weight: 700;
+  line-height: 0.92;
+  letter-spacing: 0.04em;
+  background: linear-gradient(135deg, var(--sb-brand) 0%, #a78bfa 50%, var(--sb-brand-soft) 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  filter: drop-shadow(0 10px 28px var(--primary-alpha-24));
+}
+
+.not-found-subtitle {
+  margin: 1.25rem auto 0;
+  max-width: 28rem;
+  color: var(--text-muted);
+  font-size: clamp(0.95rem, 2.7vw, 1.05rem);
+  line-height: 1.8;
+}
+
+.not-found-glow {
+  position: absolute;
+  border-radius: 999px;
+  filter: blur(18px);
+  pointer-events: none;
+}
+
+.not-found-glow--primary {
+  top: 14%;
+  left: 50%;
+  width: min(38vw, 420px);
+  height: min(38vw, 420px);
+  background: radial-gradient(circle, var(--primary-alpha-24) 0%, transparent 72%);
+  transform: translateX(-50%);
+  opacity: 0.9;
+}
+
+.not-found-glow--secondary {
+  right: 12%;
+  bottom: 14%;
+  width: min(24vw, 240px);
+  height: min(24vw, 240px);
+  background: radial-gradient(circle, rgba(167, 139, 250, 0.18) 0%, transparent 72%);
+  opacity: 0.75;
+}
+
+@keyframes not-found-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (max-width: 640px) {
+  .not-found-card {
+    border-radius: 1.25rem;
+  }
+
+  .not-found-subtitle {
+    margin-top: 1rem;
+    max-width: 19rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .not-found-copy {
+    animation: none;
+  }
+}

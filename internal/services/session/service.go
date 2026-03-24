@@ -46,22 +46,10 @@ func (s *SessionService) Delete(id string) error {
 	return s.store.DeleteSession(id)
 }
 
-func (s *SessionService) ListMessages(sessionID string) ([]domain.Message, error) {
-	return s.store.ListSessionMessages(sessionID)
-}
-
 func (s *SessionService) ListMessagesPage(sessionID string, limit int, before *time.Time, beforeSeq *int64, after *time.Time, afterSeq *int64) ([]domain.Message, bool, error) {
 	return s.store.ListSessionMessagesPage(sessionID, limit, before, beforeSeq, after, afterSeq)
 }
 
-func (s *SessionService) ListToolCallRecords(sessionID string) ([]domain.ToolCallRecord, error) {
-	return s.store.ListSessionToolCallRecords(sessionID)
-}
-
 func (s *SessionService) ListToolCallRecordsByAssistantMessageIDs(sessionID string, messageIDs []string) ([]domain.ToolCallRecord, error) {
 	return s.store.ListSessionToolCallRecordsByAssistantMessageIDs(sessionID, messageIDs)
-}
-
-func (s *SessionService) SetModel(sessionID, modelConfigID string) error {
-	return s.store.SetSessionModel(sessionID, strings.TrimSpace(modelConfigID))
 }

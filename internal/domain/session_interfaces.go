@@ -11,9 +11,6 @@ type SessionStore interface {
 	CreateSession(ctx context.Context, name string) (*Session, error)
 	RenameSessionByUser(id, name string) error
 	DeleteSession(id string) error
-	ListSessionMessages(sessionID string) ([]Message, error)
 	ListSessionMessagesPage(sessionID string, limit int, before *time.Time, beforeSeq *int64, after *time.Time, afterSeq *int64) ([]Message, bool, error)
-	ListSessionToolCallRecords(sessionID string) ([]ToolCallRecord, error)
 	ListSessionToolCallRecordsByAssistantMessageIDs(sessionID string, messageIDs []string) ([]ToolCallRecord, error)
-	SetSessionModel(sessionID, modelConfigID string) error
 }

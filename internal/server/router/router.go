@@ -52,7 +52,6 @@ func New(cfg config.Config, tokenManager *auth.TokenManager, httpController *con
 			api.Delete("/sessions/{id}", adapt(httpController.DeleteSession))
 			api.Get("/sessions/{id}/messages", adapt(httpController.ListMessages))
 			api.Post("/sessions/{id}/attachments", adapt(httpController.UploadSessionAttachments))
-			api.Put("/sessions/{id}/model", adapt(httpController.SetSessionModel))
 
 			api.Get("/settings", adapt(httpController.GetSettings))
 			api.Put("/settings", adapt(httpController.UpdateSettings))

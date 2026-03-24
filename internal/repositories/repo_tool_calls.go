@@ -86,17 +86,6 @@ func (r *Repository) BindToolCallsToAssistantMessage(ctx context.Context, sessio
 		Error
 }
 
-func (r *Repository) ListSessionToolCallRecords(sessionID string) ([]domain.ToolCallRecord, error) {
-	var records []domain.ToolCallRecord
-	err := r.db.
-		Where("session_id = ?", sessionID).
-		Order("started_at asc").
-		Order("created_at asc").
-		Find(&records).
-		Error
-	return records, err
-}
-
 func (r *Repository) ListSessionToolCallRecordsByAssistantMessageIDs(sessionID string, messageIDs []string) ([]domain.ToolCallRecord, error) {
 	if len(messageIDs) == 0 {
 		return []domain.ToolCallRecord{}, nil

@@ -33,7 +33,7 @@ func TestMemoryVectorRepository_UpsertAndSearch(t *testing.T) {
 		t.Fatalf("upsert failed: %v", err)
 	}
 
-	hits, err := repo.SearchSimilarSessionIDs(context.Background(), []float32{0.1, 0.2, 0.3}, 3, "")
+	hits, err := repo.SearchMemoriesInSession(context.Background(), []float32{0.1, 0.2, 0.3}, "s1", 3)
 	if err != nil {
 		t.Fatalf("search failed: %v", err)
 	}
@@ -48,31 +48,6 @@ func TestMemoryVectorRepository_UpsertAndSearch(t *testing.T) {
 	}
 	if client.collectionCreated != 1 {
 		t.Fatalf("expected collection created once, got=%d", client.collectionCreated)
-	}
-}
-
-func TestMemoryVectorRepository_SearchExcludeSessionID(t *testing.T) {
-	t.Helper()
-
-	client := &mockQdrantClient{
-		searchResults: []*qdrant.ScoredPoint{
-			{Id: qdrant.NewID("s2"), Score: 0.88},
-		},
-	}
-	repo := NewMemoryVectorRepositoryWithClient(client, "session_memories")
-
-	hits, err := repo.SearchSimilarSessionIDs(context.Background(), []float32{0.1, 0.2, 0.3}, 5, "s1")
-	if err != nil {
-		t.Fatalf("search failed: %v", err)
-	}
-	if len(hits) != 1 {
-		t.Fatalf("expected 1 hit after exclude, got %d", len(hits))
-	}
-	if hits[0].SessionID != "s2" {
-		t.Fatalf("expected only s2 after exclude, got %q", hits[0].SessionID)
-	}
-	if client.lastQueryFilterSessionID != "s1" {
-		t.Fatalf("expected must_not filter on s1, got=%q", client.lastQueryFilterSessionID)
 	}
 }
 
@@ -92,14 +67,13 @@ func TestMemoryVectorRepository_CollectionExistsError(t *testing.T) {
 }
 
 type mockQdrantClient struct {
-	collectionExists         bool
-	collectionCreated        int
-	existsErr                error
-	createErr                error
-	upsertErr                error
-	queryErr                 error
-	searchResults            []*qdrant.ScoredPoint
-	lastQueryFilterSessionID string
+	collectionExists  bool
+	collectionCreated int
+	existsErr         error
+	createErr         error
+	upsertErr         error
+	queryErr          error
+	searchResults     []*qdrant.ScoredPoint
 }
 
 func (m *mockQdrantClient) CollectionExists(_ context.Context, _ string) (bool, error) {
@@ -129,18 +103,7 @@ func (m *mockQdrantClient) Upsert(_ context.Context, _ *qdrant.UpsertPoints) (*q
 	return &qdrant.UpdateResult{}, nil
 }
 
-func (m *mockQdrantClient) Delete(_ context.Context, _ *qdrant.DeletePoints) (*qdrant.UpdateResult, error) {
-	return &qdrant.UpdateResult{}, nil
-}
-
-func (m *mockQdrantClient) Query(_ context.Context, req *qdrant.QueryPoints) ([]*qdrant.ScoredPoint, error) {
-	if req.GetFilter() != nil && len(req.GetFilter().GetMustNot()) > 0 {
-		condition := req.GetFilter().GetMustNot()[0]
-		field := condition.GetField()
-		if field != nil && field.GetMatch() != nil {
-			m.lastQueryFilterSessionID = field.GetMatch().GetKeyword()
-		}
-	}
+func (m *mockQdrantClient) Query(_ context.Context, _ *qdrant.QueryPoints) ([]*qdrant.ScoredPoint, error) {
 	if m.queryErr != nil {
 		return nil, m.queryErr
 	}

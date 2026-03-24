@@ -35,7 +35,7 @@ func TestAddMessageWithInput_PersistsFlagsAndAttachments(t *testing.T) {
 		t.Fatalf("add message failed: %v", err)
 	}
 
-	items, listErr := repo.ListSessionMessages(session.ID)
+	items, _, listErr := repo.ListSessionMessagesPage(session.ID, 100, nil, nil, nil, nil)
 	if listErr != nil {
 		t.Fatalf("list messages failed: %v", listErr)
 	}

@@ -91,10 +91,3 @@ func (r *Repository) DeleteSession(id string) error {
 		return tx.Where("id = ?", id).Delete(&domain.Session{}).Error
 	})
 }
-
-func (r *Repository) SetSessionModel(sessionID, modelConfigID string) error {
-	return r.db.Model(&domain.Session{}).
-		Where("id = ?", sessionID).
-		Updates(map[string]any{"model_config_id": modelConfigID, "updated_at": time.Now()}).
-		Error
-}

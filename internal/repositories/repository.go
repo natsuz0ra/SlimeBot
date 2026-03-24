@@ -2,15 +2,12 @@ package repositories
 
 import (
 	"context"
-	"sync"
 
 	"gorm.io/gorm"
 )
 
 type Repository struct {
-	db      *gorm.DB
-	ftsOnce sync.Once
-	ftsOK   bool
+	db *gorm.DB
 }
 
 // New 创建 Repository 实例

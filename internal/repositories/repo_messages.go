@@ -40,13 +40,6 @@ func normalizeMessages(items []domain.Message) {
 	}
 }
 
-func (r *Repository) ListSessionMessages(sessionID string) ([]domain.Message, error) {
-	var messages []domain.Message
-	err := r.db.Where("session_id = ?", sessionID).Order("created_at asc, seq asc").Find(&messages).Error
-	normalizeMessages(messages)
-	return messages, err
-}
-
 func (r *Repository) ListSessionMessagesPage(sessionID string, limit int, before *time.Time, beforeSeq *int64, after *time.Time, afterSeq *int64) ([]domain.Message, bool, error) {
 	if limit <= 0 {
 		limit = 10

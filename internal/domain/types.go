@@ -113,9 +113,7 @@ type ToolCallResultRecordInput struct {
 
 type MemoryVectorStore interface {
 	UpsertSessionMemoryVector(ctx context.Context, input MemoryVectorUpsertInput) error
-	SearchSimilarSessionIDs(ctx context.Context, queryVector []float32, limit int, excludeSessionID string) ([]MemoryVectorSearchHit, error)
 	SearchMemoriesInSession(ctx context.Context, queryVector []float32, sessionID string, limit int) ([]MemoryVectorSearchHit, error)
-	DeleteMemoryVector(ctx context.Context, memoryID string) error
 }
 
 type MemoryVectorUpsertInput struct {

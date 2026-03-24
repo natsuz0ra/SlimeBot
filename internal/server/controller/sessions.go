@@ -258,19 +258,3 @@ func (h *HTTPController) ListMessages(c WebContext) {
 	})
 	observability.Span("http_list_messages", listStart)
 }
-
-// SetSessionModel 设置会话默认模型配置。
-func (h *HTTPController) SetSessionModel(c WebContext) {
-	id := c.Param("id")
-	var req struct {
-		ModelConfigID string `json:"modelConfigId" binding:"required"`
-	}
-	if !bindJSONOrBadRequest(c, &req, "modelConfigId is required.") {
-		return
-	}
-	if err := h.sessions.SetModel(id, req.ModelConfigID); err != nil {
-		jsonInternalError(c, err)
-		return
-	}
-	c.Status(http.StatusNoContent)
-}

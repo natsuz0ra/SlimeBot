@@ -41,8 +41,8 @@ func TestUpsertToolCallStart_UpdatesExistingRow(t *testing.T) {
 		t.Fatalf("second upsert failed: %v", err)
 	}
 
-	rows, err := repo.ListSessionToolCallRecords(session.ID)
-	if err != nil {
+	var rows []domain.ToolCallRecord
+	if err := repo.db.Where("session_id = ?", session.ID).Order("started_at asc").Find(&rows).Error; err != nil {
 		t.Fatalf("list tool call records failed: %v", err)
 	}
 	if len(rows) != 1 {

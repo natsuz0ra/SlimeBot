@@ -21,7 +21,8 @@ func NewSQLiteDBTest(t testing.TB, namespace string) *gorm.DB {
 	if err := db.AutoMigrate(
 		&domain.Session{},
 		&domain.Message{},
-		&domain.SessionMemory{},
+		&domain.EpisodeMemory{},
+		&domain.StickyMemory{},
 		&domain.ToolCallRecord{},
 		&domain.AppSetting{},
 		&domain.LLMConfig{},
@@ -31,6 +32,5 @@ func NewSQLiteDBTest(t testing.TB, namespace string) *gorm.DB {
 	); err != nil {
 		t.Fatalf("auto migrate failed: %v", err)
 	}
-	_ = setupSessionMemoryFTS5(db)
 	return db
 }

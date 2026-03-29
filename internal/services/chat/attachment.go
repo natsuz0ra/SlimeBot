@@ -8,12 +8,15 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	oaisvc "slimebot/internal/services/openai"
 )
 
 const (
 	attachmentCategoryImage    = "image"
 	attachmentCategoryAudio    = "audio"
 	attachmentCategoryDocument = "document"
+	maxInlineAttachmentBytes   = 256 * 1024
 )
 
 // classifyAttachmentCategory 将任意上传文件收敛到三类：
@@ -60,11 +63,11 @@ func detectStoredFileMime(path, headerMime, ext string) string {
 // buildUserMessageContentParts 为当前用户回合构建多模态 content parts。
 // 返回 fallbackMeta 用于补偿场景：当某个附件构建失败时，调用方可降级到文本提示，
 // 保证“至少有附件元信息进入模型”。
-func buildUserMessageContentParts(userText string, attachments []UploadedAttachment) ([]ChatMessageContentPart, []string) {
-	parts := make([]ChatMessageContentPart, 0, len(attachments)+1)
+func buildUserMessageContentParts(userText string, attachments []UploadedAttachment) ([]oaisvc.ChatMessageContentPart, []string) {
+	parts := make([]oaisvc.ChatMessageContentPart, 0, len(attachments)+1)
 	if strings.TrimSpace(userText) != "" {
-		parts = append(parts, ChatMessageContentPart{
-			Type: ChatMessageContentPartTypeText,
+		parts = append(parts, oaisvc.ChatMessageContentPart{
+			Type: oaisvc.ChatMessageContentPartTypeText,
 			Text: userText,
 		})
 	}
@@ -85,13 +88,16 @@ func buildUserMessageContentParts(userText string, attachments []UploadedAttachm
 // 1) image -> ImageContentPart(data URL)
 // 2) audio(wav/mp3) -> InputAudioContentPart
 // 3) 其它全部 -> FileContentPart（文档兜底）
-func buildAttachmentContentPart(file UploadedAttachment) (ChatMessageContentPart, error) {
+func buildAttachmentContentPart(file UploadedAttachment) (oaisvc.ChatMessageContentPart, error) {
 	if strings.TrimSpace(file.Path) == "" {
-		return ChatMessageContentPart{}, fmt.Errorf("empty file path")
+		return oaisvc.ChatMessageContentPart{}, fmt.Errorf("empty file path")
+	}
+	if file.SizeBytes > maxInlineAttachmentBytes {
+		return oaisvc.ChatMessageContentPart{}, fmt.Errorf("attachment too large for inline content")
 	}
 	raw, err := os.ReadFile(file.Path)
 	if err != nil {
-		return ChatMessageContentPart{}, err
+		return oaisvc.ChatMessageContentPart{}, err
 	}
 	encoded := base64.StdEncoding.EncodeToString(raw)
 	category := strings.TrimSpace(file.Category)
@@ -102,14 +108,14 @@ func buildAttachmentContentPart(file UploadedAttachment) (ChatMessageContentPart
 	switch category {
 	case attachmentCategoryImage:
 		mimeType := normalizeMimeTypeForDataURL(file.MimeType, file.Ext)
-		return ChatMessageContentPart{
-			Type:     ChatMessageContentPartTypeImage,
+		return oaisvc.ChatMessageContentPart{
+			Type:     oaisvc.ChatMessageContentPartTypeImage,
 			ImageURL: fmt.Sprintf("data:%s;base64,%s", mimeType, encoded),
 		}, nil
 	case attachmentCategoryAudio:
 		if format, ok := resolveInputAudioFormat(file.MimeType, file.Ext); ok {
-			return ChatMessageContentPart{
-				Type:             ChatMessageContentPartTypeAudio,
+			return oaisvc.ChatMessageContentPart{
+				Type:             oaisvc.ChatMessageContentPartTypeAudio,
 				InputAudioData:   encoded,
 				InputAudioFormat: format,
 			}, nil
@@ -121,8 +127,8 @@ func buildAttachmentContentPart(file UploadedAttachment) (ChatMessageContentPart
 		if filename == "" {
 			filename = "attachment"
 		}
-		return ChatMessageContentPart{
-			Type:           ChatMessageContentPartTypeFile,
+		return oaisvc.ChatMessageContentPart{
+			Type:           oaisvc.ChatMessageContentPartTypeFile,
 			FileDataBase64: encoded,
 			Filename:       filepath.Base(filename),
 		}, nil

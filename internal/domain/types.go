@@ -5,22 +5,77 @@ import (
 	"time"
 )
 
-type SessionMemoryUpsertInput struct {
-	SessionID          string
-	Summary            string
-	Keywords           []string
-	SourceMessageCount int
+const (
+	EpisodeMemoryStateOpen     = "open"
+	EpisodeMemoryStateClosed   = "closed"
+	EpisodeMemoryStateArchived = "archived"
+
+	StickyMemoryKindPreference = "preference"
+	StickyMemoryKindConstraint = "constraint"
+	StickyMemoryKindTask       = "task"
+
+	StickyMemoryStatusActive   = "active"
+	StickyMemoryStatusDeleted  = "deleted"
+	StickyMemoryStatusArchived = "archived"
+)
+
+type EpisodeMemoryCreateInput struct {
+	SessionID      string
+	TopicKey       string
+	Title          string
+	Summary        string
+	Keywords       []string
+	State          string
+	SourceStartSeq int64
+	SourceEndSeq   int64
+	TurnCount      int
+	LastActiveAt   time.Time
 }
 
-type SessionMemoryCreateInput struct {
-	SessionID          string
-	Summary            string
-	Keywords           []string
-	SourceMessageCount int
+type EpisodeMemoryUpdateInput struct {
+	ID             string
+	SessionID      string
+	TopicKey       string
+	Title          string
+	Summary        string
+	Keywords       []string
+	State          string
+	SourceStartSeq int64
+	SourceEndSeq   int64
+	TurnCount      int
+	LastActiveAt   time.Time
 }
 
-type SessionMemorySearchHit struct {
-	Memory          SessionMemory
+type EpisodeMemorySearchInput struct {
+	SessionID       string
+	Query           string
+	Limit           int
+	ExcludeStartSeq int64
+	ExcludeEndSeq   int64
+	Now             time.Time
+}
+
+type EpisodeMemorySearchHit struct {
+	Episode         EpisodeMemory
+	MatchedKeywords []string
+	Score           float64
+}
+
+type StickyMemoryUpsertInput struct {
+	SessionID      string
+	Kind           string
+	Key            string
+	Value          string
+	Summary        string
+	Confidence     float64
+	SourceStartSeq int64
+	SourceEndSeq   int64
+	LastSeenAt     time.Time
+	ExpiresAt      *time.Time
+}
+
+type StickyMemorySearchHit struct {
+	Memory          StickyMemory
 	MatchedKeywords []string
 	Score           float64
 }
@@ -58,9 +113,7 @@ type ToolCallResultRecordInput struct {
 
 type MemoryVectorStore interface {
 	UpsertSessionMemoryVector(ctx context.Context, input MemoryVectorUpsertInput) error
-	SearchSimilarSessionIDs(ctx context.Context, queryVector []float32, limit int, excludeSessionID string) ([]MemoryVectorSearchHit, error)
 	SearchMemoriesInSession(ctx context.Context, queryVector []float32, sessionID string, limit int) ([]MemoryVectorSearchHit, error)
-	DeleteMemoryVector(ctx context.Context, memoryID string) error
 }
 
 type MemoryVectorUpsertInput struct {

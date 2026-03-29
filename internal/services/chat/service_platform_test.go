@@ -53,10 +53,10 @@ func TestResolvePlatformModel_FallbackAndPersist(t *testing.T) {
 		t.Fatalf("create second model failed: %v", err)
 	}
 
-	if err := repo.SetSetting(constants.SettingMessagePlatformDefaultModel, "missing-id"); err != nil {
+	if err := repo.SetSetting(context.Background(), constants.SettingMessagePlatformDefaultModel, "missing-id"); err != nil {
 		t.Fatalf("set platform default failed: %v", err)
 	}
-	if err := repo.SetSetting(constants.SettingDefaultModel, second.ID); err != nil {
+	if err := repo.SetSetting(context.Background(), constants.SettingDefaultModel, second.ID); err != nil {
 		t.Fatalf("set global default failed: %v", err)
 	}
 
@@ -68,7 +68,7 @@ func TestResolvePlatformModel_FallbackAndPersist(t *testing.T) {
 		t.Fatalf("expected fallback to global default=%s, got=%s", second.ID, modelID)
 	}
 
-	persisted, err := repo.GetSetting(constants.SettingMessagePlatformDefaultModel)
+	persisted, err := repo.GetSetting(context.Background(), constants.SettingMessagePlatformDefaultModel)
 	if err != nil {
 		t.Fatalf("read persisted platform default failed: %v", err)
 	}
@@ -76,10 +76,10 @@ func TestResolvePlatformModel_FallbackAndPersist(t *testing.T) {
 		t.Fatalf("expected persisted platform default=%s, got=%s", second.ID, persisted)
 	}
 
-	if err := repo.SetSetting(constants.SettingMessagePlatformDefaultModel, ""); err != nil {
+	if err := repo.SetSetting(context.Background(), constants.SettingMessagePlatformDefaultModel, ""); err != nil {
 		t.Fatalf("clear platform default failed: %v", err)
 	}
-	if err := repo.SetSetting(constants.SettingDefaultModel, ""); err != nil {
+	if err := repo.SetSetting(context.Background(), constants.SettingDefaultModel, ""); err != nil {
 		t.Fatalf("clear global default failed: %v", err)
 	}
 	// 删除 second 后，应回落到首个可用模型（按 name asc，这里是 model-a）。

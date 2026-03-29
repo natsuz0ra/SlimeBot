@@ -1,11 +1,17 @@
 package chat
 
 import (
-	"regexp"
 	"strings"
 )
 
-var protocolGapRegex = regexp.MustCompile(`\n{2,}`)
+const (
+	openTitleTag    = "<title>"
+	closeTitleTag   = "</title>"
+	openMemoryTag   = "<memory>"
+	closeMemoryTag  = "</memory>"
+	parserTagTitle  = "title"
+	parserTagMemory = "memory"
+)
 
 type titleStreamParser struct {
 	// 是否启用协议解析；关闭时全部透传。
@@ -13,15 +19,15 @@ type titleStreamParser struct {
 	// 最近一次成功解析出的标题。
 	title string
 	// 最近一次成功解析出的会话总结。
-	summary string
-	// 当前正在解析的协议标签：title / summary。
+	memory string
+	// 当前正在解析的协议标签：title / memory。
 	activeTag string
 	// 普通文本阶段下，可能跨 chunk 的开标签探测缓存。
-	openBuf []rune
+	openBuf []byte
 	// 标签内容阶段下，可能跨 chunk 的闭标签探测缓存。
-	closeBuf []rune
+	closeBuf []byte
 	// 当前标签内容缓存（不包含标签本身）。
-	tagContent []rune
+	tagContent []byte
 	// 标记在移除协议标签后，下一段正文前缀空白应被裁剪。
 	trimNextTextPrefix bool
 }
@@ -43,12 +49,13 @@ func (p *titleStreamParser) Feed(chunk string) string {
 		return chunk
 	}
 	var out strings.Builder
-	for _, r := range chunk {
+	for i := 0; i < len(chunk); i++ {
+		b := chunk[i]
 		if p.activeTag == "" {
-			p.consumeTextRune(r, &out)
+			p.consumeTextByte(b, &out)
 			continue
 		}
-		p.consumeTagRune(r)
+		p.consumeTagByte(b)
 	}
 	return out.String()
 }
@@ -65,11 +72,11 @@ func (p *titleStreamParser) Flush() string {
 		out.WriteString("<")
 		out.WriteString(p.activeTag)
 		out.WriteString(">")
-		out.WriteString(string(p.tagContent))
-		out.WriteString(string(p.closeBuf))
+		out.Write(p.tagContent)
+		out.Write(p.closeBuf)
 	} else if len(p.openBuf) > 0 {
 		// 开标签探测缓存残留，说明不是完整协议标签，按正文透传。
-		out.WriteString(string(p.openBuf))
+		out.Write(p.openBuf)
 	}
 	p.resetStreamState()
 	return out.String()
@@ -79,8 +86,8 @@ func (p *titleStreamParser) Title() string {
 	return p.title
 }
 
-func (p *titleStreamParser) Summary() string {
-	return p.summary
+func (p *titleStreamParser) Memory() string {
+	return p.memory
 }
 
 // BeginAssistantTurn 在工具调用切轮时重置探测状态，避免协议跨轮污染。
@@ -92,31 +99,31 @@ func (p *titleStreamParser) BeginAssistantTurn() string {
 	return p.Flush()
 }
 
-func (p *titleStreamParser) consumeTextRune(r rune, out *strings.Builder) {
+func (p *titleStreamParser) consumeTextByte(b byte, out *strings.Builder) {
 	if p.trimNextTextPrefix && len(p.openBuf) == 0 {
-		if isProtocolSeparatorRune(r) {
+		if isProtocolSeparatorByte(b) {
 			return
 		}
 		// 若后续直接进入下一个协议标签，继续保持裁剪标记；
 		// 若进入正文，则关闭裁剪标记。
-		if r != '<' {
+		if b != '<' {
 			p.trimNextTextPrefix = false
 		}
 	}
 
 	if len(p.openBuf) == 0 {
-		if r == '<' {
-			p.openBuf = append(p.openBuf, r)
+		if b == '<' {
+			p.openBuf = append(p.openBuf, b)
 			return
 		}
-		out.WriteRune(r)
+		out.WriteByte(b)
 		p.trimNextTextPrefix = false
 		return
 	}
 
-	p.openBuf = append(p.openBuf, r)
-	for len(p.openBuf) > 0 && !isOpenTagPrefix(string(p.openBuf)) {
-		out.WriteRune(p.openBuf[0])
+	p.openBuf = append(p.openBuf, b)
+	for len(p.openBuf) > 0 && !isOpenTagPrefixBytes(p.openBuf) {
+		out.WriteByte(p.openBuf[0])
 		p.trimNextTextPrefix = false
 		p.openBuf = p.openBuf[1:]
 	}
@@ -124,7 +131,7 @@ func (p *titleStreamParser) consumeTextRune(r rune, out *strings.Builder) {
 		return
 	}
 
-	if tag, ok := matchOpenTag(string(p.openBuf)); ok {
+	if tag, ok := matchOpenTagBytes(p.openBuf); ok {
 		p.activeTag = tag
 		p.openBuf = nil
 		p.closeBuf = nil
@@ -132,19 +139,19 @@ func (p *titleStreamParser) consumeTextRune(r rune, out *strings.Builder) {
 	}
 }
 
-func (p *titleStreamParser) consumeTagRune(r rune) {
-	endTag := "</" + p.activeTag + ">"
+func (p *titleStreamParser) consumeTagByte(b byte) {
+	endTag := parserEndTag(p.activeTag)
 	if len(p.closeBuf) == 0 {
-		if r == '<' {
-			p.closeBuf = append(p.closeBuf, r)
+		if b == '<' {
+			p.closeBuf = append(p.closeBuf, b)
 			return
 		}
-		p.tagContent = append(p.tagContent, r)
+		p.tagContent = append(p.tagContent, b)
 		return
 	}
 
-	p.closeBuf = append(p.closeBuf, r)
-	for len(p.closeBuf) > 0 && !strings.HasPrefix(endTag, string(p.closeBuf)) {
+	p.closeBuf = append(p.closeBuf, b)
+	for len(p.closeBuf) > 0 && !hasBytePrefix(endTag, p.closeBuf) {
 		p.tagContent = append(p.tagContent, p.closeBuf[0])
 		p.closeBuf = p.closeBuf[1:]
 	}
@@ -152,20 +159,20 @@ func (p *titleStreamParser) consumeTagRune(r rune) {
 		return
 	}
 
-	if string(p.closeBuf) == endTag {
+	if bytesEqual(endTag, p.closeBuf) {
 		p.finishActiveTag()
 	}
 }
 
 func (p *titleStreamParser) finishActiveTag() {
 	switch p.activeTag {
-	case "title":
+	case parserTagTitle:
 		if cleaned := cleanProtocolTitle(string(p.tagContent)); cleaned != "" {
 			p.title = cleaned
 		}
-	case "summary":
-		if cleaned := cleanProtocolSummary(string(p.tagContent)); cleaned != "" {
-			p.summary = cleaned
+	case parserTagMemory:
+		if cleaned := cleanProtocolMemory(string(p.tagContent)); cleaned != "" {
+			p.memory = cleaned
 		}
 	}
 	p.activeTag = ""
@@ -182,30 +189,6 @@ func (p *titleStreamParser) resetStreamState() {
 	p.trimNextTextPrefix = false
 }
 
-func isProtocolSeparatorRune(r rune) bool {
-	switch r {
-	case ' ', '\t', '\r', '\n', '\uFEFF':
-		return true
-	default:
-		return false
-	}
-}
-
-func isOpenTagPrefix(candidate string) bool {
-	return strings.HasPrefix("<title>", candidate) || strings.HasPrefix("<summary>", candidate)
-}
-
-func matchOpenTag(candidate string) (string, bool) {
-	switch candidate {
-	case "<title>":
-		return "title", true
-	case "<summary>":
-		return "summary", true
-	default:
-		return "", false
-	}
-}
-
 func cleanProtocolTitle(input string) string {
 	title := strings.ReplaceAll(input, "\r", "")
 	title = strings.ReplaceAll(title, "\n", "")
@@ -214,11 +197,11 @@ func cleanProtocolTitle(input string) string {
 	return strings.TrimSpace(title)
 }
 
-func cleanProtocolSummary(input string) string {
-	summary := strings.ReplaceAll(input, "\r\n", "\n")
-	summary = strings.ReplaceAll(summary, "\r", "\n")
-	summary = strings.TrimSpace(summary)
-	return summary
+func cleanProtocolMemory(input string) string {
+	memory := strings.ReplaceAll(input, "\r\n", "\n")
+	memory = strings.ReplaceAll(memory, "\r", "\n")
+	memory = strings.TrimSpace(memory)
+	return memory
 }
 
 // extractProtocolMetaAndBody 用于兜底提取协议元信息并剔除正文中的协议行。
@@ -229,7 +212,7 @@ func extractProtocolMetaAndBody(input string) (string, string, string) {
 
 	body := input
 	var extractedTitle string
-	var extractedSummary string
+	var extractedMemory string
 	hasTagBlock := false
 
 	if title, cleaned, foundValue, removed := extractAndRemoveTagBlocks(body, "title", cleanProtocolTitle); removed {
@@ -239,9 +222,9 @@ func extractProtocolMetaAndBody(input string) (string, string, string) {
 		body = cleaned
 		hasTagBlock = true
 	}
-	if summary, cleaned, foundValue, removed := extractAndRemoveTagBlocks(body, "summary", cleanProtocolSummary); removed {
+	if memory, cleaned, foundValue, removed := extractAndRemoveTagBlocks(body, "memory", cleanProtocolMemory); removed {
 		if foundValue {
-			extractedSummary = summary
+			extractedMemory = memory
 		}
 		body = cleaned
 		hasTagBlock = true
@@ -251,8 +234,7 @@ func extractProtocolMetaAndBody(input string) (string, string, string) {
 		return "", "", input
 	}
 
-	body = protocolGapRegex.ReplaceAllString(body, "\n")
-	return extractedTitle, extractedSummary, strings.Trim(body, "\r\n")
+	return extractedTitle, extractedMemory, strings.Trim(body, "\r\n")
 }
 
 func extractAndRemoveTagBlocks(input string, tag string, cleaner func(string) string) (string, string, bool, bool) {
@@ -278,10 +260,117 @@ func extractAndRemoveTagBlocks(input string, tag string, cleaner func(string) st
 			found = true
 		}
 		blockEnd := contentEnd + len(endTag)
-		working = working[:startIdx] + working[blockEnd:]
+		removeStart, removeEnd, bridge := protocolRemovalRange(working, startIdx, blockEnd)
+		working = working[:removeStart] + bridge + working[removeEnd:]
 		removed = true
 	}
 	return latest, working, found, removed
+}
+
+func isProtocolSeparatorByte(b byte) bool {
+	switch b {
+	case ' ', '\t', '\r', '\n':
+		return true
+	default:
+		return false
+	}
+}
+
+func isOpenTagPrefixBytes(candidate []byte) bool {
+	return hasBytePrefix([]byte(openTitleTag), candidate) || hasBytePrefix([]byte(openMemoryTag), candidate)
+}
+
+func matchOpenTagBytes(candidate []byte) (string, bool) {
+	switch {
+	case bytesEqual([]byte(openTitleTag), candidate):
+		return parserTagTitle, true
+	case bytesEqual([]byte(openMemoryTag), candidate):
+		return parserTagMemory, true
+	default:
+		return "", false
+	}
+}
+
+func parserEndTag(activeTag string) []byte {
+	switch activeTag {
+	case parserTagTitle:
+		return []byte(closeTitleTag)
+	case parserTagMemory:
+		return []byte(closeMemoryTag)
+	default:
+		return nil
+	}
+}
+
+func hasBytePrefix(full []byte, prefix []byte) bool {
+	if len(prefix) > len(full) {
+		return false
+	}
+	for i := range prefix {
+		if full[i] != prefix[i] {
+			return false
+		}
+	}
+	return true
+}
+
+func bytesEqual(a []byte, b []byte) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
+func protocolRemovalRange(input string, startIdx int, blockEnd int) (int, int, string) {
+	removeStart := startIdx
+	for removeStart > 0 && isProtocolSeparatorByte(input[removeStart-1]) {
+		removeStart--
+	}
+	removeEnd := blockEnd
+	for removeEnd < len(input) && isProtocolSeparatorByte(input[removeEnd]) {
+		removeEnd++
+	}
+
+	leftGap := input[removeStart:startIdx]
+	rightGap := input[blockEnd:removeEnd]
+	if removeStart == 0 || removeEnd == len(input) {
+		return removeStart, removeEnd, ""
+	}
+
+	newlineCount := countMaxNewlineRun(leftGap)
+	if rightCount := countMaxNewlineRun(rightGap); rightCount > newlineCount {
+		newlineCount = rightCount
+	}
+	if newlineCount > 0 {
+		return removeStart, removeEnd, strings.Repeat("\n", newlineCount)
+	}
+	if len(leftGap) > 0 || len(rightGap) > 0 {
+		return removeStart, removeEnd, " "
+	}
+	return removeStart, removeEnd, ""
+}
+
+func countMaxNewlineRun(input string) int {
+	maxRun := 0
+	current := 0
+	for i := 0; i < len(input); i++ {
+		if input[i] == '\n' {
+			current++
+			if current > maxRun {
+				maxRun = current
+			}
+			continue
+		}
+		if input[i] != '\r' {
+			current = 0
+		}
+	}
+	return maxRun
 }
 
 // truncateRunes 按 rune 截断，避免中文等多字节字符被破坏。

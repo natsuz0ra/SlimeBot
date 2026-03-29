@@ -9,6 +9,7 @@ import (
 
 	"slimebot/internal/constants"
 	"slimebot/internal/mcp"
+	oaisvc "slimebot/internal/services/openai"
 	"slimebot/internal/tools"
 )
 
@@ -20,7 +21,7 @@ type resolvedToolInvocation struct {
 }
 
 // resolveToolInvocation 将模型返回的函数名解析成统一工具调用描述。
-func resolveToolInvocation(tc ToolCallInfo, mcpToolMeta map[string]mcp.ToolMeta) (resolvedToolInvocation, error) {
+func resolveToolInvocation(tc oaisvc.ToolCallInfo, mcpToolMeta map[string]mcp.ToolMeta) (resolvedToolInvocation, error) {
 	if tc.Name == constants.ActivateSkillTool {
 		return resolvedToolInvocation{
 			toolName:         constants.ActivateSkillTool,
@@ -30,6 +31,7 @@ func resolveToolInvocation(tc ToolCallInfo, mcpToolMeta map[string]mcp.ToolMeta)
 		}, nil
 	}
 	if tc.Name == constants.SearchMemoryTool {
+		// memory 查询走内建工具路径，不需要审批。
 		return resolvedToolInvocation{
 			toolName:         constants.SearchMemoryTool,
 			command:          "query",
@@ -71,7 +73,7 @@ func notifyToolResult(callbacks AgentCallbacks, result ToolCallResult) {
 func waitApprovalIfNeeded(
 	ctx context.Context,
 	callbacks AgentCallbacks,
-	tc ToolCallInfo,
+	tc oaisvc.ToolCallInfo,
 	invocation resolvedToolInvocation,
 	params map[string]string,
 	preamble string,
@@ -105,7 +107,7 @@ func waitApprovalIfNeeded(
 // executeInvocation 根据调用类型分发到 MCP、memory 或内建工具执行路径。
 func (a *AgentService) executeInvocation(
 	ctx context.Context,
-	tc ToolCallInfo,
+	tc oaisvc.ToolCallInfo,
 	invocation resolvedToolInvocation,
 	params map[string]string,
 	sessionID string,
@@ -126,6 +128,7 @@ func (a *AgentService) executeInvocation(
 
 	if (invocation.toolName == "memory" && invocation.command == "query") ||
 		(invocation.toolName == constants.SearchMemoryTool && invocation.command == "query") {
+		// memory 工具每轮最多调用一次，避免上下文被重复污染。
 		if *memoryToolUsed {
 			return &tools.ExecuteResult{Error: "search_memory can be called at most once per response."}
 		}
@@ -133,8 +136,7 @@ func (a *AgentService) executeInvocation(
 			return &tools.ExecuteResult{Error: "Memory service is not enabled."}
 		}
 		*memoryToolUsed = true
-		topK := parseOptionalInt(params["top_k"], constants.MemoryToolDefaultTopK)
-		queryResult, queryErr := a.memory.QueryForAgent(ctx, sessionID, params["query"], topK)
+		queryResult, queryErr := a.memory.QueryForAgent(ctx, sessionID, params["query"], constants.MemoryToolDefaultTopK)
 		if queryErr != nil {
 			return &tools.ExecuteResult{Output: queryResult.Output, Error: queryErr.Error()}
 		}

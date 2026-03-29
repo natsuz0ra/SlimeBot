@@ -8,18 +8,20 @@ import (
 	"slimebot/internal/domain"
 	"strings"
 	"sync"
+	"time"
 
 	"slimebot/internal/constants"
+	"slimebot/internal/observability"
 )
 
-// ToolMeta 记录函数调用定义与 MCP 真实工具之间的映射关系。
+// ToolMeta 记录函数调用定义与 MCP 真实工具之间的映射关系
 type ToolMeta struct {
 	FuncName    string
 	ServerAlias string
 	ToolName    string
 }
 
-// Manager 负责管理 MCP 客户端实例，并提供工具加载与执行能力。
+// Manager MCP 管理器：负责管理 MCP 客户端实例，提供工具加载与执行能力
 type Manager struct {
 	mu      sync.Mutex
 	clients map[string]*managedClient
@@ -33,14 +35,14 @@ type managedClient struct {
 	clientMu sync.Mutex
 }
 
-// NewManager 创建一个新的 MCP 管理器实例。
+// NewManager 创建一个新的 MCP 管理器实例
 func NewManager() *Manager {
 	return &Manager{
 		clients: make(map[string]*managedClient),
 	}
 }
 
-// CloseAll 关闭并清空所有已托管的 MCP 客户端连接。
+// CloseAll 关闭并清空所有已托管的 MCP 客户端连接
 func (m *Manager) CloseAll() {
 	if m == nil {
 		return
@@ -59,7 +61,7 @@ func (m *Manager) CloseAll() {
 	}
 }
 
-// LoadTools 加载当前启用服务的工具定义，并返回函数映射与 OpenAI 工具描述。
+// LoadTools 加载当前启用服务的工具定义，返回函数元数据与 OpenAI 工具描述
 func (m *Manager) LoadTools(ctx context.Context, configs []domain.MCPConfig) ([]ToolMeta, []map[string]any, error) {
 	alive := make(map[string]bool, len(configs))
 	var metas []ToolMeta
@@ -104,42 +106,66 @@ func (m *Manager) LoadTools(ctx context.Context, configs []domain.MCPConfig) ([]
 		}
 	}()
 
-	for _, t := range targets {
-		entry := t.entry
-		entry.clientMu.Lock()
-		tools, err := entry.client.ListTools(ctx)
-		entry.clientMu.Unlock()
-		if err != nil {
-			return nil, nil, fmt.Errorf("failed to load MCP tools (%s): %w", t.item.Name, err)
-		}
-
-		for _, tool := range tools {
-			// 控制函数名长度，兼容部分 OpenAI 协议实现对 name 长度的严格限制（如 <=64）。
-			funcName := buildMCPFuncName(entry.alias, tool.Name)
-			inputSchema := tool.InputSchema
-			if inputSchema == nil {
-				inputSchema = map[string]any{
-					"type":       "object",
-					"properties": map[string]any{},
-				}
+	type listResult struct {
+		metas []ToolMeta
+		defs  []map[string]any
+		err   error
+	}
+	results := make([]listResult, len(targets))
+	var wg sync.WaitGroup
+	parallelStart := time.Now()
+	for i, t := range targets {
+		wg.Add(1)
+		go func(i int, t target) {
+			defer wg.Done()
+			entry := t.entry
+			entry.clientMu.Lock()
+			tools, err := entry.client.ListTools(ctx)
+			entry.clientMu.Unlock()
+			if err != nil {
+				results[i].err = fmt.Errorf("failed to load MCP tools (%s): %w", t.item.Name, err)
+				return
 			}
-			defs = append(defs, map[string]any{
-				"name":        funcName,
-				"description": fmt.Sprintf("[mcp:%s] %s", t.item.Name, strings.TrimSpace(tool.Description)),
-				"parameters":  inputSchema,
-			})
-			metas = append(metas, ToolMeta{
-				FuncName:    funcName,
-				ServerAlias: entry.alias,
-				ToolName:    tool.Name,
-			})
+			var lm []ToolMeta
+			var ld []map[string]any
+			for _, tool := range tools {
+				funcName := buildMCPFuncName(entry.alias, tool.Name)
+				inputSchema := tool.InputSchema
+				if inputSchema == nil {
+					inputSchema = map[string]any{
+						"type":       "object",
+						"properties": map[string]any{},
+					}
+				}
+				ld = append(ld, map[string]any{
+					"name":        funcName,
+					"description": fmt.Sprintf("[mcp:%s] %s", t.item.Name, strings.TrimSpace(tool.Description)),
+					"parameters":  inputSchema,
+				})
+				lm = append(lm, ToolMeta{
+					FuncName:    funcName,
+					ServerAlias: entry.alias,
+					ToolName:    tool.Name,
+				})
+			}
+			results[i].metas = lm
+			results[i].defs = ld
+		}(i, t)
+	}
+	wg.Wait()
+	observability.Span("mcp_list_tools_parallel", parallelStart)
+	for _, r := range results {
+		if r.err != nil {
+			return nil, nil, r.err
 		}
+		metas = append(metas, r.metas...)
+		defs = append(defs, r.defs...)
 	}
 
 	return metas, defs, nil
 }
 
-// ensureClientLocked 确保给定配置对应的客户端可用，必要时按最新配置重建连接。
+// ensureClientLocked 确保给定配置对应的客户端可用，必要时按最新配置重建连接
 func (m *Manager) ensureClientLocked(item domain.MCPConfig) (*managedClient, error) {
 	existing, ok := m.clients[item.ID]
 	if ok && existing.raw == item.Config {

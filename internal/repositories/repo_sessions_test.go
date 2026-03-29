@@ -1,6 +1,7 @@
 package repositories
 
 import (
+	"context"
 	"slimebot/internal/domain"
 	"testing"
 	"time"
@@ -8,11 +9,64 @@ import (
 	"github.com/google/uuid"
 )
 
+func TestUpdateSessionTitle_UpdatesOnlyWhenUnlockedAndChanged(t *testing.T) {
+	repo := New(NewSQLiteDBTest(t, "repo_sessions_update_title"))
+	ctx := context.Background()
+
+	session, err := repo.CreateSession(ctx, "New Chat")
+	if err != nil {
+		t.Fatalf("create session failed: %v", err)
+	}
+
+	updated, err := repo.UpdateSessionTitle(ctx, session.ID, "新的标题")
+	if err != nil {
+		t.Fatalf("update title failed: %v", err)
+	}
+	if !updated {
+		t.Fatal("expected title update to report true")
+	}
+
+	reloaded, err := repo.GetSessionByID(ctx, session.ID)
+	if err != nil {
+		t.Fatalf("reload session failed: %v", err)
+	}
+	if reloaded == nil || reloaded.Name != "新的标题" {
+		t.Fatalf("unexpected session title after update: %+v", reloaded)
+	}
+
+	updated, err = repo.UpdateSessionTitle(ctx, session.ID, "新的标题")
+	if err != nil {
+		t.Fatalf("update title with same value failed: %v", err)
+	}
+	if updated {
+		t.Fatal("expected same title update to report false")
+	}
+
+	if err := repo.RenameSessionByUser(session.ID, "用户标题"); err != nil {
+		t.Fatalf("rename session by user failed: %v", err)
+	}
+	updated, err = repo.UpdateSessionTitle(ctx, session.ID, "自动标题")
+	if err != nil {
+		t.Fatalf("update title on locked session failed: %v", err)
+	}
+	if updated {
+		t.Fatal("expected locked session update to report false")
+	}
+
+	reloaded, err = repo.GetSessionByID(ctx, session.ID)
+	if err != nil {
+		t.Fatalf("reload locked session failed: %v", err)
+	}
+	if reloaded == nil || reloaded.Name != "用户标题" || !reloaded.IsTitleLocked {
+		t.Fatalf("unexpected locked session state: %+v", reloaded)
+	}
+}
+
 func TestDeleteSession_DeletesSessionAndRelatedRecords(t *testing.T) {
 	repo := New(NewSQLiteDBTest(t, "repo_sessions_delete_ok"))
 	sessionID := uuid.NewString()
 
-	if _, err := repo.CreateSessionWithID(sessionID, "to-delete"); err != nil {
+	if _, err := repo.CreateSessionWithID(context.Background(), sessionID, "to-delete"); err != nil {
 		t.Fatalf("create session failed: %v", err)
 	}
 	if err := repo.db.Create(&domain.Message{
@@ -37,6 +91,31 @@ func TestDeleteSession_DeletesSessionAndRelatedRecords(t *testing.T) {
 		StartedAt:        time.Now(),
 	}).Error; err != nil {
 		t.Fatalf("create tool call failed: %v", err)
+	}
+	if err := repo.db.Create(&domain.EpisodeMemory{
+		ID:           uuid.NewString(),
+		SessionID:    sessionID,
+		TopicKey:     "travel",
+		Title:        "旅游",
+		Summary:      "日本旅游",
+		KeywordsJSON: `["旅游"]`,
+		State:        domain.EpisodeMemoryStateOpen,
+		LastActiveAt: time.Now(),
+	}).Error; err != nil {
+		t.Fatalf("create episode memory failed: %v", err)
+	}
+	if err := repo.db.Create(&domain.StickyMemory{
+		ID:         uuid.NewString(),
+		SessionID:  sessionID,
+		Kind:       domain.StickyMemoryKindPreference,
+		Key:        "reply_language",
+		Value:      "zh-cn",
+		Summary:    "默认中文回复",
+		Confidence: 0.9,
+		Status:     domain.StickyMemoryStatusActive,
+		LastSeenAt: time.Now(),
+	}).Error; err != nil {
+		t.Fatalf("create sticky memory failed: %v", err)
 	}
 
 	if err := repo.DeleteSession(sessionID); err != nil {
@@ -66,13 +145,29 @@ func TestDeleteSession_DeletesSessionAndRelatedRecords(t *testing.T) {
 	if toolCallCount != 0 {
 		t.Fatalf("expected tool calls deleted, count=%d", toolCallCount)
 	}
+
+	var episodeCount int64
+	if err := repo.db.Model(&domain.EpisodeMemory{}).Where("session_id = ?", sessionID).Count(&episodeCount).Error; err != nil {
+		t.Fatalf("count episode memories failed: %v", err)
+	}
+	if episodeCount != 0 {
+		t.Fatalf("expected episode memories deleted, count=%d", episodeCount)
+	}
+
+	var stickyCount int64
+	if err := repo.db.Model(&domain.StickyMemory{}).Where("session_id = ?", sessionID).Count(&stickyCount).Error; err != nil {
+		t.Fatalf("count sticky memories failed: %v", err)
+	}
+	if stickyCount != 0 {
+		t.Fatalf("expected sticky memories deleted, count=%d", stickyCount)
+	}
 }
 
 func TestDeleteSession_RollsBackWhenToolCallDeleteFails(t *testing.T) {
 	repo := New(NewSQLiteDBTest(t, "repo_sessions_delete_rollback"))
 	sessionID := uuid.NewString()
 
-	if _, err := repo.CreateSessionWithID(sessionID, "rollback-case"); err != nil {
+	if _, err := repo.CreateSessionWithID(context.Background(), sessionID, "rollback-case"); err != nil {
 		t.Fatalf("create session failed: %v", err)
 	}
 	if err := repo.db.Create(&domain.Message{

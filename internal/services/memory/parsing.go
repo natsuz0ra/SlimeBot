@@ -3,143 +3,123 @@ package memory
 import (
 	"encoding/json"
 	"fmt"
+	"hash/fnv"
 	"regexp"
-	"slimebot/internal/constants"
-	"slimebot/internal/domain"
 	"strings"
 	"time"
 	"unicode"
 )
 
-type MemoryOp struct {
-	Action  string `json:"action"`
-	ID      string `json:"id"`
-	Content string `json:"content"`
+type stickyPayload struct {
+	Kind       string  `json:"kind"`
+	Key        string  `json:"key"`
+	Value      string  `json:"value"`
+	Summary    string  `json:"summary"`
+	Confidence float64 `json:"confidence"`
+	Action     string  `json:"action"`
 }
 
-type memoryOpsEnvelope struct {
-	Ops []MemoryOp `json:"ops"`
+func (s *stickyPayload) UnmarshalJSON(data []byte) error {
+	type rawStickyPayload struct {
+		Kind       string          `json:"kind"`
+		Key        string          `json:"key"`
+		Value      json.RawMessage `json:"value"`
+		Summary    string          `json:"summary"`
+		Confidence float64         `json:"confidence"`
+		Action     string          `json:"action"`
+	}
+	var raw rawStickyPayload
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	s.Kind = raw.Kind
+	s.Key = raw.Key
+	s.Value = stringifyStickyValue(raw.Value)
+	s.Summary = raw.Summary
+	s.Confidence = raw.Confidence
+	s.Action = raw.Action
+	return nil
 }
 
-func parseMemoryOps(raw string) ([]MemoryOp, error) {
+type turnMemoryPayload struct {
+	TurnSummary string          `json:"turn_summary"`
+	TopicHint   string          `json:"topic_hint"`
+	Keywords    []string        `json:"keywords"`
+	Sticky      []stickyPayload `json:"sticky"`
+}
+
+func parseTurnMemoryPayload(raw string) (turnMemoryPayload, error) {
 	text := strings.TrimSpace(raw)
 	if text == "" {
-		return nil, fmt.Errorf("empty summary")
+		return turnMemoryPayload{}, fmt.Errorf("empty memory payload")
 	}
 	text = strings.TrimPrefix(text, "```json")
 	text = strings.TrimPrefix(text, "```")
 	text = strings.TrimSuffix(text, "```")
 	text = strings.TrimSpace(text)
-
 	start := strings.Index(text, "{")
 	end := strings.LastIndex(text, "}")
 	if start < 0 || end <= start {
-		return nil, fmt.Errorf("no json object in summary")
+		return turnMemoryPayload{}, fmt.Errorf("invalid memory payload")
 	}
-	jsonText := text[start : end+1]
-
-	var env memoryOpsEnvelope
-	if err := json.Unmarshal([]byte(jsonText), &env); err != nil {
-		return nil, err
+	var payload turnMemoryPayload
+	if err := json.Unmarshal([]byte(text[start:end+1]), &payload); err != nil {
+		return turnMemoryPayload{}, err
 	}
-	if len(env.Ops) == 0 {
-		return []MemoryOp{}, nil
-	}
-	out := make([]MemoryOp, 0, len(env.Ops))
-	for _, op := range env.Ops {
-		op.Action = strings.ToLower(strings.TrimSpace(op.Action))
-		op.ID = strings.TrimSpace(op.ID)
-		op.Content = strings.TrimSpace(op.Content)
-		if op.Content != "" {
-			runes := []rune(op.Content)
-			if len(runes) > constants.MemoryChunkMaxLength {
-				op.Content = string(runes[:constants.MemoryChunkMaxLength])
-			}
+	payload.TurnSummary = strings.TrimSpace(payload.TurnSummary)
+	payload.TopicHint = strings.TrimSpace(payload.TopicHint)
+	payload.Keywords = normalizeKeywordsForPayload(payload.Keywords)
+	for idx := range payload.Sticky {
+		item := &payload.Sticky[idx]
+		item.Kind = strings.TrimSpace(strings.ToLower(item.Kind))
+		item.Key = strings.TrimSpace(strings.ToLower(item.Key))
+		item.Value = strings.TrimSpace(item.Value)
+		item.Summary = strings.TrimSpace(item.Summary)
+		item.Action = strings.TrimSpace(strings.ToLower(item.Action))
+		if item.Confidence < 0 {
+			item.Confidence = 0
 		}
-		switch op.Action {
-		case "create":
-			if op.Content == "" {
-				continue
-			}
-			out = append(out, op)
-		case "update":
-			if op.ID == "" || op.Content == "" {
-				continue
-			}
-			out = append(out, op)
-		case "delete":
-			if op.ID == "" {
-				continue
-			}
-			out = append(out, op)
+		if item.Confidence > 1 {
+			item.Confidence = 1
 		}
 	}
-	return out, nil
+	if payload.TurnSummary == "" && payload.TopicHint == "" && len(payload.Sticky) == 0 {
+		return turnMemoryPayload{}, fmt.Errorf("empty turn memory content")
+	}
+	return payload, nil
 }
 
-func parseMemoryOpsOrFallback(raw string) []MemoryOp {
-	text := strings.TrimSpace(raw)
-	if text == "" {
-		return nil
+func normalizeKeywordsForPayload(keywords []string) []string {
+	seen := make(map[string]struct{}, len(keywords))
+	result := make([]string, 0, len(keywords))
+	for _, item := range keywords {
+		normalized := normalizeToken(item)
+		if normalized == "" {
+			continue
+		}
+		if _, exists := seen[normalized]; exists {
+			continue
+		}
+		seen[normalized] = struct{}{}
+		result = append(result, normalized)
 	}
-	runes := []rune(text)
-	if len(runes) > constants.MemoryChunkMaxLength {
-		text = string(runes[:constants.MemoryChunkMaxLength])
+	return result
+}
+
+func stringifyStickyValue(raw json.RawMessage) string {
+	text := strings.TrimSpace(string(raw))
+	if text == "" || text == "null" {
+		return ""
 	}
-	return []MemoryOp{{Action: "create", Content: text}}
+	var str string
+	if err := json.Unmarshal(raw, &str); err == nil {
+		return str
+	}
+	return text
 }
 
 var nonWordRuneRegex = regexp.MustCompile(`[^\p{L}\p{N}_\-]+`)
 
-// parseMemoryDecision 兼容代码块包裹的 JSON 输出，提取记忆检索决策。
-func parseMemoryDecision(raw string) (MemoryDecision, error) {
-	text := strings.TrimSpace(raw)
-	if text == "" {
-		return MemoryDecision{}, fmt.Errorf("memory decision is empty")
-	}
-	text = strings.TrimPrefix(text, "```json")
-	text = strings.TrimPrefix(text, "```")
-	text = strings.TrimSuffix(text, "```")
-	text = strings.TrimSpace(text)
-
-	start := strings.Index(text, "{")
-	end := strings.LastIndex(text, "}")
-	if start < 0 || end <= start {
-		return MemoryDecision{}, fmt.Errorf("invalid memory decision JSON format")
-	}
-	jsonText := text[start : end+1]
-
-	var decision MemoryDecision
-	if err := json.Unmarshal([]byte(jsonText), &decision); err != nil {
-		return MemoryDecision{}, err
-	}
-	return decision, nil
-}
-
-// flattenMessages 将消息列表压平成稳定文本，供摘要/检索提示构建使用。
-func flattenMessages(messages []domain.Message) string {
-	var b strings.Builder
-	for _, item := range messages {
-		role := strings.TrimSpace(item.Role)
-		if role == "" {
-			role = "unknown"
-		}
-		timeText := item.CreatedAt.Local().Format(time.RFC3339)
-		if item.CreatedAt.IsZero() {
-			timeText = "unknown-time"
-		}
-		b.WriteString("[")
-		b.WriteString(timeText)
-		b.WriteString("] ")
-		b.WriteString(role)
-		b.WriteString(": ")
-		b.WriteString(strings.TrimSpace(item.Content))
-		b.WriteString("\n")
-	}
-	return strings.TrimSpace(b.String())
-}
-
-// splitByUnicodeWord 在分词器不可用时作为回退切词策略。
 func splitByUnicodeWord(text string) []string {
 	fields := strings.FieldsFunc(text, func(r rune) bool {
 		return !unicode.IsLetter(r) && !unicode.IsNumber(r) && r != '_' && r != '-'
@@ -147,7 +127,6 @@ func splitByUnicodeWord(text string) []string {
 	return fields
 }
 
-// normalizeToken 统一 token 规范化并过滤过短噪声词。
 func normalizeToken(token string) string {
 	normalized := strings.ToLower(strings.TrimSpace(token))
 	if normalized == "" {
@@ -157,9 +136,67 @@ func normalizeToken(token string) string {
 	if normalized == "" {
 		return ""
 	}
-	runeCount := len([]rune(normalized))
-	if runeCount <= 1 {
+	if len([]rune(normalized)) <= 1 {
 		return ""
 	}
 	return normalized
+}
+
+func deriveTopicKey(topicHint string, keywords []string) string {
+	if normalized := strings.TrimSpace(topicHint); normalized != "" {
+		return normalized
+	}
+	items := normalizeKeywordsForPayload(keywords)
+	if len(items) > 0 {
+		return strings.Join(items, "-")
+	}
+	return ""
+}
+
+func fallbackTopicKey(summary string, keywords []string) string {
+	if key := deriveTopicKey("", keywords); key != "" {
+		return key
+	}
+	hasher := fnv.New64a()
+	_, _ = hasher.Write([]byte(strings.TrimSpace(summary)))
+	return fmt.Sprintf("topic-%x", hasher.Sum64())
+}
+
+func mergeKeywords(existingJSON string, incoming []string) []string {
+	items := append([]string{}, decodeKeywordsJSON(existingJSON)...)
+	items = append(items, incoming...)
+	return normalizeKeywordsForPayload(items)
+}
+
+func decodeKeywordsJSON(raw string) []string {
+	if strings.TrimSpace(raw) == "" {
+		return []string{}
+	}
+	var items []string
+	if err := json.Unmarshal([]byte(raw), &items); err != nil {
+		return []string{}
+	}
+	return normalizeKeywordsForPayload(items)
+}
+
+func mergeSummary(existing string, incoming string) string {
+	existing = strings.TrimSpace(existing)
+	incoming = strings.TrimSpace(incoming)
+	switch {
+	case existing == "":
+		return incoming
+	case incoming == "":
+		return existing
+	case strings.Contains(existing, incoming):
+		return existing
+	default:
+		return existing + "\n" + incoming
+	}
+}
+
+func safeTimeGap(now time.Time, then time.Time) time.Duration {
+	if now.IsZero() || then.IsZero() || now.Before(then) {
+		return 0
+	}
+	return now.Sub(then)
 }

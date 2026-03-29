@@ -6,8 +6,7 @@ import (
 	settingssvc "slimebot/internal/services/settings"
 )
 
-// GetSettings 杩斿洖褰撳墠鍏ㄥ眬璁剧疆锛堝惈榛樿鍊煎洖濉悗鐨勭粨鏋滐級銆?
-
+// GetSettings 返回当前全局设置，并补齐服务层默认值。
 func (h *HTTPController) GetSettings(c WebContext) {
 	settings, err := h.settings.Get()
 	if err != nil {
@@ -21,8 +20,7 @@ func (h *HTTPController) GetSettings(c WebContext) {
 	})
 }
 
-// UpdateSettings 鎸夊瓧娈靛閲忔洿鏂板叏灞€璁剧疆銆?
-
+// UpdateSettings 按字段更新全局设置。
 func (h *HTTPController) UpdateSettings(c WebContext) {
 	var req struct {
 		Language                    string `json:"language"`

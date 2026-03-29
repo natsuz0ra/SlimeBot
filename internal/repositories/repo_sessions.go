@@ -1,6 +1,7 @@
 package repositories
 
 import (
+	"context"
 	"errors"
 	"slimebot/internal/domain"
 	"strings"
@@ -29,30 +30,30 @@ func (r *Repository) ListSessions(limit int, offset int, query string) ([]domain
 	return sessions, err
 }
 
-func (r *Repository) GetSessionByID(id string) (*domain.Session, error) {
+func (r *Repository) GetSessionByID(ctx context.Context, id string) (*domain.Session, error) {
 	var session domain.Session
-	err := r.db.First(&session, "id = ?", id).Error
+	err := r.dbWithContext(ctx).First(&session, "id = ?", id).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, nil
 	}
 	return &session, err
 }
 
-func (r *Repository) CreateSession(name string) (*domain.Session, error) {
+func (r *Repository) CreateSession(ctx context.Context, name string) (*domain.Session, error) {
 	session := &domain.Session{
 		ID:   uuid.NewString(),
 		Name: name,
 	}
-	err := r.db.Create(session).Error
+	err := r.dbWithContext(ctx).Create(session).Error
 	return session, err
 }
 
-func (r *Repository) CreateSessionWithID(id, name string) (*domain.Session, error) {
+func (r *Repository) CreateSessionWithID(ctx context.Context, id, name string) (*domain.Session, error) {
 	session := &domain.Session{
 		ID:   id,
 		Name: name,
 	}
-	err := r.db.Create(session).Error
+	err := r.dbWithContext(ctx).Create(session).Error
 	return session, err
 }
 
@@ -63,11 +64,14 @@ func (r *Repository) RenameSessionByUser(id, name string) error {
 		Error
 }
 
-func (r *Repository) UpdateSessionTitle(id, name string) error {
-	return r.db.Model(&domain.Session{}).
-		Where("id = ?", id).
-		Updates(map[string]any{"name": name, "updated_at": time.Now()}).
-		Error
+func (r *Repository) UpdateSessionTitle(ctx context.Context, id, name string) (bool, error) {
+	result := r.dbWithContext(ctx).Model(&domain.Session{}).
+		Where("id = ? AND is_title_locked = ? AND name <> ?", id, false, name).
+		Updates(map[string]any{"name": name, "updated_at": time.Now()})
+	if result.Error != nil {
+		return false, result.Error
+	}
+	return result.RowsAffected > 0, nil
 }
 
 func (r *Repository) DeleteSession(id string) error {
@@ -78,20 +82,12 @@ func (r *Repository) DeleteSession(id string) error {
 		if err := tx.Where("session_id = ?", id).Delete(&domain.ToolCallRecord{}).Error; err != nil {
 			return err
 		}
-		if err := tx.Where("session_id = ?", id).Delete(&domain.SessionMemory{}).Error; err != nil {
+		if err := tx.Where("session_id = ?", id).Delete(&domain.EpisodeMemory{}).Error; err != nil {
 			return err
 		}
-		var ftscount int64
-		if err := tx.Raw(`SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='session_memories_fts'`).Scan(&ftscount).Error; err == nil && ftscount > 0 {
-			_ = tx.Exec(`DELETE FROM session_memories_fts WHERE session_id = ?`, id).Error
+		if err := tx.Where("session_id = ?", id).Delete(&domain.StickyMemory{}).Error; err != nil {
+			return err
 		}
 		return tx.Where("id = ?", id).Delete(&domain.Session{}).Error
 	})
-}
-
-func (r *Repository) SetSessionModel(sessionID, modelConfigID string) error {
-	return r.db.Model(&domain.Session{}).
-		Where("id = ?", sessionID).
-		Updates(map[string]any{"model_config_id": modelConfigID, "updated_at": time.Now()}).
-		Error
 }

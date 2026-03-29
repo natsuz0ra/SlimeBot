@@ -1,6 +1,7 @@
 package repositories
 
 import (
+	"context"
 	"slimebot/internal/domain"
 	"time"
 
@@ -13,9 +14,9 @@ func (r *Repository) ListMCPConfigs() ([]domain.MCPConfig, error) {
 	return items, err
 }
 
-func (r *Repository) ListEnabledMCPConfigs() ([]domain.MCPConfig, error) {
+func (r *Repository) ListEnabledMCPConfigs(ctx context.Context) ([]domain.MCPConfig, error) {
 	var items []domain.MCPConfig
-	err := r.db.Where("is_enabled = ?", true).Order("created_at asc").Find(&items).Error
+	err := r.dbWithContext(ctx).Where("is_enabled = ?", true).Order("created_at asc").Find(&items).Error
 	return items, err
 }
 

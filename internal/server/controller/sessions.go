@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"slimebot/internal/constants"
+	"slimebot/internal/observability"
 )
 
 type sessionMessagesResponse struct {
@@ -152,6 +153,7 @@ func (h *HTTPController) DeleteSession(c WebContext) {
 
 // ListMessages 返回会话消息，并附带 assistant 消息关联的工具调用历史。
 func (h *HTTPController) ListMessages(c WebContext) {
+	listStart := time.Now()
 	sessionID := c.Param("id")
 	limit := 10
 	if rawLimit := strings.TrimSpace(c.Query("limit")); rawLimit != "" {
@@ -254,20 +256,5 @@ func (h *HTTPController) ListMessages(c WebContext) {
 		ToolCallsByAssistantMessageID: toolCallsByAssistantMessageID,
 		HasMore:                       hasMore,
 	})
-}
-
-// SetSessionModel 设置会话默认模型配置。
-func (h *HTTPController) SetSessionModel(c WebContext) {
-	id := c.Param("id")
-	var req struct {
-		ModelConfigID string `json:"modelConfigId" binding:"required"`
-	}
-	if !bindJSONOrBadRequest(c, &req, "modelConfigId is required.") {
-		return
-	}
-	if err := h.sessions.SetModel(id, req.ModelConfigID); err != nil {
-		jsonInternalError(c, err)
-		return
-	}
-	c.Status(http.StatusNoContent)
+	observability.Span("http_list_messages", listStart)
 }

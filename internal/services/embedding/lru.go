@@ -1,66 +1,40 @@
 package embedding
 
-import (
-	"container/list"
-	"sync"
-)
+import "github.com/hashicorp/golang-lru/v2"
 
 type embeddingLRU struct {
-	mu  sync.Mutex
-	cap int
-	ll  *list.List
-	m   map[string]*list.Element
-}
-
-type lruEntry struct {
-	key string
-	val []float32
+	cache *lru.Cache[string, []float32]
 }
 
 func newEmbeddingLRU(cap int) *embeddingLRU {
 	if cap < 1 {
 		cap = 512
 	}
-	return &embeddingLRU{
-		cap: cap,
-		ll:  list.New(),
-		m:   make(map[string]*list.Element),
+	cache, err := lru.New[string, []float32](cap)
+	if err != nil {
+		cache, _ = lru.New[string, []float32](512)
 	}
+	return &embeddingLRU{cache: cache}
 }
 
 func (c *embeddingLRU) get(key string) ([]float32, bool) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if el, ok := c.m[key]; ok {
-		c.ll.MoveToFront(el)
-		v := el.Value.(*lruEntry).val
-		out := make([]float32, len(v))
-		copy(out, v)
-		return out, true
+	if c == nil || c.cache == nil {
+		return nil, false
 	}
-	return nil, false
+	v, ok := c.cache.Get(key)
+	if !ok {
+		return nil, false
+	}
+	out := make([]float32, len(v))
+	copy(out, v)
+	return out, true
 }
 
 func (c *embeddingLRU) put(key string, val []float32) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	copyVal := make([]float32, len(val))
-	copy(copyVal, val)
-	if el, ok := c.m[key]; ok {
-		el.Value.(*lruEntry).val = copyVal
-		c.ll.MoveToFront(el)
+	if c == nil || c.cache == nil {
 		return
 	}
-	ne := &lruEntry{key: key, val: copyVal}
-	elem := c.ll.PushFront(ne)
-	c.m[key] = elem
-	for c.ll.Len() > c.cap {
-		back := c.ll.Back()
-		if back == nil {
-			break
-		}
-		old := back.Value.(*lruEntry)
-		delete(c.m, old.key)
-		c.ll.Remove(back)
-	}
+	copyVal := make([]float32, len(val))
+	copy(copyVal, val)
+	c.cache.Add(key, copyVal)
 }

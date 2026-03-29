@@ -6,8 +6,7 @@ import (
 	configsvc "slimebot/internal/services/config"
 )
 
-// ListMCPConfigs 鍒楀嚭鍏ㄩ儴 MCP 鏈嶅姟閰嶇疆銆?
-
+// ListMCPConfigs 返回当前保存的全部 MCP 服务配置。
 func (h *HTTPController) ListMCPConfigs(c WebContext) {
 	items, err := h.mcpConfigs.List()
 	if err != nil {
@@ -17,8 +16,7 @@ func (h *HTTPController) ListMCPConfigs(c WebContext) {
 	c.JSON(http.StatusOK, items)
 }
 
-// CreateMCPConfig 鍒涘缓 MCP 閰嶇疆骞舵墽琛岄厤缃唴瀹规牎楠屻€?
-
+// CreateMCPConfig 创建 MCP 配置，并在入库前先校验 transport 配置是否合法。
 func (h *HTTPController) CreateMCPConfig(c WebContext) {
 	var req struct {
 		Name      string `json:"name"`
@@ -49,8 +47,7 @@ func (h *HTTPController) CreateMCPConfig(c WebContext) {
 	c.JSON(http.StatusOK, item)
 }
 
-// UpdateMCPConfig 鏇存柊鎸囧畾 MCP 閰嶇疆骞堕噸鏂版牎楠屾湁鏁堟€с€?
-
+// UpdateMCPConfig 更新指定 MCP 配置，并复用同一套配置校验逻辑。
 func (h *HTTPController) UpdateMCPConfig(c WebContext) {
 	id := c.Param("id")
 	var req struct {
@@ -81,8 +78,7 @@ func (h *HTTPController) UpdateMCPConfig(c WebContext) {
 	c.Status(http.StatusNoContent)
 }
 
-// DeleteMCPConfig 鍒犻櫎鎸囧畾 MCP 閰嶇疆銆?
-
+// DeleteMCPConfig 删除指定 MCP 配置。
 func (h *HTTPController) DeleteMCPConfig(c WebContext) {
 	id := c.Param("id")
 	if err := h.mcpConfigs.Delete(id); err != nil {

@@ -6,13 +6,16 @@ import (
 	"fmt"
 	"log/slog"
 	"slimebot/internal/domain"
-	"strconv"
+	"slimebot/internal/observability"
 	"strings"
 	"sync"
 	"time"
 
 	"slimebot/internal/constants"
 	"slimebot/internal/mcp"
+	memsvc "slimebot/internal/services/memory"
+	oaisvc "slimebot/internal/services/openai"
+	skillsvc "slimebot/internal/services/skill"
 	"slimebot/internal/tools"
 )
 
@@ -43,35 +46,33 @@ type ToolCallResult struct {
 	Error            string `json:"error"`
 }
 
-// AgentCallbacks 是 Agent 循环与外部（WebSocket 控制器）交互的回调集合
+// AgentCallbacks Agent 循环与外部交互的回调集合
 type AgentCallbacks struct {
-	// OnChunk 推送流式文本片段
-	OnChunk func(chunk string) error
-	// OnToolCallStart 通知前端模型请求调用工具，等待审批
-	OnToolCallStart func(req ApprovalRequest) error
-	// WaitApproval 阻塞等待前端用户审批结果
-	WaitApproval func(ctx context.Context, toolCallID string) (*ApprovalResponse, error)
-	// OnToolCallResult 通知前端工具执行结果
-	OnToolCallResult func(result ToolCallResult) error
+	OnChunk          func(chunk string) error                                                // 推送流式文本片段
+	OnToolCallStart  func(req ApprovalRequest) error                                         // 通知前端工具调用等待审批
+	WaitApproval     func(ctx context.Context, toolCallID string) (*ApprovalResponse, error) // 阻塞等待审批结果
+	OnToolCallResult func(result ToolCallResult) error                                       // 通知前端工具执行结果
 }
 
-// AgentService 封装 Agent 循环逻辑
+// AgentService Agent 服务：封装与 LLM 的交互循环、工具调用、审批流与 MCP/Skill 工具加载
 type AgentService struct {
-	openai       *OpenAIClient
+	openai       *oaisvc.OpenAIClient
 	mcp          *mcp.Manager
-	skillRuntime *SkillRuntimeService
-	memory       *MemoryService
+	skillRuntime *skillsvc.SkillRuntimeService
+	memory       *memsvc.MemoryService
 	toolCacheMu  sync.Mutex
 	toolCache    map[string]cachedToolDefs
 }
 
+// cachedToolDefs 工具定义缓存项
 type cachedToolDefs struct {
-	defs       []ToolDef
+	defs       []oaisvc.ToolDef
 	metaByFunc map[string]mcp.ToolMeta
 	expireAt   time.Time
 }
 
-func NewAgentService(openai *OpenAIClient, mcpManager *mcp.Manager, skillRuntime *SkillRuntimeService, memory *MemoryService) *AgentService {
+// NewAgentService 创建 Agent 服务实例
+func NewAgentService(openai *oaisvc.OpenAIClient, mcpManager *mcp.Manager, skillRuntime *skillsvc.SkillRuntimeService, memory *memsvc.MemoryService) *AgentService {
 	return &AgentService{
 		openai:       openai,
 		mcp:          mcpManager,
@@ -81,10 +82,10 @@ func NewAgentService(openai *OpenAIClient, mcpManager *mcp.Manager, skillRuntime
 	}
 }
 
-// BuildToolDefs 从全局工具注册中心生成 OpenAI function call 的工具定义列表。
-// 每个工具的每个命令映射为一个 function，名称格式为 {tool}__{command}。
-func BuildToolDefs() []ToolDef {
-	var defs []ToolDef
+// BuildToolDefs 从全局工具注册中心生成 OpenAI function call 的工具定义列表
+// 每个工具的每个命令映射为一个 function，名称格式为 {tool}__{command}
+func BuildToolDefs() []oaisvc.ToolDef {
+	var defs []oaisvc.ToolDef
 	for _, t := range tools.All() {
 		for _, cmd := range t.Commands() {
 			properties := make(map[string]any)
@@ -114,7 +115,7 @@ func BuildToolDefs() []ToolDef {
 				params["required"] = required
 			}
 
-			defs = append(defs, ToolDef{
+			defs = append(defs, oaisvc.ToolDef{
 				Name:        funcName,
 				Description: desc,
 				Parameters:  params,
@@ -124,8 +125,8 @@ func BuildToolDefs() []ToolDef {
 	return defs
 }
 
-// buildRuntimeToolDefs 汇总运行时可见工具（内建 + skill + MCP）并返回名称映射。
-func (a *AgentService) buildRuntimeToolDefs(ctx context.Context, configs []domain.MCPConfig) ([]ToolDef, map[string]mcp.ToolMeta, error) {
+// buildRuntimeToolDefs 汇总运行时可见工具（内建 + skill + MCP）并返回名称映射
+func (a *AgentService) buildRuntimeToolDefs(ctx context.Context, configs []domain.MCPConfig) ([]oaisvc.ToolDef, map[string]mcp.ToolMeta, error) {
 	cacheKey := buildToolDefsCacheKey(configs)
 	if defs, metaByFunc, ok := a.getCachedToolDefs(cacheKey); ok {
 		return defs, metaByFunc, nil
@@ -133,7 +134,8 @@ func (a *AgentService) buildRuntimeToolDefs(ctx context.Context, configs []domai
 	defs := BuildToolDefs()
 	metaByFunc := make(map[string]mcp.ToolMeta)
 	if a.memory != nil {
-		defs = append(defs, ToolDef{
+		// 注入 memory 工具定义，供模型在需要时检索历史记忆
+		defs = append(defs, oaisvc.ToolDef{
 			Name:        constants.SearchMemoryTool,
 			Description: "[memory] Search historical memory on demand. Use only when the response depends on past preferences, decisions, or cross-session constraints.",
 			Parameters: map[string]any{
@@ -168,7 +170,9 @@ func (a *AgentService) buildRuntimeToolDefs(ctx context.Context, configs []domai
 		return defs, metaByFunc, nil
 	}
 
+	loadStart := time.Now()
 	metas, mcpDefs, err := a.mcp.LoadTools(ctx, configs)
+	observability.Span("mcp_load_tools", loadStart)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -179,7 +183,7 @@ func (a *AgentService) buildRuntimeToolDefs(ctx context.Context, configs []domai
 		if name == "" {
 			continue
 		}
-		defs = append(defs, ToolDef{
+		defs = append(defs, oaisvc.ToolDef{
 			Name:        name,
 			Description: description,
 			Parameters:  parameters,
@@ -210,14 +214,14 @@ func buildToolDefsCacheKey(configs []domain.MCPConfig) string {
 	return strings.Join(parts, "|")
 }
 
-func (a *AgentService) getCachedToolDefs(cacheKey string) ([]ToolDef, map[string]mcp.ToolMeta, bool) {
+func (a *AgentService) getCachedToolDefs(cacheKey string) ([]oaisvc.ToolDef, map[string]mcp.ToolMeta, bool) {
 	a.toolCacheMu.Lock()
 	defer a.toolCacheMu.Unlock()
 	item, ok := a.toolCache[cacheKey]
 	if !ok || time.Now().After(item.expireAt) {
 		return nil, nil, false
 	}
-	defs := make([]ToolDef, len(item.defs))
+	defs := make([]oaisvc.ToolDef, len(item.defs))
 	copy(defs, item.defs)
 	metaByFunc := make(map[string]mcp.ToolMeta, len(item.metaByFunc))
 	for k, v := range item.metaByFunc {
@@ -226,10 +230,10 @@ func (a *AgentService) getCachedToolDefs(cacheKey string) ([]ToolDef, map[string
 	return defs, metaByFunc, true
 }
 
-func (a *AgentService) setCachedToolDefs(cacheKey string, defs []ToolDef, metaByFunc map[string]mcp.ToolMeta) {
+func (a *AgentService) setCachedToolDefs(cacheKey string, defs []oaisvc.ToolDef, metaByFunc map[string]mcp.ToolMeta) {
 	a.toolCacheMu.Lock()
 	defer a.toolCacheMu.Unlock()
-	defsCopy := make([]ToolDef, len(defs))
+	defsCopy := make([]oaisvc.ToolDef, len(defs))
 	copy(defsCopy, defs)
 	metaCopy := make(map[string]mcp.ToolMeta, len(metaByFunc))
 	for k, v := range metaByFunc {
@@ -238,7 +242,7 @@ func (a *AgentService) setCachedToolDefs(cacheKey string, defs []ToolDef, metaBy
 	a.toolCache[cacheKey] = cachedToolDefs{
 		defs:       defsCopy,
 		metaByFunc: metaCopy,
-		expireAt:   time.Now().Add(10 * time.Second),
+		expireAt:   time.Now().Add(10 * time.Minute),
 	}
 }
 
@@ -249,9 +253,9 @@ func (a *AgentService) setCachedToolDefs(cacheKey string, defs []ToolDef, metaBy
 // 返回最终的纯文本回答。
 func (a *AgentService) RunAgentLoop(
 	ctx context.Context,
-	modelConfig ModelRuntimeConfig,
+	modelConfig oaisvc.ModelRuntimeConfig,
 	sessionID string,
-	contextMessages []ChatMessage,
+	contextMessages []oaisvc.ChatMessage,
 	mcpConfigs []domain.MCPConfig,
 	activatedSkills map[string]struct{},
 	callbacks AgentCallbacks,
@@ -260,7 +264,7 @@ func (a *AgentService) RunAgentLoop(
 	if err != nil {
 		return "", fmt.Errorf("failed to load MCP tools: %w", err)
 	}
-	messages := make([]ChatMessage, len(contextMessages))
+	messages := make([]oaisvc.ChatMessage, len(contextMessages))
 	copy(messages, contextMessages)
 
 	var finalAnswer strings.Builder
@@ -278,7 +282,7 @@ func (a *AgentService) RunAgentLoop(
 			return "", fmt.Errorf("agent LLM call failed at iteration %d: %w", i+1, err)
 		}
 
-		if result.Type == StreamResultType(constants.StreamResultText) {
+		if result.Type == oaisvc.StreamResultType(constants.StreamResultText) {
 			finalAnswer.WriteString(chunkBuf.String())
 			return finalAnswer.String(), nil
 		}
@@ -288,6 +292,7 @@ func (a *AgentService) RunAgentLoop(
 		preamble := strings.TrimSpace(result.AssistantMessage.Content)
 
 		for _, tc := range result.ToolCalls {
+			// tool_calls 阶段会逐个审批并执行（含 memory 工具）。
 			invocation, err := resolveToolInvocation(tc, mcpToolMeta)
 			if err != nil {
 				messages = appendToolMessage(messages, tc.ID, fmt.Sprintf("failed to parse tool invocation: %s", err.Error()))
@@ -392,19 +397,6 @@ func parseToolCallArgsAny(arguments string) (map[string]any, error) {
 	return raw, nil
 }
 
-// parseOptionalInt 解析可选整数参数；失败时回落默认值。
-func parseOptionalInt(raw string, defaultValue int) int {
-	value := strings.TrimSpace(raw)
-	if value == "" {
-		return defaultValue
-	}
-	parsed, err := strconv.Atoi(value)
-	if err != nil {
-		return defaultValue
-	}
-	return parsed
-}
-
 // executeToolCall 执行内建工具命令并统一错误返回格式。
 func executeToolCall(ctx context.Context, toolName, command string, params map[string]string) *tools.ExecuteResult {
 	t, ok := tools.Get(toolName)
@@ -426,8 +418,8 @@ func requiresToolApproval(toolName string, isMCP bool) bool {
 	return toolName == constants.ExecToolName
 }
 
-func appendToolMessage(messages []ChatMessage, toolCallID string, content string) []ChatMessage {
-	return append(messages, ChatMessage{
+func appendToolMessage(messages []oaisvc.ChatMessage, toolCallID string, content string) []oaisvc.ChatMessage {
+	return append(messages, oaisvc.ChatMessage{
 		Role:       "tool",
 		ToolCallID: toolCallID,
 		Content:    content,

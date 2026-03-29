@@ -23,9 +23,7 @@ type sessionService interface {
 	RenameByUser(id, name string) error
 	Delete(id string) error
 	ListMessagesPage(sessionID string, limit int, before *time.Time, beforeSeq *int64, after *time.Time, afterSeq *int64) ([]domain.Message, bool, error)
-	ListToolCallRecords(sessionID string) ([]domain.ToolCallRecord, error)
 	ListToolCallRecordsByAssistantMessageIDs(sessionID string, messageIDs []string) ([]domain.ToolCallRecord, error)
-	SetModel(sessionID, modelConfigID string) error
 }
 
 type settingsService interface {

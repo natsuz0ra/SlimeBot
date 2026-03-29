@@ -32,7 +32,7 @@ func TestMemoryVectorRepository_Integration_UpsertAndSearch(t *testing.T) {
 		t.Fatalf("upsert failed: %v", err)
 	}
 
-	hits, err := repo.SearchSimilarSessionIDs(context.Background(), []float32{0.12, 0.23, 0.34}, 3, "")
+	hits, err := repo.SearchMemoriesInSession(context.Background(), []float32{0.12, 0.23, 0.34}, "integration-s1", 3)
 	if err != nil {
 		t.Fatalf("search failed: %v", err)
 	}

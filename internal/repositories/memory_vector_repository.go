@@ -30,7 +30,6 @@ type qdrantVectorClient interface {
 	CreateFieldIndex(ctx context.Context, request *qdrant.CreateFieldIndexCollection) (*qdrant.UpdateResult, error)
 	Upsert(ctx context.Context, request *qdrant.UpsertPoints) (*qdrant.UpdateResult, error)
 	Query(ctx context.Context, request *qdrant.QueryPoints) ([]*qdrant.ScoredPoint, error)
-	Delete(ctx context.Context, request *qdrant.DeletePoints) (*qdrant.UpdateResult, error)
 	Close() error
 }
 
@@ -113,56 +112,6 @@ func (r *MemoryVectorRepository) UpsertSessionMemoryVector(ctx context.Context, 
 		return fmt.Errorf("qdrant upsert failed: %w", err)
 	}
 	return nil
-}
-
-func (r *MemoryVectorRepository) DeleteMemoryVector(ctx context.Context, memoryID string) error {
-	if err := r.validateConfig(); err != nil {
-		return err
-	}
-	memoryID = strings.TrimSpace(memoryID)
-	if memoryID == "" {
-		return fmt.Errorf("memory_id cannot be empty")
-	}
-	_, err := r.client.Delete(ctx, &qdrant.DeletePoints{
-		CollectionName: r.collection,
-		Wait:           qdrant.PtrOf(false),
-		Points:         qdrant.NewPointsSelector(buildPointID(memoryID)),
-	})
-	if err != nil {
-		return fmt.Errorf("qdrant delete failed: %w", err)
-	}
-	return nil
-}
-
-func (r *MemoryVectorRepository) SearchSimilarSessionIDs(ctx context.Context, queryVector []float32, limit int, excludeSessionID string) ([]domain.MemoryVectorSearchHit, error) {
-	if err := r.validateConfig(); err != nil {
-		return nil, err
-	}
-	if len(queryVector) == 0 || limit <= 0 {
-		return []domain.MemoryVectorSearchHit{}, nil
-	}
-	if err := r.ensureCollection(ctx, len(queryVector)); err != nil {
-		return nil, err
-	}
-
-	request := &qdrant.QueryPoints{
-		CollectionName: r.collection,
-		Query:          qdrant.NewQueryDense(queryVector),
-		Limit:          qdrant.PtrOf(uint64(limit)),
-		WithPayload:    qdrant.NewWithPayload(true),
-	}
-	if sessionID := strings.TrimSpace(excludeSessionID); sessionID != "" {
-		request.Filter = &qdrant.Filter{
-			MustNot: []*qdrant.Condition{
-				qdrant.NewMatch("session_id", sessionID),
-			},
-		}
-	}
-	results, err := r.client.Query(ctx, request)
-	if err != nil {
-		return nil, err
-	}
-	return scoredPointsToMemoryHits(results), nil
 }
 
 func (r *MemoryVectorRepository) SearchMemoriesInSession(ctx context.Context, queryVector []float32, sessionID string, limit int) ([]domain.MemoryVectorSearchHit, error) {

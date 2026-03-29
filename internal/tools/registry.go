@@ -6,17 +6,19 @@ import (
 	"sync"
 )
 
+// globalRegistry 全局工具注册中心实例
 var (
 	globalRegistry = &registry{tools: make(map[string]Tool)}
 )
 
+// registry 工具注册中心
 type registry struct {
 	mu    sync.RWMutex
 	tools map[string]Tool
 }
 
-// Register 将工具注册到全局注册中心。通常在各工具文件的 init() 中调用。
-// 如果工具名称重复会 panic，确保每个工具名称唯一。
+// Register 将工具注册到全局注册中心。通常在各工具文件的 init() 中调用
+// 如果工具名称重复会 panic，确保每个工具名称唯一
 func Register(tool Tool) {
 	globalRegistry.mu.Lock()
 	defer globalRegistry.mu.Unlock()

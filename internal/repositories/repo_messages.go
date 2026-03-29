@@ -1,7 +1,9 @@
 package repositories
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"time"
 
 	"slimebot/internal/domain"
@@ -38,17 +40,11 @@ func normalizeMessages(items []domain.Message) {
 	}
 }
 
-func (r *Repository) ListSessionMessages(sessionID string) ([]domain.Message, error) {
-	var messages []domain.Message
-	err := r.db.Where("session_id = ?", sessionID).Order("created_at asc, seq asc").Find(&messages).Error
-	normalizeMessages(messages)
-	return messages, err
-}
-
 func (r *Repository) ListSessionMessagesPage(sessionID string, limit int, before *time.Time, beforeSeq *int64, after *time.Time, afterSeq *int64) ([]domain.Message, bool, error) {
 	if limit <= 0 {
 		limit = 10
 	}
+	fetchLimit := limit + 1
 
 	base := r.db.Where("session_id = ?", sessionID)
 	var (
@@ -62,7 +58,7 @@ func (r *Repository) ListSessionMessagesPage(sessionID string, limit int, before
 		q := base.Where("(created_at > ?) OR (created_at = ? AND seq > ?)", *after, *after, *afterSeq)
 		err = q.
 			Order("created_at asc, seq asc").
-			Limit(limit).
+			Limit(fetchLimit).
 			Find(&messages).
 			Error
 		if err != nil {
@@ -71,13 +67,10 @@ func (r *Repository) ListSessionMessagesPage(sessionID string, limit int, before
 		if len(messages) == 0 {
 			return messages, false, nil
 		}
-		var count int64
-		latest := messages[len(messages)-1]
-		err = base.Where("(created_at > ?) OR (created_at = ? AND seq > ?)", latest.CreatedAt, latest.CreatedAt, latest.Seq).Count(&count).Error
-		if err != nil {
-			return nil, false, err
+		if len(messages) > limit {
+			hasMore = true
+			messages = messages[:limit]
 		}
-		hasMore = count > 0
 	default:
 		query := base
 		if before != nil {
@@ -85,7 +78,7 @@ func (r *Repository) ListSessionMessagesPage(sessionID string, limit int, before
 		}
 		err = query.
 			Order("created_at desc, seq desc").
-			Limit(limit).
+			Limit(fetchLimit).
 			Find(&messages).
 			Error
 		if err != nil {
@@ -94,29 +87,26 @@ func (r *Repository) ListSessionMessagesPage(sessionID string, limit int, before
 		if len(messages) == 0 {
 			return messages, false, nil
 		}
+		if len(messages) > limit {
+			hasMore = true
+			messages = messages[:limit]
+		}
 		for left, right := 0, len(messages)-1; left < right; left, right = left+1, right-1 {
 			messages[left], messages[right] = messages[right], messages[left]
 		}
-		var count int64
-		oldest := messages[0]
-		err = base.Where("(created_at < ?) OR (created_at = ? AND seq < ?)", oldest.CreatedAt, oldest.CreatedAt, oldest.Seq).Count(&count).Error
-		if err != nil {
-			return nil, false, err
-		}
-		hasMore = count > 0
 	}
 
 	normalizeMessages(messages)
 	return messages, hasMore, nil
 }
 
-func (r *Repository) ListRecentSessionMessages(sessionID string, limit int) ([]domain.Message, error) {
+func (r *Repository) ListRecentSessionMessages(ctx context.Context, sessionID string, limit int) ([]domain.Message, error) {
 	if limit <= 0 {
 		return []domain.Message{}, nil
 	}
 
 	var messages []domain.Message
-	err := r.db.
+	err := r.dbWithContext(ctx).
 		Where("session_id = ?", sessionID).
 		Order("created_at desc, seq desc").
 		Limit(limit).
@@ -133,15 +123,7 @@ func (r *Repository) ListRecentSessionMessages(sessionID string, limit int) ([]d
 	return messages, nil
 }
 
-func (r *Repository) AddMessage(sessionID, role, content string) (*domain.Message, error) {
-	return r.AddMessageWithInput(domain.AddMessageInput{
-		SessionID: sessionID,
-		Role:      role,
-		Content:   content,
-	})
-}
-
-func (r *Repository) AddMessageWithInput(input domain.AddMessageInput) (*domain.Message, error) {
+func (r *Repository) AddMessageWithInput(ctx context.Context, input domain.AddMessageInput) (*domain.Message, error) {
 	message := &domain.Message{
 		ID:                uuid.NewString(),
 		SessionID:         input.SessionID,
@@ -152,12 +134,17 @@ func (r *Repository) AddMessageWithInput(input domain.AddMessageInput) (*domain.
 		AttachmentsJSON:   encodeMessageAttachments(input.Attachments),
 		Attachments:       input.Attachments,
 	}
-	err := r.db.Transaction(func(tx *gorm.DB) error {
-		var maxSeq int64
-		if err := tx.Model(&domain.Message{}).Where("session_id = ?", input.SessionID).Select("COALESCE(MAX(seq),0)").Scan(&maxSeq).Error; err != nil {
+	err := r.dbWithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var last domain.Message
+		if err := tx.Model(&domain.Message{}).
+			Select("seq").
+			Where("session_id = ?", input.SessionID).
+			Order("seq desc").
+			Limit(1).
+			Take(&last).Error; err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
 			return err
 		}
-		message.Seq = maxSeq + 1
+		message.Seq = last.Seq + 1
 		if err := tx.Create(message).Error; err != nil {
 			return err
 		}

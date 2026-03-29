@@ -2,333 +2,198 @@ package memory
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
-	"sort"
 	"strings"
+	"time"
 
 	"slimebot/internal/constants"
 	"slimebot/internal/domain"
 )
 
-func retrieveMemoriesByVectorImpl(m *MemoryService, ctx context.Context, query string, excludeSessionID string, limit int) ([]domain.SessionMemorySearchHit, error) {
+func upsertEpisodeVector(m *MemoryService, ctx context.Context, item *domain.EpisodeMemory) error {
+	if item == nil {
+		return nil
+	}
+	vector, err := m.embedding.Embed(ctx, strings.TrimSpace(item.Title+"\n"+item.Summary+"\n"+strings.Join(decodeKeywordsJSON(item.KeywordsJSON), " ")))
+	if err != nil {
+		return err
+	}
+	return m.vectorStore.UpsertSessionMemoryVector(ctx, domain.MemoryVectorUpsertInput{
+		MemoryID:  item.ID,
+		SessionID: item.SessionID,
+		Vector:    vector,
+		Payload: map[string]any{
+			"title":     item.Title,
+			"topic_key": item.TopicKey,
+			"kind":      "episode",
+		},
+	})
+}
+
+func (m *MemoryService) RetrieveRelevantEpisodes(ctx context.Context, sessionID, query string, excludeStartSeq, excludeEndSeq int64, limit int) ([]domain.EpisodeMemorySearchHit, error) {
+	if limit <= 0 {
+		limit = constants.MemorySearchTopK
+	}
 	q := strings.TrimSpace(query)
 	if q == "" {
-		return []domain.SessionMemorySearchHit{}, nil
+		return []domain.EpisodeMemorySearchHit{}, nil
 	}
-	queryKeywords := m.TokenizeKeywords(q)
-	queryVector, err := m.embedding.Embed(ctx, q)
+	queryText := q
+	if keywords := m.TokenizeKeywords(q); len(keywords) > 0 {
+		queryText = strings.Join(keywords, " ")
+	}
+
+	if m.embedding != nil && m.vectorStore != nil {
+		hits, err := m.retrieveEpisodesByVector(ctx, sessionID, queryText, excludeStartSeq, excludeEndSeq, limit)
+		if err == nil && len(hits) > 0 {
+			return hits, nil
+		}
+		if err != nil {
+			slog.Warn("memory_vector_retrieve_fallback", "session", sessionID, "err", err)
+		}
+	}
+
+	return m.store.SearchEpisodeMemories(ctx, domain.EpisodeMemorySearchInput{
+		SessionID:       sessionID,
+		Query:           queryText,
+		Limit:           limit,
+		ExcludeStartSeq: excludeStartSeq,
+		ExcludeEndSeq:   excludeEndSeq,
+		Now:             time.Now(),
+	})
+}
+
+func (m *MemoryService) retrieveEpisodesByVector(ctx context.Context, sessionID, query string, excludeStartSeq, excludeEndSeq int64, limit int) ([]domain.EpisodeMemorySearchHit, error) {
+	vector, err := m.embedding.Embed(ctx, query)
 	if err != nil {
-		slog.Warn("memory_vector_query_embedding_failed",
-			"keyword_count", len(queryKeywords),
-			"exclude_session", strings.TrimSpace(excludeSessionID),
-			"err", err,
-		)
 		return nil, err
 	}
-	slog.Info("memory_vector_query_embedding_succeeded",
-		"keyword_count", len(queryKeywords),
-		"vector_dim", len(queryVector),
-		"exclude_session", strings.TrimSpace(excludeSessionID),
-	)
-
 	searchLimit := limit
 	if m.vectorTopK > searchLimit {
 		searchLimit = m.vectorTopK
 	}
-	vectorHits, err := m.vectorStore.SearchSimilarSessionIDs(ctx, queryVector, searchLimit, excludeSessionID)
+	vectorHits, err := m.vectorStore.SearchMemoriesInSession(ctx, vector, sessionID, searchLimit)
 	if err != nil {
-		slog.Warn("memory_vector_query_failed",
-			"keyword_count", len(queryKeywords),
-			"search_limit", searchLimit,
-			"exclude_session", strings.TrimSpace(excludeSessionID),
-			"err", err,
-		)
 		return nil, err
 	}
 	if len(vectorHits) == 0 {
-		slog.Info("memory_vector_query_no_hit",
-			"keyword_count", len(queryKeywords),
-			"search_limit", searchLimit,
-			"exclude_session", strings.TrimSpace(excludeSessionID),
-		)
-		return []domain.SessionMemorySearchHit{}, nil
+		return []domain.EpisodeMemorySearchHit{}, nil
 	}
-	slog.Info("memory_vector_query_hit",
-		"keyword_count", len(queryKeywords),
-		"search_limit", searchLimit,
-		"raw_hit_count", len(vectorHits),
-		"exclude_session", strings.TrimSpace(excludeSessionID),
-	)
-
-	memoryIDs := make([]string, 0, len(vectorHits))
+	ids := make([]string, 0, len(vectorHits))
 	for _, hit := range vectorHits {
 		if strings.TrimSpace(hit.MemoryID) != "" {
-			memoryIDs = append(memoryIDs, hit.MemoryID)
-			continue
-		}
-		if strings.TrimSpace(hit.SessionID) != "" {
-			rows, rerr := m.store.ListRecentActiveSessionMemories(hit.SessionID, 1)
-			if rerr == nil && len(rows) > 0 {
-				memoryIDs = append(memoryIDs, rows[0].ID)
-			}
+			ids = append(ids, hit.MemoryID)
 		}
 	}
-	memories, err := m.store.GetSessionMemoriesByIDs(memoryIDs)
+	episodes, err := m.store.GetEpisodeMemoriesByIDs(ids)
 	if err != nil {
 		return nil, err
 	}
-	memoryByID := make(map[string]domain.SessionMemory, len(memories))
-	for _, item := range memories {
-		memoryByID[item.ID] = item
+	episodeByID := make(map[string]domain.EpisodeMemory, len(episodes))
+	for _, item := range episodes {
+		episodeByID[item.ID] = item
 	}
-
-	results := make([]domain.SessionMemorySearchHit, 0, len(vectorHits))
+	queryKeywords := m.TokenizeKeywords(query)
+	result := make([]domain.EpisodeMemorySearchHit, 0, len(vectorHits))
 	for _, hit := range vectorHits {
-		lookupID := strings.TrimSpace(hit.MemoryID)
-		if lookupID == "" {
-			rows, rerr := m.store.ListRecentActiveSessionMemories(hit.SessionID, 1)
-			if rerr != nil || len(rows) == 0 {
-				continue
-			}
-			lookupID = rows[0].ID
-		}
-		memory, ok := memoryByID[lookupID]
-		if !ok {
+		item, ok := episodeByID[hit.MemoryID]
+		if !ok || item.State == domain.EpisodeMemoryStateArchived {
 			continue
 		}
-		matched := intersectKeywordSlicesImpl(queryKeywords, m.TokenizeKeywords(memory.KeywordsText+" "+memory.Summary))
-		results = append(results, domain.SessionMemorySearchHit{
-			Memory:          memory,
-			MatchedKeywords: matched,
-			Score:           hit.Score,
+		if excludeStartSeq > 0 && excludeEndSeq > 0 && item.SourceEndSeq >= excludeStartSeq && item.SourceStartSeq <= excludeEndSeq {
+			continue
+		}
+		score := float64(hit.Score) + similarityFromKeywords(decodeKeywordsJSON(item.KeywordsJSON), queryKeywords)*100
+		result = append(result, domain.EpisodeMemorySearchHit{
+			Episode:         item,
+			MatchedKeywords: matchEpisodeKeywordsLocal(queryKeywords, item),
+			Score:           score,
 		})
-		if len(results) >= limit {
+		if len(result) >= limit {
 			break
 		}
 	}
-	slog.Info("memory_vector_query_resolved",
-		"keyword_count", len(queryKeywords),
-		"resolved_hit_count", len(results),
-		"limit", limit,
-	)
-	return results, nil
+	return result, nil
 }
 
-func upsertMemoryVector(m *MemoryService, ctx context.Context, memoryID, sessionID, summary string, keywords []string, messageCount int) error {
-	vector, err := m.embedding.Embed(ctx, summary)
+func (m *MemoryService) buildMemoryContext(ctx context.Context, sessionID string, history []domain.Message) string {
+	sticky, err := m.store.ListStickyMemoriesForPrompt(ctx, sessionID, 10, time.Now())
 	if err != nil {
-		slog.Warn("memory_vector_generate_failed",
-			"memory_id", strings.TrimSpace(memoryID),
-			"session", strings.TrimSpace(sessionID),
-			"summary_len", len(strings.TrimSpace(summary)),
-			"keyword_count", len(keywords),
-			"err", err,
-		)
-		return err
+		return ""
 	}
-	slog.Info("memory_vector_generate_succeeded",
-		"memory_id", strings.TrimSpace(memoryID),
-		"session", strings.TrimSpace(sessionID),
-		"summary_len", len(strings.TrimSpace(summary)),
-		"keyword_count", len(keywords),
-		"vector_dim", len(vector),
-	)
-	payload := map[string]any{
-		"summary":              summary,
-		"source_message_count": messageCount,
+	query, startSeq, endSeq := buildEpisodeQueryFromHistory(history)
+	episodes, err := m.RetrieveRelevantEpisodes(ctx, sessionID, query, startSeq, endSeq, constants.MemoryContextTopK)
+	if err != nil {
+		return formatMemoryContext(sticky, nil)
 	}
-	if len(keywords) > 0 {
-		keywordValues := make([]any, 0, len(keywords))
-		for _, item := range keywords {
-			keywordValues = append(keywordValues, item)
+	return formatMemoryContext(sticky, episodes)
+}
+
+func buildEpisodeQueryFromHistory(history []domain.Message) (string, int64, int64) {
+	var parts []string
+	var startSeq int64
+	var endSeq int64
+	for _, item := range history {
+		if startSeq == 0 || (item.Seq > 0 && item.Seq < startSeq) {
+			startSeq = item.Seq
 		}
-		payload["keywords"] = keywordValues
+		if item.Seq > endSeq {
+			endSeq = item.Seq
+		}
+		if item.Role == "user" && strings.TrimSpace(item.Content) != "" {
+			parts = append(parts, strings.TrimSpace(item.Content))
+		}
 	}
-	if err := m.vectorStore.UpsertSessionMemoryVector(ctx, domain.MemoryVectorUpsertInput{
-		MemoryID:  memoryID,
-		SessionID: sessionID,
-		Vector:    vector,
-		Payload:   payload,
-	}); err != nil {
-		slog.Warn("memory_vector_upsert_failed",
-			"memory_id", strings.TrimSpace(memoryID),
-			"session", strings.TrimSpace(sessionID),
-			"vector_dim", len(vector),
-			"err", err,
-		)
-		return err
+	if len(parts) == 0 {
+		for _, item := range history {
+			if strings.TrimSpace(item.Content) != "" {
+				parts = append(parts, strings.TrimSpace(item.Content))
+			}
+		}
 	}
-	slog.Info("memory_vector_upsert_succeeded",
-		"memory_id", strings.TrimSpace(memoryID),
-		"session", strings.TrimSpace(sessionID),
-		"vector_dim", len(vector),
-	)
-	return nil
+	if len(parts) > 2 {
+		parts = parts[len(parts)-2:]
+	}
+	return strings.Join(parts, "\n"), startSeq, endSeq
 }
 
-func (m *MemoryService) retrieveMemoriesByVector(ctx context.Context, query string, excludeSessionID string, limit int) ([]domain.SessionMemorySearchHit, error) {
-	return retrieveMemoriesByVectorImpl(m, ctx, query, excludeSessionID, limit)
+func formatMemoryContext(sticky []domain.StickyMemory, episodes []domain.EpisodeMemorySearchHit) string {
+	var b strings.Builder
+	if len(sticky) > 0 {
+		b.WriteString("<sticky_memories>\n")
+		for _, item := range sticky {
+			b.WriteString(fmt.Sprintf("  <memory kind=\"%s\" key=\"%s\" confidence=\"%.2f\">%s</memory>\n", item.Kind, item.Key, item.Confidence, strings.TrimSpace(item.Summary)))
+		}
+		b.WriteString("</sticky_memories>\n")
+	}
+	if len(episodes) > 0 {
+		b.WriteString("<episode_memories>\n")
+		for _, item := range episodes {
+			keywords := decodeKeywordsJSON(item.Episode.KeywordsJSON)
+			b.WriteString(fmt.Sprintf("  <episode id=\"%s\" topic_key=\"%s\" title=\"%s\" state=\"%s\" range=\"%d-%d\">%s | keywords: %s</episode>\n",
+				item.Episode.ID,
+				item.Episode.TopicKey,
+				item.Episode.Title,
+				item.Episode.State,
+				item.Episode.SourceStartSeq,
+				item.Episode.SourceEndSeq,
+				strings.TrimSpace(item.Episode.Summary),
+				strings.Join(keywords, ", "),
+			))
+		}
+		b.WriteString("</episode_memories>")
+	}
+	return strings.TrimSpace(b.String())
 }
 
-func intersectKeywordSlicesImpl(left []string, right []string) []string {
-	if len(left) == 0 || len(right) == 0 {
-		return []string{}
-	}
-	rightSet := make(map[string]struct{}, len(right))
-	for _, item := range right {
-		rightSet[item] = struct{}{}
-	}
-	result := make([]string, 0, len(left))
-	for _, item := range left {
-		if _, ok := rightSet[item]; ok {
-			result = append(result, item)
+func matchEpisodeKeywordsLocal(queries []string, item domain.EpisodeMemory) []string {
+	text := strings.ToLower(strings.Join(append([]string{item.TopicKey, item.Title, item.Summary}, decodeKeywordsJSON(item.KeywordsJSON)...), " "))
+	result := make([]string, 0, len(queries))
+	for _, query := range queries {
+		if strings.Contains(text, strings.ToLower(strings.TrimSpace(query))) {
+			result = append(result, query)
 		}
 	}
 	return result
-}
-
-func buildSearchQuery(history []domain.Message, maxRunes int) string {
-	if maxRunes <= 0 {
-		return ""
-	}
-	var parts []string
-	runeCount := 0
-	for i := len(history) - 1; i >= 0 && runeCount < maxRunes; i-- {
-		text := strings.TrimSpace(history[i].Content)
-		if text == "" {
-			continue
-		}
-		textRunes := []rune(text)
-		if runeCount+len(textRunes) > maxRunes {
-			textRunes = textRunes[:maxRunes-runeCount]
-			text = string(textRunes)
-		}
-		parts = append([]string{text}, parts...)
-		runeCount += len(textRunes)
-	}
-	return strings.Join(parts, "\n")
-}
-
-func filterVectorHitsByScore(hits []domain.MemoryVectorSearchHit, minScore float64) []domain.MemoryVectorSearchHit {
-	if len(hits) == 0 {
-		return nil
-	}
-	out := make([]domain.MemoryVectorSearchHit, 0, len(hits))
-	seen := make(map[string]struct{}, len(hits))
-	for _, h := range hits {
-		if h.Score < minScore {
-			continue
-		}
-		id := strings.TrimSpace(h.MemoryID)
-		if id == "" {
-			continue
-		}
-		if _, ok := seen[id]; ok {
-			continue
-		}
-		seen[id] = struct{}{}
-		out = append(out, h)
-	}
-	sort.Slice(out, func(i, j int) bool {
-		return out[i].Score > out[j].Score
-	})
-	return out
-}
-
-func orderedMemoriesFromVectorHits(hits []domain.MemoryVectorSearchHit, mems []domain.SessionMemory) []domain.SessionMemory {
-	byID := make(map[string]domain.SessionMemory, len(mems))
-	for _, m := range mems {
-		byID[m.ID] = m
-	}
-	out := make([]domain.SessionMemory, 0, len(hits))
-	for _, h := range hits {
-		id := strings.TrimSpace(h.MemoryID)
-		if id == "" {
-			continue
-		}
-		m, ok := byID[id]
-		if !ok {
-			continue
-		}
-		out = append(out, m)
-	}
-	return out
-}
-
-func mergeMemoriesByID(primary []domain.SessionMemory, extra []domain.SessionMemory) []domain.SessionMemory {
-	seen := make(map[string]struct{}, len(primary)+len(extra))
-	out := make([]domain.SessionMemory, 0, len(primary)+len(extra))
-	for _, m := range primary {
-		if _, ok := seen[m.ID]; ok {
-			continue
-		}
-		seen[m.ID] = struct{}{}
-		out = append(out, m)
-	}
-	for _, m := range extra {
-		if _, ok := seen[m.ID]; ok {
-			continue
-		}
-		seen[m.ID] = struct{}{}
-		out = append(out, m)
-	}
-	return out
-}
-
-func (m *MemoryService) buildSessionMemoryContextForPrompt(ctx context.Context, sessionID string, history []domain.Message) string {
-	sid := strings.TrimSpace(sessionID)
-	if sid == "" {
-		return ""
-	}
-	n, err := m.store.CountActiveSessionMemories(sid)
-	if err != nil || n == 0 {
-		return ""
-	}
-	fallback := func() string {
-		recent, _ := m.store.ListRecentActiveSessionMemories(sid, constants.MemoryRecentFallback)
-		return FormatMemoriesListXMLWithBudget(recent, constants.MemoryContextMaxRunes)
-	}
-	if n <= int64(constants.MemoryFullInjectThreshold) {
-		all, lerr := m.store.ListActiveSessionMemories(sid)
-		if lerr != nil || len(all) == 0 {
-			return ""
-		}
-		return FormatMemoriesListXMLWithBudget(all, constants.MemoryContextMaxRunes)
-	}
-	if m.embedding == nil || m.vectorStore == nil {
-		return fallback()
-	}
-	q := buildSearchQuery(history, constants.MemorySearchQueryMaxRunes)
-	if q == "" {
-		return fallback()
-	}
-	vec, err := m.embedding.Embed(ctx, q)
-	if err != nil {
-		return fallback()
-	}
-	hits, err := m.vectorStore.SearchMemoriesInSession(ctx, vec, sid, constants.MemoryContextTopK)
-	if err != nil || len(hits) == 0 {
-		return fallback()
-	}
-	filtered := filterVectorHitsByScore(hits, constants.MemoryVectorScoreThreshold)
-	if len(filtered) == 0 {
-		return fallback()
-	}
-	ids := make([]string, 0, len(filtered))
-	for _, h := range filtered {
-		if id := strings.TrimSpace(h.MemoryID); id != "" {
-			ids = append(ids, id)
-		}
-	}
-	if len(ids) == 0 {
-		return fallback()
-	}
-	vecMem, err := m.store.GetSessionMemoriesByIDs(ids)
-	if err != nil {
-		return fallback()
-	}
-	ordered := orderedMemoriesFromVectorHits(filtered, vecMem)
-	recent, _ := m.store.ListRecentActiveSessionMemories(sid, constants.MemoryRecentFallback)
-	merged := mergeMemoriesByID(ordered, recent)
-	return FormatMemoriesListXMLWithBudget(merged, constants.MemoryContextMaxRunes)
 }

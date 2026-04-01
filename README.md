@@ -103,6 +103,7 @@ go run ./cmd/server/main.go
 
 - 模型：`bge-m3`（ONNX 版本）
 - 下载地址：[BAAI/bge-m3 ONNX](https://huggingface.co/BAAI/bge-m3/tree/main/onnx)
+- 启动时会自动补齐缺失的 `model.onnx`、`model.onnx_data`、`tokenizer.json`（可通过 `EMBEDDING_MODEL_DOWNLOAD_BASE_URL` 覆盖下载源）
 - 请将以下关键文件放到 `onnx/`（或你自定义的路径）：
   - `model.onnx`
   - `model.onnx_data`
@@ -131,6 +132,7 @@ onnx/
 - `EMBEDDING_PROVIDER`：embedding 提供方式，默认 `onnx_go`（兼容 `onnx`）
 - `EMBEDDING_MODEL_PATH`：ONNX 模型路径，默认 `./onnx/model.onnx`
 - `EMBEDDING_TOKENIZER_PATH`：tokenizer 路径（支持目录或 `tokenizer.json` 文件），默认 `./onnx`
+- `EMBEDDING_MODEL_DOWNLOAD_BASE_URL`：bge-m3 模型下载基地址，默认 `https://huggingface.co/BAAI/bge-m3/resolve/main/onnx`
 - `EMBEDDING_ORT_VERSION`：自动下载 ONNX Runtime 的版本，默认 `1.24.1`
 - `EMBEDDING_ORT_CACHE_DIR`：ONNX Runtime 缓存目录，默认 `./onnx/runtime`
 - `EMBEDDING_ORT_LIB_PATH`：本地 ONNX Runtime 共享库绝对/相对路径（设置后不自动下载）
@@ -153,6 +155,7 @@ JWT_EXPIRE=21600
 EMBEDDING_PROVIDER=onnx_go
 EMBEDDING_MODEL_PATH=./onnx/model.onnx
 EMBEDDING_TOKENIZER_PATH=./onnx
+EMBEDDING_MODEL_DOWNLOAD_BASE_URL=https://huggingface.co/BAAI/bge-m3/resolve/main/onnx
 EMBEDDING_ORT_VERSION=1.24.1
 EMBEDDING_ORT_CACHE_DIR=./onnx/runtime
 EMBEDDING_ORT_LIB_PATH=

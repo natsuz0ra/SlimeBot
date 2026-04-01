@@ -65,6 +65,15 @@ func New(cfg config.Config) (*App, error) {
 			return nil, err
 		}
 		cfg.EmbeddingORTLibPath = libPath
+		if strings.TrimSpace(cfg.EmbeddingModelPath) != "" && strings.TrimSpace(cfg.EmbeddingTokenizerPath) != "" {
+			if err := embsvc.EnsureBgeM3ModelFiles(context.Background(), embsvc.BgeM3ModelConfig{
+				ModelPath:       cfg.EmbeddingModelPath,
+				TokenizerPath:   cfg.EmbeddingTokenizerPath,
+				DownloadBaseURL: cfg.EmbeddingModelDownloadBaseURL,
+			}); err != nil {
+				return nil, err
+			}
+		}
 	}
 
 	db, err := repositories.NewSQLite(cfg.DBPath)

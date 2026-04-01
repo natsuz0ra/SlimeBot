@@ -1,64 +1,48 @@
 package embedding
 
 import (
-	"context"
-	"errors"
+	"math"
+	"os"
+	"path/filepath"
 	"testing"
 )
 
-func TestONNXRuntimeEmbeddingService_Embed(t *testing.T) {
-	svc := NewONNXRuntimeEmbeddingService(ONNXRuntimeEmbeddingConfig{
-		ModelPath:     "./models/bge-m3/model.onnx",
-		TokenizerPath: "./models/bge-m3/tokenizer.json",
-		PythonBin:     "python",
-		ScriptPath:    "./scripts/onnx_embed_server.py",
-		Runner: func(_ context.Context, _ string, _ ...string) ([]byte, error) {
-			return []byte(`{"vectors":[[0.11,0.22,0.33]]}`), nil
-		},
-	})
-
-	vector, err := svc.Embed(context.Background(), "hello")
-	if err != nil {
-		t.Fatalf("embed failed: %v", err)
+func TestMeanPoolNormalize(t *testing.T) {
+	// batch=1, seq=2, hidden=2
+	tokenEmbeddings := []float32{
+		1, 2,
+		3, 4,
 	}
-	if len(vector) != 3 {
-		t.Fatalf("expected dim=3, got %d", len(vector))
+	attentionMask := []int64{1, 0}
+	vectors := meanPoolNormalize(tokenEmbeddings, attentionMask, 1, 2, 2)
+	if len(vectors) != 1 || len(vectors[0]) != 2 {
+		t.Fatalf("unexpected vector shape: %#v", vectors)
 	}
-}
-
-func TestONNXRuntimeEmbeddingService_EmbedBatch(t *testing.T) {
-	svc := NewONNXRuntimeEmbeddingService(ONNXRuntimeEmbeddingConfig{
-		ModelPath:     "./models/bge-m3/model.onnx",
-		TokenizerPath: "./models/bge-m3/tokenizer.json",
-		PythonBin:     "python",
-		ScriptPath:    "./scripts/onnx_embed_server.py",
-		Runner: func(_ context.Context, _ string, _ ...string) ([]byte, error) {
-			return []byte(`{"vectors":[[0.1,0.2],[0.3,0.4]]}`), nil
-		},
-	})
-
-	vectors, err := svc.EmbedBatch(context.Background(), []string{"a", "b"})
-	if err != nil {
-		t.Fatalf("embed batch failed: %v", err)
+	want0 := float32(1.0 / math.Sqrt(5.0))
+	want1 := float32(2.0 / math.Sqrt(5.0))
+	if diff := float32(math.Abs(float64(vectors[0][0] - want0))); diff > 1e-6 {
+		t.Fatalf("unexpected vectors[0][0]: got=%v want=%v", vectors[0][0], want0)
 	}
-	if len(vectors) != 2 {
-		t.Fatalf("expected 2 vectors, got %d", len(vectors))
+	if diff := float32(math.Abs(float64(vectors[0][1] - want1))); diff > 1e-6 {
+		t.Fatalf("unexpected vectors[0][1]: got=%v want=%v", vectors[0][1], want1)
 	}
 }
 
-func TestONNXRuntimeEmbeddingService_EmbedBatchPropagatesRunnerError(t *testing.T) {
-	svc := NewONNXRuntimeEmbeddingService(ONNXRuntimeEmbeddingConfig{
-		ModelPath:     "./models/bge-m3/model.onnx",
-		TokenizerPath: "./models/bge-m3/tokenizer.json",
-		PythonBin:     "python",
-		ScriptPath:    "./scripts/onnx_embed_server.py",
-		Runner: func(_ context.Context, _ string, _ ...string) ([]byte, error) {
-			return nil, errors.New("runner failed")
-		},
-	})
-
-	_, err := svc.EmbedBatch(context.Background(), []string{"a"})
-	if err == nil {
-		t.Fatal("expected error from runner")
+func TestResolveTokenizerJSONPath(t *testing.T) {
+	dir := t.TempDir()
+	path := dir + "/tokenizer.json"
+	if err := osWriteFile(path, []byte("{}")); err != nil {
+		t.Fatal(err)
 	}
+	got, err := resolveTokenizerJSONPath(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if filepath.Clean(got) != filepath.Clean(path) {
+		t.Fatalf("unexpected path: got=%s want=%s", got, path)
+	}
+}
+
+func osWriteFile(path string, content []byte) error {
+	return os.WriteFile(path, content, 0o644)
 }

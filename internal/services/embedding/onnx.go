@@ -1,17 +1,19 @@
 package embedding
 
 import (
-	"bufio"
-	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
+	"math"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
 	"time"
+
+	ort "github.com/yalue/onnxruntime_go"
+
+	"github.com/sugarme/tokenizer"
+	"github.com/sugarme/tokenizer/pretrained"
 )
 
 // EmbeddingService 文本向量化统一接口（单条与批量）。
@@ -20,35 +22,31 @@ type EmbeddingService interface {
 	EmbedBatch(ctx context.Context, texts []string) ([][]float32, error)
 }
 
-// ONNXRuntimeEmbeddingConfig ONNX 嵌入：模型/分词器路径、Python 与脚本、超时；Runner 非空则走一次性子进程模式。
-type ONNXRuntimeEmbeddingConfig struct {
-	ModelPath     string
-	TokenizerPath string
-	PythonBin     string
-	ScriptPath    string
-	Timeout       time.Duration
-	Runner        func(ctx context.Context, name string, args ...string) ([]byte, error)
+type ONNXRuntimeGoEmbeddingConfig struct {
+	ModelPath        string
+	TokenizerPath    string
+	ORTSharedLibPath string
+	Timeout          time.Duration
 }
 
-// ONNXRuntimeEmbeddingService 基于 Python ONNX 脚本的嵌入：默认长驻管道，或注入 Runner 时每批子进程。
-type ONNXRuntimeEmbeddingService struct {
+type ONNXRuntimeGoEmbeddingService struct {
 	modelPath     string
 	tokenizerPath string
-	pythonBin     string
-	scriptPath    string
 	timeout       time.Duration
-	runner        func(ctx context.Context, name string, args ...string) ([]byte, error)
-	subprocess    bool
+
+	tokenizer *tokenizer.Tokenizer
+	padID     int
+	session   *ort.DynamicAdvancedSession
+
+	tokenizerMu sync.Mutex
+	sessionMu   sync.Mutex
 
 	cache *embeddingLRU
 
 	inflightMu sync.Mutex
 	inflight   map[string][]chan embedResult
 
-	pipeMu     sync.Mutex
-	pipeCmd    *exec.Cmd
-	pipeStdin  *bufio.Writer
-	pipeStdout *bufio.Reader
+	closeOnce sync.Once
 }
 
 type embedResult struct {
@@ -56,67 +54,63 @@ type embedResult struct {
 	err    error
 }
 
-func absIfRel(p string) string {
-	if p == "" {
-		return ""
-	}
-	if filepath.IsAbs(p) {
-		return filepath.Clean(p)
-	}
-	wd, err := os.Getwd()
-	if err != nil {
-		return filepath.Clean(p)
-	}
-	return filepath.Join(wd, filepath.Clean(p))
-}
-
-func NewONNXRuntimeEmbeddingService(cfg ONNXRuntimeEmbeddingConfig) *ONNXRuntimeEmbeddingService {
-	pythonBin := strings.TrimSpace(cfg.PythonBin)
-	if pythonBin == "" {
-		pythonBin = "python"
-	}
+func NewONNXRuntimeGoEmbeddingService(cfg ONNXRuntimeGoEmbeddingConfig) (*ONNXRuntimeGoEmbeddingService, error) {
 	timeout := cfg.Timeout
 	if timeout <= 0 {
 		timeout = 30 * time.Second
 	}
-	subprocess := cfg.Runner != nil
-	runner := cfg.Runner
-	if subprocess && runner == nil {
-		runner = runCommandOutput
+
+	modelPath := absIfRel(strings.TrimSpace(cfg.ModelPath))
+	tokenizerPath := absIfRel(strings.TrimSpace(cfg.TokenizerPath))
+	if modelPath == "" || tokenizerPath == "" {
+		return nil, fmt.Errorf("onnx_go embedding requires model_path and tokenizer_path")
+	}
+	if strings.TrimSpace(cfg.ORTSharedLibPath) == "" {
+		return nil, fmt.Errorf("onnx_go embedding requires ort shared library path")
+	}
+	if err := acquireORTEnvironment(cfg.ORTSharedLibPath); err != nil {
+		return nil, err
 	}
 
-	return &ONNXRuntimeEmbeddingService{
-		modelPath:     absIfRel(strings.TrimSpace(cfg.ModelPath)),
-		tokenizerPath: absIfRel(strings.TrimSpace(cfg.TokenizerPath)),
-		pythonBin:     pythonBin,
-		scriptPath:    absIfRel(strings.TrimSpace(cfg.ScriptPath)),
+	tokFile, err := resolveTokenizerJSONPath(tokenizerPath)
+	if err != nil {
+		_ = releaseORTEnvironment()
+		return nil, err
+	}
+	tok, err := pretrained.FromFile(tokFile)
+	if err != nil {
+		_ = releaseORTEnvironment()
+		return nil, fmt.Errorf("load tokenizer failed: %w", err)
+	}
+	padID, ok := tok.TokenToId("<pad>")
+	if !ok {
+		padID = 1
+	}
+
+	session, err := ort.NewDynamicAdvancedSession(
+		modelPath,
+		[]string{"input_ids", "attention_mask"},
+		[]string{"token_embeddings"},
+		nil,
+	)
+	if err != nil {
+		_ = releaseORTEnvironment()
+		return nil, fmt.Errorf("create onnx session failed: %w", err)
+	}
+
+	return &ONNXRuntimeGoEmbeddingService{
+		modelPath:     modelPath,
+		tokenizerPath: tokenizerPath,
 		timeout:       timeout,
-		runner:        runner,
-		subprocess:    subprocess,
+		tokenizer:     tok,
+		padID:         padID,
+		session:       session,
 		cache:         newEmbeddingLRU(512),
 		inflight:      make(map[string][]chan embedResult),
-	}
+	}, nil
 }
 
-// StartPipe 预热管道模式下的 Python 子进程（子进程模式无操作）。
-func (s *ONNXRuntimeEmbeddingService) StartPipe(ctx context.Context) error {
-	if s.subprocess {
-		return nil
-	}
-	startCtx, cancel := context.WithTimeout(ctx, s.timeout)
-	defer cancel()
-	s.pipeMu.Lock()
-	defer s.pipeMu.Unlock()
-	select {
-	case <-startCtx.Done():
-		return startCtx.Err()
-	default:
-	}
-	return s.ensurePipeProcess()
-}
-
-// Embed 单条嵌入：LRU 缓存命中即返回；否则对同文本并发去重（singleflight），再调 EmbedBatch。
-func (s *ONNXRuntimeEmbeddingService) Embed(ctx context.Context, text string) ([]float32, error) {
+func (s *ONNXRuntimeGoEmbeddingService) Embed(ctx context.Context, text string) ([]float32, error) {
 	trimmed := strings.TrimSpace(text)
 	if trimmed == "" {
 		return nil, fmt.Errorf("text cannot be empty")
@@ -148,8 +142,77 @@ func (s *ONNXRuntimeEmbeddingService) Embed(ctx context.Context, text string) ([
 	return vectors[0], nil
 }
 
-// registerInflight 若已有同文本在算，则登记等待通道并返回；否则占位返回 nil 表示当前协程负责计算。
-func (s *ONNXRuntimeEmbeddingService) registerInflight(text string) chan embedResult {
+func (s *ONNXRuntimeGoEmbeddingService) EmbedBatch(ctx context.Context, texts []string) ([][]float32, error) {
+	normalized := make([]string, 0, len(texts))
+	for _, text := range texts {
+		trimmed := strings.TrimSpace(text)
+		if trimmed == "" {
+			continue
+		}
+		normalized = append(normalized, sanitizeUTF8(trimmed))
+	}
+	if len(normalized) == 0 {
+		return [][]float32{}, nil
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	runCtx, cancel := context.WithTimeout(ctx, s.timeout)
+	defer cancel()
+	if err := runCtx.Err(); err != nil {
+		return nil, err
+	}
+
+	inputIDs, attentionMask, batchSize, seqLen, err := s.encodeBatch(normalized)
+	if err != nil {
+		return nil, err
+	}
+	if batchSize == 0 || seqLen == 0 {
+		return [][]float32{}, nil
+	}
+
+	shape := ort.NewShape(int64(batchSize), int64(seqLen))
+	inputTensor, err := ort.NewTensor(shape, inputIDs)
+	if err != nil {
+		return nil, fmt.Errorf("create input_ids tensor failed: %w", err)
+	}
+	defer inputTensor.Destroy()
+
+	maskTensor, err := ort.NewTensor(shape, attentionMask)
+	if err != nil {
+		return nil, fmt.Errorf("create attention_mask tensor failed: %w", err)
+	}
+	defer maskTensor.Destroy()
+
+	outputs := []ort.Value{nil}
+	s.sessionMu.Lock()
+	err = s.session.Run([]ort.Value{inputTensor, maskTensor}, outputs)
+	s.sessionMu.Unlock()
+	if err != nil {
+		return nil, fmt.Errorf("onnx session run failed: %w", err)
+	}
+	if len(outputs) == 0 || outputs[0] == nil {
+		return nil, fmt.Errorf("onnx session output is empty")
+	}
+	defer outputs[0].Destroy()
+
+	tokenEmbeddings, ok := outputs[0].(*ort.Tensor[float32])
+	if !ok {
+		return nil, fmt.Errorf("unexpected output tensor type")
+	}
+	raw := tokenEmbeddings.GetData()
+	outShape := tokenEmbeddings.GetShape()
+	if len(outShape) != 3 {
+		return nil, fmt.Errorf("unexpected output shape: %v", outShape)
+	}
+	hiddenSize := int(outShape[2])
+	if hiddenSize <= 0 {
+		return nil, fmt.Errorf("invalid hidden size: %d", hiddenSize)
+	}
+	return meanPoolNormalize(raw, attentionMask, batchSize, seqLen, hiddenSize), nil
+}
+
+func (s *ONNXRuntimeGoEmbeddingService) registerInflight(text string) chan embedResult {
 	s.inflightMu.Lock()
 	defer s.inflightMu.Unlock()
 	if waiters, ok := s.inflight[text]; ok {
@@ -161,8 +224,7 @@ func (s *ONNXRuntimeEmbeddingService) registerInflight(text string) chan embedRe
 	return nil
 }
 
-// finishInflight 广播本次计算结果给所有等待同文本的协程并清空 inflight 键。
-func (s *ONNXRuntimeEmbeddingService) finishInflight(text string, vector []float32, err error) {
+func (s *ONNXRuntimeGoEmbeddingService) finishInflight(text string, vector []float32, err error) {
 	s.inflightMu.Lock()
 	waiters := s.inflight[text]
 	delete(s.inflight, text)
@@ -173,211 +235,154 @@ func (s *ONNXRuntimeEmbeddingService) finishInflight(text string, vector []float
 	}
 }
 
-func (s *ONNXRuntimeEmbeddingService) getCachedVector(text string) ([]float32, bool) {
+func (s *ONNXRuntimeGoEmbeddingService) getCachedVector(text string) ([]float32, bool) {
 	return s.cache.get(text)
 }
 
-func (s *ONNXRuntimeEmbeddingService) setCachedVector(text string, vector []float32) {
+func (s *ONNXRuntimeGoEmbeddingService) setCachedVector(text string, vector []float32) {
 	s.cache.put(text, vector)
 }
 
-// EmbedBatch 批量嵌入：去空后按配置走子进程或 stdin/stdout 管道；空输入返回空切片。
-func (s *ONNXRuntimeEmbeddingService) EmbedBatch(ctx context.Context, texts []string) ([][]float32, error) {
-	normalized := make([]string, 0, len(texts))
+func (s *ONNXRuntimeGoEmbeddingService) encodeBatch(texts []string) ([]int64, []int64, int, int, error) {
+	s.tokenizerMu.Lock()
+	defer s.tokenizerMu.Unlock()
+
+	s.tokenizer.WithTruncation(&tokenizer.TruncationParams{
+		MaxLength: 512,
+		Strategy:  tokenizer.LongestFirst,
+		Stride:    0,
+	})
+	s.tokenizer.WithPadding(&tokenizer.PaddingParams{
+		Strategy:  *tokenizer.NewPaddingStrategy(tokenizer.WithBatchLongest()),
+		Direction: tokenizer.Right,
+		PadId:     s.padID,
+		PadTypeId: 0,
+		PadToken:  "<pad>",
+	})
+
+	inputs := make([]tokenizer.EncodeInput, 0, len(texts))
 	for _, text := range texts {
-		trimmed := strings.TrimSpace(text)
-		if trimmed == "" {
-			continue
+		inputs = append(inputs, tokenizer.NewSingleEncodeInput(tokenizer.NewInputSequence(text)))
+	}
+	encodings, err := s.tokenizer.EncodeBatch(inputs, true)
+	if err != nil {
+		return nil, nil, 0, 0, fmt.Errorf("tokenize batch failed: %w", err)
+	}
+	if len(encodings) == 0 {
+		return []int64{}, []int64{}, 0, 0, nil
+	}
+
+	seqLen := len(encodings[0].GetIds())
+	if seqLen == 0 {
+		return []int64{}, []int64{}, len(encodings), 0, nil
+	}
+	ids := make([]int64, 0, len(encodings)*seqLen)
+	mask := make([]int64, 0, len(encodings)*seqLen)
+	for _, encoding := range encodings {
+		rowIDs := encoding.GetIds()
+		rowMask := encoding.GetAttentionMask()
+		if len(rowIDs) != seqLen || len(rowMask) != seqLen {
+			return nil, nil, 0, 0, fmt.Errorf("unexpected tokenized length mismatch")
 		}
-		normalized = append(normalized, trimmed)
-	}
-	if len(normalized) == 0 {
-		return [][]float32{}, nil
-	}
-	if s.modelPath == "" || s.tokenizerPath == "" || s.scriptPath == "" {
-		return nil, fmt.Errorf("onnx embedding config requires model_path, tokenizer_path and script_path")
-	}
-
-	if s.subprocess {
-		return s.embedBatchSubprocess(ctx, normalized)
-	}
-	return s.embedBatchPipe(ctx, normalized)
-}
-
-// embedBatchSubprocess 每次调用启动 Python 子进程，经 --texts-json 传入文本并解析 stdout JSON。
-func (s *ONNXRuntimeEmbeddingService) embedBatchSubprocess(ctx context.Context, normalized []string) ([][]float32, error) {
-	args := []string{
-		s.scriptPath,
-		"--model-path", s.modelPath,
-		"--tokenizer-path", s.tokenizerPath,
-		"--texts-json", mustJSON(normalized),
-	}
-	runCtx, cancel := context.WithTimeout(ctx, s.timeout)
-	defer cancel()
-	output, err := s.runner(runCtx, s.pythonBin, args...)
-	if err != nil {
-		return nil, fmt.Errorf("onnx embedding runner failed: %w", err)
-	}
-	vectors, err := parseEmbeddingOutput(output)
-	if err != nil {
-		return nil, err
-	}
-	if len(vectors) != len(normalized) {
-		return nil, fmt.Errorf("embedding vector count mismatch: want=%d got=%d", len(normalized), len(vectors))
-	}
-	return vectors, nil
-}
-
-// embedBatchPipe 管道模式：最多重试一次，失败则杀进程以便下次 ensure 重建。
-func (s *ONNXRuntimeEmbeddingService) embedBatchPipe(ctx context.Context, normalized []string) ([][]float32, error) {
-	var lastErr error
-	for attempt := 0; attempt < 2; attempt++ {
-		if err := ctx.Err(); err != nil {
-			return nil, err
+		for i := 0; i < seqLen; i++ {
+			ids = append(ids, int64(rowIDs[i]))
+			mask = append(mask, int64(rowMask[i]))
 		}
-		s.pipeMu.Lock()
-		if err := s.ensurePipeProcess(); err != nil {
-			s.pipeMu.Unlock()
-			lastErr = err
-			continue
+	}
+	return ids, mask, len(encodings), seqLen, nil
+}
+
+func meanPoolNormalize(tokenEmbeddings []float32, attentionMask []int64, batchSize, seqLen, hiddenSize int) [][]float32 {
+	out := make([][]float32, batchSize)
+	for b := 0; b < batchSize; b++ {
+		sum := make([]float64, hiddenSize)
+		var count float64
+		for t := 0; t < seqLen; t++ {
+			mask := attentionMask[b*seqLen+t]
+			if mask == 0 {
+				continue
+			}
+			count += 1
+			base := (b*seqLen + t) * hiddenSize
+			for h := 0; h < hiddenSize; h++ {
+				sum[h] += float64(tokenEmbeddings[base+h])
+			}
 		}
-		vecs, err := s.pipeRoundTrip(ctx, normalized)
-		s.pipeMu.Unlock()
-		if err == nil {
-			return vecs, nil
+		if count < 1e-9 {
+			count = 1e-9
 		}
-		lastErr = err
-		s.pipeMu.Lock()
-		s.killPipeProcess()
-		s.pipeMu.Unlock()
-	}
-	if lastErr != nil {
-		return nil, lastErr
-	}
-	return nil, fmt.Errorf("onnx embedding pipe failed")
-}
-
-// ensurePipeProcess 懒启动或复用已存活 Python 进程，并绑定 stdin/stdout。
-func (s *ONNXRuntimeEmbeddingService) ensurePipeProcess() error {
-	if s.pipeCmd != nil && s.pipeCmd.Process != nil && s.pipeCmd.ProcessState == nil {
-		return nil
-	}
-	s.killPipeProcess()
-	cmd := exec.Command(s.pythonBin, s.scriptPath, "--model-path", s.modelPath, "--tokenizer-path", s.tokenizerPath)
-	cmd.Stderr = os.Stderr
-	stdin, err := cmd.StdinPipe()
-	if err != nil {
-		return err
-	}
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		return err
-	}
-	if err := cmd.Start(); err != nil {
-		return err
-	}
-	s.pipeCmd = cmd
-	s.pipeStdin = bufio.NewWriter(stdin)
-	s.pipeStdout = bufio.NewReader(stdout)
-	return nil
-}
-
-func (s *ONNXRuntimeEmbeddingService) killPipeProcess() {
-	if s.pipeCmd == nil {
-		return
-	}
-	if s.pipeCmd.Process != nil {
-		_ = s.pipeCmd.Process.Kill()
-		_ = s.pipeCmd.Wait()
-	}
-	s.pipeCmd = nil
-	s.pipeStdin = nil
-	s.pipeStdout = nil
-}
-
-// pipeRoundTrip 向 stdin 写入一行 JSON（含 texts），从 stdout 读一行解析 vectors。
-func (s *ONNXRuntimeEmbeddingService) pipeRoundTrip(ctx context.Context, texts []string) ([][]float32, error) {
-	req := map[string][]string{"texts": texts}
-	payload, err := json.Marshal(req)
-	if err != nil {
-		return nil, err
-	}
-	payload = append(payload, '\n')
-	runCtx, cancel := context.WithTimeout(ctx, s.timeout)
-	defer cancel()
-	if _, err := s.pipeStdin.Write(payload); err != nil {
-		return nil, err
-	}
-	if err := s.pipeStdin.Flush(); err != nil {
-		return nil, err
-	}
-	lineCh := make(chan string, 1)
-	errCh := make(chan error, 1)
-	go func() {
-		line, err := s.pipeStdout.ReadBytes('\n')
-		if err != nil {
-			errCh <- err
-			return
+		vec := make([]float32, hiddenSize)
+		var l2 float64
+		for h := 0; h < hiddenSize; h++ {
+			v := sum[h] / count
+			l2 += v * v
+			vec[h] = float32(v)
 		}
-		lineCh <- string(bytes.TrimSpace(line))
-	}()
-	var raw string
-	select {
-	case <-runCtx.Done():
-		s.killPipeProcess()
-		return nil, runCtx.Err()
-	case err := <-errCh:
-		return nil, err
-	case raw = <-lineCh:
-	}
-	vectors, err := parseEmbeddingOutput([]byte(raw))
-	if err != nil {
-		return nil, err
-	}
-	if len(vectors) != len(texts) {
-		return nil, fmt.Errorf("embedding vector count mismatch: want=%d got=%d", len(texts), len(vectors))
-	}
-	return vectors, nil
-}
-
-func parseEmbeddingOutput(output []byte) ([][]float32, error) {
-	var response struct {
-		Vectors [][]float32 `json:"vectors"`
-		Error   string      `json:"error"`
-	}
-	if err := json.Unmarshal(output, &response); err != nil {
-		return nil, fmt.Errorf("parse embedding output failed: %w", err)
-	}
-	if strings.TrimSpace(response.Error) != "" {
-		return nil, fmt.Errorf("embedding error: %s", response.Error)
-	}
-	return response.Vectors, nil
-}
-
-func mustJSON(v any) string {
-	raw, _ := json.Marshal(v)
-	return string(raw)
-}
-
-func runCommandOutput(ctx context.Context, name string, args ...string) ([]byte, error) {
-	cmd := exec.CommandContext(ctx, name, args...)
-	output, err := cmd.Output()
-	if err != nil {
-		if ee, ok := err.(*exec.ExitError); ok {
-			return nil, fmt.Errorf("%w stderr=%s", err, strings.TrimSpace(string(ee.Stderr)))
+		norm := math.Sqrt(l2)
+		if norm < 1e-12 {
+			norm = 1e-12
 		}
-		return nil, err
+		inv := float32(1.0 / norm)
+		for h := 0; h < hiddenSize; h++ {
+			vec[h] = vec[h] * inv
+		}
+		out[b] = vec
 	}
-	return output, nil
+	return out
 }
 
-// Close 关闭管道子进程（子进程嵌入模式无操作）。
-func (s *ONNXRuntimeEmbeddingService) Close() error {
-	if s == nil || s.subprocess {
-		return nil
+func sanitizeUTF8(s string) string {
+	// 与 Python 端替换非法代理对齐：遇到坏 UTF-8 以 replacement rune 代替。
+	return strings.ToValidUTF8(s, "\uFFFD")
+}
+
+func resolveTokenizerJSONPath(tokenizerPath string) (string, error) {
+	if isFile(tokenizerPath) {
+		return tokenizerPath, nil
 	}
-	s.pipeMu.Lock()
-	defer s.pipeMu.Unlock()
-	s.killPipeProcess()
-	return nil
+	tokFile := filepath.Join(tokenizerPath, "tokenizer.json")
+	if isFile(tokFile) {
+		return tokFile, nil
+	}
+	return "", fmt.Errorf("tokenizer.json not found under %q", tokenizerPath)
+}
+
+func isFile(path string) bool {
+	info, err := os.Stat(path)
+	if err != nil {
+		return false
+	}
+	return !info.IsDir()
+}
+
+func absIfRel(path string) string {
+	if path == "" {
+		return ""
+	}
+	if filepath.IsAbs(path) {
+		return filepath.Clean(path)
+	}
+	wd, err := os.Getwd()
+	if err != nil {
+		return filepath.Clean(path)
+	}
+	return filepath.Join(wd, filepath.Clean(path))
+}
+
+func (s *ONNXRuntimeGoEmbeddingService) Close() error {
+	var closeErr error
+	s.closeOnce.Do(func() {
+		s.sessionMu.Lock()
+		if s.session != nil {
+			if err := s.session.Destroy(); err != nil {
+				closeErr = err
+			}
+			s.session = nil
+		}
+		s.sessionMu.Unlock()
+		if err := releaseORTEnvironment(); closeErr == nil && err != nil {
+			closeErr = err
+		}
+	})
+	return closeErr
 }

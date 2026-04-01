@@ -64,7 +64,7 @@
 
 - 前端：Vue 3
 - 后端：Go
-- 记忆向量化：ONNX Runtime + Qdrant存储 + bge-m3模型
+- 记忆向量化：Go 原生 ONNX Runtime + Qdrant 存储 + bge-m3 模型
 
 ## 4. 如何启动
 
@@ -94,13 +94,10 @@ go run ./cmd/server/main.go
 
 ## 5. 记忆向量化准备（bge-m3）
 
-### Python 依赖安装
+### ONNX Runtime 共享库准备
 
-> 说明：记忆向量化需要本地 Python 环境安装依赖，用于执行 ONNX embedding。
-
-```shell
-pip install numpy onnxruntime transformers
-```
+- 默认会在启动时按当前系统自动下载 ONNX Runtime 共享库到 `./onnx/runtime`
+- 如需使用本地已安装的运行库，可在 `.env` 设置 `EMBEDDING_ORT_LIB_PATH`
 
 ### bge-m3 模型下载与文件准备
 
@@ -131,11 +128,13 @@ onnx/
 - `WEB_SEARCH_API_KEY`：Tavily 网络搜索 API Key
 - `JWT_SECRET`：JWT 签名密钥（必填，未配置将启动失败）
 - `JWT_EXPIRE`：JWT 过期时间（单位：分钟，默认 `21600` 即 15 天）
-- `EMBEDDING_PROVIDER`：embedding 提供方式，默认 `onnx`
+- `EMBEDDING_PROVIDER`：embedding 提供方式，默认 `onnx_go`（兼容 `onnx`）
 - `EMBEDDING_MODEL_PATH`：ONNX 模型路径，默认 `./onnx/model.onnx`
-- `EMBEDDING_TOKENIZER_PATH`：tokenizer 路径，默认 `./onnx/tokenizer.json`
-- `EMBEDDING_PYTHON_BIN`：Python 可执行程序，默认 `python`
-- `EMBEDDING_SCRIPT_PATH`：embedding 脚本路径，默认 `./scripts/onnx_embed_server.py`
+- `EMBEDDING_TOKENIZER_PATH`：tokenizer 路径（支持目录或 `tokenizer.json` 文件），默认 `./onnx`
+- `EMBEDDING_ORT_VERSION`：自动下载 ONNX Runtime 的版本，默认 `1.24.1`
+- `EMBEDDING_ORT_CACHE_DIR`：ONNX Runtime 缓存目录，默认 `./onnx/runtime`
+- `EMBEDDING_ORT_LIB_PATH`：本地 ONNX Runtime 共享库绝对/相对路径（设置后不自动下载）
+- `EMBEDDING_ORT_DOWNLOAD_BASE_URL`：ONNX Runtime 下载基地址，默认 `https://github.com/microsoft/onnxruntime/releases/download`
 - `EMBEDDING_TIMEOUT_MS`：embedding 超时毫秒数，默认 `30000`
 - `QDRANT_URL`：Qdrant gRPC 地址，默认 `127.0.0.1:6334`
 - `QDRANT_COLLECTION`：向量集合名，默认 `session_memories`
@@ -151,11 +150,13 @@ DB_PATH=./storage/data.db
 FRONTEND_ORIGIN=http://localhost:5173
 JWT_SECRET=CHANGE_ME_TO_A_RANDOM_SECRET
 JWT_EXPIRE=21600
-EMBEDDING_PROVIDER=onnx
+EMBEDDING_PROVIDER=onnx_go
 EMBEDDING_MODEL_PATH=./onnx/model.onnx
-EMBEDDING_TOKENIZER_PATH=./onnx/tokenizer.json
-EMBEDDING_PYTHON_BIN=python
-EMBEDDING_SCRIPT_PATH=./scripts/onnx_embed_server.py
+EMBEDDING_TOKENIZER_PATH=./onnx
+EMBEDDING_ORT_VERSION=1.24.1
+EMBEDDING_ORT_CACHE_DIR=./onnx/runtime
+EMBEDDING_ORT_LIB_PATH=
+EMBEDDING_ORT_DOWNLOAD_BASE_URL=https://github.com/microsoft/onnxruntime/releases/download
 EMBEDDING_TIMEOUT_MS=30000
 QDRANT_URL=127.0.0.1:6334
 QDRANT_COLLECTION=session_memories
@@ -178,7 +179,7 @@ VITE_WS_URL=ws://localhost:8080
 
 以下任一情况出现时，记忆能力会自动降级为关键词检索：
 
-- `EMBEDDING_PROVIDER` 不是 `onnx`
+- `EMBEDDING_PROVIDER` 不是 `onnx_go`/`onnx`
 - `EMBEDDING_MODEL_PATH` 或 `EMBEDDING_TOKENIZER_PATH` 缺失
 - `QDRANT_URL` 或 `QDRANT_COLLECTION` 缺失
 - 向量库初始化失败（例如 Qdrant 不可用）

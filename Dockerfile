@@ -19,15 +19,10 @@ RUN go build -trimpath -ldflags="-s -w" -o /slimebot ./cmd/server
 
 FROM debian:bookworm-slim AS runtime
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    ca-certificates python3 python3-pip python3-venv \
-    && rm -rf /var/lib/apt/lists/* \
-    && ln -sf /usr/bin/python3 /usr/bin/python
-ENV EMBEDDING_PYTHON_BIN=/usr/bin/python3
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
-COPY requirements.txt .
-RUN pip3 install --no-cache-dir --break-system-packages -r requirements.txt
 COPY --from=go-builder /slimebot /app/slimebot
-COPY scripts ./scripts
 RUN groupadd -g 1000 slimebot && \
     useradd -u 1000 -g 1000 -m slimebot && \
     mkdir -p /app/storage && \

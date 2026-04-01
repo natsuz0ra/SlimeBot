@@ -2,11 +2,13 @@ package app
 
 import (
 	"context"
+	"io"
 	"io/fs"
 	"log/slog"
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"slimebot/internal/auth"
@@ -35,7 +37,7 @@ type App struct {
 	httpServer     *http.Server
 	telegramWorker *telegram.Worker
 	memoryService  *memsvc.MemoryService
-	embedding      *embsvc.ONNXRuntimeEmbeddingService
+	embedding      io.Closer
 	vectorRepo     *repositories.MemoryVectorRepository
 	mcpManager     *mcp.Manager
 }
@@ -50,6 +52,19 @@ func New(cfg config.Config) (*App, error) {
 	}
 	if err := os.MkdirAll(cfg.ChatUploadRoot, os.ModePerm); err != nil {
 		return nil, err
+	}
+	if strings.EqualFold(strings.TrimSpace(cfg.EmbeddingProvider), "onnx_go") ||
+		strings.EqualFold(strings.TrimSpace(cfg.EmbeddingProvider), "onnx") {
+		libPath, err := embsvc.EnsureORTSharedLibrary(context.Background(), embsvc.ORTRuntimeConfig{
+			Version:         cfg.EmbeddingORTVersion,
+			CacheDir:        cfg.EmbeddingORTCacheDir,
+			LibPath:         cfg.EmbeddingORTLibPath,
+			DownloadBaseURL: cfg.EmbeddingORTDownloadBaseURL,
+		})
+		if err != nil {
+			return nil, err
+		}
+		cfg.EmbeddingORTLibPath = libPath
 	}
 
 	db, err := repositories.NewSQLite(cfg.DBPath)
@@ -77,7 +92,10 @@ func New(cfg config.Config) (*App, error) {
 	skillPackageService := skillsvc.NewSkillPackageService(repo, cfg.SkillsRoot)
 	skillRuntimeService := skillsvc.NewSkillRuntimeService(repo, cfg.SkillsRoot)
 	memoryService := memsvc.NewMemoryService(repo, openaiClient)
-	embedding, vectorRepo := configureMemoryVectorization(cfg, memoryService)
+	embedding, vectorRepo, err := configureMemoryVectorization(cfg, memoryService)
+	if err != nil {
+		return nil, err
+	}
 	memoryService.WarmupTokenizer()
 	chatUploadService := chatsvc.NewChatUploadService(cfg.ChatUploadRoot)
 	chatService := chatsvc.NewChatService(repo, openaiClient, mcpManager, skillRuntimeService, memoryService, cfg.SystemPromptPath)

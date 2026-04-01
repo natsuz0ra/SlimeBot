@@ -22,8 +22,8 @@ func configureMemoryVectorization(cfg config.Config, memoryService *memsvc.Memor
 		slog.Info("memory_vectorization_disabled", "reason", "missing_embedding_paths")
 		return nil, nil, nil
 	}
-	if strings.TrimSpace(cfg.QdrantURL) == "" || strings.TrimSpace(cfg.QdrantCollection) == "" {
-		slog.Info("memory_vectorization_disabled", "reason", "missing_qdrant_config")
+	if strings.TrimSpace(cfg.ChromaPath) == "" || strings.TrimSpace(cfg.ChromaCollection) == "" {
+		slog.Info("memory_vectorization_disabled", "reason", "missing_chroma_config")
 		return nil, nil, nil
 	}
 
@@ -38,17 +38,17 @@ func configureMemoryVectorization(cfg config.Config, memoryService *memsvc.Memor
 	}
 	memoryService.SetEmbeddingService(embedding)
 
-	vectorStore, err := repositories.NewMemoryVectorRepository(cfg.QdrantURL, cfg.QdrantCollection)
+	vectorStore, err := repositories.NewMemoryVectorRepository(cfg.ChromaPath, cfg.ChromaCollection)
 	if err != nil {
-		slog.Warn("memory_vectorization_disabled", "reason", "qdrant_init_failed", "err", err)
+		slog.Warn("memory_vectorization_disabled", "reason", "chroma_init_failed", "err", err)
 		return embedding, nil, nil
 	}
 	memoryService.SetVectorStore(vectorStore)
 	memoryService.SetVectorSearchTopK(cfg.MemoryVectorTopK)
 	slog.Info("memory_vectorization_enabled",
 		"provider", "onnx_go",
-		"qdrant_url", cfg.QdrantURL,
-		"collection", cfg.QdrantCollection,
+		"chroma_path", cfg.ChromaPath,
+		"collection", cfg.ChromaCollection,
 		"topk", cfg.MemoryVectorTopK,
 	)
 	return embedding, vectorStore, nil

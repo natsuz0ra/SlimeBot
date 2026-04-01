@@ -27,8 +27,8 @@ type Config struct {
 	EmbeddingORTCacheDir          string
 	EmbeddingORTLibPath           string
 	EmbeddingORTDownloadBaseURL   string
-	QdrantURL                     string
-	QdrantCollection              string
+	ChromaPath                    string
+	ChromaCollection              string
 	MemoryVectorTopK              int
 }
 
@@ -52,8 +52,8 @@ func Load() Config {
 		EmbeddingORTCacheDir:          getPathEnv("EMBEDDING_ORT_CACHE_DIR", filepath.Join(home, "onnx", "runtime")),
 		EmbeddingORTLibPath:           getPathEnv("EMBEDDING_ORT_LIB_PATH", ""),
 		EmbeddingORTDownloadBaseURL:   getEnv("EMBEDDING_ORT_DOWNLOAD_BASE_URL", "https://github.com/microsoft/onnxruntime/releases/download"),
-		QdrantURL:                     getEnv("QDRANT_URL", "127.0.0.1:6334"),
-		QdrantCollection:              getEnv("QDRANT_COLLECTION", "session_memories"),
+		ChromaPath:                    getPathEnv("CHROMA_PATH", filepath.Join(home, "storage", "chroma")),
+		ChromaCollection:              getEnv("CHROMA_COLLECTION", "session_memories"),
 		MemoryVectorTopK:              GetIntEnv("MEMORY_VECTOR_TOPK", 5),
 	}
 }

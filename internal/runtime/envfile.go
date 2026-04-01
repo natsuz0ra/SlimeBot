@@ -62,7 +62,6 @@ func appendMissingEnvKeys(envPath string, template string) error {
 	if current != "" && !strings.HasSuffix(current, "\n") {
 		b.WriteString("\n")
 	}
-	b.WriteString("\n# Auto-appended missing keys\n")
 	for _, line := range toAppend {
 		b.WriteString(line)
 		b.WriteString("\n")

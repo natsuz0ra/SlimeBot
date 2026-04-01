@@ -57,14 +57,14 @@
 
 - 生产：Go 进程同时提供 REST/WebSocket 与嵌入的前端静态资源（`web/dist`）
 - 开发：`npm run dev` 同时启动 Go 与 Vite，Vite 将 `/api`、`/ws` 代理到 `8080`
-- 后端通过服务层访问模型接口，并将数据持久化到 SQLite
+- 后端通过服务层访问模型接口，并将数据持久化到 SQLite（默认 `~/.slimebot/storage/data.db`）
 - 记忆检索采用混合策略：优先向量检索，失败时自动回退关键词检索
 
 ### 技术栈
 
 - 前端：Vue 3
 - 后端：Go
-- 记忆向量化：Go 原生 ONNX Runtime + Qdrant 存储 + bge-m3 模型
+- 记忆向量化：Go 原生 ONNX Runtime + 嵌入式 Chroma 存储 + bge-m3 模型
 
 ## 4. 如何启动
 
@@ -75,10 +75,10 @@
 ```powershell
 npm install
 npm install --prefix frontend
-Copy-Item .env.example .env
-Copy-Item frontend\.env.example frontend\.env
 npm run dev
 ```
+
+首次启动会自动在 `~/.slimebot/.env` 生成配置文件（若缺失），并自动补齐新增配置项。
 
 生产构建（根目录生成嵌入前端的 `slimebot` 可执行文件）：
 
@@ -92,77 +92,100 @@ npm run build
 go run ./cmd/server/main.go
 ```
 
-## 5. 记忆向量化准备（bge-m3）
+## 5. 数据与资源目录（默认）
 
-### ONNX Runtime 共享库准备
+所有运行时数据默认集中在 `~/.slimebot`：
 
-- 默认会在启动时按当前系统自动下载 ONNX Runtime 共享库到 `./onnx/runtime`
-- 如需使用本地已安装的运行库，可在 `.env` 设置 `EMBEDDING_ORT_LIB_PATH`
+```text
+~/.slimebot/
+  .env
+  skills/
+  storage/
+    data.db
+    chat_uploads/
+    chroma/
+  onnx/
+    model.onnx
+    model.onnx_data
+    tokenizer.json
+    runtime/
+```
 
-### bge-m3 模型下载与文件准备
+- `.env`：配置文件
+- `storage/data.db`：SQLite 主数据库
+- `storage/chroma`：Chroma 向量数据库持久化目录
+- `skills`：Skills 存储目录
+- `onnx/runtime`：ONNX Runtime 自动下载缓存目录
+- `onnx`：bge-m3 模型文件目录
 
-- 模型：`bge-m3`（ONNX 版本）
-- 下载地址：[BAAI/bge-m3 ONNX](https://huggingface.co/BAAI/bge-m3/tree/main/onnx)
-- 启动时会自动补齐缺失的 `model.onnx`、`model.onnx_data`、`tokenizer.json`（可通过 `EMBEDDING_MODEL_DOWNLOAD_BASE_URL` 覆盖下载源）
-- 请将以下关键文件放到 `onnx/`（或你自定义的路径）：
+## 6. ONNX Runtime 与 bge-m3 自动下载
+
+### ONNX Runtime
+
+- 若未设置 `EMBEDDING_ORT_LIB_PATH`，启动时会根据当前系统自动下载 ONNX Runtime 共享库
+- 默认下载/缓存目录：`~/.slimebot/onnx/runtime`
+- 可通过 `EMBEDDING_ORT_VERSION`、`EMBEDDING_ORT_DOWNLOAD_BASE_URL` 覆盖版本与下载源
+
+### bge-m3 模型
+
+- 启动时会自动检查并补齐以下文件（缺哪个下哪个）：
   - `model.onnx`
   - `model.onnx_data`
   - `tokenizer.json`
-- 如使用默认配置，目录结构示例：
+- 默认路径：
+  - `EMBEDDING_MODEL_PATH=~/.slimebot/onnx/model.onnx`
+  - `EMBEDDING_TOKENIZER_PATH=~/.slimebot/onnx/tokenizer.json`
+- 可通过 `EMBEDDING_MODEL_DOWNLOAD_BASE_URL` 覆盖下载源（默认 Hugging Face）
 
-```text
-onnx/
-  model.onnx
-  model.onnx_data
-  tokenizer.json
-```
+## 7. 配置文件（`~/.slimebot/.env`）
 
-## 6. 配置文件使用方法
-
-### 后端配置：项目根目录 `.env`
-
-后端启动时会读取环境变量：
+后端启动时读取 `~/.slimebot/.env`：
 
 - `SERVER_PORT`：服务端口，默认 `8080`
-- `DB_PATH`：SQLite 文件路径，默认 `./storage/data.db`
+- `DB_PATH`：SQLite 文件路径，默认 `~/.slimebot/storage/data.db`
+- `SKILLS_ROOT`：Skills 根目录，默认 `~/.slimebot/skills`
+- `CHAT_UPLOAD_ROOT`：聊天附件目录，默认 `~/.slimebot/storage/chat_uploads`
 - `FRONTEND_ORIGIN`：与 Vite 联调时设为 `http://localhost:5173`；生产同源可留空
 - `WEB_SEARCH_API_KEY`：Tavily 网络搜索 API Key
 - `JWT_SECRET`：JWT 签名密钥（必填，未配置将启动失败）
 - `JWT_EXPIRE`：JWT 过期时间（单位：分钟，默认 `21600` 即 15 天）
 - `EMBEDDING_PROVIDER`：embedding 提供方式，默认 `onnx_go`（兼容 `onnx`）
-- `EMBEDDING_MODEL_PATH`：ONNX 模型路径，默认 `./onnx/model.onnx`
-- `EMBEDDING_TOKENIZER_PATH`：tokenizer 路径（支持目录或 `tokenizer.json` 文件），默认 `./onnx`
+- `EMBEDDING_MODEL_PATH`：ONNX 模型路径，默认 `~/.slimebot/onnx/model.onnx`
+- `EMBEDDING_TOKENIZER_PATH`：tokenizer 路径（支持目录或 `tokenizer.json` 文件），默认 `~/.slimebot/onnx/tokenizer.json`
 - `EMBEDDING_MODEL_DOWNLOAD_BASE_URL`：bge-m3 模型下载基地址，默认 `https://huggingface.co/BAAI/bge-m3/resolve/main/onnx`
 - `EMBEDDING_ORT_VERSION`：自动下载 ONNX Runtime 的版本，默认 `1.24.1`
-- `EMBEDDING_ORT_CACHE_DIR`：ONNX Runtime 缓存目录，默认 `./onnx/runtime`
+- `EMBEDDING_ORT_CACHE_DIR`：ONNX Runtime 缓存目录，默认 `~/.slimebot/onnx/runtime`
 - `EMBEDDING_ORT_LIB_PATH`：本地 ONNX Runtime 共享库绝对/相对路径（设置后不自动下载）
 - `EMBEDDING_ORT_DOWNLOAD_BASE_URL`：ONNX Runtime 下载基地址，默认 `https://github.com/microsoft/onnxruntime/releases/download`
 - `EMBEDDING_TIMEOUT_MS`：embedding 超时毫秒数，默认 `30000`
-- `QDRANT_URL`：Qdrant gRPC 地址，默认 `127.0.0.1:6334`
-- `QDRANT_COLLECTION`：向量集合名，默认 `session_memories`
+- `CHROMA_PATH`：Chroma 持久化目录，默认 `~/.slimebot/storage/chroma`
+- `CHROMA_COLLECTION`：向量集合名，默认 `session_memories`
 - `MEMORY_VECTOR_TOPK`：向量检索返回条数，默认 `5`
-
-> 注意：上述相对路径均以项目根目录作为启动工作目录。
 
 示例：
 
 ```env
 SERVER_PORT=8080
-DB_PATH=./storage/data.db
-FRONTEND_ORIGIN=http://localhost:5173
+DB_PATH=~/.slimebot/storage/data.db
+SKILLS_ROOT=~/.slimebot/skills
+CHAT_UPLOAD_ROOT=~/.slimebot/storage/chat_uploads
+WEB_SEARCH_API_KEY=YOUR_TAVILY_API_KEY
 JWT_SECRET=CHANGE_ME_TO_A_RANDOM_SECRET
 JWT_EXPIRE=21600
+
+# FRONTEND_ORIGIN=http://localhost:5173
+
 EMBEDDING_PROVIDER=onnx_go
-EMBEDDING_MODEL_PATH=./onnx/model.onnx
-EMBEDDING_TOKENIZER_PATH=./onnx
+EMBEDDING_MODEL_PATH=~/.slimebot/onnx/model.onnx
+EMBEDDING_TOKENIZER_PATH=~/.slimebot/onnx/tokenizer.json
 EMBEDDING_MODEL_DOWNLOAD_BASE_URL=https://huggingface.co/BAAI/bge-m3/resolve/main/onnx
 EMBEDDING_ORT_VERSION=1.24.1
-EMBEDDING_ORT_CACHE_DIR=./onnx/runtime
+EMBEDDING_ORT_CACHE_DIR=~/.slimebot/onnx/runtime
 EMBEDDING_ORT_LIB_PATH=
 EMBEDDING_ORT_DOWNLOAD_BASE_URL=https://github.com/microsoft/onnxruntime/releases/download
 EMBEDDING_TIMEOUT_MS=30000
-QDRANT_URL=127.0.0.1:6334
-QDRANT_COLLECTION=session_memories
+CHROMA_PATH=~/.slimebot/storage/chroma
+CHROMA_COLLECTION=session_memories
 MEMORY_VECTOR_TOPK=5
 ```
 
@@ -184,10 +207,10 @@ VITE_WS_URL=ws://localhost:8080
 
 - `EMBEDDING_PROVIDER` 不是 `onnx_go`/`onnx`
 - `EMBEDDING_MODEL_PATH` 或 `EMBEDDING_TOKENIZER_PATH` 缺失
-- `QDRANT_URL` 或 `QDRANT_COLLECTION` 缺失
-- 向量库初始化失败（例如 Qdrant 不可用）
+- `CHROMA_PATH` 或 `CHROMA_COLLECTION` 缺失
+- 向量库初始化失败（例如 Chroma 初始化失败）
 
-## 7. 功能状态与待办
+## 8. 功能状态与待办
 
 ### 已完成
 

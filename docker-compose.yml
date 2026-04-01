@@ -3,8 +3,5 @@ services:
     build: .
     ports:
       - "8080:8080"
-    env_file:
-      - .env
     volumes:
-      - ./storage:/app/storage
-      - ./onnx:/app/onnx
+      - ${SLIMEBOT_CONFIG_DIR:-./.slimebot}:/home/slimebot/.slimebot

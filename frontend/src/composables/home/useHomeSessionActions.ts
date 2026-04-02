@@ -90,7 +90,7 @@ export function useHomeSessionActions(options: {
 
       await store.loadSessions()
       const routeSessionId = route.params.sessionId as string | undefined
-      const isNewChatRoute = route.name === 'new-chat' || route.name === 'home'
+      const isNewChatRoute = !routeSessionId || routeSessionId === 'new_chat'
       if (routeSessionId && routeSessionId !== 'new_chat') {
         if (routeSessionId === MESSAGE_PLATFORM_SESSION_ID) {
           await store.selectSession(MESSAGE_PLATFORM_SESSION_ID)

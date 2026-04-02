@@ -145,3 +145,12 @@ func TestExecuteInvocation_SearchMemory_SearchesAcrossSessions(t *testing.T) {
 		t.Fatalf("expected cross-session result, got %q", result.Output)
 	}
 }
+
+func TestBuildToolDefs_SortedByName(t *testing.T) {
+	defs := BuildToolDefs()
+	for i := 1; i < len(defs); i++ {
+		if defs[i-1].Name > defs[i].Name {
+			t.Fatalf("tool defs are not sorted: %q > %q", defs[i-1].Name, defs[i].Name)
+		}
+	}
+}

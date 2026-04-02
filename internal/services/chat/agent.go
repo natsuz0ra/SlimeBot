@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"slimebot/internal/domain"
 	"slimebot/internal/observability"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -124,6 +125,12 @@ func BuildToolDefs() []oaisvc.ToolDef {
 			})
 		}
 	}
+	sort.Slice(defs, func(i, j int) bool {
+		if defs[i].Name == defs[j].Name {
+			return defs[i].Description < defs[j].Description
+		}
+		return defs[i].Name < defs[j].Name
+	})
 	return defs
 }
 
@@ -201,6 +208,12 @@ func (a *AgentService) buildRuntimeToolDefs(ctx context.Context, configs []domai
 			return nil, nil, fmt.Errorf("tool name is too long: %s (len=%d, max=%d)", def.Name, nameLen, constants.MaxToolNameLen)
 		}
 	}
+	sort.Slice(defs, func(i, j int) bool {
+		if defs[i].Name == defs[j].Name {
+			return defs[i].Description < defs[j].Description
+		}
+		return defs[i].Name < defs[j].Name
+	})
 	a.setCachedToolDefs(cacheKey, defs, metaByFunc)
 	return defs, metaByFunc, nil
 }

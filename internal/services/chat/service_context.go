@@ -35,22 +35,10 @@ func (s *ChatService) buildContextMessages(ctx context.Context, sessionID string
 	wg.Add(2)
 	go func() {
 		defer wg.Done()
-		sp, err := s.loadSystemPrompt()
+		sp, err := s.loadStableSystemPrompt()
 		if err != nil {
 			loadErr = err
 			return
-		}
-		envInfo := CollectEnvInfo()
-		sp = sp + "\n\n## Runtime Environment\n" + envInfo.FormatForPrompt()
-		if s.skillRuntime != nil {
-			catalogPrompt, _, catalogErr := s.skillRuntime.BuildCatalogPrompt()
-			if catalogErr != nil {
-				loadErr = catalogErr
-				return
-			}
-			if strings.TrimSpace(catalogPrompt) != "" {
-				sp = sp + "\n\n" + catalogPrompt
-			}
 		}
 		systemPrompt = sp
 	}()
@@ -70,6 +58,9 @@ func (s *ChatService) buildContextMessages(ctx context.Context, sessionID string
 	}
 
 	msgs := []oaisvc.ChatMessage{{Role: "system", Content: systemPrompt}}
+	if runtimeEnvPrompt := s.buildRuntimeEnvironmentPrompt(); runtimeEnvPrompt != "" {
+		msgs = append(msgs, oaisvc.ChatMessage{Role: "system", Content: runtimeEnvPrompt})
+	}
 	if s.memory != nil {
 		memStart := time.Now()
 		memCtx, cancel := context.WithTimeout(ctx, constants.MemoryContextBuildBudget)
@@ -113,4 +104,42 @@ func (s *ChatService) loadSystemPrompt() (string, error) {
 	}
 	s.setSystemPromptCached(prompt)
 	return prompt, nil
+}
+
+// loadStableSystemPrompt 构建并缓存稳定前缀 system prompt，仅在技能目录变化时刷新。
+func (s *ChatService) loadStableSystemPrompt() (string, error) {
+	basePrompt, err := s.loadSystemPrompt()
+	if err != nil {
+		return "", err
+	}
+
+	catalogPrompt := ""
+	if s.skillRuntime != nil {
+		var catalogErr error
+		catalogPrompt, _, catalogErr = s.skillRuntime.BuildCatalogPrompt()
+		if catalogErr != nil {
+			return "", catalogErr
+		}
+		catalogPrompt = strings.TrimSpace(catalogPrompt)
+	}
+
+	if cachedPrompt, cachedCatalog := s.getStableSystemPromptCached(); strings.TrimSpace(cachedPrompt) != "" && cachedCatalog == catalogPrompt {
+		return cachedPrompt, nil
+	}
+
+	stable := basePrompt
+	if catalogPrompt != "" {
+		stable = stable + "\n\n" + catalogPrompt
+	}
+	s.setStableSystemPromptCached(stable, catalogPrompt)
+	return stable, nil
+}
+
+func (s *ChatService) buildRuntimeEnvironmentPrompt() string {
+	envInfo := CollectEnvInfo()
+	body := strings.TrimSpace(envInfo.FormatForPrompt())
+	if body == "" {
+		return ""
+	}
+	return "## Runtime Environment\n" + body
 }

@@ -54,6 +54,7 @@ func TestFileSystemSkillStore_DeleteSkillRemovesDirectory(t *testing.T) {
 
 func TestSkillRuntimeService_BuildCatalogPromptUsesDirectoryStore(t *testing.T) {
 	root := t.TempDir()
+	writeSkill(t, root, "beta", "Beta skill")
 	writeSkill(t, root, "alpha", "Alpha skill")
 
 	store := NewFileSystemSkillStore(root)
@@ -62,11 +63,17 @@ func TestSkillRuntimeService_BuildCatalogPromptUsesDirectoryStore(t *testing.T) 
 	if err != nil {
 		t.Fatalf("BuildCatalogPrompt failed: %v", err)
 	}
-	if len(skills) != 1 {
-		t.Fatalf("expected 1 skill, got %d", len(skills))
+	if len(skills) != 2 {
+		t.Fatalf("expected 2 skills, got %d", len(skills))
 	}
 	if !strings.Contains(prompt, "alpha") || !strings.Contains(prompt, "Alpha skill") {
 		t.Fatalf("unexpected prompt: %s", prompt)
+	}
+	if skills[0].Name != "alpha" || skills[1].Name != "beta" {
+		t.Fatalf("expected sorted skills [alpha beta], got [%s %s]", skills[0].Name, skills[1].Name)
+	}
+	if strings.Index(prompt, "<name>alpha</name>") > strings.Index(prompt, "<name>beta</name>") {
+		t.Fatalf("expected alpha before beta in prompt: %s", prompt)
 	}
 }
 

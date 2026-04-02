@@ -24,6 +24,8 @@ type ChatService struct {
 	skillTouchedAt map[string]time.Time
 	promptMu       sync.RWMutex
 	systemPrompt   string
+	stablePrompt   string
+	stableCatalog  string
 
 	platformModelMu sync.Mutex
 	platformModelID string
@@ -145,4 +147,19 @@ func (s *ChatService) setSystemPromptCached(prompt string) {
 	s.promptMu.Lock()
 	defer s.promptMu.Unlock()
 	s.systemPrompt = prompt
+}
+
+// getStableSystemPromptCached 读取稳定 system prompt 与对应 catalog 快照。
+func (s *ChatService) getStableSystemPromptCached() (prompt string, catalog string) {
+	s.promptMu.RLock()
+	defer s.promptMu.RUnlock()
+	return s.stablePrompt, s.stableCatalog
+}
+
+// setStableSystemPromptCached 更新稳定 system prompt 与 catalog 快照。
+func (s *ChatService) setStableSystemPromptCached(prompt string, catalog string) {
+	s.promptMu.Lock()
+	defer s.promptMu.Unlock()
+	s.stablePrompt = prompt
+	s.stableCatalog = catalog
 }

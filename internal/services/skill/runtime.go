@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -36,7 +37,14 @@ func NewSkillRuntimeService(store domain.SkillStore, skillsRoot string) *SkillRu
 
 // ListSkills 返回当前已安装技能列表。
 func (s *SkillRuntimeService) ListSkills() ([]domain.Skill, error) {
-	return s.store.ListSkills()
+	items, err := s.store.ListSkills()
+	if err != nil {
+		return nil, err
+	}
+	sort.Slice(items, func(i, j int) bool {
+		return items[i].Name < items[j].Name
+	})
+	return items, nil
 }
 
 // BuildCatalogPrompt 生成可注入模型上下文的技能目录描述。
@@ -51,7 +59,7 @@ func (s *SkillRuntimeService) BuildCatalogPrompt() (string, []domain.Skill, erro
 	}
 	s.catalogMu.RUnlock()
 
-	items, err := s.store.ListSkills()
+	items, err := s.ListSkills()
 	if err != nil {
 		return "", nil, err
 	}

@@ -15,8 +15,7 @@ frontend/.gitignore
 skills
 onnx
 cmd/test
-web/dist/*
-!web/dist/.gitkeep
+web/dist/
 *.exe
 slimebot
 __pycache__/

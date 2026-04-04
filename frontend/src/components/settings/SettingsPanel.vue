@@ -57,9 +57,12 @@ const skillsUploading = ref(false)
 const skillsDropActive = ref(false)
 const skillsFileInputRef = ref<HTMLInputElement | null>(null)
 const accountDialogVisible = ref(false)
+const webSearchDialogVisible = ref(false)
 const messagePlatformDialogVisible = ref(false)
 const messagePlatformSubmitting = ref(false)
 const messagePlatformDefaultModel = ref('')
+const webSearchKey = ref('')
+const savingWebSearch = ref(false)
 
 const confirmDialogVisible = ref(false)
 const confirmDialogCallback = ref<(() => Promise<void>) | null>(null)
@@ -150,6 +153,7 @@ async function loadData() {
     await loadLanguage({ allowRemote: true })
     const appSettings: AppSettings = await settingAPI.get()
     messagePlatformDefaultModel.value = appSettings.messagePlatformDefaultModel || ''
+    webSearchKey.value = appSettings.webSearchKey || ''
     llmList.value = await llmAPI.list()
     mcpList.value = await mcpAPI.list()
     skillsList.value = await skillsAPI.list()
@@ -161,6 +165,27 @@ async function loadData() {
 
 async function onLanguageChange(nextLanguage: LanguageCode) {
   await changeLanguage(nextLanguage, { allowRemote: true, showSuccessToast: true })
+}
+
+function openWebSearchDialog() {
+  webSearchDialogVisible.value = true
+}
+
+function closeWebSearchDialog() {
+  webSearchDialogVisible.value = false
+}
+
+async function saveWebSearch() {
+  savingWebSearch.value = true
+  try {
+    await settingAPI.update({ webSearchKey: webSearchKey.value })
+    closeWebSearchDialog()
+    toast.success(t('saveSuccess'))
+  } catch (err: any) {
+    toast.error(err?.response?.data?.error || t('webSearchSaveFailed'))
+  } finally {
+    savingWebSearch.value = false
+  }
 }
 
 function openAccountDialog() {
@@ -266,6 +291,7 @@ onMounted(loadData)
           :language-select-options="languageSelectOptions"
           :saving-language="savingLanguage"
           @open-account="openAccountDialog"
+          @open-web-search="openWebSearchDialog"
           @logout="logout"
           @language-change="onLanguageChange"
         />
@@ -409,6 +435,24 @@ onMounted(loadData)
     v-model:visible="accountDialogVisible"
     @success="onAccountUpdated"
   />
+
+  <AppDialog
+    v-model:visible="webSearchDialogVisible"
+    :title="t('webSearchSetting')"
+    :confirm-text="t('confirm')"
+    :cancel-text="t('cancel')"
+    :confirm-loading="savingWebSearch"
+    width="420px"
+    @confirm="saveWebSearch"
+    @cancel="closeWebSearchDialog"
+  >
+    <div class="flex flex-col gap-1.5">
+      <label class="text-xs font-medium sb-text-muted">{{ t('apiKey') }}</label>
+      <AppPasswordInput
+        v-model="webSearchKey"
+      />
+    </div>
+  </AppDialog>
 
   <AppDialog
     v-model:visible="messagePlatformDialogVisible"

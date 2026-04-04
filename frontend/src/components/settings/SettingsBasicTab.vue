@@ -3,7 +3,7 @@ import { useI18n } from 'vue-i18n'
 import LanguageSwitcher from '@/components/ui/LanguageSwitcher.vue'
 import type { LanguageCode } from '@/composables/useLanguagePreference'
 
-defineProps<{
+const props = defineProps<{
   language: LanguageCode
   languageSelectOptions: { value: LanguageCode; label: string }[]
   savingLanguage: boolean
@@ -11,6 +11,7 @@ defineProps<{
 
 const emit = defineEmits<{
   openAccount: []
+  openWebSearch: []
   logout: []
   languageChange: [value: LanguageCode]
 }>()
@@ -37,6 +38,18 @@ const { t } = useI18n()
         :aria-label="t('selectLanguage')"
         @update:model-value="emit('languageChange', $event as LanguageCode)"
       />
+    </div>
+    <div class="settings-card px-4 py-3.5 rounded-xl mt-2">
+      <div class="flex items-center justify-between gap-3">
+        <span class="text-sm settings-field-label">{{ t('webSearchSetting') }}</span>
+        <button
+          type="button"
+          class="px-3 py-1.5 text-xs rounded-lg cursor-pointer account-edit-btn"
+          @click="emit('openWebSearch')"
+        >
+          {{ t('accountEditAction') }}
+        </button>
+      </div>
     </div>
     <button type="button" class="settings-card w-full mt-2 px-4 py-3.5 rounded-xl text-left text-sm cursor-pointer logout-btn" @click="emit('logout')">
       {{ t('logout') }}

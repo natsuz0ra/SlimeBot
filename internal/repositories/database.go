@@ -34,7 +34,6 @@ func NewSQLite(dbPath string) (*gorm.DB, error) {
 		&domain.LLMConfig{},
 		&domain.MCPConfig{},
 		&domain.MessagePlatformConfig{},
-		&domain.Skill{},
 	); err != nil {
 		return nil, fmt.Errorf("auto migration failed: %w", err)
 	}

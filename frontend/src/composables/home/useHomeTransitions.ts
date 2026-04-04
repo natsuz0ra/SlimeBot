@@ -36,7 +36,10 @@ export function useHomeTransitions(options: {
   let forcePasswordDialogTimer: number | null = null
 
   const fullWelcomeTitle = computed(() => t('welcomeTitle'))
-  const isNewChatRoute = computed(() => route.name === 'new-chat' || route.path === '/chat/new_chat')
+  const isNewChatRoute = computed(() => {
+    const routeSessionId = route.params.sessionId as string | undefined
+    return !routeSessionId || routeSessionId === 'new_chat'
+  })
   const showTypeCursor = computed(() => titlePhase.value !== 'done')
   const shouldAnimateWelcomeTitle = computed(() => isNewChatRoute.value && isEmptySession.value)
   const activeAssistantMessageId = computed(() => {

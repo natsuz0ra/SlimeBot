@@ -131,11 +131,11 @@ type MessagePlatformConfig struct {
 }
 
 type Skill struct {
-	ID           string    `gorm:"primaryKey;size:36" json:"id"`
-	Name         string    `gorm:"size:64;not null;uniqueIndex" json:"name"`
-	RelativePath string    `gorm:"size:512;not null" json:"relativePath"`
-	Description  string    `gorm:"type:text;not null" json:"description"`
-	UploadedAt   time.Time `gorm:"index;not null" json:"uploadedAt"`
+	ID           string    `json:"id"`
+	Name         string    `json:"name"`
+	RelativePath string    `json:"relativePath"`
+	Description  string    `json:"description"`
+	UploadedAt   time.Time `json:"uploadedAt"`
 	CreatedAt    time.Time `json:"createdAt"`
 	UpdatedAt    time.Time `json:"updatedAt"`
 }

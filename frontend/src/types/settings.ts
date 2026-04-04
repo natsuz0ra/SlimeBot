@@ -2,6 +2,7 @@ export interface AppSettings {
   language: 'zh-CN' | 'en-US'
   defaultModel?: string
   messagePlatformDefaultModel?: string
+  webSearchKey?: string
 }
 
 export interface LLMConfig {

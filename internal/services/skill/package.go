@@ -18,7 +18,7 @@ import (
 	"github.com/goccy/go-yaml"
 )
 
-// SkillPackageService 负责技能 zip 的校验、解压与安装入库。
+// SkillPackageService 负责技能 zip 的校验、解压与安装到 skills 目录。
 type SkillPackageService struct {
 	store         domain.SkillStore
 	skillsRoot    string
@@ -45,8 +45,8 @@ func NewSkillPackageService(store domain.SkillStore, skillsRoot string) *SkillPa
 	}
 }
 
-// InstallFromZip 按“校验 -> 解压 -> 移动 -> 入库”流程安装技能包。
-// 注意文件系统与数据库不是原子事务：若入库失败会尝试回滚目标目录。
+// InstallFromZip 按“校验 -> 解压 -> 移动 -> 刷新元数据”流程安装技能包。
+// 注意目录移动与元数据生成不是原子事务：若元数据生成失败会尝试回滚目标目录。
 func (s *SkillPackageService) InstallFromZip(filename string, data []byte) (*domain.Skill, error) {
 	if len(data) == 0 {
 		return nil, fmt.Errorf("uploaded file is empty")

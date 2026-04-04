@@ -17,8 +17,6 @@ type EnvInfo struct {
 	Hostname       string `json:"hostname"`
 	Version        string `json:"version"`
 	Shell          string `json:"shell"`
-	CurrentDate    string `json:"current_date"`
-	CurrentTime    string `json:"current_time"`
 	Timezone       string `json:"timezone"`
 	TimezoneOffset string `json:"timezone_offset"`
 }
@@ -49,8 +47,6 @@ func CollectEnvInfo() *EnvInfo {
 		Hostname:       staticEnvInfo.Hostname,
 		Version:        staticEnvInfo.Version,
 		Shell:          staticEnvInfo.Shell,
-		CurrentDate:    now.Format("2006-01-02"),
-		CurrentTime:    now.Format("15:04:05"),
 		Timezone:       now.Location().String(),
 		TimezoneOffset: now.Format("-07:00"),
 	}
@@ -61,12 +57,6 @@ func CollectEnvInfo() *EnvInfo {
 // FormatForPrompt 将环境信息格式化为可嵌入系统提示词的文本
 func (e *EnvInfo) FormatForPrompt() string {
 	var b strings.Builder
-	if e.CurrentDate != "" {
-		b.WriteString(fmt.Sprintf("- Local date: %s\n", e.CurrentDate))
-	}
-	if e.CurrentTime != "" {
-		b.WriteString(fmt.Sprintf("- Local time: %s\n", e.CurrentTime))
-	}
 	if e.Timezone != "" {
 		if e.TimezoneOffset != "" {
 			b.WriteString(fmt.Sprintf("- Timezone: %s (UTC%s)\n", e.Timezone, e.TimezoneOffset))

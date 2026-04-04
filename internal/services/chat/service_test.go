@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"slimebot/internal/domain"
+	prompts "slimebot/prompts"
 )
 
 func TestTitleStreamParser_ExtractsTitleOnFirstTurn(t *testing.T) {
@@ -258,11 +259,10 @@ func TestReadAttachmentExcerpt_SkipsUnsupportedBinaryFile(t *testing.T) {
 }
 
 func TestSystemPrompt_UsesStructuredMemoryProtocol(t *testing.T) {
-	raw, err := os.ReadFile(filepath.Clean("../../../prompts/system_prompt.md"))
-	if err != nil {
-		t.Fatalf("read system prompt failed: %v", err)
+	content := prompts.SystemPrompt()
+	if strings.TrimSpace(content) == "" {
+		t.Fatal("embedded system prompt is empty")
 	}
-	content := string(raw)
 	if strings.Contains(content, `{"facts":[...]}`) {
 		t.Fatal(`system prompt must not instruct the model to emit {"facts":[...]}`)
 	}

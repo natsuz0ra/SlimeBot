@@ -14,17 +14,18 @@ import (
 
 // ChatService 负责聊天主流程编排，串联上下文构建、Agent 调用、附件和技能状态缓存。
 type ChatService struct {
-	store            domain.ChatStore
-	agent            *AgentService
-	skillRuntime     *skillsvc.SkillRuntimeService
-	memory           *memsvc.MemoryService
-	uploads          *ChatUploadService
-	skillsMu         sync.Mutex
-	skillsBySess     map[string]map[string]struct{}
-	skillTouchedAt   map[string]time.Time
-	systemPromptPath string
-	promptMu         sync.RWMutex
-	systemPrompt     string
+	store          domain.ChatStore
+	agent          *AgentService
+	skillRuntime   *skillsvc.SkillRuntimeService
+	memory         *memsvc.MemoryService
+	uploads        *ChatUploadService
+	skillsMu       sync.Mutex
+	skillsBySess   map[string]map[string]struct{}
+	skillTouchedAt map[string]time.Time
+	promptMu       sync.RWMutex
+	systemPrompt   string
+	stablePrompt   string
+	stableCatalog  string
 
 	platformModelMu sync.Mutex
 	platformModelID string
@@ -50,15 +51,14 @@ type ChatStreamResult struct {
 }
 
 // NewChatService 创建聊天服务，并初始化会话级技能缓存。
-func NewChatService(store domain.ChatStore, openai *oaisvc.OpenAIClient, mcpManager *mcp.Manager, skillRuntime *skillsvc.SkillRuntimeService, memory *memsvc.MemoryService, systemPromptPath string) *ChatService {
+func NewChatService(store domain.ChatStore, openai *oaisvc.OpenAIClient, mcpManager *mcp.Manager, skillRuntime *skillsvc.SkillRuntimeService, memory *memsvc.MemoryService) *ChatService {
 	return &ChatService{
-		store:            store,
-		agent:            NewAgentService(openai, mcpManager, skillRuntime, memory),
-		skillRuntime:     skillRuntime,
-		memory:           memory,
-		skillsBySess:     make(map[string]map[string]struct{}),
-		skillTouchedAt:   make(map[string]time.Time),
-		systemPromptPath: systemPromptPath,
+		store:          store,
+		agent:          NewAgentService(openai, mcpManager, skillRuntime, memory),
+		skillRuntime:   skillRuntime,
+		memory:         memory,
+		skillsBySess:   make(map[string]map[string]struct{}),
+		skillTouchedAt: make(map[string]time.Time),
 	}
 }
 
@@ -147,4 +147,19 @@ func (s *ChatService) setSystemPromptCached(prompt string) {
 	s.promptMu.Lock()
 	defer s.promptMu.Unlock()
 	s.systemPrompt = prompt
+}
+
+// getStableSystemPromptCached 读取稳定 system prompt 与对应 catalog 快照。
+func (s *ChatService) getStableSystemPromptCached() (prompt string, catalog string) {
+	s.promptMu.RLock()
+	defer s.promptMu.RUnlock()
+	return s.stablePrompt, s.stableCatalog
+}
+
+// setStableSystemPromptCached 更新稳定 system prompt 与 catalog 快照。
+func (s *ChatService) setStableSystemPromptCached(prompt string, catalog string) {
+	s.promptMu.Lock()
+	defer s.promptMu.Unlock()
+	s.stablePrompt = prompt
+	s.stableCatalog = catalog
 }

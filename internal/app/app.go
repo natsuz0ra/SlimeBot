@@ -2,11 +2,13 @@ package app
 
 import (
 	"context"
+	"io"
 	"io/fs"
 	"log/slog"
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"slimebot/internal/auth"
@@ -35,7 +37,7 @@ type App struct {
 	httpServer     *http.Server
 	telegramWorker *telegram.Worker
 	memoryService  *memsvc.MemoryService
-	embedding      *embsvc.ONNXRuntimeEmbeddingService
+	embedding      io.Closer
 	vectorRepo     *repositories.MemoryVectorRepository
 	mcpManager     *mcp.Manager
 }
@@ -50,6 +52,28 @@ func New(cfg config.Config) (*App, error) {
 	}
 	if err := os.MkdirAll(cfg.ChatUploadRoot, os.ModePerm); err != nil {
 		return nil, err
+	}
+	if strings.EqualFold(strings.TrimSpace(cfg.EmbeddingProvider), "onnx_go") ||
+		strings.EqualFold(strings.TrimSpace(cfg.EmbeddingProvider), "onnx") {
+		libPath, err := embsvc.EnsureORTSharedLibrary(context.Background(), embsvc.ORTRuntimeConfig{
+			Version:         cfg.EmbeddingORTVersion,
+			CacheDir:        cfg.EmbeddingORTCacheDir,
+			LibPath:         cfg.EmbeddingORTLibPath,
+			DownloadBaseURL: cfg.EmbeddingORTDownloadBaseURL,
+		})
+		if err != nil {
+			return nil, err
+		}
+		cfg.EmbeddingORTLibPath = libPath
+		if strings.TrimSpace(cfg.EmbeddingModelPath) != "" && strings.TrimSpace(cfg.EmbeddingTokenizerPath) != "" {
+			if err := embsvc.EnsureBgeM3ModelFiles(context.Background(), embsvc.BgeM3ModelConfig{
+				ModelPath:       cfg.EmbeddingModelPath,
+				TokenizerPath:   cfg.EmbeddingTokenizerPath,
+				DownloadBaseURL: cfg.EmbeddingModelDownloadBaseURL,
+			}); err != nil {
+				return nil, err
+			}
+		}
 	}
 
 	db, err := repositories.NewSQLite(cfg.DBPath)
@@ -74,13 +98,17 @@ func New(cfg config.Config) (*App, error) {
 	llmConfigsService := configsvc.NewLLMConfigService(repo)
 	mcpConfigsService := configsvc.NewMCPConfigService(repo)
 	platformsService := configsvc.NewMessagePlatformConfigService(repo)
-	skillPackageService := skillsvc.NewSkillPackageService(repo, cfg.SkillsRoot)
-	skillRuntimeService := skillsvc.NewSkillRuntimeService(repo, cfg.SkillsRoot)
+	skillStore := skillsvc.NewFileSystemSkillStore(cfg.SkillsRoot)
+	skillPackageService := skillsvc.NewSkillPackageService(skillStore, cfg.SkillsRoot)
+	skillRuntimeService := skillsvc.NewSkillRuntimeService(skillStore, cfg.SkillsRoot)
 	memoryService := memsvc.NewMemoryService(repo, openaiClient)
-	embedding, vectorRepo := configureMemoryVectorization(cfg, memoryService)
+	embedding, vectorRepo, err := configureMemoryVectorization(cfg, memoryService)
+	if err != nil {
+		return nil, err
+	}
 	memoryService.WarmupTokenizer()
 	chatUploadService := chatsvc.NewChatUploadService(cfg.ChatUploadRoot)
-	chatService := chatsvc.NewChatService(repo, openaiClient, mcpManager, skillRuntimeService, memoryService, cfg.SystemPromptPath)
+	chatService := chatsvc.NewChatService(repo, openaiClient, mcpManager, skillRuntimeService, memoryService)
 	chatService.SetUploadService(chatUploadService)
 
 	approvalBroker := telegram.NewApprovalBroker()

@@ -1,6 +1,6 @@
 package domain
 
-// SkillStore 技能存储接口。
+// SkillStore 负责从 skills 配置目录读取和删除技能目录元数据。
 type SkillStore interface {
 	ListSkills() ([]Skill, error)
 	GetSkillByName(name string) (*Skill, error)

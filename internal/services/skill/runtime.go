@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -36,7 +37,14 @@ func NewSkillRuntimeService(store domain.SkillStore, skillsRoot string) *SkillRu
 
 // ListSkills 返回当前已安装技能列表。
 func (s *SkillRuntimeService) ListSkills() ([]domain.Skill, error) {
-	return s.store.ListSkills()
+	items, err := s.store.ListSkills()
+	if err != nil {
+		return nil, err
+	}
+	sort.Slice(items, func(i, j int) bool {
+		return items[i].Name < items[j].Name
+	})
+	return items, nil
 }
 
 // BuildCatalogPrompt 生成可注入模型上下文的技能目录描述。
@@ -51,7 +59,7 @@ func (s *SkillRuntimeService) BuildCatalogPrompt() (string, []domain.Skill, erro
 	}
 	s.catalogMu.RUnlock()
 
-	items, err := s.store.ListSkills()
+	items, err := s.ListSkills()
 	if err != nil {
 		return "", nil, err
 	}
@@ -173,28 +181,16 @@ func (s *SkillRuntimeService) ActivateSkill(name string, activated map[string]st
 	return b.String(), false, nil
 }
 
-// DeleteSkillByID 删除技能目录并移除数据库记录。
+// DeleteSkillByID 删除技能目录并清空运行时缓存。
 func (s *SkillRuntimeService) DeleteSkillByID(id string) error {
-	item, err := s.store.GetSkillByID(id)
-	if err != nil {
-		return err
-	}
-	if item == nil {
-		return nil
-	}
-
-	skillDir, err := s.resolveSkillDir(*item)
-	if err != nil {
-		return err
-	}
-	if _, statErr := os.Stat(skillDir); statErr == nil {
-		if err := os.RemoveAll(skillDir); err != nil {
-			return fmt.Errorf("failed to delete skill directory: %w", err)
-		}
-	}
 	if err := s.store.DeleteSkill(id); err != nil {
 		return err
 	}
+	s.catalogMu.Lock()
+	s.cachedPrompt = ""
+	s.cachedSkills = nil
+	s.cacheUntil = time.Time{}
+	s.catalogMu.Unlock()
 	return nil
 }
 

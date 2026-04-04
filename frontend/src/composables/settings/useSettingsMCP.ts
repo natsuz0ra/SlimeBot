@@ -112,7 +112,7 @@ export function useSettingsMCP(options: {
       const cfg = JSON.parse(item.config || '{}')
       const transport = cfg.transport || 'stdio'
       if (transport === 'stdio') return `${transport} 路 ${cfg.command || '-'}`
-      return `${transport} 路 ${cfg.url || '-'}`
+      return `${transport} | ${cfg.url || '-'}`
     } catch {
       return t('mcpJsonInvalid')
     }

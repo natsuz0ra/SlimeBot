@@ -1,7 +1,7 @@
 package app
 
 import (
-	"context"
+	"io"
 	"log/slog"
 	"strings"
 	"time"
@@ -12,43 +12,44 @@ import (
 	memsvc "slimebot/internal/services/memory"
 )
 
-func configureMemoryVectorization(cfg config.Config, memoryService *memsvc.MemoryService) (*embsvc.ONNXRuntimeEmbeddingService, *repositories.MemoryVectorRepository) {
-	if !strings.EqualFold(strings.TrimSpace(cfg.EmbeddingProvider), "onnx") {
+func configureMemoryVectorization(cfg config.Config, memoryService *memsvc.MemoryService) (io.Closer, *repositories.MemoryVectorRepository, error) {
+	provider := strings.ToLower(strings.TrimSpace(cfg.EmbeddingProvider))
+	if provider != "onnx_go" && provider != "onnx" {
 		slog.Info("memory_vectorization_disabled", "reason", "embedding_provider", "provider", cfg.EmbeddingProvider)
-		return nil, nil
+		return nil, nil, nil
 	}
 	if strings.TrimSpace(cfg.EmbeddingModelPath) == "" || strings.TrimSpace(cfg.EmbeddingTokenizerPath) == "" {
 		slog.Info("memory_vectorization_disabled", "reason", "missing_embedding_paths")
-		return nil, nil
+		return nil, nil, nil
 	}
-	if strings.TrimSpace(cfg.QdrantURL) == "" || strings.TrimSpace(cfg.QdrantCollection) == "" {
-		slog.Info("memory_vectorization_disabled", "reason", "missing_qdrant_config")
-		return nil, nil
+	if strings.TrimSpace(cfg.ChromaPath) == "" || strings.TrimSpace(cfg.ChromaCollection) == "" {
+		slog.Info("memory_vectorization_disabled", "reason", "missing_chroma_config")
+		return nil, nil, nil
 	}
-	embedding := embsvc.NewONNXRuntimeEmbeddingService(embsvc.ONNXRuntimeEmbeddingConfig{
-		ModelPath:     cfg.EmbeddingModelPath,
-		TokenizerPath: cfg.EmbeddingTokenizerPath,
-		PythonBin:     cfg.EmbeddingPythonBin,
-		ScriptPath:    cfg.EmbeddingScriptPath,
-		Timeout:       time.Duration(cfg.EmbeddingTimeoutMS) * time.Millisecond,
+
+	embedding, err := embsvc.NewONNXRuntimeGoEmbeddingService(embsvc.ONNXRuntimeGoEmbeddingConfig{
+		ModelPath:        cfg.EmbeddingModelPath,
+		TokenizerPath:    cfg.EmbeddingTokenizerPath,
+		ORTSharedLibPath: cfg.EmbeddingORTLibPath,
+		Timeout:          time.Duration(cfg.EmbeddingTimeoutMS) * time.Millisecond,
 	})
-	if err := embedding.StartPipe(context.Background()); err != nil {
-		slog.Warn("embedding_pipe_start_failed", "err", err)
+	if err != nil {
+		return nil, nil, err
 	}
 	memoryService.SetEmbeddingService(embedding)
 
-	vectorStore, err := repositories.NewMemoryVectorRepository(cfg.QdrantURL, cfg.QdrantCollection)
+	vectorStore, err := repositories.NewMemoryVectorRepository(cfg.ChromaPath, cfg.ChromaCollection)
 	if err != nil {
-		slog.Warn("memory_vectorization_disabled", "reason", "qdrant_init_failed", "err", err)
-		return embedding, nil
+		slog.Warn("memory_vectorization_disabled", "reason", "chroma_init_failed", "err", err)
+		return embedding, nil, nil
 	}
 	memoryService.SetVectorStore(vectorStore)
 	memoryService.SetVectorSearchTopK(cfg.MemoryVectorTopK)
 	slog.Info("memory_vectorization_enabled",
-		"provider", "onnx",
-		"qdrant_url", cfg.QdrantURL,
-		"collection", cfg.QdrantCollection,
+		"provider", "onnx_go",
+		"chroma_path", cfg.ChromaPath,
+		"collection", cfg.ChromaCollection,
 		"topk", cfg.MemoryVectorTopK,
 	)
-	return embedding, vectorStore
+	return embedding, vectorStore, nil
 }

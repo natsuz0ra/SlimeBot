@@ -9,6 +9,7 @@ const (
 	SettingLanguage                    = "language"
 	SettingDefaultModel                = "defaultModel"
 	SettingMessagePlatformDefaultModel = "messagePlatformDefaultModel"
+	SettingWebSearchAPIKey             = "WEB_SEARCH_API_KEY"
 	ToolCallStatusPending              = "pending"
 	ToolCallStatusExecuting            = "executing"
 	ToolCallStatusCompleted            = "completed"

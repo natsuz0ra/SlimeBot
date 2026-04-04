@@ -17,6 +17,7 @@ func (h *HTTPController) GetSettings(c WebContext) {
 		"language":                    settings.Language,
 		"defaultModel":                settings.DefaultModel,
 		"messagePlatformDefaultModel": settings.MessagePlatformDefaultModel,
+		"webSearchApiKey":             settings.WebSearchAPIKey,
 	})
 }
 
@@ -26,6 +27,7 @@ func (h *HTTPController) UpdateSettings(c WebContext) {
 		Language                    string `json:"language"`
 		DefaultModel                string `json:"defaultModel"`
 		MessagePlatformDefaultModel string `json:"messagePlatformDefaultModel"`
+		WebSearchAPIKey             string `json:"webSearchApiKey"`
 	}
 	if !bindJSONOrBadRequest(c, &req, "Invalid request payload format.") {
 		return
@@ -34,6 +36,7 @@ func (h *HTTPController) UpdateSettings(c WebContext) {
 		Language:                    req.Language,
 		DefaultModel:                req.DefaultModel,
 		MessagePlatformDefaultModel: req.MessagePlatformDefaultModel,
+		WebSearchAPIKey:             req.WebSearchAPIKey,
 	})
 	if err != nil {
 		jsonInternalError(c, err)

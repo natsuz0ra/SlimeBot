@@ -1,6 +1,8 @@
 .PHONY: deps build clean test docker-build docker-run compose-up compose-down
 
 IMAGE ?= slimebot:latest
+SLIMEBOT_HOME ?= $(HOME)/.slimebot
+PORT ?= 8080
 SHELL := /bin/sh
 
 deps:
@@ -8,7 +10,8 @@ deps:
 	npm install --prefix frontend
 
 build:
-	npm run build
+	npm run build:frontend
+	go build -o slimebot ./cmd/server
 
 clean:
 	$(RM) -f slimebot slimebot.exe
@@ -21,10 +24,9 @@ docker-build:
 	docker build -t $(IMAGE) .
 
 docker-run:
-	docker run --rm -p 8080:8080 \
-		-v "$(CURDIR)/storage:/app/storage" \
-		-v "$(CURDIR)/onnx:/app/onnx" \
-		--env-file .env \
+	docker run --rm \
+		-p $(PORT):8080 \
+		-v "$(SLIMEBOT_HOME):/home/slimebot/.slimebot" \
 		$(IMAGE)
 
 compose-up:

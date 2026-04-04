@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"os"
 	"strings"
 	"sync"
 	"time"
@@ -13,6 +12,7 @@ import (
 	"slimebot/internal/domain"
 	"slimebot/internal/observability"
 	oaisvc "slimebot/internal/services/openai"
+	prompts "slimebot/prompts"
 )
 
 // BuildContextMessages 构造发给模型的完整上下文消息。
@@ -35,22 +35,10 @@ func (s *ChatService) buildContextMessages(ctx context.Context, sessionID string
 	wg.Add(2)
 	go func() {
 		defer wg.Done()
-		sp, err := s.loadSystemPrompt()
+		sp, err := s.loadStableSystemPrompt()
 		if err != nil {
 			loadErr = err
 			return
-		}
-		envInfo := CollectEnvInfo()
-		sp = sp + "\n\n## Runtime Environment\n" + envInfo.FormatForPrompt()
-		if s.skillRuntime != nil {
-			catalogPrompt, _, catalogErr := s.skillRuntime.BuildCatalogPrompt()
-			if catalogErr != nil {
-				loadErr = catalogErr
-				return
-			}
-			if strings.TrimSpace(catalogPrompt) != "" {
-				sp = sp + "\n\n" + catalogPrompt
-			}
 		}
 		systemPrompt = sp
 	}()
@@ -70,6 +58,9 @@ func (s *ChatService) buildContextMessages(ctx context.Context, sessionID string
 	}
 
 	msgs := []oaisvc.ChatMessage{{Role: "system", Content: systemPrompt}}
+	if runtimeEnvPrompt := s.buildRuntimeEnvironmentPrompt(); runtimeEnvPrompt != "" {
+		msgs = append(msgs, oaisvc.ChatMessage{Role: "system", Content: runtimeEnvPrompt})
+	}
 	if s.memory != nil {
 		memStart := time.Now()
 		memCtx, cancel := context.WithTimeout(ctx, constants.MemoryContextBuildBudget)
@@ -102,38 +93,53 @@ func (s *ChatService) buildContextMessages(ctx context.Context, sessionID string
 	return msgs, nil
 }
 
-// loadSystemPrompt 按候选路径读取并缓存 system prompt，减少每轮聊天重复读盘。
+// loadSystemPrompt 读取并缓存内嵌 system prompt。
 func (s *ChatService) loadSystemPrompt() (string, error) {
 	if cached := strings.TrimSpace(s.getSystemPromptCached()); cached != "" {
 		return cached, nil
 	}
-	candidates := make([]string, 0, 4)
-	if p := strings.TrimSpace(s.systemPromptPath); p != "" {
-		candidates = append(candidates, p)
+	prompt := strings.TrimSpace(prompts.SystemPrompt())
+	if prompt == "" {
+		return "", fmt.Errorf("embedded system prompt is empty")
 	}
-	candidates = append(candidates,
-		"./prompts/system_prompt.md",
-		"../prompts/system_prompt.md",
-		"../../prompts/system_prompt.md",
-	)
+	s.setSystemPromptCached(prompt)
+	return prompt, nil
+}
 
-	var lastErr error
-	for _, p := range candidates {
-		raw, err := os.ReadFile(p)
-		if err != nil {
-			lastErr = err
-			continue
-		}
-		prompt := strings.TrimSpace(string(raw))
-		if prompt == "" {
-			continue
-		}
-		s.setSystemPromptCached(prompt)
-		return prompt, nil
+// loadStableSystemPrompt 构建并缓存稳定前缀 system prompt，仅在技能目录变化时刷新。
+func (s *ChatService) loadStableSystemPrompt() (string, error) {
+	basePrompt, err := s.loadSystemPrompt()
+	if err != nil {
+		return "", err
 	}
 
-	if lastErr == nil {
-		lastErr = fmt.Errorf("system prompt file not found")
+	catalogPrompt := ""
+	if s.skillRuntime != nil {
+		var catalogErr error
+		catalogPrompt, _, catalogErr = s.skillRuntime.BuildCatalogPrompt()
+		if catalogErr != nil {
+			return "", catalogErr
+		}
+		catalogPrompt = strings.TrimSpace(catalogPrompt)
 	}
-	return "", fmt.Errorf("Failed to read system prompt: %w", lastErr)
+
+	if cachedPrompt, cachedCatalog := s.getStableSystemPromptCached(); strings.TrimSpace(cachedPrompt) != "" && cachedCatalog == catalogPrompt {
+		return cachedPrompt, nil
+	}
+
+	stable := basePrompt
+	if catalogPrompt != "" {
+		stable = stable + "\n\n" + catalogPrompt
+	}
+	s.setStableSystemPromptCached(stable, catalogPrompt)
+	return stable, nil
+}
+
+func (s *ChatService) buildRuntimeEnvironmentPrompt() string {
+	envInfo := CollectEnvInfo()
+	body := strings.TrimSpace(envInfo.FormatForPrompt())
+	if body == "" {
+		return ""
+	}
+	return "## Runtime Environment\n" + body
 }

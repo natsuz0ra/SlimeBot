@@ -26,6 +26,8 @@ type ModelRuntimeConfig struct {
 	APIKey string
 	// 目标模型名称。
 	Model string
+	// 采样温度。
+	Temperature float64
 }
 
 type ChatMessage struct {
@@ -135,8 +137,9 @@ func (c *OpenAIClient) StreamChatWithTools(
 
 	// 组装 OpenAI 聊天参数；仅在有工具定义时启用 tools。
 	params := openai.ChatCompletionNewParams{
-		Messages: requestMessages,
-		Model:    openai.ChatModel(model),
+		Messages:    requestMessages,
+		Model:       openai.ChatModel(model),
+		Temperature: openai.Float(modelConfig.Temperature),
 	}
 
 	if len(toolDefs) > 0 {

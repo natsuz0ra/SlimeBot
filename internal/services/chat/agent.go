@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"slimebot/internal/domain"
 	"slimebot/internal/observability"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -18,6 +19,8 @@ import (
 	skillsvc "slimebot/internal/services/skill"
 	"slimebot/internal/tools"
 )
+
+const balancedTemperature = 1.2
 
 // ApprovalRequest 发送给前端的工具调用审批请求
 type ApprovalRequest struct {
@@ -122,6 +125,12 @@ func BuildToolDefs() []oaisvc.ToolDef {
 			})
 		}
 	}
+	sort.Slice(defs, func(i, j int) bool {
+		if defs[i].Name == defs[j].Name {
+			return defs[i].Description < defs[j].Description
+		}
+		return defs[i].Name < defs[j].Name
+	})
 	return defs
 }
 
@@ -199,6 +208,12 @@ func (a *AgentService) buildRuntimeToolDefs(ctx context.Context, configs []domai
 			return nil, nil, fmt.Errorf("tool name is too long: %s (len=%d, max=%d)", def.Name, nameLen, constants.MaxToolNameLen)
 		}
 	}
+	sort.Slice(defs, func(i, j int) bool {
+		if defs[i].Name == defs[j].Name {
+			return defs[i].Description < defs[j].Description
+		}
+		return defs[i].Name < defs[j].Name
+	})
 	a.setCachedToolDefs(cacheKey, defs, metaByFunc)
 	return defs, metaByFunc, nil
 }
@@ -260,6 +275,8 @@ func (a *AgentService) RunAgentLoop(
 	activatedSkills map[string]struct{},
 	callbacks AgentCallbacks,
 ) (string, error) {
+	modelConfig.Temperature = balancedTemperature
+
 	toolDefs, mcpToolMeta, err := a.buildRuntimeToolDefs(ctx, mcpConfigs)
 	if err != nil {
 		return "", fmt.Errorf("failed to load MCP tools: %w", err)

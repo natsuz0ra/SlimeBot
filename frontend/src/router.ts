@@ -13,17 +13,11 @@ const router = createRouter({
     {
       path: '/',
       name: 'home',
-      component: () => import('@/pages/HomePage.vue'),
+      redirect: '/chat/new_chat',
       meta: { requiresAuth: true },
     },
     {
-      path: '/chat/new_chat',
-      name: 'new-chat',
-      component: () => import('@/pages/HomePage.vue'),
-      meta: { requiresAuth: true },
-    },
-    {
-      path: '/chat/:sessionId',
+      path: '/chat/:sessionId?',
       name: 'chat',
       component: () => import('@/pages/HomePage.vue'),
       meta: { requiresAuth: true },

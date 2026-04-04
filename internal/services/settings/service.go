@@ -2,8 +2,10 @@ package settings
 
 import (
 	"context"
+	"os"
 	"slimebot/internal/constants"
 	"slimebot/internal/domain"
+	"slimebot/internal/runtime"
 	"strings"
 )
 
@@ -12,6 +14,7 @@ type AppSettings struct {
 	Language                    string
 	DefaultModel                string
 	MessagePlatformDefaultModel string
+	WebSearchAPIKey             string
 }
 
 // UpdateSettingsInput 是设置更新请求的领域输入。
@@ -19,6 +22,7 @@ type UpdateSettingsInput struct {
 	Language                    string
 	DefaultModel                string
 	MessagePlatformDefaultModel string
+	WebSearchAPIKey             string
 }
 
 type SettingsService struct {
@@ -46,10 +50,15 @@ func (s *SettingsService) Get() (*AppSettings, error) {
 	if err != nil {
 		return nil, err
 	}
+	webSearchAPIKey, err := runtime.ReadEnvValue(constants.SettingWebSearchAPIKey)
+	if err != nil {
+		return nil, err
+	}
 	return &AppSettings{
 		Language:                    language,
 		DefaultModel:                defaultModel,
 		MessagePlatformDefaultModel: messagePlatformDefaultModel,
+		WebSearchAPIKey:             webSearchAPIKey,
 	}, nil
 }
 
@@ -67,6 +76,14 @@ func (s *SettingsService) Update(input UpdateSettingsInput) error {
 	}
 	if strings.TrimSpace(input.MessagePlatformDefaultModel) != "" {
 		if err := s.store.SetSetting(context.Background(), constants.SettingMessagePlatformDefaultModel, input.MessagePlatformDefaultModel); err != nil {
+			return err
+		}
+	}
+	if strings.TrimSpace(input.WebSearchAPIKey) != "" {
+		if err := runtime.UpsertEnvValue(constants.SettingWebSearchAPIKey, input.WebSearchAPIKey); err != nil {
+			return err
+		}
+		if err := os.Setenv(constants.SettingWebSearchAPIKey, input.WebSearchAPIKey); err != nil {
 			return err
 		}
 	}

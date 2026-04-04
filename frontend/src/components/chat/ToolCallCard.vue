@@ -362,7 +362,7 @@ function onOutputToggle(event: Event) {
   border: 1px solid var(--tool-section-border);
   border-radius: 7px;
   padding: 8px;
-  font-size: 14px;
+  font-size: 12px;
   line-height: 1.45;
   scrollbar-width: thin;
   max-height: 176px;
@@ -498,7 +498,7 @@ function onOutputToggle(event: Event) {
   color: var(--tool-detail-body-text);
   border: 1px solid var(--tool-section-border);
   border-radius: 7px;
-  font-size: 14px;
+  font-size: 12px;
   line-height: 1.45;
   max-height: 224px;
   overflow-y: auto;

@@ -2,6 +2,8 @@ package runtime
 
 import (
 	"bufio"
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -9,6 +11,8 @@ import (
 
 	"github.com/joho/godotenv"
 )
+
+const jwtSecretEnvKey = "JWT_SECRET"
 
 func getEnvPath() string {
 	return filepath.Join(SlimeBotHomeDir(), ".env")
@@ -63,7 +67,11 @@ func appendMissingEnvKeys(envPath string, template string) error {
 		b.WriteString("\n")
 	}
 	for _, line := range toAppend {
-		b.WriteString(line)
+		appendLine, err := renderMissingEnvLine(line)
+		if err != nil {
+			return err
+		}
+		b.WriteString(appendLine)
 		b.WriteString("\n")
 	}
 
@@ -76,6 +84,26 @@ func appendMissingEnvKeys(envPath string, template string) error {
 		return fmt.Errorf("append env file failed: %w", err)
 	}
 	return nil
+}
+
+func renderMissingEnvLine(templateLine string) (string, error) {
+	key, ok := parseEnvKey(templateLine)
+	if !ok || key != jwtSecretEnvKey {
+		return templateLine, nil
+	}
+	secret, err := generateJWTSecret()
+	if err != nil {
+		return "", fmt.Errorf("generate JWT_SECRET failed: %w", err)
+	}
+	return key + "=" + secret, nil
+}
+
+func generateJWTSecret() (string, error) {
+	buf := make([]byte, 32)
+	if _, err := rand.Read(buf); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(buf), nil
 }
 
 func collectMissingTemplateLines(template string, existing map[string]struct{}) []string {

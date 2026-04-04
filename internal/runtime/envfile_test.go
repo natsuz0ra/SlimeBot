@@ -49,8 +49,12 @@ func TestEnsureAndLoadEnv_AppendsOnlyMissingKeys(t *testing.T) {
 	if !strings.Contains(content, "SERVER_PORT=9090") {
 		t.Fatal("existing key should be preserved")
 	}
-	if !strings.Contains(content, "JWT_SECRET=CHANGE_ME") {
-		t.Fatal("missing key JWT_SECRET should be appended")
+	jwtSecret := findEnvValue(content, "JWT_SECRET")
+	if strings.TrimSpace(jwtSecret) == "" {
+		t.Fatal("missing key JWT_SECRET should be appended with non-empty value")
+	}
+	if jwtSecret == "YOUR_JWT_SECRET" || jwtSecret == "CHANGE_ME" {
+		t.Fatal("JWT_SECRET placeholder should be replaced by generated secret")
 	}
 	if !strings.Contains(content, "EMBEDDING_ORT_LIB_PATH=") {
 		t.Fatal("missing key EMBEDDING_ORT_LIB_PATH should be appended")
@@ -76,4 +80,23 @@ func TestEnsureAndLoadEnv_IsIdempotent(t *testing.T) {
 	if string(first) != string(second) {
 		t.Fatalf("env file changed after idempotent run:\n--- first ---\n%s\n--- second ---\n%s", string(first), string(second))
 	}
+
+	jwtFirst := findEnvValue(string(first), "JWT_SECRET")
+	jwtSecond := findEnvValue(string(second), "JWT_SECRET")
+	if jwtFirst == "" || jwtSecond == "" {
+		t.Fatal("JWT_SECRET should exist after ensureAndLoadEnv")
+	}
+	if jwtFirst != jwtSecond {
+		t.Fatal("JWT_SECRET should stay stable on repeated ensureAndLoadEnv runs")
+	}
+}
+
+func findEnvValue(content string, key string) string {
+	prefix := strings.TrimSpace(key) + "="
+	for _, line := range strings.Split(content, "\n") {
+		if strings.HasPrefix(strings.TrimSpace(line), prefix) {
+			return strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(line), prefix))
+		}
+	}
+	return ""
 }

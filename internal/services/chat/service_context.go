@@ -3,14 +3,13 @@ package chat
 import (
 	"context"
 	"fmt"
-	"log/slog"
+	"slimebot/internal/logging"
 	"strings"
 	"sync"
 	"time"
 
 	"slimebot/internal/constants"
 	"slimebot/internal/domain"
-	"slimebot/internal/observability"
 	oaisvc "slimebot/internal/services/openai"
 	prompts "slimebot/prompts"
 )
@@ -49,7 +48,7 @@ func (s *ChatService) buildContextMessages(ctx context.Context, sessionID string
 		histErr = err
 	}()
 	wg.Wait()
-	observability.Span("context_parallel_system_history", parallelStart)
+	logging.Span("context_parallel_system_history", parallelStart)
 	if loadErr != nil {
 		return nil, loadErr
 	}
@@ -66,7 +65,7 @@ func (s *ChatService) buildContextMessages(ctx context.Context, sessionID string
 		memCtx, cancel := context.WithTimeout(ctx, constants.MemoryContextBuildBudget)
 		memoryContext := s.memory.BuildSessionMemoryContextForPrompt(memCtx, sessionID, history)
 		cancel()
-		observability.Span("memory_context_build", memStart)
+		logging.Span("memory_context_build", memStart)
 		if memoryContext != "" {
 			msgs = append(msgs, oaisvc.ChatMessage{
 				Role: "system",
@@ -88,8 +87,8 @@ func (s *ChatService) buildContextMessages(ctx context.Context, sessionID string
 			Content: messageContent,
 		})
 	}
-	slog.Info("chat_context_ready", "session", sessionID, "history", len(history), "mode", "memory_plus_recent20", "cost_ms", time.Since(buildStart).Milliseconds())
-	observability.Span("context_build_total", buildStart)
+	logging.Info("chat_context_ready", "session", sessionID, "history", len(history), "mode", "memory_plus_recent20", "cost_ms", time.Since(buildStart).Milliseconds())
+	logging.Span("context_build_total", buildStart)
 	return msgs, nil
 }
 

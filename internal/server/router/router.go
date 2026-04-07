@@ -20,8 +20,20 @@ import (
 	"github.com/go-chi/httprate"
 )
 
+// RouterConfig 路由级可选配置。
+type RouterConfig struct {
+	// CLIToken 如果非空，启用 CLI 本地 token 旁路认证。
+	CLIToken string
+	// Headless 如果为 true，跳过 SPA 静态文件路由。
+	Headless bool
+}
+
 // New 构建 HTTP 路由树并注册 REST 与 WebSocket 入口。
-func New(cfg config.Config, tokenManager *auth.TokenManager, httpController *controller.HTTPController, wsController *ws.Controller, staticFS fs.FS) http.Handler {
+func New(cfg config.Config, tokenManager *auth.TokenManager, httpController *controller.HTTPController, wsController *ws.Controller, staticFS fs.FS, routerCfg ...RouterConfig) http.Handler {
+	var rc RouterConfig
+	if len(routerCfg) > 0 {
+		rc = routerCfg[0]
+	}
 	r := chi.NewRouter()
 	if strings.TrimSpace(cfg.Frontend) != "" {
 		r.Use(cors.Handler(cors.Options{
@@ -43,7 +55,8 @@ func New(cfg config.Config, tokenManager *auth.TokenManager, httpController *con
 		api.Use(httprate.LimitByIP(400, time.Minute))
 		api.With(httprate.LimitByIP(30, time.Minute)).Post("/login", adapt(httpController.Login))
 
-		api.With(middleware.RequireJWT(tokenManager)).Route("/", func(api chi.Router) {
+		authmw := middleware.RequireJWT(tokenManager, rc.CLIToken)
+		api.With(authmw).Route("/", func(api chi.Router) {
 			api.Put("/account", adapt(httpController.UpdateAccount))
 
 			api.Get("/sessions", adapt(httpController.ListSessions))
@@ -76,12 +89,16 @@ func New(cfg config.Config, tokenManager *auth.TokenManager, httpController *con
 		})
 	})
 
-	// WebSocket (net/http entrypoint)
-	r.With(middleware.RequireJWT(tokenManager)).Get("/ws/chat", func(w http.ResponseWriter, req *http.Request) {
+	// WebSocket
+	wsAuthmw := middleware.RequireJWT(tokenManager, rc.CLIToken)
+	r.With(wsAuthmw).Get("/ws/chat", func(w http.ResponseWriter, req *http.Request) {
 		wsController.Chat(w, req)
 	})
 
-	r.Get("/*", serveSPA(staticFS))
+	// SPA 静态文件（headless 模式跳过）
+	if !rc.Headless {
+		r.Get("/*", serveSPA(staticFS))
+	}
 
 	return r
 }

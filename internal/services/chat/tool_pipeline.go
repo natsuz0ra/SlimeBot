@@ -3,8 +3,8 @@ package chat
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"slimebot/internal/domain"
+	"slimebot/internal/logging"
 	"strings"
 
 	"slimebot/internal/constants"
@@ -65,7 +65,7 @@ func notifyToolResult(callbacks AgentCallbacks, result ToolCallResult) {
 		return
 	}
 	if err := callbacks.OnToolCallResult(result); err != nil {
-		slog.Warn("failed_to_push_tool_result", "err", err)
+		logging.Warn("failed_to_push_tool_result", "err", err)
 	}
 }
 

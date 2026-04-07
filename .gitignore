@@ -21,3 +21,4 @@ slimebot
 __pycache__/
 *.pyc
 .claude
+cli/dist

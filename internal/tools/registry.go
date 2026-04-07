@@ -2,7 +2,7 @@ package tools
 
 import (
 	"fmt"
-	"log/slog"
+	"slimebot/internal/logging"
 	"sync"
 )
 
@@ -28,7 +28,7 @@ func Register(tool Tool) {
 		panic(fmt.Sprintf("duplicate tool name: %s", name))
 	}
 	globalRegistry.tools[name] = tool
-	slog.Info("tool_registered", "name", name, "commands", len(tool.Commands()))
+	logging.Info("tool_registered", "name", name, "commands", len(tool.Commands()))
 }
 
 // Get 根据名称获取已注册的工具

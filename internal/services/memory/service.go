@@ -3,7 +3,7 @@ package memory
 import (
 	"context"
 	"fmt"
-	"log/slog"
+	"slimebot/internal/logging"
 	"strings"
 	"sync"
 	"time"
@@ -237,5 +237,5 @@ func buildMemoryQueryOutput(query string, keywords []string, hits []MemorySearch
 }
 
 func enqueueLog(sessionID string, rawPayload string) {
-	slog.Info("memory_turn_enqueued", "session", sessionID, "payload_len", len(strings.TrimSpace(rawPayload)))
+	logging.Info("memory_turn_enqueued", "session", sessionID, "payload_len", len(strings.TrimSpace(rawPayload)))
 }

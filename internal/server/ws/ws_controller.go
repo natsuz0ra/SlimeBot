@@ -5,8 +5,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"log/slog"
 	"net/http"
+	"slimebot/internal/logging"
 	"strings"
 	"sync"
 	"time"
@@ -359,7 +359,7 @@ func (w *Controller) handleChatIncoming(
 		startToFirstChunkMs = firstChunkSentAt.Sub(startSentAt).Milliseconds()
 		firstChunkToDoneMs = doneSentAt.Sub(firstChunkSentAt).Milliseconds()
 	}
-	slog.Info("ws_chat_timing",
+	logging.Info("ws_chat_timing",
 		"session", session.ID,
 		"receive_to_start_ms", startSentAt.Sub(receivedAt).Milliseconds(),
 		"start_to_first_chunk_ms", startToFirstChunkMs,

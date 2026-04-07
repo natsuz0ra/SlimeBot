@@ -17,6 +17,7 @@ var defaultMemoryStopWords = map[string]struct{}{
 // 结果数量受 MemoryKeywordMaxCount 限制。
 func tokenizeKeywordsImpl(m *MemoryService, text string) []string {
 	m.segOnce.Do(func() {
+		m.segmenter.SkipLog = true
 		// 使用嵌入词典快速初始化，避免每次分词重复加载。
 		m.segmenter.LoadDict()
 	})

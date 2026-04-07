@@ -150,3 +150,9 @@ When web search is available, follow these rules.
 
 1. Avoid judgmental wording toward user choices or mistakes.
 2. Prefer action-oriented phrasing such as "I will handle this" and "Next step is".
+
+## 11. Markdown Formatting Hygiene
+
+1. Always close markdown emphasis markers. Every `**bold**` must use matched opening and closing markers.
+2. Avoid nested combinations of bold and italic markers unless absolutely necessary.
+3. Prefer numbered lists over unordered list symbols when formatting could conflict with nearby emphasis markers.

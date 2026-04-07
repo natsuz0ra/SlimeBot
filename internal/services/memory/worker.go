@@ -2,7 +2,7 @@ package memory
 
 import (
 	"context"
-	"log/slog"
+	"slimebot/internal/logging"
 	"strings"
 	"time"
 
@@ -83,12 +83,12 @@ func processTurnMemory(m *MemoryService, sessionID string, job queuedTurnMemory)
 
 	payload, err := parseTurnMemoryPayload(job.rawPayload)
 	if err != nil {
-		slog.Warn("memory_payload_parse_failed", "session", sessionID, "err", err)
+		logging.Warn("memory_payload_parse_failed", "session", sessionID, "err", err)
 		return
 	}
 	msg, err := m.store.GetMessageByID(ctx, job.assistantMessageID)
 	if err != nil || msg == nil {
-		slog.Warn("memory_turn_message_missing", "session", sessionID, "assistant_message_id", job.assistantMessageID, "err", err)
+		logging.Warn("memory_turn_message_missing", "session", sessionID, "assistant_message_id", job.assistantMessageID, "err", err)
 		return
 	}
 
@@ -111,7 +111,7 @@ func processTurnMemory(m *MemoryService, sessionID string, job queuedTurnMemory)
 		return
 	}
 	if err := m.applyEpisodePayload(ctx, sessionID, msg, payload, startSeq, topicKey); err != nil {
-		slog.Warn("memory_episode_apply_failed", "session", sessionID, "topic", topicKey, "err", err)
+		logging.Warn("memory_episode_apply_failed", "session", sessionID, "topic", topicKey, "err", err)
 	}
 }
 

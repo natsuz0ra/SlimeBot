@@ -5,7 +5,9 @@
     "dev": "concurrently -n backend,frontend -c green,cyan \"go run ./cmd/server/main.go\" \"npm --prefix frontend run dev\"",
     "build:frontend": "npm --prefix frontend run build",
     "build": "npm --prefix frontend run build && go build -o slimebot ./cmd/server",
-    "start": "go run ./cmd/server/main.go"
+    "start": "go run ./cmd/server/main.go",
+    "build:cli": "npm --prefix cli run build",
+    "cli": "npm --prefix cli run build && go run ./cmd/cli/main.go"
   },
   "devDependencies": {
     "concurrently": "^9.2.1"

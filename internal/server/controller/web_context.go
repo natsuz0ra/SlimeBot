@@ -3,9 +3,9 @@ package controller
 import (
 	"encoding/json"
 	"io"
-	"log/slog"
 	"mime/multipart"
 	"net/http"
+	"slimebot/internal/logging"
 
 	"github.com/go-chi/chi/v5"
 )
@@ -61,7 +61,7 @@ func (c chiContext) JSON(code int, v any) {
 	c.w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	c.w.WriteHeader(code)
 	if err := json.NewEncoder(c.w).Encode(v); err != nil {
-		slog.Warn("json_encode_failed", "err", err)
+		logging.Warn("json_encode_failed", "err", err)
 	}
 }
 
@@ -70,7 +70,7 @@ func (c chiContext) Error(err error) {
 		return
 	}
 	// 当前控制器主要使用 c.Error(err) 作为“记录”，不会影响响应体。
-	slog.Warn("handler_error", "err", err)
+	logging.Warn("handler_error", "err", err)
 }
 
 func (c chiContext) ShouldBindJSON(dst any) error {

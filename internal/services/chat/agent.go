@@ -4,9 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log/slog"
 	"slimebot/internal/domain"
-	"slimebot/internal/observability"
+	"slimebot/internal/logging"
 	"sort"
 	"strings"
 	"sync"
@@ -181,7 +180,7 @@ func (a *AgentService) buildRuntimeToolDefs(ctx context.Context, configs []domai
 
 	loadStart := time.Now()
 	metas, mcpDefs, err := a.mcp.LoadTools(ctx, configs)
-	observability.Span("mcp_load_tools", loadStart)
+	logging.Span("mcp_load_tools", loadStart)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -204,7 +203,7 @@ func (a *AgentService) buildRuntimeToolDefs(ctx context.Context, configs []domai
 	for _, def := range defs {
 		nameLen := len(def.Name)
 		if nameLen > constants.MaxToolNameLen {
-			slog.Warn("tool_name_too_long", "name", def.Name, "len", nameLen)
+			logging.Warn("tool_name_too_long", "name", def.Name, "len", nameLen)
 			return nil, nil, fmt.Errorf("tool name is too long: %s (len=%d, max=%d)", def.Name, nameLen, constants.MaxToolNameLen)
 		}
 	}
@@ -288,7 +287,7 @@ func (a *AgentService) RunAgentLoop(
 	memoryToolUsed := false
 
 	for i := 0; i < constants.AgentMaxIterations; i++ {
-		slog.Info("agent_iteration", "iteration", i+1, "messages", len(messages))
+		logging.Info("agent_iteration", "iteration", i+1, "messages", len(messages))
 
 		var chunkBuf strings.Builder
 		result, err := a.openai.StreamChatWithTools(ctx, modelConfig, messages, toolDefs, func(chunk string) error {

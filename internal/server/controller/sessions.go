@@ -6,12 +6,12 @@ import (
 	"io"
 	"net/http"
 	"slimebot/internal/domain"
+	"slimebot/internal/logging"
 	"strconv"
 	"strings"
 	"time"
 
 	"slimebot/internal/constants"
-	"slimebot/internal/observability"
 )
 
 type sessionMessagesResponse struct {
@@ -256,5 +256,5 @@ func (h *HTTPController) ListMessages(c WebContext) {
 		ToolCallsByAssistantMessageID: toolCallsByAssistantMessageID,
 		HasMore:                       hasMore,
 	})
-	observability.Span("http_list_messages", listStart)
+	logging.Span("http_list_messages", listStart)
 }

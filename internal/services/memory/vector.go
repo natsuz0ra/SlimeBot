@@ -3,7 +3,7 @@ package memory
 import (
 	"context"
 	"fmt"
-	"log/slog"
+	"slimebot/internal/logging"
 	"strings"
 	"time"
 
@@ -50,7 +50,7 @@ func (m *MemoryService) RetrieveRelevantEpisodes(ctx context.Context, sessionID,
 			return hits, nil
 		}
 		if err != nil {
-			slog.Warn("memory_vector_retrieve_fallback", "session", sessionID, "err", err)
+			logging.Warn("memory_vector_retrieve_fallback", "session", sessionID, "err", err)
 		}
 	}
 

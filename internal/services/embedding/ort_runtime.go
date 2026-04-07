@@ -7,11 +7,11 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"log/slog"
 	"net/http"
 	"os"
 	"path/filepath"
 	"runtime"
+	"slimebot/internal/logging"
 	"strings"
 	"sync"
 
@@ -57,7 +57,7 @@ func EnsureORTSharedLibrary(ctx context.Context, cfg ORTRuntimeConfig) (string, 
 	if err != nil {
 		return "", err
 	}
-	slog.Info("resource_prepare_start",
+	logging.Info("resource_prepare_start",
 		"resource", "onnxruntime",
 		"asset", assetName,
 		"cache_dir", cacheDir,
@@ -65,7 +65,7 @@ func EnsureORTSharedLibrary(ctx context.Context, cfg ORTRuntimeConfig) (string, 
 	extractedRoot := filepath.Join(cacheDir, archiveStem(assetName))
 	libPath, _ := findExtractedORTLibrary(extractedRoot, version)
 	if libPath != "" {
-		slog.Info("resource_prepare_done",
+		logging.Info("resource_prepare_done",
 			"resource", "onnxruntime",
 			"asset", assetName,
 			"cached", true,
@@ -78,7 +78,7 @@ func EnsureORTSharedLibrary(ctx context.Context, cfg ORTRuntimeConfig) (string, 
 	if !isFile(archivePath) {
 		downloadURL := fmt.Sprintf("%s/v%s/%s", strings.TrimRight(baseURL, "/"), version, assetName)
 		if err := downloadFile(ctx, downloadURL, archivePath); err != nil {
-			slog.Warn("resource_prepare_failed",
+			logging.Warn("resource_prepare_failed",
 				"resource", "onnxruntime",
 				"asset", assetName,
 				"stage", "download",
@@ -88,7 +88,7 @@ func EnsureORTSharedLibrary(ctx context.Context, cfg ORTRuntimeConfig) (string, 
 		}
 	}
 	if err := extractORTArchive(archivePath, cacheDir); err != nil {
-		slog.Warn("resource_prepare_failed",
+		logging.Warn("resource_prepare_failed",
 			"resource", "onnxruntime",
 			"asset", assetName,
 			"stage", "extract",
@@ -98,7 +98,7 @@ func EnsureORTSharedLibrary(ctx context.Context, cfg ORTRuntimeConfig) (string, 
 	}
 	libPath, err = findExtractedORTLibrary(extractedRoot, version)
 	if err != nil {
-		slog.Warn("resource_prepare_failed",
+		logging.Warn("resource_prepare_failed",
 			"resource", "onnxruntime",
 			"asset", assetName,
 			"stage", "find_library",
@@ -106,7 +106,7 @@ func EnsureORTSharedLibrary(ctx context.Context, cfg ORTRuntimeConfig) (string, 
 		)
 		return "", err
 	}
-	slog.Info("resource_prepare_done",
+	logging.Info("resource_prepare_done",
 		"resource", "onnxruntime",
 		"asset", assetName,
 		"cached", false,

@@ -1,4 +1,4 @@
-.PHONY: deps build clean test docker-build docker-run compose-up compose-down
+.PHONY: deps build clean test cli docker-build docker-run compose-up compose-down
 
 IMAGE ?= slimebot:latest
 SLIMEBOT_HOME ?= $(HOME)/.slimebot
@@ -13,9 +13,15 @@ build:
 	npm run build:frontend
 	go build -o slimebot ./cmd/server
 
+cli:
+	npm --prefix cli install
+	npm --prefix cli run build
+	go build -o slimebot-cli ./cmd/cli
+
 clean:
-	$(RM) -f slimebot slimebot.exe
+	$(RM) -f slimebot slimebot.exe slimebot-cli slimebot-cli.exe
 	@if [ -d web/dist ]; then find web/dist -mindepth 1 -delete; fi
+	rm -rf cli/dist
 
 test:
 	go test ./...

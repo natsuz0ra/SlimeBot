@@ -4,14 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log/slog"
+	"slimebot/internal/logging"
 	"strings"
 	"sync"
 	"time"
 
 	"slimebot/internal/constants"
 	"slimebot/internal/domain"
-	"slimebot/internal/observability"
 	oaisvc "slimebot/internal/services/openai"
 )
 
@@ -169,7 +168,7 @@ func (s *ChatService) HandleChatStream(
 	activatedSkills := s.getSessionActivatedSkills(sessionID)
 	agentStart := time.Now()
 	answer, err := s.agent.RunAgentLoop(ctx, modelConfig, sessionID, contextMessages, enabledMCPConfigs, activatedSkills, agentCallbacks)
-	observability.Span("agent_loop", agentStart)
+	logging.Span("agent_loop", agentStart)
 	s.mergeSessionActivatedSkills(sessionID, activatedSkills)
 
 	interrupted := errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)
@@ -181,7 +180,7 @@ func (s *ChatService) HandleChatStream(
 	if !firstTokenAt.IsZero() {
 		firstTokenMs = firstTokenAt.Sub(streamStart).Milliseconds()
 	}
-	slog.Info("chat_stream_done", "session", sessionID, "first_token_ms", firstTokenMs, "total_stream_ms", time.Since(streamStart).Milliseconds())
+	logging.Info("chat_stream_done", "session", sessionID, "first_token_ms", firstTokenMs, "total_stream_ms", time.Since(streamStart).Milliseconds())
 
 	if err := pushBody(parser.Flush()); err != nil && !interrupted {
 		return nil, err
@@ -231,9 +230,9 @@ func (s *ChatService) HandleChatStream(
 	}
 	if s.memory != nil && strings.TrimSpace(memoryPayload) != "" {
 		s.memory.EnqueueTurnMemory(sessionID, assistantMessage.ID, memoryPayload)
-		slog.Info("memory_enqueue_triggered", "session", sessionID)
+		logging.Info("memory_enqueue_triggered", "session", sessionID)
 	} else if s.memory != nil {
-		slog.Info("memory_enqueue_skipped", "session", sessionID, "reason", "empty_or_unparsed")
+		logging.Info("memory_enqueue_skipped", "session", sessionID, "reason", "empty_or_unparsed")
 	}
 	if accumulator.pushErr != nil {
 		result.PushFailed = true

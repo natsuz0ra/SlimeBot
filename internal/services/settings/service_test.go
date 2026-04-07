@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slimebot/internal/runtime"
 	"testing"
 )
 
@@ -22,7 +23,14 @@ func (m *memorySettingsStore) SetSetting(_ context.Context, key, value string) e
 }
 
 func TestSettingsService_GetIncludesWebSearchAPIKey(t *testing.T) {
-	envPath := filepath.Join(t.TempDir(), ".env")
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+
+	envPath := filepath.Join(runtime.SlimeBotHomeDir(), ".env")
+	if err := os.MkdirAll(filepath.Dir(envPath), 0o755); err != nil {
+		t.Fatalf("mkdir env dir failed: %v", err)
+	}
 	if err := os.WriteFile(envPath, []byte("WEB_SEARCH_API_KEY=test-key\n"), 0o644); err != nil {
 		t.Fatalf("write env failed: %v", err)
 	}
@@ -52,6 +60,10 @@ func TestSettingsService_UpdatePreservesOtherSettingsStoreWrites(t *testing.T) {
 }
 
 func TestSettingsService_GetReturnsEnvErrors(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+
 	store := &memorySettingsStore{values: map[string]string{}}
 	svc := NewSettingsService(store)
 

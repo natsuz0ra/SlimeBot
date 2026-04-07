@@ -2,7 +2,7 @@ package repositories
 
 import (
 	"context"
-	"log/slog"
+	"slimebot/internal/logging"
 	"time"
 
 	gormlogger "gorm.io/gorm/logger"
@@ -23,21 +23,21 @@ func (l *gormSlogLogger) LogMode(level gormlogger.LogLevel) gormlogger.Interface
 func (l *gormSlogLogger) Info(ctx context.Context, msg string, data ...any) {}
 
 func (l *gormSlogLogger) Warn(ctx context.Context, msg string, data ...any) {
-	slog.Warn(msg, "data", data)
+	logging.Warn(msg, "data", data)
 }
 
 func (l *gormSlogLogger) Error(ctx context.Context, msg string, data ...any) {
-	slog.Error(msg, "data", data)
+	logging.Error(msg, "data", data)
 }
 
 func (l *gormSlogLogger) Trace(ctx context.Context, begin time.Time, fc func() (string, int64), err error) {
 	elapsed := time.Since(begin)
 	sql, rows := fc()
 	if err != nil {
-		slog.Warn("sql_error", "err", err, "sql", sql, "rows", rows, "ms", elapsed.Milliseconds())
+		logging.Warn("sql_error", "err", err, "sql", sql, "rows", rows, "ms", elapsed.Milliseconds())
 		return
 	}
 	if elapsed >= l.slowThreshold {
-		slog.Warn("sql_slow", "ms", elapsed.Milliseconds(), "rows", rows, "sql", sql)
+		logging.Warn("sql_slow", "ms", elapsed.Milliseconds(), "rows", rows, "sql", sql)
 	}
 }

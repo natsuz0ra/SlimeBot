@@ -56,6 +56,7 @@ func (c *httpClient) postRPC(ctx context.Context, method string, params map[stri
 		return nil, err
 	}
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json, text/event-stream")
 	for k, v := range c.headers {
 		req.Header.Set(k, v)
 	}
@@ -66,24 +67,55 @@ func (c *httpClient) postRPC(ctx context.Context, method string, params map[stri
 	}
 	defer resp.Body.Close()
 
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		raw, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("mcp http status=%d body=%s", resp.StatusCode, strings.TrimSpace(string(raw)))
+	}
+
+	contentType := resp.Header.Get("Content-Type")
 	raw, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, err
 	}
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, fmt.Errorf("mcp http status=%d body=%s", resp.StatusCode, strings.TrimSpace(string(raw)))
+
+	// 如果响应是 SSE 格式，提取 data 字段中的 JSON。
+	var jsonPayload []byte
+	if strings.Contains(contentType, "text/event-stream") {
+		jsonPayload, err = extractSSEData(raw)
+		if err != nil {
+			return nil, fmt.Errorf("SSE parse error (content-type=%s, raw=%q): %w", contentType, string(raw), err)
+		}
+	} else {
+		jsonPayload = raw
 	}
 
 	var rpc map[string]any
-	if err := json.Unmarshal(raw, &rpc); err != nil {
-		return nil, fmt.Errorf("invalid JSON in MCP HTTP response: %w", err)
+	if err := json.Unmarshal(jsonPayload, &rpc); err != nil {
+		return nil, fmt.Errorf("invalid JSON in MCP HTTP response (content-type=%s, body=%s): %w", contentType, string(jsonPayload), err)
 	}
-	// MCP 规范中的 error 字段优先级高于 result，统一在这里抛出。
 	if errObj, ok := rpc["error"]; ok && errObj != nil {
 		return nil, fmt.Errorf("mcp rpc error: %v", errObj)
 	}
 	result, _ := rpc["result"].(map[string]any)
 	return result, nil
+}
+
+// extractSSEData 从原始 SSE 文本中提取首个 data 字段的 JSON 负载。
+func extractSSEData(raw []byte) ([]byte, error) {
+	var dataLines []string
+	for _, line := range strings.Split(string(raw), "\n") {
+		line = strings.TrimRight(line, "\r")
+		if strings.HasPrefix(line, "data:") {
+			dataLines = append(dataLines, strings.TrimPrefix(line, "data:"))
+		}
+		if len(dataLines) > 0 && line == "" {
+			break
+		}
+	}
+	if len(dataLines) == 0 {
+		return nil, fmt.Errorf("no data event found in SSE stream")
+	}
+	return []byte(strings.TrimSpace(strings.Join(dataLines, ""))), nil
 }
 
 // ListTools 获取 MCP 服务工具列表并转为内部统一结构。

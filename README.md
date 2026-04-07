@@ -28,6 +28,9 @@
 - 消息平台（当前支持 Telegram）
   - 消息平台配置管理（新增、更新、启用/停用）
   - 平台消息接入与回复
+- CLI TUI
+  - 独立 CLI 进程
+  - 支持对话以及基本的配置等功能
 
 ## 2. UI 预览
 
@@ -50,6 +53,10 @@
 ### 消息平台（Telegram）
 
 <img src="assets/tg_chat.jpg" alt="消息平台预览" width="220" />
+
+### Cli
+
+<img src="assets/cli.png" alt="cli" width="800" />
 
 ## 3. 架构与技术栈
 
@@ -91,6 +98,21 @@ npm run build
 ```bash
 go run ./cmd/server/main.go
 ```
+
+运行 CLI TUI（本地终端模式）：
+
+```bash
+npm run cli
+```
+
+CLI 内置命令：
+
+- `/new` 新建会话（懒创建，首次发送消息才真正建会话）
+- `/session` 会话菜单（切换 / 删除）
+- `/model` 模型菜单（切换全局默认模型）
+- `/skills` 技能菜单（查看信息 / 删除）
+- `/mcp` MCP 菜单（增删改查，内置多行编辑）
+- `/help` 帮助
 
 ## 5. 数据与资源目录（默认）
 

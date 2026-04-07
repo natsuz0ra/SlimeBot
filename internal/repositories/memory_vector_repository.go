@@ -3,10 +3,10 @@ package repositories
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"os"
 	"path/filepath"
 	"slimebot/internal/domain"
+	"slimebot/internal/logging"
 	"strings"
 	"sync"
 
@@ -66,12 +66,12 @@ func NewMemoryVectorRepository(chromaPath string, collection string) (*MemoryVec
 	if persistPath == "" {
 		return nil, fmt.Errorf("chroma path cannot be empty")
 	}
-	slog.Info("resource_prepare_start",
+	logging.Info("resource_prepare_start",
 		"resource", "chroma_runtime",
 		"persist_path", persistPath,
 	)
 	if err := os.MkdirAll(persistPath, os.ModePerm); err != nil {
-		slog.Warn("resource_prepare_failed",
+		logging.Warn("resource_prepare_failed",
 			"resource", "chroma_runtime",
 			"persist_path", persistPath,
 			"stage", "mkdir_persist_path",
@@ -81,7 +81,7 @@ func NewMemoryVectorRepository(chromaPath string, collection string) (*MemoryVec
 	}
 	runtimeCachePath := filepath.Join(persistPath, ".local_runtime_cache")
 	if err := os.MkdirAll(runtimeCachePath, os.ModePerm); err != nil {
-		slog.Warn("resource_prepare_failed",
+		logging.Warn("resource_prepare_failed",
 			"resource", "chroma_runtime",
 			"persist_path", persistPath,
 			"runtime_cache_path", runtimeCachePath,
@@ -95,7 +95,7 @@ func NewMemoryVectorRepository(chromaPath string, collection string) (*MemoryVec
 		chroma.WithPersistentLibraryCacheDir(runtimeCachePath),
 	)
 	if err != nil {
-		slog.Warn("resource_prepare_failed",
+		logging.Warn("resource_prepare_failed",
 			"resource", "chroma_runtime",
 			"persist_path", persistPath,
 			"runtime_cache_path", runtimeCachePath,
@@ -104,7 +104,7 @@ func NewMemoryVectorRepository(chromaPath string, collection string) (*MemoryVec
 		)
 		return nil, err
 	}
-	slog.Info("resource_prepare_done",
+	logging.Info("resource_prepare_done",
 		"resource", "chroma_runtime",
 		"persist_path", persistPath,
 		"runtime_cache_path", runtimeCachePath,

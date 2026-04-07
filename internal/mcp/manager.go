@@ -6,12 +6,12 @@ import (
 	"encoding/hex"
 	"fmt"
 	"slimebot/internal/domain"
+	"slimebot/internal/logging"
 	"strings"
 	"sync"
 	"time"
 
 	"slimebot/internal/constants"
-	"slimebot/internal/observability"
 )
 
 // ToolMeta 记录函数调用定义与 MCP 真实工具之间的映射关系
@@ -153,7 +153,7 @@ func (m *Manager) LoadTools(ctx context.Context, configs []domain.MCPConfig) ([]
 		}(i, t)
 	}
 	wg.Wait()
-	observability.Span("mcp_list_tools_parallel", parallelStart)
+	logging.Span("mcp_list_tools_parallel", parallelStart)
 	for _, r := range results {
 		if r.err != nil {
 			return nil, nil, r.err

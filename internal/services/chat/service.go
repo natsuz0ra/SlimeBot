@@ -27,6 +27,8 @@ type ChatService struct {
 	stablePrompt   string
 	stableCatalog  string
 
+	runContext RunContext
+
 	platformModelMu sync.Mutex
 	platformModelID string
 	platformModelAt time.Time
@@ -65,6 +67,11 @@ func NewChatService(store domain.ChatStore, openai *oaisvc.OpenAIClient, mcpMana
 // SetUploadService 注入附件暂存服务，供单轮消费与回收使用。
 func (s *ChatService) SetUploadService(uploads *ChatUploadService) {
 	s.uploads = uploads
+}
+
+// SetRunContext 注入部署相关的运行上下文，用于构建系统提示词中的环境信息。
+func (s *ChatService) SetRunContext(ctx RunContext) {
+	s.runContext = ctx
 }
 
 // getSessionActivatedSkills 返回会话已激活技能的副本，避免调用方改写内部缓存。

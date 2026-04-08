@@ -80,6 +80,8 @@ func New(cfg config.Config) (*App, error) {
 	}
 	core.WarmupInBackground(context.Background())
 
+	core.ChatService.SetRunContext(buildRunContext(false))
+
 	return app, nil
 }
 
@@ -135,6 +137,8 @@ func NewHeadless(cfg config.Config) (*App, error) {
 		cliToken: cliToken,
 	}
 	core.WarmupInBackground(context.Background())
+
+	core.ChatService.SetRunContext(buildRunContext(true))
 
 	return app, nil
 }

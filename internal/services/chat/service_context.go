@@ -14,6 +14,19 @@ import (
 	prompts "slimebot/prompts"
 )
 
+// RunContext 持有部署相关的上下文信息，注入到系统提示词的 Runtime Environment 部分。
+// 在启动时构建一次，之后视为不可变。
+type RunContext struct {
+	// ConfigHomeDir 是 ~/.slimebot 的绝对路径。
+	ConfigHomeDir string
+	// ConfigDirDescription 是配置目录内容的可读描述，在启动时生成一次。
+	ConfigDirDescription string
+	// WorkingDir 是 CLI 模式下的当前工作目录，Server 模式为空。
+	WorkingDir string
+	// IsCLI 为 true 时表示运行在 CLI headless 模式。
+	IsCLI bool
+}
+
 // BuildContextMessages 构造发给模型的完整上下文消息。
 func (s *ChatService) BuildContextMessages(ctx context.Context, sessionID string, modelConfig oaisvc.ModelRuntimeConfig) ([]oaisvc.ChatMessage, error) {
 	return s.buildContextMessages(ctx, sessionID, modelConfig)
@@ -140,5 +153,33 @@ func (s *ChatService) buildRuntimeEnvironmentPrompt() string {
 	if body == "" {
 		return ""
 	}
-	return "## Runtime Environment\n" + body
+
+	var b strings.Builder
+	b.WriteString("## Runtime Environment\n")
+	b.WriteString(body)
+
+	rc := s.runContext
+	if rc.ConfigHomeDir != "" {
+		b.WriteString("- Config directory: ")
+		b.WriteString(rc.ConfigHomeDir)
+		b.WriteString("\n")
+		if rc.ConfigDirDescription != "" {
+			b.WriteString("  Contents:\n")
+			for _, line := range strings.Split(rc.ConfigDirDescription, "\n") {
+				if strings.TrimSpace(line) != "" {
+					b.WriteString("    ")
+					b.WriteString(line)
+					b.WriteString("\n")
+				}
+			}
+		}
+	}
+
+	if rc.IsCLI && rc.WorkingDir != "" {
+		b.WriteString("- Current working directory: ")
+		b.WriteString(rc.WorkingDir)
+		b.WriteString("\n")
+	}
+
+	return b.String()
 }

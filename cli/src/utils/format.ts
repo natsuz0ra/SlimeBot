@@ -35,7 +35,7 @@ export function truncateText(text: string, maxLen: number): string {
 }
 
 /** Default number of preview lines shown when tool output is collapsed. */
-export const TOOL_OUTPUT_PREVIEW_LINES = 5;
+export const TOOL_OUTPUT_PREVIEW_LINES = 3;
 
 /**
  * Formats tool output lines with collapsible support.

@@ -13,6 +13,7 @@ import (
 	"slimebot/internal/logging"
 	"slimebot/internal/mcp"
 	"slimebot/internal/repositories"
+	sbruntime "slimebot/internal/runtime"
 	authsvc "slimebot/internal/services/auth"
 	chatsvc "slimebot/internal/services/chat"
 	configsvc "slimebot/internal/services/config"
@@ -203,5 +204,19 @@ func (c *Core) Close(ctx context.Context) {
 	}
 	if c.MCPManager != nil {
 		c.MCPManager.CloseAll()
+	}
+}
+
+// buildRunContext 构建 ChatService 所需的运行上下文。
+func buildRunContext(isCLI bool) chatsvc.RunContext {
+	cwd := ""
+	if isCLI {
+		cwd, _ = os.Getwd()
+	}
+	return chatsvc.RunContext{
+		ConfigHomeDir:        sbruntime.SlimeBotHomeDir(),
+		ConfigDirDescription: sbruntime.DescribeConfigHome(),
+		WorkingDir:           cwd,
+		IsCLI:                isCLI,
 	}
 }

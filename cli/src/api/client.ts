@@ -97,6 +97,19 @@ export class APIClient {
     return this.request("/api/llm-configs");
   }
 
+  createLLMConfig(data: {
+    name: string;
+    provider: string;
+    baseUrl: string;
+    apiKey: string;
+    model: string;
+  }): Promise<LLMConfig> {
+    return this.request("/api/llm-configs", {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
+  }
+
   // ===== MCP Configs =====
 
   listMCPConfigs(): Promise<MCPConfig[]> {

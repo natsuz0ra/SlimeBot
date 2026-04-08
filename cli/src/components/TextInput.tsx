@@ -14,6 +14,7 @@ export interface TextInputProps {
   prompt?: string;
   multiline?: boolean;
   enableCtrlShortcuts?: boolean;
+  mask?: string;
 }
 
 export function TextInput({
@@ -26,6 +27,7 @@ export function TextInput({
   columns,
   multiline = true,
   enableCtrlShortcuts = true,
+  mask,
 }: TextInputProps): React.ReactElement {
   const inputState = useTextInput({
     value,
@@ -35,6 +37,7 @@ export function TextInput({
     onEscape,
     multiline,
     enableCtrlShortcuts,
+    mask: mask ?? "",
     cursorChar: focus ? " " : "",
     invert: chalk.inverse,
     columns,

@@ -60,10 +60,10 @@ func (c *AnthropicClient) StreamChatWithTools(
 	}
 
 	params := anthropic.MessageNewParams{
-		MaxTokens:   defaultMaxTokens,
-		Model:       anthropic.Model(model),
-		Messages:    apiMessages,
-		Temperature: anthropic.Float(temperature),
+		MaxTokens: defaultMaxTokens,
+		Model:     anthropic.Model(model),
+		Messages:  apiMessages,
+		//Temperature: anthropic.Float(temperature),
 	}
 	if len(systemBlocks) > 0 {
 		params.System = systemBlocks

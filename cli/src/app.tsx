@@ -11,7 +11,9 @@ import { ApprovalView } from "./components/ApprovalView.js";
 import { Banner } from "./components/Banner.js";
 import { CommandHints } from "./components/CommandHints.js";
 import { MCPEditor } from "./components/MCPEditor.js";
+import { MCPTemplatePicker } from "./components/MCPTemplatePicker.js";
 import { MenuView } from "./components/MenuView.js";
+import { ModelEditor } from "./components/ModelEditor.js";
 import { TextInput } from "./components/TextInput.js";
 import { Timeline } from "./components/Timeline.js";
 import { reducer, createInitialState } from "./reducer.js";
@@ -24,8 +26,10 @@ import type {
   AppState,
   LLMConfig,
   MCPConfig,
+  MCPTemplate,
   MenuItem,
   Message,
+  ModelProvider,
   Session,
   Skill,
   TimelineEntry,
@@ -34,6 +38,7 @@ import type {
   ToolCallStartData,
   ToolCallStatus,
 } from "./types.js";
+import { MCP_TEMPLATES } from "./types.js";
 
 /** Detects ctrl+letter keypresses, with a fallback for terminals/OS
  *  combos where Ink's `key.ctrl` flag is not set (e.g. Windows).
@@ -192,7 +197,7 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
         kind: "model",
         title: "Model Menu",
         items,
-        hint: "Arrow keys to navigate, Enter to set default model, Esc to close",
+        hint: "Arrow keys to navigate, Enter to set default, a to add, d to delete, Esc to close",
       } as AppAction);
     } catch (error) {
       appendSystem(`Failed to load models: ${(error as Error).message}`);
@@ -341,14 +346,11 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
   }, [appendSystem, applyTerminalTitle, clearScreenDeferred, loadMCPConfigs, loadSessions, loadSkills, state.menuKind, state.sessionId]);
 
   const handleMenuAdd = useCallback(() => {
-    if (state.menuKind !== "mcp") return;
-    dispatch({
-      type: "SET_MCP_EDITOR",
-      id: "",
-      name: "",
-      config: "",
-      enabled: true,
-    } as AppAction);
+    if (state.menuKind === "mcp") {
+      dispatch({ type: "SET_MCP_TEMPLATE_VIEW" } as AppAction);
+    } else if (state.menuKind === "model") {
+      dispatch({ type: "SET_MODEL_EDITOR_VIEW" } as AppAction);
+    }
   }, [state.menuKind]);
 
   const handleMenuEdit = useCallback((item: MenuItem | undefined) => {
@@ -377,6 +379,40 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
       appendSystem(`Failed to toggle MCP config: ${(error as Error).message}`);
     }
   }, [appendSystem, loadMCPConfigs, state.menuKind]);
+
+  const selectMCPTemplate = useCallback((template: MCPTemplate) => {
+    dispatch({
+      type: "SET_MCP_EDITOR",
+      id: "",
+      name: "",
+      config: template.template,
+      enabled: true,
+    } as AppAction);
+  }, []);
+
+  const saveModelConfig = useCallback(async () => {
+    try {
+      await apiRef.current.createLLMConfig({
+        name: state.modelEditorName,
+        provider: state.modelEditorProvider,
+        baseUrl: state.modelEditorBaseUrl,
+        apiKey: state.modelEditorApiKey,
+        model: state.modelEditorModel,
+      });
+      appendSystem("Model config created.");
+      await loadModels();
+    } catch (error) {
+      appendSystem(`Failed to save model config: ${(error as Error).message}`);
+    }
+  }, [
+    appendSystem,
+    loadModels,
+    state.modelEditorName,
+    state.modelEditorProvider,
+    state.modelEditorBaseUrl,
+    state.modelEditorApiKey,
+    state.modelEditorModel,
+  ]);
 
   const saveMCPConfig = useCallback(async () => {
     try {
@@ -678,6 +714,60 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
       return;
     }
 
+    if (state.view === "mcp-template") {
+      if (key.upArrow) {
+        dispatch({ type: "MCP_TEMPLATE_NAV", delta: -1 } as AppAction);
+        return;
+      }
+      if (key.downArrow) {
+        dispatch({ type: "MCP_TEMPLATE_NAV", delta: 1 } as AppAction);
+        return;
+      }
+      if (key.return) {
+        const template = MCP_TEMPLATES[state.mcpTemplateCursor];
+        selectMCPTemplate(template);
+        return;
+      }
+      if (key.escape) {
+        void loadMCPConfigs();
+      }
+      return;
+    }
+
+    if (state.view === "model-editor") {
+      if (state.modelEditorProviderSelect) {
+        if (key.upArrow) {
+          dispatch({ type: "SET_MODEL_EDITOR_PROVIDER", provider: "openai" as ModelProvider } as AppAction);
+          return;
+        }
+        if (key.downArrow) {
+          dispatch({ type: "SET_MODEL_EDITOR_PROVIDER", provider: "anthropic" as ModelProvider } as AppAction);
+          return;
+        }
+        if (key.return || key.escape) {
+          dispatch({ type: "TOGGLE_MODEL_EDITOR_PROVIDER_SELECT" } as AppAction);
+          return;
+        }
+        return;
+      }
+      if (key.tab) {
+        dispatch({ type: "MODEL_EDITOR_NEXT_FIELD" } as AppAction);
+        return;
+      }
+      if (key.escape) {
+        void loadModels();
+        return;
+      }
+      if (key.ctrl && input === "s") {
+        void saveModelConfig();
+        return;
+      }
+      if (key.return && state.modelEditorFocusIndex === 1) {
+        dispatch({ type: "TOGGLE_MODEL_EDITOR_PROVIDER_SELECT" } as AppAction);
+        return;
+      }
+    }
+
     if (state.view !== "chat") return;
 
     if (isCtrlKey(input, key, "k")) {
@@ -797,6 +887,28 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
         />
       )}
 
+      {state.view === "mcp-template" && (
+        <MCPTemplatePicker cursor={state.mcpTemplateCursor} />
+      )}
+
+      {state.view === "model-editor" && (
+        <ModelEditor
+          name={state.modelEditorName}
+          provider={state.modelEditorProvider}
+          baseUrl={state.modelEditorBaseUrl}
+          apiKey={state.modelEditorApiKey}
+          model={state.modelEditorModel}
+          focusIndex={state.modelEditorFocusIndex}
+          providerSelect={state.modelEditorProviderSelect}
+          providerCursor={state.modelEditorProvider === "openai" ? 0 : 1}
+          onNameChange={(name) => dispatch({ type: "SET_MODEL_EDITOR_NAME", name } as AppAction)}
+          onProviderChange={(provider) => dispatch({ type: "SET_MODEL_EDITOR_PROVIDER", provider } as AppAction)}
+          onBaseUrlChange={(url) => dispatch({ type: "SET_MODEL_EDITOR_BASE_URL", baseUrl: url } as AppAction)}
+          onApiKeyChange={(k) => dispatch({ type: "SET_MODEL_EDITOR_API_KEY", apiKey: k } as AppAction)}
+          onModelChange={(model) => dispatch({ type: "SET_MODEL_EDITOR_MODEL", model } as AppAction)}
+        />
+      )}
+
       <Text color="white">{border}</Text>
 
       {state.view === "chat" && state.streaming && (
@@ -829,6 +941,18 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
       {state.view === "mcp-editor" && (
         <Text color="gray" dimColor>
           Tab switch field | Ctrl+S save | Ctrl+E toggle | Esc back
+        </Text>
+      )}
+
+      {state.view === "mcp-template" && (
+        <Text color="gray" dimColor>
+          Arrow keys to navigate | Enter to select | Esc to cancel
+        </Text>
+      )}
+
+      {state.view === "model-editor" && (
+        <Text color="gray" dimColor>
+          Tab next field | Ctrl+S save | Esc back{state.modelEditorFocusIndex === 1 ? " | Enter change provider" : ""}
         </Text>
       )}
     </Box>

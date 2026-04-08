@@ -10,7 +10,7 @@ import (
 
 	"slimebot/internal/constants"
 	"slimebot/internal/domain"
-	oaisvc "slimebot/internal/services/openai"
+	llmsvc "slimebot/internal/services/llm"
 	prompts "slimebot/prompts"
 )
 
@@ -28,12 +28,12 @@ type RunContext struct {
 }
 
 // BuildContextMessages 构造发给模型的完整上下文消息。
-func (s *ChatService) BuildContextMessages(ctx context.Context, sessionID string, modelConfig oaisvc.ModelRuntimeConfig) ([]oaisvc.ChatMessage, error) {
+func (s *ChatService) BuildContextMessages(ctx context.Context, sessionID string, modelConfig llmsvc.ModelRuntimeConfig) ([]llmsvc.ChatMessage, error) {
 	return s.buildContextMessages(ctx, sessionID, modelConfig)
 }
 
 // buildContextMessages 并行加载系统提示词和最近历史，再按 system -> memory -> history 顺序组装上下文。
-func (s *ChatService) buildContextMessages(ctx context.Context, sessionID string, modelConfig oaisvc.ModelRuntimeConfig) ([]oaisvc.ChatMessage, error) {
+func (s *ChatService) buildContextMessages(ctx context.Context, sessionID string, modelConfig llmsvc.ModelRuntimeConfig) ([]llmsvc.ChatMessage, error) {
 	_ = modelConfig
 	buildStart := time.Now()
 	parallelStart := time.Now()
@@ -69,9 +69,9 @@ func (s *ChatService) buildContextMessages(ctx context.Context, sessionID string
 		return nil, histErr
 	}
 
-	msgs := []oaisvc.ChatMessage{{Role: "system", Content: systemPrompt}}
+	msgs := []llmsvc.ChatMessage{{Role: "system", Content: systemPrompt}}
 	if runtimeEnvPrompt := s.buildRuntimeEnvironmentPrompt(); runtimeEnvPrompt != "" {
-		msgs = append(msgs, oaisvc.ChatMessage{Role: "system", Content: runtimeEnvPrompt})
+		msgs = append(msgs, llmsvc.ChatMessage{Role: "system", Content: runtimeEnvPrompt})
 	}
 	if s.memory != nil {
 		memStart := time.Now()
@@ -80,7 +80,7 @@ func (s *ChatService) buildContextMessages(ctx context.Context, sessionID string
 		cancel()
 		logging.Span("memory_context_build", memStart)
 		if memoryContext != "" {
-			msgs = append(msgs, oaisvc.ChatMessage{
+			msgs = append(msgs, llmsvc.ChatMessage{
 				Role: "system",
 				Content: "The following memory_context is provided by the system. Use it primarily to understand historical preferences, constraints, and long-term tasks; " +
 					"if it conflicts with the user's current input, always follow the current input.\n\n<memory_context>\n" +
@@ -95,7 +95,7 @@ func (s *ChatService) buildContextMessages(ctx context.Context, sessionID string
 		if item.Role == "user" && len(item.Attachments) > 0 {
 			messageContent = buildHistoryMessageWithAttachments(item.Content, item.Attachments)
 		}
-		msgs = append(msgs, oaisvc.ChatMessage{
+		msgs = append(msgs, llmsvc.ChatMessage{
 			Role:    item.Role,
 			Content: messageContent,
 		})

@@ -19,8 +19,6 @@ const (
 	AgentApprovalTimeout               = 120 * time.Second
 	MaxToolNameLen                     = 64
 	MemoryToolDefaultTopK              = 10
-	StreamResultText                   = 0
-	StreamResultToolCalls              = 1
 	CompressedRecentHistoryLimit       = 10
 	MemorySearchTopK                   = 5
 	MemoryContextTopK                  = 10

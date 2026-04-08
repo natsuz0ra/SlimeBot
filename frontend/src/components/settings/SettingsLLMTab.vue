@@ -4,7 +4,7 @@ import { mdiDeleteOutline, mdiPlus } from '@mdi/js'
 import MdiIcon from '@/components/ui/MdiIcon.vue'
 
 defineProps<{
-  llmRows: { id: string; name: string; model: string; baseUrl: string }[] | any[]
+  llmRows: { id: string; name: string; model: string; baseUrl: string; provider?: string }[] | any[]
 }>()
 
 const emit = defineEmits<{
@@ -30,6 +30,7 @@ const { t } = useI18n()
           <div class="text-sm font-medium settings-item-name truncate">
             {{ item.name }}
             <span class="font-normal settings-item-meta"> · {{ item.model }}</span>
+            <span v-if="item.provider === 'anthropic'" class="inline-block ml-1 px-1.5 py-0.5 text-[10px] font-medium rounded-md" style="background: rgba(217,119,6,0.15); color: #d97706;">Anthropic</span>
           </div>
           <div class="text-xs settings-item-sub truncate mt-0.5">{{ item.baseUrl }}</div>
         </div>

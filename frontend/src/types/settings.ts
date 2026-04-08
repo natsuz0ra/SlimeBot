@@ -8,6 +8,7 @@ export interface AppSettings {
 export interface LLMConfig {
   id: string
   name: string
+  provider: 'openai' | 'anthropic'
   baseUrl: string
   apiKey: string
   model: string

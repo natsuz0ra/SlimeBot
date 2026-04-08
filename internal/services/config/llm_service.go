@@ -8,10 +8,11 @@ import (
 )
 
 type LLMConfigCreateInput struct {
-	Name    string
-	BaseURL string
-	APIKey  string
-	Model   string
+	Name     string
+	Provider string
+	BaseURL  string
+	APIKey   string
+	Model    string
 }
 
 type LLMConfigService struct {
@@ -27,11 +28,16 @@ func (s *LLMConfigService) List() ([]domain.LLMConfig, error) {
 }
 
 func (s *LLMConfigService) Create(input LLMConfigCreateInput) (*domain.LLMConfig, error) {
+	provider := strings.TrimSpace(input.Provider)
+	if provider == "" {
+		provider = "openai"
+	}
 	return s.store.CreateLLMConfig(domain.LLMConfig{
-		Name:    strings.TrimSpace(input.Name),
-		BaseURL: strings.TrimSpace(input.BaseURL),
-		APIKey:  strings.TrimSpace(input.APIKey),
-		Model:   strings.TrimSpace(input.Model),
+		Name:     strings.TrimSpace(input.Name),
+		Provider: provider,
+		BaseURL:  strings.TrimSpace(input.BaseURL),
+		APIKey:   strings.TrimSpace(input.APIKey),
+		Model:    strings.TrimSpace(input.Model),
 	})
 }
 

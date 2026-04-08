@@ -9,7 +9,7 @@ import (
 
 	"slimebot/internal/constants"
 	"slimebot/internal/mcp"
-	oaisvc "slimebot/internal/services/openai"
+	llmsvc "slimebot/internal/services/llm"
 	"slimebot/internal/tools"
 )
 
@@ -21,7 +21,7 @@ type resolvedToolInvocation struct {
 }
 
 // resolveToolInvocation 将模型返回的函数名解析成统一工具调用描述。
-func resolveToolInvocation(tc oaisvc.ToolCallInfo, mcpToolMeta map[string]mcp.ToolMeta) (resolvedToolInvocation, error) {
+func resolveToolInvocation(tc llmsvc.ToolCallInfo, mcpToolMeta map[string]mcp.ToolMeta) (resolvedToolInvocation, error) {
 	if tc.Name == constants.ActivateSkillTool {
 		return resolvedToolInvocation{
 			toolName:         constants.ActivateSkillTool,
@@ -73,7 +73,7 @@ func notifyToolResult(callbacks AgentCallbacks, result ToolCallResult) {
 func waitApprovalIfNeeded(
 	ctx context.Context,
 	callbacks AgentCallbacks,
-	tc oaisvc.ToolCallInfo,
+	tc llmsvc.ToolCallInfo,
 	invocation resolvedToolInvocation,
 	params map[string]string,
 	preamble string,
@@ -107,7 +107,7 @@ func waitApprovalIfNeeded(
 // executeInvocation 根据调用类型分发到 MCP、memory 或内建工具执行路径。
 func (a *AgentService) executeInvocation(
 	ctx context.Context,
-	tc oaisvc.ToolCallInfo,
+	tc llmsvc.ToolCallInfo,
 	invocation resolvedToolInvocation,
 	params map[string]string,
 	sessionID string,

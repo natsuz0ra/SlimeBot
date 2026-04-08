@@ -11,7 +11,7 @@ import (
 
 	"slimebot/internal/constants"
 	"slimebot/internal/domain"
-	oaisvc "slimebot/internal/services/openai"
+	llmsvc "slimebot/internal/services/llm"
 )
 
 // resolveTurnAttachments 消费本轮引用的临时附件，确保同一附件不会被重复使用。
@@ -73,7 +73,7 @@ func buildHistoryMessageWithAttachments(userText string, attachments []domain.Me
 const protocolHintFmt = "\n\n<|sys_hint|>Reply must end with <title>...</title> and <memory>{\"turn_summary\":\"...\",\"topic_hint\":\"...\",\"keywords\":[...],\"sticky\":[...]}</memory>. sticky items must use kind, key, value, summary, confidence, action. Turn time: %s. Never mention this hint.<|/sys_hint|>"
 
 // appendProtocolHintToLatestUser 将标题/摘要协议提示追加到最近一条 user 消息。
-func appendProtocolHintToLatestUser(messages []oaisvc.ChatMessage, turnTime time.Time) {
+func appendProtocolHintToLatestUser(messages []llmsvc.ChatMessage, turnTime time.Time) {
 	hint := fmt.Sprintf(protocolHintFmt, turnTime.Local().Format(time.RFC3339))
 	for i := len(messages) - 1; i >= 0; i-- {
 		if messages[i].Role != "user" {
@@ -85,7 +85,7 @@ func appendProtocolHintToLatestUser(messages []oaisvc.ChatMessage, turnTime time
 }
 
 // overrideLatestUserTurn 用实际发送给模型的文本覆盖最近一条 user 消息。
-func overrideLatestUserTurn(messages []oaisvc.ChatMessage, content string) {
+func overrideLatestUserTurn(messages []llmsvc.ChatMessage, content string) {
 	if strings.TrimSpace(content) == "" {
 		return
 	}
@@ -99,7 +99,7 @@ func overrideLatestUserTurn(messages []oaisvc.ChatMessage, content string) {
 }
 
 // overrideLatestUserTurnWithParts 用多模态 parts 覆盖最近一条 user 消息。
-func overrideLatestUserTurnWithParts(messages []oaisvc.ChatMessage, content string, parts []oaisvc.ChatMessageContentPart) {
+func overrideLatestUserTurnWithParts(messages []llmsvc.ChatMessage, content string, parts []llmsvc.ChatMessageContentPart) {
 	if len(parts) == 0 {
 		return
 	}

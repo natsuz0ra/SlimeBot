@@ -11,7 +11,7 @@ import (
 
 	"slimebot/internal/constants"
 	"slimebot/internal/domain"
-	"slimebot/internal/services/openai"
+	llmsvc "slimebot/internal/services/llm"
 )
 
 // SkillRuntimeService 负责技能目录注入、激活与运行期删除。
@@ -98,7 +98,7 @@ func (s *SkillRuntimeService) BuildCatalogPrompt() (string, []domain.Skill, erro
 }
 
 // BuildActivateSkillToolDef 构造 activate_skill 工具定义，供模型触发技能加载。
-func (s *SkillRuntimeService) BuildActivateSkillToolDef(skills []domain.Skill) *openai.ToolDef {
+func (s *SkillRuntimeService) BuildActivateSkillToolDef(skills []domain.Skill) *llmsvc.ToolDef {
 	if len(skills) == 0 {
 		return nil
 	}
@@ -107,7 +107,7 @@ func (s *SkillRuntimeService) BuildActivateSkillToolDef(skills []domain.Skill) *
 		enumValues = append(enumValues, item.Name)
 	}
 
-	return &openai.ToolDef{
+	return &llmsvc.ToolDef{
 		Name:        "activate_skill",
 		Description: "Load a skill guide by name. Call only when the task matches the skill description.",
 		Parameters: map[string]any{

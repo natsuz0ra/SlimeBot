@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+
+	llmsvc "slimebot/internal/services/llm"
 )
 
 func TestSupportsDeveloperRole(t *testing.T) {
@@ -23,7 +25,7 @@ func TestSupportsDeveloperRole(t *testing.T) {
 }
 
 func TestBuildRequestMessages_DeveloperRoleFallback(t *testing.T) {
-	source := []ChatMessage{
+	source := []llmsvc.ChatMessage{
 		{Role: "developer", Content: "memory context"},
 	}
 
@@ -52,14 +54,14 @@ func TestBuildRequestMessages_DeveloperRoleFallback(t *testing.T) {
 }
 
 func TestBuildRequestMessages_UserContentParts(t *testing.T) {
-	source := []ChatMessage{
+	source := []llmsvc.ChatMessage{
 		{
 			Role: "user",
-			ContentParts: []ChatMessageContentPart{
-				{Type: ChatMessageContentPartTypeText, Text: "请分析附件"},
-				{Type: ChatMessageContentPartTypeImage, ImageURL: "data:image/png;base64,aW1hZ2UtYnl0ZXM="},
-				{Type: ChatMessageContentPartTypeAudio, InputAudioData: "YXVkaW8tYnl0ZXM=", InputAudioFormat: "mp3"},
-				{Type: ChatMessageContentPartTypeFile, FileDataBase64: "ZmlsZS1ieXRlcw==", Filename: "notes.bin"},
+			ContentParts: []llmsvc.ChatMessageContentPart{
+				{Type: llmsvc.ChatMessageContentPartTypeText, Text: "请分析附件"},
+				{Type: llmsvc.ChatMessageContentPartTypeImage, ImageURL: "data:image/png;base64,aW1hZ2UtYnl0ZXM="},
+				{Type: llmsvc.ChatMessageContentPartTypeAudio, InputAudioData: "YXVkaW8tYnl0ZXM=", InputAudioFormat: "mp3"},
+				{Type: llmsvc.ChatMessageContentPartTypeFile, FileDataBase64: "ZmlsZS1ieXRlcw==", Filename: "notes.bin"},
 			},
 		},
 	}

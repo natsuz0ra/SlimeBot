@@ -20,6 +20,7 @@ export interface Message {
 export interface LLMConfig {
   id: string;
   name: string;
+  provider: string;
   baseUrl: string;
   model: string;
   createdAt: string;

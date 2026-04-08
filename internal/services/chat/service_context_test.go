@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	oaisvc "slimebot/internal/services/openai"
+	llmsvc "slimebot/internal/services/llm"
 )
 
 func TestBuildContextMessages_SystemPrefixStableAndNoLocalDateTime(t *testing.T) {
@@ -14,7 +14,7 @@ func TestBuildContextMessages_SystemPrefixStableAndNoLocalDateTime(t *testing.T)
 	svc := NewChatService(repo, nil, nil, nil, nil)
 	ctx := context.Background()
 
-	msgs1, err := svc.BuildContextMessages(ctx, "session-1", oaisvc.ModelRuntimeConfig{})
+	msgs1, err := svc.BuildContextMessages(ctx, "session-1", llmsvc.ModelRuntimeConfig{})
 	if err != nil {
 		t.Fatalf("BuildContextMessages first call failed: %v", err)
 	}
@@ -34,7 +34,7 @@ func TestBuildContextMessages_SystemPrefixStableAndNoLocalDateTime(t *testing.T)
 
 	time.Sleep(1200 * time.Millisecond)
 
-	msgs2, err := svc.BuildContextMessages(ctx, "session-1", oaisvc.ModelRuntimeConfig{})
+	msgs2, err := svc.BuildContextMessages(ctx, "session-1", llmsvc.ModelRuntimeConfig{})
 	if err != nil {
 		t.Fatalf("BuildContextMessages second call failed: %v", err)
 	}
@@ -69,7 +69,7 @@ func TestBuildContextMessages_IncludesConfigDirInCLI(t *testing.T) {
 	})
 	ctx := context.Background()
 
-	msgs, err := svc.BuildContextMessages(ctx, "session-cli", oaisvc.ModelRuntimeConfig{})
+	msgs, err := svc.BuildContextMessages(ctx, "session-cli", llmsvc.ModelRuntimeConfig{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -104,7 +104,7 @@ func TestBuildContextMessages_ServerMode_NoWorkingDir(t *testing.T) {
 	})
 	ctx := context.Background()
 
-	msgs, err := svc.BuildContextMessages(ctx, "session-srv", oaisvc.ModelRuntimeConfig{})
+	msgs, err := svc.BuildContextMessages(ctx, "session-srv", llmsvc.ModelRuntimeConfig{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -124,7 +124,7 @@ func TestBuildContextMessages_NoRunContext_OmitsConfigDir(t *testing.T) {
 	// 不设置 RunContext（零值）
 	ctx := context.Background()
 
-	msgs, err := svc.BuildContextMessages(ctx, "session-norc", oaisvc.ModelRuntimeConfig{})
+	msgs, err := svc.BuildContextMessages(ctx, "session-norc", llmsvc.ModelRuntimeConfig{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

@@ -7,8 +7,8 @@ import (
 
 	"slimebot/internal/domain"
 	"slimebot/internal/mcp"
+	llmsvc "slimebot/internal/services/llm"
 	memsvc "slimebot/internal/services/memory"
-	oaisvc "slimebot/internal/services/openai"
 	skillsvc "slimebot/internal/services/skill"
 )
 
@@ -53,10 +53,10 @@ type ChatStreamResult struct {
 }
 
 // NewChatService 创建聊天服务，并初始化会话级技能缓存。
-func NewChatService(store domain.ChatStore, openai *oaisvc.OpenAIClient, mcpManager *mcp.Manager, skillRuntime *skillsvc.SkillRuntimeService, memory *memsvc.MemoryService) *ChatService {
+func NewChatService(store domain.ChatStore, providerFactory *llmsvc.Factory, mcpManager *mcp.Manager, skillRuntime *skillsvc.SkillRuntimeService, memory *memsvc.MemoryService) *ChatService {
 	return &ChatService{
 		store:          store,
-		agent:          NewAgentService(openai, mcpManager, skillRuntime, memory),
+		agent:          NewAgentService(providerFactory, mcpManager, skillRuntime, memory),
 		skillRuntime:   skillRuntime,
 		memory:         memory,
 		skillsBySess:   make(map[string]map[string]struct{}),

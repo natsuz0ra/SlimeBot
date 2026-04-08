@@ -18,7 +18,7 @@ export function useSettingsLLM(options: {
   onChanged?: () => void
 }) {
   const { llmList, llmDialogVisible, llmSubmitting, toast, t, onChanged } = options
-  const llmForm = ref({ name: '', baseUrl: '', apiKey: '', model: '' })
+  const llmForm = ref({ name: '', provider: 'openai' as 'openai' | 'anthropic', baseUrl: '', apiKey: '', model: '' })
   const llmRows = computed(() => llmList.value || [])
 
   async function refreshLLM() {
@@ -26,7 +26,7 @@ export function useSettingsLLM(options: {
   }
 
   function openLLMDialog() {
-    llmForm.value = { name: '', baseUrl: '', apiKey: '', model: '' }
+    llmForm.value = { name: '', provider: 'openai', baseUrl: '', apiKey: '', model: '' }
     llmDialogVisible.value = true
   }
 
@@ -38,7 +38,7 @@ export function useSettingsLLM(options: {
     llmSubmitting.value = true
     try {
       await llmAPI.create(llmForm.value)
-      llmForm.value = { name: '', baseUrl: '', apiKey: '', model: '' }
+      llmForm.value = { name: '', provider: 'openai', baseUrl: '', apiKey: '', model: '' }
       await refreshLLM()
       onChanged?.()
       llmDialogVisible.value = false

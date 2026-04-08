@@ -14,9 +14,11 @@ import (
 	"slimebot/internal/mcp"
 	"slimebot/internal/repositories"
 	sbruntime "slimebot/internal/runtime"
+	antsvc "slimebot/internal/services/anthropic"
 	authsvc "slimebot/internal/services/auth"
 	chatsvc "slimebot/internal/services/chat"
 	configsvc "slimebot/internal/services/config"
+	llmsvc "slimebot/internal/services/llm"
 	memsvc "slimebot/internal/services/memory"
 	oaisvc "slimebot/internal/services/openai"
 	sessionsvc "slimebot/internal/services/session"
@@ -73,6 +75,9 @@ func NewCore(cfg config.Config) (*Core, error) {
 	}
 
 	openaiClient := oaisvc.NewOpenAIClient()
+	anthropicClient := antsvc.NewAnthropicClient()
+	providerFactory := llmsvc.NewFactory(openaiClient)
+	providerFactory.Register(llmsvc.ProviderAnthropic, anthropicClient)
 	mcpManager := mcp.NewManager()
 	settingsService := settingssvc.NewSettingsService(repo)
 	sessionService := sessionsvc.NewSessionService(repo)
@@ -87,7 +92,7 @@ func NewCore(cfg config.Config) (*Core, error) {
 	memoryService := memsvc.NewMemoryService(repo, openaiClient)
 
 	chatUpload := chatsvc.NewChatUploadService(cfg.ChatUploadRoot)
-	chatService := chatsvc.NewChatService(repo, openaiClient, mcpManager, skillRuntime, memoryService)
+	chatService := chatsvc.NewChatService(repo, providerFactory, mcpManager, skillRuntime, memoryService)
 	chatService.SetUploadService(chatUpload)
 
 	return &Core{

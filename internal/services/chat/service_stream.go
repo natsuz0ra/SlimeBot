@@ -12,14 +12,14 @@ import (
 
 	"slimebot/internal/constants"
 	"slimebot/internal/domain"
-	oaisvc "slimebot/internal/services/openai"
+	llmsvc "slimebot/internal/services/llm"
 )
 
 // chatTurnState 持有聊天回合准备阶段的中间状态。
 type chatTurnState struct {
 	session           *domain.Session
-	modelConfig       oaisvc.ModelRuntimeConfig
-	contextMessages   []oaisvc.ChatMessage
+	modelConfig       llmsvc.ModelRuntimeConfig
+	contextMessages   []llmsvc.ChatMessage
 	enabledMCPConfigs []domain.MCPConfig
 	attachments       []UploadedAttachment
 }
@@ -73,10 +73,11 @@ func (s *ChatService) prepareChatTurn(
 	if err != nil {
 		return nil, err
 	}
-	modelConfig := oaisvc.ModelRuntimeConfig{
-		BaseURL: llmConfig.BaseURL,
-		APIKey:  llmConfig.APIKey,
-		Model:   llmConfig.Model,
+	modelConfig := llmsvc.ModelRuntimeConfig{
+		Provider: llmConfig.Provider,
+		BaseURL:  llmConfig.BaseURL,
+		APIKey:   llmConfig.APIKey,
+		Model:    llmConfig.Model,
 	}
 
 	session, err := s.store.GetSessionByID(ctx, sessionID)
@@ -93,7 +94,7 @@ func (s *ChatService) prepareChatTurn(
 	}
 
 	userContentForLLM := strings.TrimSpace(content)
-	userMessageParts := make([]oaisvc.ChatMessageContentPart, 0)
+	userMessageParts := make([]llmsvc.ChatMessageContentPart, 0)
 	var attachmentFallback []string
 	if len(attachments) > 0 {
 		userMessageParts, attachmentFallback = buildUserMessageContentParts(userContentForLLM, attachments)
@@ -117,7 +118,7 @@ func (s *ChatService) prepareChatTurn(
 
 	// 上下文消息与启用的 MCP 配置彼此独立，并行准备以缩短回合启动耗时。
 	var (
-		contextMessages   []oaisvc.ChatMessage
+		contextMessages   []llmsvc.ChatMessage
 		enabledMCPConfigs []domain.MCPConfig
 		contextErr        error
 		mcpErr            error

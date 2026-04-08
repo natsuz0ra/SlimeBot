@@ -356,6 +356,19 @@ onMounted(loadData)
   >
     <div class="flex flex-col gap-4">
       <div class="flex flex-col gap-1.5">
+        <label class="text-xs font-medium sb-text-muted">{{ t('provider') }}</label>
+        <div class="flex gap-3">
+          <label class="flex items-center gap-1.5 text-sm cursor-pointer">
+            <input type="radio" v-model="llmForm.provider" value="openai" class="accent-[#6366f1]" />
+            {{ t('providerOpenAI') }}
+          </label>
+          <label class="flex items-center gap-1.5 text-sm cursor-pointer">
+            <input type="radio" v-model="llmForm.provider" value="anthropic" class="accent-[#6366f1]" />
+            {{ t('providerAnthropic') }}
+          </label>
+        </div>
+      </div>
+      <div class="flex flex-col gap-1.5">
         <label class="text-xs font-medium sb-text-muted">{{ t('name') }}</label>
         <AppTextInput v-model="llmForm.name" />
       </div>

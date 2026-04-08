@@ -31,6 +31,7 @@ require (
 	github.com/amikos-tech/chroma-go-local v0.3.3 // indirect
 	github.com/amikos-tech/pure-onnx v0.0.1 // indirect
 	github.com/amikos-tech/pure-tokenizers v0.1.5 // indirect
+	github.com/anthropics/anthropic-sdk-go v1.32.0 // indirect
 	github.com/atotto/clipboard v0.1.4 // indirect
 	github.com/aymanbagabas/go-osc52/v2 v2.0.1 // indirect
 	github.com/aymerick/douceur v0.2.0 // indirect

@@ -102,6 +102,7 @@ type AppSetting struct {
 type LLMConfig struct {
 	ID        string    `gorm:"primaryKey;size:36" json:"id"`
 	Name      string    `gorm:"size:128;not null" json:"name"`
+	Provider  string    `gorm:"size:32;not null;default:'openai'" json:"provider"`
 	BaseURL   string    `gorm:"size:512;not null" json:"baseUrl"`
 	APIKey    string    `gorm:"size:512;not null" json:"apiKey"`
 	Model     string    `gorm:"size:128;not null" json:"model"`

@@ -19,24 +19,26 @@ func (h *HTTPController) ListLLMConfigs(c WebContext) {
 // CreateLLMConfig 创建模型配置，并校验最基本的连接字段是否齐全。
 func (h *HTTPController) CreateLLMConfig(c WebContext) {
 	var req struct {
-		Name    string `json:"name"`
-		BaseURL string `json:"baseUrl"`
-		APIKey  string `json:"apiKey"`
-		Model   string `json:"model"`
+		Name     string `json:"name"`
+		Provider string `json:"provider"`
+		BaseURL  string `json:"baseUrl"`
+		APIKey   string `json:"apiKey"`
+		Model    string `json:"model"`
 	}
 	if !bindJSONOrBadRequest(c, &req, "Invalid request payload format.") {
 		return
 	}
-	trimSpaceFields(&req.Name, &req.BaseURL, &req.APIKey, &req.Model)
+	trimSpaceFields(&req.Name, &req.Provider, &req.BaseURL, &req.APIKey, &req.Model)
 	if !allFieldsPresent(req.Name, req.BaseURL, req.APIKey, req.Model) {
 		jsonError(c, http.StatusBadRequest, "name, baseUrl, apiKey, and model are all required.")
 		return
 	}
 	item, err := h.llmConfigs.Create(configsvc.LLMConfigCreateInput{
-		Name:    req.Name,
-		BaseURL: req.BaseURL,
-		APIKey:  req.APIKey,
-		Model:   req.Model,
+		Name:     req.Name,
+		Provider: req.Provider,
+		BaseURL:  req.BaseURL,
+		APIKey:   req.APIKey,
+		Model:    req.Model,
 	})
 	if err != nil {
 		jsonInternalError(c, err)

@@ -9,12 +9,12 @@ import (
 	"slimebot/internal/constants"
 	"slimebot/internal/domain"
 	"slimebot/internal/mcp"
+	llmsvc "slimebot/internal/services/llm"
 	memsvc "slimebot/internal/services/memory"
-	oaisvc "slimebot/internal/services/openai"
 )
 
 func TestResolveToolInvocation_ActivateSkill(t *testing.T) {
-	tc := oaisvc.ToolCallInfo{
+	tc := llmsvc.ToolCallInfo{
 		ID:        "call_1",
 		Name:      "activate_skill",
 		Arguments: `{"name":"demo-skill"}`,
@@ -36,7 +36,7 @@ func TestResolveToolInvocation_ActivateSkill(t *testing.T) {
 }
 
 func TestResolveToolInvocation_SearchMemory(t *testing.T) {
-	tc := oaisvc.ToolCallInfo{
+	tc := llmsvc.ToolCallInfo{
 		ID:        "call_2",
 		Name:      constants.SearchMemoryTool,
 		Arguments: `{"query":"golang"}`,
@@ -80,7 +80,7 @@ func TestExecuteInvocation_SearchMemory_OncePerResponse(t *testing.T) {
 	memoryUsed := false
 	first := agent.executeInvocation(
 		context.Background(),
-		oaisvc.ToolCallInfo{ID: "call_3", Name: constants.SearchMemoryTool},
+		llmsvc.ToolCallInfo{ID: "call_3", Name: constants.SearchMemoryTool},
 		resolvedToolInvocation{toolName: constants.SearchMemoryTool, command: "query"},
 		map[string]string{"query": "golang"},
 		"current-session",
@@ -96,7 +96,7 @@ func TestExecuteInvocation_SearchMemory_OncePerResponse(t *testing.T) {
 
 	second := agent.executeInvocation(
 		context.Background(),
-		oaisvc.ToolCallInfo{ID: "call_4", Name: constants.SearchMemoryTool},
+		llmsvc.ToolCallInfo{ID: "call_4", Name: constants.SearchMemoryTool},
 		resolvedToolInvocation{toolName: constants.SearchMemoryTool, command: "query"},
 		map[string]string{"query": "golang"},
 		"current-session",
@@ -131,7 +131,7 @@ func TestExecuteInvocation_SearchMemory_SearchesAcrossSessions(t *testing.T) {
 	memoryUsed := false
 	result := agent.executeInvocation(
 		context.Background(),
-		oaisvc.ToolCallInfo{ID: "call_5", Name: constants.SearchMemoryTool},
+		llmsvc.ToolCallInfo{ID: "call_5", Name: constants.SearchMemoryTool},
 		resolvedToolInvocation{toolName: constants.SearchMemoryTool, command: "query"},
 		map[string]string{"query": "golang"},
 		"current-session",

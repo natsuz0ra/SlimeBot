@@ -40,39 +40,6 @@ type MessageAttachment struct {
 	IconType  string `json:"iconType"`
 }
 
-type EpisodeMemory struct {
-	ID             string    `gorm:"primaryKey;size:36" json:"id"`
-	SessionID      string    `gorm:"size:36;not null;index:idx_episode_memories_session_state,priority:1;index:idx_episode_memories_topic,priority:1" json:"sessionId"`
-	TopicKey       string    `gorm:"size:128;not null;index:idx_episode_memories_topic,priority:2" json:"topicKey"`
-	Title          string    `gorm:"size:128;not null" json:"title"`
-	Summary        string    `gorm:"type:text;not null" json:"summary"`
-	KeywordsJSON   string    `gorm:"type:text;not null;default:'[]'" json:"-"`
-	State          string    `gorm:"size:24;not null;index:idx_episode_memories_session_state,priority:2" json:"state"`
-	SourceStartSeq int64     `gorm:"not null;default:0" json:"sourceStartSeq"`
-	SourceEndSeq   int64     `gorm:"not null;default:0" json:"sourceEndSeq"`
-	TurnCount      int       `gorm:"not null;default:0" json:"turnCount"`
-	LastActiveAt   time.Time `gorm:"index;not null" json:"lastActiveAt"`
-	CreatedAt      time.Time `json:"createdAt"`
-	UpdatedAt      time.Time `gorm:"index" json:"updatedAt"`
-}
-
-type StickyMemory struct {
-	ID             string     `gorm:"primaryKey;size:36" json:"id"`
-	SessionID      string     `gorm:"size:36;not null;index:idx_sticky_memories_lookup,priority:1;index:idx_sticky_memories_prompt,priority:1" json:"sessionId"`
-	Kind           string     `gorm:"size:32;not null;index:idx_sticky_memories_lookup,priority:2;index:idx_sticky_memories_prompt,priority:2" json:"kind"`
-	Key            string     `gorm:"size:128;not null;index:idx_sticky_memories_lookup,priority:3" json:"key"`
-	Value          string     `gorm:"type:text;not null" json:"value"`
-	Summary        string     `gorm:"type:text;not null" json:"summary"`
-	Confidence     float64    `gorm:"not null;default:0" json:"confidence"`
-	Status         string     `gorm:"size:24;not null;index:idx_sticky_memories_prompt,priority:3" json:"status"`
-	SourceStartSeq int64      `gorm:"not null;default:0" json:"sourceStartSeq"`
-	SourceEndSeq   int64      `gorm:"not null;default:0" json:"sourceEndSeq"`
-	LastSeenAt     time.Time  `gorm:"index;not null" json:"lastSeenAt"`
-	ExpiresAt      *time.Time `gorm:"index" json:"expiresAt,omitempty"`
-	CreatedAt      time.Time  `json:"createdAt"`
-	UpdatedAt      time.Time  `gorm:"index" json:"updatedAt"`
-}
-
 // ToolCallRecord 持久化一次工具调用完整链路，支持历史会话回放工具详情
 type ToolCallRecord struct {
 	ID                 string     `gorm:"primaryKey;size:36" json:"id"`

@@ -78,18 +78,15 @@ func (r *Repository) UpdateSessionTitle(ctx context.Context, id, name string) (b
 
 func (r *Repository) DeleteSession(id string) error {
 	return r.db.Transaction(func(tx *gorm.DB) error {
-		if err := tx.Where("session_id = ?", id).Delete(&domain.Message{}).Error; err != nil {
+		// 删除消息
+		if err := tx.Table("messages").Where("session_id = ?", id).Delete(nil).Error; err != nil {
 			return err
 		}
-		if err := tx.Where("session_id = ?", id).Delete(&domain.ToolCallRecord{}).Error; err != nil {
+		// 删除工具调用记录
+		if err := tx.Table("tool_call_records").Where("session_id = ?", id).Delete(nil).Error; err != nil {
 			return err
 		}
-		if err := tx.Where("session_id = ?", id).Delete(&domain.EpisodeMemory{}).Error; err != nil {
-			return err
-		}
-		if err := tx.Where("session_id = ?", id).Delete(&domain.StickyMemory{}).Error; err != nil {
-			return err
-		}
-		return tx.Where("id = ?", id).Delete(&domain.Session{}).Error
+		// 删除会话本身
+		return tx.Table("sessions").Where("id = ?", id).Delete(nil).Error
 	})
 }

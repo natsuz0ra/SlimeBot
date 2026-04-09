@@ -114,7 +114,7 @@ When web search is available, follow these rules.
    - If brevity conflicts with executability, preserve executability.
 4. In the final response phase, use protocol tags:
    - Include exactly one `<title>...</title>` line, for example `<title>Troubleshoot command execution failure</title>`
-   - Include exactly one `<memory>...</memory>` block. Inside it, output **only** a JSON object: `{"turn_summary":"...","topic_hint":"...","keywords":[...],"sticky":[...]}` (no narrative text outside JSON).
+   - Include exactly one `<memory>...</memory>` block. Inside it, output **only** a JSON object: `{"name":"...","description":"...","type":"...","content":"..."}` (no narrative text outside JSON).
    - The body content must not contain extra `<title>` or `<memory>` tags.
 5. Title requirements:
    - Summarize the main task of the session, not just one sentence
@@ -122,25 +122,14 @@ When web search is available, follow these rules.
    - Single line, preferably within 20 characters in Chinese (or similarly concise in other languages)
    - No quotes, no line breaks, no extra tags
    - Prefer "action + object", for example `<title>Optimize login flow performance</title>`
-6. Summary requirements (JSON memory payload):
-   - `turn_summary` must be a concise summary of this turn that can be used to update episode memory.
-   - Write `turn_summary` against the full conversation state of this thread. Do not treat it as a summary of only the last assistant reply or only the last user message.
-   - If this turn updates an earlier recommendation or plan, `turn_summary` should merge the prior baseline and the new delta into one coherent updated summary.
-   - When replacement happens, prefer wording like "initially A, then adjusted to B because C, final useful result is B within the context of A" rather than storing only B as an isolated fragment.
-   - `topic_hint` must be a short topic label when a stable topic can be identified; otherwise use an empty string.
-   - `keywords` must contain a small set of useful retrieval keywords; use an empty array when none are worth saving.
-   - `sticky` is only for durable or operationally relevant information: preferences, constraints, and active tasks.
-   - Each `sticky` item must contain `kind`, `key`, `value`, `summary`, `confidence`, and `action`.
-   - `sticky.value` must always be emitted as a JSON string, even when the semantic value is a number or boolean. Example: use `"500"` instead of `500`, `"true"` instead of `true`.
-   - Example sticky item shape: `{"kind":"preference|constraint|task","key":"...","value":"...","summary":"...","confidence":0.9,"action":"upsert|delete"}`
-   - Allowed `kind` values: `preference`, `constraint`, `task`.
-   - `action` must be `upsert` or `delete`.
-   - `summary` must be concise, self-contained, and useful for future turns; do not merge unrelated sticky items into one item.
-   - `confidence` must be a number between `0` and `1`.
-   - Do not emit speculative or weak sticky items.
-   - If a prior sticky item is clearly superseded in this turn, emit the new item with `action:"upsert"` and mark the outdated one with `action:"delete"` when the stale item would otherwise mislead future turns.
-   - If there is nothing worth storing in `sticky`, use `[]`. If there is no meaningful memory at all, still keep the JSON valid and provide at least a non-empty `turn_summary` instead of inventing `facts`.
-   - Consider the full conversation and `<memory_context>`; do not base memory only on the latest user message.
+6. Memory requirements (JSON memory payload):
+   - `name` must be a concise title for this memory entry (e.g., "用户偏好设置", "项目架构决策").
+   - `description` must be a one-line summary for the memory index (under 150 chars).
+   - `type` must be one of: `user` (user preferences/role/goals), `feedback` (working style guidance), `project` (project context/goals/progress), `reference` (external system pointers).
+   - `content` must contain the full memory body as a concise, self-contained narrative.
+   - Write `content` against the full conversation state of this thread, not just the last message.
+   - If this turn updates an earlier recommendation or plan, merge the prior baseline and the new delta into one coherent summary.
+   - When replacement happens, prefer wording like "initially A, then adjusted to B because C, final result is B within context A" rather than storing only B.
    - Ignore greetings, tool logs, and abandoned options. No markdown headings inside `<memory>`.
 7. Do not use the `<title>/<memory>` protocol in intermediate messages; use it only in the final response.
 8. Keep protocol compatibility unchanged:

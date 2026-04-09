@@ -2,7 +2,6 @@ package app
 
 import (
 	"context"
-	"io"
 	"os"
 	"path/filepath"
 	"sync"
@@ -45,9 +44,6 @@ type Core struct {
 	MCPManager       *mcp.Manager
 	MemoryService    *memsvc.MemoryService
 
-	embedding  io.Closer
-	vectorRepo *repositories.MemoryVectorRepository
-
 	warmupOnce    sync.Once
 	warmupDone    chan struct{}
 	warmupStarted atomic.Bool
@@ -89,7 +85,10 @@ func NewCore(cfg config.Config) (*Core, error) {
 	skillPackage := skillsvc.NewSkillPackageService(skillStore, cfg.SkillsRoot)
 	skillRuntime := skillsvc.NewSkillRuntimeService(skillStore, cfg.SkillsRoot)
 
-	memoryService := memsvc.NewMemoryService(repo, openaiClient)
+	memoryService, err := memsvc.NewMemoryService(cfg.MemoryDir)
+	if err != nil {
+		return nil, err
+	}
 
 	chatUpload := chatsvc.NewChatUploadService(cfg.ChatUploadRoot)
 	chatService := chatsvc.NewChatService(repo, providerFactory, mcpManager, skillRuntime, memoryService)
@@ -115,7 +114,7 @@ func NewCore(cfg config.Config) (*Core, error) {
 	}, nil
 }
 
-// WarmupInBackground 启动后台 goroutine 异步加载重量级服务。
+// WarmupInBackground 启动后台 goroutine 预热记忆索引。
 func (c *Core) WarmupInBackground(ctx context.Context) {
 	if c == nil {
 		return
@@ -128,41 +127,14 @@ func (c *Core) WarmupInBackground(ctx context.Context) {
 		go func() {
 			defer close(c.warmupDone)
 
-			embeddingService, embeddingCloser, err := initEmbeddingService(ctx, c.Config)
-			if err != nil {
-				logging.Warn("async_embedding_init_failed", "err", err)
-				return
-			}
-			if embeddingService != nil {
-				c.embedding = embeddingCloser
-				if c.MemoryService != nil {
-					c.MemoryService.SetEmbeddingService(embeddingService)
+			// 重建记忆索引（如果需要）
+			if c.MemoryService != nil && c.MemoryService.Store() != nil {
+				if err := c.MemoryService.Store().RebuildIndex(); err != nil {
+					logging.Warn("memory_index_warmup_failed", "err", err)
+				} else {
+					logging.Info("memory_index_warmup_complete", "dir", c.Config.MemoryDir)
 				}
 			}
-
-			vectorRepo, err := initVectorStore(ctx, c.Config)
-			if err != nil {
-				logging.Warn("async_vector_store_init_failed", "err", err)
-				return
-			}
-			if vectorRepo != nil {
-				c.vectorRepo = vectorRepo
-				if c.MemoryService != nil {
-					c.MemoryService.SetVectorStore(vectorRepo)
-					c.MemoryService.SetVectorSearchTopK(c.Config.MemoryVectorTopK)
-				}
-				logging.Info("memory_vectorization_enabled",
-					"provider", "onnx_go",
-					"chroma_path", c.Config.ChromaPath,
-					"collection", c.Config.ChromaCollection,
-					"topk", c.Config.MemoryVectorTopK,
-				)
-			}
-
-			if c.MemoryService != nil {
-				c.MemoryService.WarmupTokenizer()
-			}
-			logging.Info("async_warmup_complete")
 		}()
 	})
 }
@@ -176,14 +148,12 @@ func (c *Core) Close(ctx context.Context) {
 		ctx = context.Background()
 	}
 
-	warmupFinished := true
 	if c.warmupStarted.Load() {
 		waitCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
 		defer cancel()
 		select {
 		case <-c.warmupDone:
 		case <-waitCtx.Done():
-			warmupFinished = false
 			logging.Warn("async_warmup_wait_timeout", "err", waitCtx.Err())
 		}
 	}
@@ -192,20 +162,6 @@ func (c *Core) Close(ctx context.Context) {
 		if err := c.MemoryService.Shutdown(ctx); err != nil {
 			logging.Warn("memory_shutdown", "err", err)
 		}
-	}
-	if warmupFinished {
-		if c.embedding != nil {
-			if err := c.embedding.Close(); err != nil {
-				logging.Warn("embedding_close", "err", err)
-			}
-		}
-		if c.vectorRepo != nil {
-			if err := c.vectorRepo.Close(); err != nil {
-				logging.Warn("vector_repo_close", "err", err)
-			}
-		}
-	} else {
-		logging.Warn("skip_vector_resource_close", "reason", "warmup_not_finished")
 	}
 	if c.MCPManager != nil {
 		c.MCPManager.CloseAll()

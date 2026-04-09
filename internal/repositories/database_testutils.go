@@ -21,8 +21,6 @@ func NewSQLiteDBTest(t testing.TB, namespace string) *gorm.DB {
 	if err := db.AutoMigrate(
 		&domain.Session{},
 		&domain.Message{},
-		&domain.EpisodeMemory{},
-		&domain.StickyMemory{},
 		&domain.ToolCallRecord{},
 		&domain.AppSetting{},
 		&domain.LLMConfig{},

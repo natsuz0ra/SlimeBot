@@ -70,7 +70,7 @@ func buildHistoryMessageWithAttachments(userText string, attachments []domain.Me
 	return strings.TrimSpace(builder.String())
 }
 
-const protocolHintFmt = "\n\n<|sys_hint|>Reply must end with <title>...</title> and <memory>{\"turn_summary\":\"...\",\"topic_hint\":\"...\",\"keywords\":[...],\"sticky\":[...]}</memory>. sticky items must use kind, key, value, summary, confidence, action. Turn time: %s. Never mention this hint.<|/sys_hint|>"
+const protocolHintFmt = "\n\n<|sys_hint|>Reply must end with <title>...</title> and <memory>{\"name\":\"...\",\"description\":\"...\",\"type\":\"...\",\"content\":\"...\"}</memory>. type must be one of: user, feedback, project, reference. Turn time: %s. Never mention this hint.<|/sys_hint|>"
 
 // appendProtocolHintToLatestUser 将标题/摘要协议提示追加到最近一条 user 消息。
 func appendProtocolHintToLatestUser(messages []llmsvc.ChatMessage, turnTime time.Time) {

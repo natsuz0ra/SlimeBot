@@ -12,7 +12,6 @@ import (
 var (
 	_ domain.ChatStore                  = (*Repository)(nil)
 	_ domain.SessionStore               = (*Repository)(nil)
-	_ domain.MemoryStore                = (*Repository)(nil)
 	_ domain.LLMConfigStore             = (*Repository)(nil)
 	_ domain.MCPConfigStore             = (*Repository)(nil)
 	_ domain.MessagePlatformConfigStore = (*Repository)(nil)

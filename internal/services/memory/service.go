@@ -4,8 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
 	"slimebot/internal/logging"
+	"sort"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"slimebot/internal/constants"
@@ -16,6 +20,14 @@ import (
 // Kept compatible with chat/agent services.
 type MemoryService struct {
 	store *FileMemoryStore
+
+	autoConfigMu                 sync.RWMutex
+	autoConsolidationEnabled     bool
+	autoConsolidationMinInterval time.Duration
+	autoConsolidationMinEntries  int
+	lastAutoConsolidatedAt       time.Time
+	consolidateHookForTest       func()
+	autoConsolidationRunning     atomic.Bool
 }
 
 // MemorySearchHit is one hit in a memory search result.
@@ -41,7 +53,10 @@ func NewMemoryService(baseDir string) (*MemoryService, error) {
 	if err != nil {
 		return nil, fmt.Errorf("create file memory store: %w", err)
 	}
-	return &MemoryService{store: store}, nil
+	return &MemoryService{
+		store:                       store,
+		autoConsolidationMinEntries: 2,
+	}, nil
 }
 
 // Shutdown closes the service.
@@ -81,7 +96,7 @@ func (m *MemoryService) QueryForAgent(ctx context.Context, sessionID string, que
 		topK = constants.MemoryToolDefaultTopK
 	}
 
-	entries, err := m.store.Search(result.Query, topK)
+	entries, err := m.searchRelevantEntries(sessionID, result.Query, topK)
 	if err != nil {
 		return result, fmt.Errorf("search memory: %w", err)
 	}
@@ -120,25 +135,21 @@ func (m *MemoryService) EnqueueTurnMemory(sessionID, assistantMessageID, rawMemo
 		return
 	}
 
-	// Set session ID.
-	entry.SessionID = sessionID
+	entry.SessionID = scopeForMemoryType(entry.Type, sessionID)
 
-	// Dedup: search for highly similar existing memories.
-	duplicates, _ := m.store.Search(entry.Name+" "+entry.Description, 3)
-	for _, dup := range duplicates {
-		if dup.Slug() == entry.Slug() {
-			// Same slug: update path (Save merges internally).
-			break
-		}
-		// Exact duplicate name or description; skip.
-		if dup.Name == entry.Name || dup.Description == entry.Description {
-			logging.Info("memory_duplicate_skipped", "name", entry.Name, "existing", dup.Name)
-			return
+	if dup, dupErr := m.findConflictingMemory(entry); dupErr != nil {
+		logging.Warn("memory_conflict_search_failed", "name", entry.Name, "error", dupErr)
+	} else if dup != nil {
+		entry.SetSlug(dup.Slug())
+		entry.Created = dup.Created
+		if entry.SessionID == "" {
+			entry.SessionID = dup.SessionID
 		}
 	}
 
 	if err := m.store.Save(entry); err != nil {
 		logging.Warn("memory_save_failed", "name", entry.Name, "error", err)
+		return
 	}
 }
 
@@ -164,56 +175,39 @@ func (m *MemoryService) Consolidate() (merged int, deleted int, err error) {
 }
 
 // buildMemoryContext builds context from MEMORY.md index plus related memories.
-// Uses conversation history as the search query and injects bleve-ranked hits
-// instead of dumping all recent memories. Similar to Claude Code findRelevantMemories.
+// Uses conversation history as the search query and injects only selected memories,
+// split into current-session context and long-term persistent context.
 func (m *MemoryService) buildMemoryContext(ctx context.Context, sessionID string, history []domain.Message) string {
-	// Read MEMORY.md index.
-	entrypoint := m.store.ReadEntrypoint()
-	if strings.TrimSpace(entrypoint) == "" {
+	if m == nil || m.store == nil {
 		return ""
 	}
 
-	// Layer 1: always inject the manifest (MEMORY.md index).
-	var b strings.Builder
-	b.WriteString("<memory_index>\n")
-	b.WriteString(entrypoint)
-	b.WriteString("\n</memory_index>\n")
-
-	// Layer 2: retrieve full content of session-scoped memories via history query.
 	query := extractSearchQuery(history, 3)
-	if query == "" {
-		return b.String()
-	}
-
-	entries, err := m.store.SearchBySession(sessionID, query, constants.MemoryContextTopK)
+	entries, err := m.selectContextEntries(sessionID, query, constants.MemoryContextTopK)
 	if err != nil || len(entries) == 0 {
-		// Session-scoped search failed or empty; do not fall back to global (session isolation).
-		return b.String()
+		return ""
 	}
 
-	if len(entries) == 0 {
-		return b.String()
-	}
-
+	sessionEntries, persistentEntries := splitEntriesByScope(entries, sessionID)
+	var b strings.Builder
 	b.WriteString("<relevant_memories>\n")
-	for _, entry := range entries {
-		freshness := freshnessLabel(entry.Updated)
-		if freshness != "" {
-			b.WriteString(fmt.Sprintf("## %s (%s) %s\n", entry.Name, entry.Type, freshness))
-		} else {
-			b.WriteString(fmt.Sprintf("## %s (%s)\n", entry.Name, entry.Type))
-		}
-		// Inject full content, not description only.
-		if strings.TrimSpace(entry.Content) != "" {
-			b.WriteString(entry.Content)
-		} else {
-			b.WriteString(entry.Description)
-		}
-		b.WriteString("\n\n")
-	}
+	appendMemorySection(&b, "session_memory", "Current session context and active work.", sessionEntries)
+	appendMemorySection(&b, "persistent_memory", "Long-term preferences and stable reference context.", persistentEntries)
 	b.WriteString("</relevant_memories>")
 
 	return b.String()
+}
+
+func (m *MemoryService) selectContextEntries(sessionID, query string, topK int) ([]*MemoryEntry, error) {
+	if topK <= 0 {
+		topK = constants.MemoryContextTopK
+	}
+
+	if strings.TrimSpace(query) == "" {
+		return m.selectRecentEntries(sessionID, topK), nil
+	}
+
+	return m.searchRelevantEntries(sessionID, query, topK)
 }
 
 // extractSearchQuery builds search text from the last few turns.
@@ -237,6 +231,272 @@ func extractSearchQuery(history []domain.Message, lastN int) string {
 		query = query[:200]
 	}
 	return query
+}
+
+func (m *MemoryService) searchRelevantEntries(sessionID, query string, topK int) ([]*MemoryEntry, error) {
+	sessionEntries := []*MemoryEntry{}
+	if sessionID != "" {
+		found, err := m.store.SearchBySession(sessionID, query, topK*2)
+		if err != nil {
+			return nil, err
+		}
+		sessionEntries = found
+	}
+
+	globalEntries, err := m.store.Search(query, topK*3)
+	if err != nil {
+		return nil, err
+	}
+
+	candidates := dedupeEntries(append(sessionEntries, filterPersistentEntries(globalEntries)...))
+	if len(candidates) == 0 {
+		return m.selectRecentEntries(sessionID, topK), nil
+	}
+
+	sessionScoped, persistent := splitEntriesByScope(candidates, sessionID)
+	if len(sessionScoped) == 0 || len(persistent) == 0 {
+		supplemental := m.selectRecentEntries(sessionID, topK)
+		candidates = dedupeEntries(append(candidates, supplemental...))
+	}
+	sortEntriesByRelevance(candidates, query, sessionID)
+	if len(candidates) > topK {
+		candidates = candidates[:topK]
+	}
+	return candidates, nil
+}
+
+func (m *MemoryService) selectRecentEntries(sessionID string, topK int) []*MemoryEntry {
+	entries, err := m.store.Scan()
+	if err != nil || len(entries) == 0 {
+		return nil
+	}
+
+	var sessionEntries []*MemoryEntry
+	var persistentEntries []*MemoryEntry
+	for _, entry := range entries {
+		switch {
+		case sessionID != "" && entry.SessionID == sessionID:
+			sessionEntries = append(sessionEntries, entry)
+		case entry.SessionID == "":
+			persistentEntries = append(persistentEntries, entry)
+		}
+	}
+
+	sessionLimit := minInt(maxInt(topK/2, 1), 3)
+	persistentLimit := minInt(maxInt(topK-sessionLimit, 1), 3)
+	selected := append(limitEntries(sessionEntries, sessionLimit), limitEntries(persistentEntries, persistentLimit)...)
+	sortEntriesByRelevance(selected, "", sessionID)
+	if len(selected) > topK {
+		selected = selected[:topK]
+	}
+	return selected
+}
+
+func (m *MemoryService) findConflictingMemory(entry *MemoryEntry) (*MemoryEntry, error) {
+	if m == nil || m.store == nil || entry == nil {
+		return nil, nil
+	}
+
+	query := strings.TrimSpace(strings.Join([]string{entry.Name, entry.Description}, " "))
+	if query == "" {
+		query = entry.Name
+	}
+	candidates, err := m.store.Search(query, 8)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, candidate := range candidates {
+		if candidate == nil {
+			continue
+		}
+		if candidate.Type != entry.Type {
+			continue
+		}
+		if candidate.SessionID != entry.SessionID {
+			continue
+		}
+		if candidate.Name == entry.Name {
+			return candidate, nil
+		}
+		if !descriptiveEnoughForConflict(candidate.Description) || !descriptiveEnoughForConflict(entry.Description) {
+			continue
+		}
+		if strings.TrimSpace(candidate.Content) == strings.TrimSpace(entry.Content) {
+			continue
+		}
+		if shouldMerge(candidate, entry) {
+			return candidate, nil
+		}
+	}
+	return nil, nil
+}
+
+func splitEntriesByScope(entries []*MemoryEntry, sessionID string) (sessionScoped []*MemoryEntry, persistent []*MemoryEntry) {
+	for _, entry := range entries {
+		if entry == nil {
+			continue
+		}
+		if sessionID != "" && entry.SessionID == sessionID {
+			sessionScoped = append(sessionScoped, entry)
+			continue
+		}
+		persistent = append(persistent, entry)
+	}
+	return sessionScoped, persistent
+}
+
+func appendMemorySection(b *strings.Builder, tag, description string, entries []*MemoryEntry) {
+	if len(entries) == 0 {
+		return
+	}
+	b.WriteString("<")
+	b.WriteString(tag)
+	b.WriteString(">\n")
+	if strings.TrimSpace(description) != "" {
+		b.WriteString(description)
+		b.WriteString("\n")
+	}
+	for _, entry := range entries {
+		if entry == nil {
+			continue
+		}
+		header := fmt.Sprintf("## %s (%s)", entry.Name, entry.Type)
+		if freshness := freshnessLabel(entry.Updated); freshness != "" {
+			header += " " + freshness
+		}
+		b.WriteString(header)
+		b.WriteString("\n")
+		body := strings.TrimSpace(entry.Content)
+		if body == "" {
+			body = strings.TrimSpace(entry.Description)
+		}
+		if note := freshnessNotice(entry.Updated); note != "" {
+			body = note + "\n" + body
+		}
+		b.WriteString(truncateContent(body, 500))
+		b.WriteString("\n\n")
+	}
+	b.WriteString("</")
+	b.WriteString(tag)
+	b.WriteString(">\n")
+}
+
+func filterPersistentEntries(entries []*MemoryEntry) []*MemoryEntry {
+	var filtered []*MemoryEntry
+	for _, entry := range entries {
+		if entry == nil || entry.SessionID != "" {
+			continue
+		}
+		filtered = append(filtered, entry)
+	}
+	return filtered
+}
+
+func dedupeEntries(entries []*MemoryEntry) []*MemoryEntry {
+	if len(entries) == 0 {
+		return nil
+	}
+	result := make([]*MemoryEntry, 0, len(entries))
+	seen := make(map[string]struct{}, len(entries))
+	for _, entry := range entries {
+		if entry == nil {
+			continue
+		}
+		if _, ok := seen[entry.Slug()]; ok {
+			continue
+		}
+		seen[entry.Slug()] = struct{}{}
+		result = append(result, entry)
+	}
+	return result
+}
+
+func sortEntriesByRelevance(entries []*MemoryEntry, query string, sessionID string) {
+	query = strings.ToLower(strings.TrimSpace(query))
+	sort.SliceStable(entries, func(i, j int) bool {
+		left := memoryRelevanceScore(entries[i], query, sessionID)
+		right := memoryRelevanceScore(entries[j], query, sessionID)
+		if math.Abs(left-right) > 0.001 {
+			return left > right
+		}
+		return entries[i].Updated.After(entries[j].Updated)
+	})
+}
+
+func memoryRelevanceScore(entry *MemoryEntry, query string, sessionID string) float64 {
+	if entry == nil {
+		return -1
+	}
+	score := 0.0
+	if sessionID != "" && entry.SessionID == sessionID {
+		score += 10
+	} else if entry.SessionID == "" {
+		score += 5
+	}
+
+	if query != "" {
+		tokens := tokenizeForMemoryMatch(query)
+		name := strings.ToLower(entry.Name)
+		description := strings.ToLower(entry.Description)
+		content := strings.ToLower(entry.Content)
+		for _, token := range tokens {
+			switch {
+			case strings.Contains(name, token):
+				score += 4
+			case strings.Contains(description, token):
+				score += 2.5
+			case strings.Contains(content, token):
+				score += 1.25
+			}
+		}
+	}
+
+	ageHours := time.Since(entry.Updated).Hours()
+	switch {
+	case ageHours <= 24:
+		score += 2
+	case ageHours <= 24*7:
+		score += 1
+	}
+
+	return score
+}
+
+func tokenizeForMemoryMatch(query string) []string {
+	replacer := strings.NewReplacer(",", " ", ".", " ", "，", " ", "。", " ", "：", " ", ":", " ")
+	fields := strings.Fields(replacer.Replace(strings.ToLower(strings.TrimSpace(query))))
+	if len(fields) <= 8 {
+		return fields
+	}
+	return fields[:8]
+}
+
+func descriptiveEnoughForConflict(description string) bool {
+	description = strings.TrimSpace(description)
+	if len([]rune(description)) >= 20 {
+		return true
+	}
+	return len(strings.Fields(description)) >= 3
+}
+
+func scopeForMemoryType(t MemoryType, sessionID string) string {
+	switch t {
+	case MemoryTypeProject:
+		return sessionID
+	default:
+		return ""
+	}
+}
+
+func limitEntries(entries []*MemoryEntry, limit int) []*MemoryEntry {
+	if len(entries) == 0 || limit <= 0 {
+		return nil
+	}
+	if len(entries) <= limit {
+		return entries
+	}
+	return entries[:limit]
 }
 
 // parseMemoryPayload parses model JSON payload into a MemoryEntry.
@@ -303,6 +563,14 @@ func freshnessLabel(updated time.Time) string {
 	}
 }
 
+func freshnessNotice(updated time.Time) string {
+	days := int(time.Since(updated).Hours() / 24)
+	if days <= 1 {
+		return ""
+	}
+	return fmt.Sprintf("This memory is %d days old. Verify code state or external facts before relying on it.", days)
+}
+
 // truncateContent truncates content to maxRunes runes.
 func truncateContent(s string, maxRunes int) string {
 	if len([]rune(s)) <= maxRunes {
@@ -310,6 +578,20 @@ func truncateContent(s string, maxRunes int) string {
 	}
 	runes := []rune(s)
 	return string(runes[:maxRunes]) + "..."
+}
+
+func minInt(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
+func maxInt(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
 }
 
 // buildMemoryQueryOutput formats search hits as XML for the tool output.

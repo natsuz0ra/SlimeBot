@@ -123,7 +123,7 @@ export function mapHistoryMessages(
 export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement {
   const { exit } = useApp();
   const { stdout } = useStdout();
-  const width = Math.max(20, stdout?.columns || 80);
+  const [width, setWidth] = React.useState(() => Math.max(20, stdout?.columns || 80));
   const border = "─".repeat(width);
 
   const [state, dispatch] = useReducer(
@@ -571,6 +571,13 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
     void loadDefaultModel();
     void loadApprovalMode();
   }, [applyTerminalTitle, loadDefaultModel, loadApprovalMode]);
+
+  // Terminal resize.
+  useEffect(() => {
+    const handleResize = () => setWidth(Math.max(20, stdout?.columns || 80));
+    stdout?.on("resize", handleResize);
+    return () => { stdout?.off("resize", handleResize); };
+  }, [stdout]);
 
   // Blink timer.
   useEffect(() => {

@@ -778,6 +778,13 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
 
   useInput((input, key) => {
     if (key.ctrl && input === "c") {
+      if (state.streaming) {
+        const sent = state.sessionId && socketRef.current?.sendStop(state.sessionId) || false;
+        if (!sent) {
+          dispatch({ type: "STREAM_DONE", error: "Generation stopped (disconnected)." } as AppAction);
+        }
+        return;
+      }
       socketRef.current?.close();
       exit();
       return;
@@ -933,7 +940,15 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
 
     if (state.view !== "chat") return;
 
-    if (state.streaming) return;
+    if (state.streaming) {
+      if (key.escape) {
+        const sent = state.sessionId && socketRef.current?.sendStop(state.sessionId) || false;
+        if (!sent) {
+          dispatch({ type: "STREAM_DONE", error: "Generation stopped (disconnected)." } as AppAction);
+        }
+      }
+      return;
+    }
   });
 
   return (

@@ -284,8 +284,8 @@ func formatMemoryFile(entry *MemoryEntry) string {
 	if entry.SessionID != "" {
 		b.WriteString(fmt.Sprintf("session_id: %s\n", entry.SessionID))
 	}
-	b.WriteString(fmt.Sprintf("created: %s\n", entry.Created.Format(time.RFC3339)))
-	b.WriteString(fmt.Sprintf("updated: %s\n", entry.Updated.Format(time.RFC3339)))
+	b.WriteString(fmt.Sprintf("created: %s\n", entry.Created.Format(time.RFC3339Nano)))
+	b.WriteString(fmt.Sprintf("updated: %s\n", entry.Updated.Format(time.RFC3339Nano)))
 	b.WriteString("---\n\n")
 	b.WriteString(strings.TrimSpace(entry.Content))
 	b.WriteString("\n")

@@ -67,15 +67,29 @@ func (p *titleStreamParser) Flush() string {
 	}
 
 	var out strings.Builder
-	if p.activeTag != "" {
-		// Unclosed tag: emit as plain text to avoid dropping characters.
+	if p.activeTag == parserTagMemory && len(p.tagContent) > 0 {
+		// Unclosed memory tag: try to extract JSON from buffered content
+		// (handles wrong or missing closing tags like </Memory>, </title>, etc.)
+		content := string(p.tagContent)
+		if len(p.closeBuf) > 0 {
+			content += string(p.closeBuf)
+		}
+		if jsonStr, _ := extractJSONObject(content); jsonStr != "" {
+			if cleaned := cleanProtocolMemory(jsonStr); cleaned != "" {
+				p.memory = cleaned
+			}
+		} else {
+			out.WriteString("<memory>")
+			out.Write(p.tagContent)
+			out.Write(p.closeBuf)
+		}
+	} else if p.activeTag != "" {
 		out.WriteString("<")
 		out.WriteString(p.activeTag)
 		out.WriteString(">")
 		out.Write(p.tagContent)
 		out.Write(p.closeBuf)
 	} else if len(p.openBuf) > 0 {
-		// Partial open-tag buffer: not a real tag; emit as text.
 		out.Write(p.openBuf)
 	}
 	p.resetStreamState()
@@ -200,6 +214,13 @@ func cleanProtocolMemory(input string) string {
 	memory := strings.ReplaceAll(input, "\r\n", "\n")
 	memory = strings.ReplaceAll(memory, "\r", "\n")
 	memory = strings.TrimSpace(memory)
+	// Strip trailing non-JSON content (e.g. wrong closing tags like </title>).
+	if idx := strings.LastIndex(memory, "}"); idx >= 0 && idx < len(memory)-1 {
+		trailing := strings.TrimSpace(memory[idx+1:])
+		if trailing != "" {
+			memory = memory[:idx+1]
+		}
+	}
 	return memory
 }
 
@@ -248,22 +269,79 @@ func extractAndRemoveTagBlocks(input string, tag string, cleaner func(string) st
 		if startIdx < 0 {
 			break
 		}
-		endRel := strings.Index(working[startIdx+len(startTag):], endTag)
-		if endRel < 0 {
+		contentAfterOpen := working[startIdx+len(startTag):]
+		endRel := strings.Index(contentAfterOpen, endTag)
+
+		if endRel >= 0 {
+			// Normal case: closing tag found.
+			contentEnd := startIdx + len(startTag) + endRel
+			if value := cleaner(working[startIdx+len(startTag) : contentEnd]); value != "" {
+				latest = value
+				found = true
+			}
+			blockEnd := contentEnd + len(endTag)
+			removeStart, removeEnd, bridge := protocolRemovalRange(working, startIdx, blockEnd)
+			working = working[:removeStart] + bridge + working[removeEnd:]
+			removed = true
+		} else if tag == "memory" {
+			// Fallback: closing tag missing or wrong — extract JSON directly.
+			jsonStr, jsonEnd := extractJSONObject(contentAfterOpen)
+			if jsonStr == "" || jsonEnd < 0 {
+				break
+			}
+			if value := cleaner(jsonStr); value != "" {
+				latest = value
+				found = true
+			}
+			blockEnd := startIdx + len(startTag) + jsonEnd
+			removeStart, removeEnd, bridge := protocolRemovalRange(working, startIdx, blockEnd)
+			working = working[:removeStart] + bridge + working[removeEnd:]
+			removed = true
+		} else {
 			break
 		}
-		contentStart := startIdx + len(startTag)
-		contentEnd := contentStart + endRel
-		if value := cleaner(working[contentStart:contentEnd]); value != "" {
-			latest = value
-			found = true
-		}
-		blockEnd := contentEnd + len(endTag)
-		removeStart, removeEnd, bridge := protocolRemovalRange(working, startIdx, blockEnd)
-		working = working[:removeStart] + bridge + working[removeEnd:]
-		removed = true
 	}
 	return latest, working, found, removed
+}
+
+// extractJSONObject finds the first complete JSON object in input.
+// Returns the JSON string and the byte offset after the closing '}'.
+// Returns ("", -1) if no valid JSON object is found.
+func extractJSONObject(input string) (string, int) {
+	start := strings.Index(input, "{")
+	if start < 0 {
+		return "", -1
+	}
+	depth := 0
+	inString := false
+	escape := false
+	for i := start; i < len(input); i++ {
+		c := input[i]
+		if escape {
+			escape = false
+			continue
+		}
+		if c == '\\' && inString {
+			escape = true
+			continue
+		}
+		if c == '"' {
+			inString = !inString
+			continue
+		}
+		if inString {
+			continue
+		}
+		if c == '{' {
+			depth++
+		} else if c == '}' {
+			depth--
+			if depth == 0 {
+				return input[start : i+1], i + 1
+			}
+		}
+	}
+	return "", -1
 }
 
 func isProtocolSeparatorByte(b byte) bool {

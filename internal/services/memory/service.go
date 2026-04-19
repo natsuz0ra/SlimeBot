@@ -86,7 +86,7 @@ func (m *MemoryService) BuildRecentHistory(sessionID string, limit int) ([]domai
 	return nil, nil
 }
 
-// QueryForAgent searches memories for Agent tool calls.
+// QueryForAgent searches memories for Agent tool calls (cross-session).
 func (m *MemoryService) QueryForAgent(ctx context.Context, sessionID string, query string, topK int) (MemoryQueryResult, error) {
 	result := MemoryQueryResult{Query: strings.TrimSpace(query)}
 	if result.Query == "" {
@@ -96,7 +96,7 @@ func (m *MemoryService) QueryForAgent(ctx context.Context, sessionID string, que
 		topK = constants.MemoryToolDefaultTopK
 	}
 
-	entries, err := m.searchRelevantEntries(sessionID, result.Query, topK)
+	entries, err := m.searchAllEntries(result.Query, topK)
 	if err != nil {
 		return result, fmt.Errorf("search memory: %w", err)
 	}
@@ -188,11 +188,9 @@ func (m *MemoryService) buildMemoryContext(ctx context.Context, sessionID string
 		return ""
 	}
 
-	sessionEntries, persistentEntries := splitEntriesByScope(entries, sessionID)
 	var b strings.Builder
 	b.WriteString("<relevant_memories>\n")
-	appendMemorySection(&b, "session_memory", "Current session context and active work.", sessionEntries)
-	appendMemorySection(&b, "persistent_memory", "Long-term preferences and stable reference context.", persistentEntries)
+	appendMemorySection(&b, "session_memory", "Current session context and active work.", entries)
 	b.WriteString("</relevant_memories>")
 
 	return b.String()
@@ -234,62 +232,47 @@ func extractSearchQuery(history []domain.Message, lastN int) string {
 }
 
 func (m *MemoryService) searchRelevantEntries(sessionID, query string, topK int) ([]*MemoryEntry, error) {
-	sessionEntries := []*MemoryEntry{}
-	if sessionID != "" {
-		found, err := m.store.SearchBySession(sessionID, query, topK*2)
-		if err != nil {
-			return nil, err
-		}
-		sessionEntries = found
+	if sessionID == "" {
+		return nil, nil
 	}
 
-	globalEntries, err := m.store.Search(query, topK*3)
+	entries, err := m.store.SearchBySession(sessionID, query, topK*2)
 	if err != nil {
 		return nil, err
 	}
-
-	candidates := dedupeEntries(append(sessionEntries, filterPersistentEntries(globalEntries)...))
-	if len(candidates) == 0 {
+	if len(entries) == 0 {
 		return m.selectRecentEntries(sessionID, topK), nil
 	}
 
-	sessionScoped, persistent := splitEntriesByScope(candidates, sessionID)
-	if len(sessionScoped) == 0 || len(persistent) == 0 {
-		supplemental := m.selectRecentEntries(sessionID, topK)
-		candidates = dedupeEntries(append(candidates, supplemental...))
+	sortEntriesByRelevance(entries, query, sessionID)
+	if len(entries) > topK {
+		entries = entries[:topK]
 	}
-	sortEntriesByRelevance(candidates, query, sessionID)
-	if len(candidates) > topK {
-		candidates = candidates[:topK]
-	}
-	return candidates, nil
+	return entries, nil
 }
 
 func (m *MemoryService) selectRecentEntries(sessionID string, topK int) []*MemoryEntry {
+	if sessionID == "" {
+		return nil
+	}
+
 	entries, err := m.store.Scan()
 	if err != nil || len(entries) == 0 {
 		return nil
 	}
 
 	var sessionEntries []*MemoryEntry
-	var persistentEntries []*MemoryEntry
 	for _, entry := range entries {
-		switch {
-		case sessionID != "" && entry.SessionID == sessionID:
+		if entry.SessionID == sessionID {
 			sessionEntries = append(sessionEntries, entry)
-		case entry.SessionID == "":
-			persistentEntries = append(persistentEntries, entry)
 		}
 	}
 
-	sessionLimit := minInt(maxInt(topK/2, 1), 3)
-	persistentLimit := minInt(maxInt(topK-sessionLimit, 1), 3)
-	selected := append(limitEntries(sessionEntries, sessionLimit), limitEntries(persistentEntries, persistentLimit)...)
-	sortEntriesByRelevance(selected, "", sessionID)
-	if len(selected) > topK {
-		selected = selected[:topK]
+	sortEntriesByRelevance(sessionEntries, "", sessionID)
+	if len(sessionEntries) > topK {
+		sessionEntries = sessionEntries[:topK]
 	}
-	return selected
+	return sessionEntries
 }
 
 func (m *MemoryService) findConflictingMemory(entry *MemoryEntry) (*MemoryEntry, error) {
@@ -619,4 +602,21 @@ func buildMemoryQueryOutput(query string, keywords []string, hits []MemorySearch
 	}
 	b.WriteString("</memory_query_result>")
 	return strings.TrimSpace(b.String())
+}
+
+// searchAllEntries searches across all sessions without session filtering.
+// Used by search_memory tool for cross-session retrieval.
+func (m *MemoryService) searchAllEntries(query string, topK int) ([]*MemoryEntry, error) {
+	entries, err := m.store.Search(query, topK*2)
+	if err != nil {
+		return nil, err
+	}
+	if len(entries) == 0 {
+		return nil, nil
+	}
+	sortEntriesByRelevance(entries, query, "")
+	if len(entries) > topK {
+		entries = entries[:topK]
+	}
+	return entries, nil
 }

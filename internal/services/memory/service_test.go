@@ -206,8 +206,8 @@ func TestMemoryService_BuildMemoryContext_SelectsSessionAndGlobalMemoriesWithout
 	}
 	contextText := svc.BuildMemoryContext(context.Background(), "session-1", history)
 
-	if !strings.Contains(contextText, "Global Reply Preference") {
-		t.Fatalf("expected global memory to be included, got: %s", contextText)
+	if strings.Contains(contextText, "Global Reply Preference") {
+		t.Fatalf("global memory should NOT appear in context, use search_memory tool instead, got: %s", contextText)
 	}
 	if !strings.Contains(contextText, "Current Session Deploy Plan") {
 		t.Fatalf("expected current-session memory to be included, got: %s", contextText)

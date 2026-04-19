@@ -16,6 +16,7 @@ export interface TextInputProps {
   multiline?: boolean;
   enableCtrlShortcuts?: boolean;
   mask?: string;
+  cursorChar?: string;
   onUnhandledInput?: (input: string, key: Key) => void;
 }
 
@@ -30,6 +31,7 @@ export function TextInput({
   multiline = true,
   enableCtrlShortcuts = true,
   mask,
+  cursorChar: cursorCharProp,
   onUnhandledInput,
 }: TextInputProps): React.ReactElement {
   const inputState = useTextInput({
@@ -41,7 +43,7 @@ export function TextInput({
     multiline,
     enableCtrlShortcuts,
     mask: mask ?? "",
-    cursorChar: focus ? " " : "",
+    cursorChar: cursorCharProp ?? (focus ? " " : ""),
     invert: chalk.inverse,
     columns,
     onUnhandledInput,

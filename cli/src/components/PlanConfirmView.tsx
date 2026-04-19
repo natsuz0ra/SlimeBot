@@ -68,6 +68,7 @@ export function PlanConfirmView({
               onEscape={onEscape}
               focus={true}
               columns={Math.max(20, columns - 8)}
+              cursorChar={feedback ? undefined : ""}
             />
             {!feedback && <Text color="white" dimColor>{PLACEHOLDER}</Text>}
           </Box>

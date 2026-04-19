@@ -62,10 +62,10 @@ export function ModelEditor({
     return (
       <Box flexDirection="column">
         <Box>
-          <Text color={active ? "#22d3ee" : "gray"}>
+          <Text color={active ? "white" : "gray"}>
             {active ? "> " : "  "}
           </Text>
-          <Text bold color={active ? "#a78bfa" : "white"}>
+          <Text bold color={active ? "white" : "white"}>
             {label}
           </Text>
         </Box>
@@ -97,10 +97,10 @@ export function ModelEditor({
     return (
       <Box flexDirection="column">
         <Box>
-          <Text color={active ? "#22d3ee" : "gray"}>
+          <Text color={active ? "white" : "gray"}>
             {active ? "> " : "  "}
           </Text>
-          <Text bold color={active ? "#a78bfa" : "white"}>
+          <Text bold color={active ? "white" : "white"}>
             Provider
           </Text>
         </Box>
@@ -108,11 +108,11 @@ export function ModelEditor({
           <Box flexDirection="column" marginLeft={2}>
             {PROVIDER_OPTIONS.map((opt, i) => (
               <Text key={opt.value}>
-                <Text color={i === providerCursor ? "#22d3ee" : "gray"}>
+                <Text color={i === providerCursor ? "white" : "gray"}>
                   {i === providerCursor ? "\u276F" : " "}
                 </Text>
                 <Text>{" "}</Text>
-                <Text bold={i === providerCursor} color={i === providerCursor ? "#22d3ee" : "white"}>
+                <Text bold={i === providerCursor} color={i === providerCursor ? "white" : "white"}>
                   {opt.label}
                 </Text>
               </Text>
@@ -120,7 +120,7 @@ export function ModelEditor({
           </Box>
         ) : (
           <Box marginLeft={2}>
-            <Text color={provider === "openai" ? "#22d3ee" : "#d97706"}>
+            <Text color={provider === "openai" ? "white" : "#d97706"}>
               {provider === "openai" ? "OpenAI Compatible" : "Anthropic"}
             </Text>
             {active && (

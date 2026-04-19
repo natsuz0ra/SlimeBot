@@ -72,11 +72,11 @@ export function MenuView({
         items.map((item, i) => (
           <Box key={i} flexDirection="column">
             <Text>
-              <Text color={i === cursor ? "#22d3ee" : "gray"}>
+              <Text color={i === cursor ? "white" : "gray"}>
                 {i === cursor ? "\u276F" : " "}
               </Text>
               <Text>{" "}</Text>
-              <Text bold={i === cursor} color={i === cursor ? "#22d3ee" : "white"}>
+              <Text bold={i === cursor} color={i === cursor ? "white" : "white"}>
                 {truncateMenuTitle(item.title)}
               </Text>
             </Text>

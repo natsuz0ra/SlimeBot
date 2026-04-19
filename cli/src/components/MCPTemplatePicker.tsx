@@ -22,11 +22,11 @@ export function MCPTemplatePicker({ cursor }: MCPTemplatePickerProps): React.Rea
       {MCP_TEMPLATES.map((tpl: MCPTemplate, i: number) => (
         <Box key={tpl.kind} flexDirection="column">
           <Text>
-            <Text color={i === cursor ? "#22d3ee" : "gray"}>
+            <Text color={i === cursor ? "white" : "gray"}>
               {i === cursor ? "\u276F" : " "}
             </Text>
             <Text>{" "}</Text>
-            <Text bold={i === cursor} color={i === cursor ? "#22d3ee" : "white"}>
+            <Text bold={i === cursor} color={i === cursor ? "white" : "white"}>
               {tpl.label}
             </Text>
           </Text>

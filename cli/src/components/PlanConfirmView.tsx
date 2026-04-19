@@ -37,7 +37,7 @@ export function PlanConfirmView({
       </Text>
       <Text>
         {cursor === 0 ? (
-          <Text bold color="green">
+          <Text bold color="white">
             {"  > 1. Execute Plan"}
           </Text>
         ) : (
@@ -49,7 +49,7 @@ export function PlanConfirmView({
       <Box>
         {inputFocused ? (
           <Text>
-            <Text bold color="yellow">
+            <Text bold color="white">
               {"  > 2. "}
             </Text>
           </Text>
@@ -59,15 +59,18 @@ export function PlanConfirmView({
           </Text>
         )}
         {inputFocused ? (
-          <TextInput
-            key={feedbackKey}
-            value={feedback}
-            onChange={onFeedbackChange}
-            onSubmit={onFeedbackSubmit}
-            onEscape={onEscape}
-            focus={true}
-            columns={Math.max(20, columns - 8)}
-          />
+          <Box>
+            <TextInput
+              key={feedbackKey}
+              value={feedback}
+              onChange={onFeedbackChange}
+              onSubmit={onFeedbackSubmit}
+              onEscape={onEscape}
+              focus={true}
+              columns={Math.max(20, columns - 8)}
+            />
+            {!feedback && <Text color="white" dimColor>{PLACEHOLDER}</Text>}
+          </Box>
         ) : (
           <Text color="gray">{feedback || PLACEHOLDER}</Text>
         )}

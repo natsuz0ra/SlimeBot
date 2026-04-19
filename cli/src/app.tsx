@@ -596,7 +596,7 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
     if (!sendToSocket(state.sessionId)) {
       dispatch({ type: "STREAM_DONE", error: "WebSocket is not connected." } as AppAction);
     }
-  }, [appendSystem, applyTerminalTitle, state.modelId, state.sessionId]);
+  }, [appendSystem, applyTerminalTitle, state.modelId, state.sessionId, state.planMode, state.thinkingLevel]);
 
   const handleCommand = useCallback(async (raw: string) => {
     const cmd = raw.trim();

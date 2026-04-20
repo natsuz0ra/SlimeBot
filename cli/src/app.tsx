@@ -149,6 +149,7 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
   const liveAssistantRef = useRef("");
   const planModeRef = useRef(false);
   const planStartedRef = useRef(false);
+  const preambleShownRef = useRef("");
   const clearScreenDeferred = useCallback(() => {
     setImmediate(() => clearScreen());
   }, []);
@@ -716,6 +717,7 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
       },
       onStart: () => {
         planStartedRef.current = false;
+        preambleShownRef.current = "";
         dispatch({ type: "STREAM_START" } as AppAction);
       },
       onChunk: (chunk) => {
@@ -745,13 +747,16 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
       onToolCallStart: (data: ToolCallStartData) => {
         // Flush preamble text to timeline before tool entry
         const hadLiveText = !!liveAssistantRef.current.trim();
+        const preamble = data.preamble?.trim() || "";
+        const preambleAlreadyShown = preamble && preamble === preambleShownRef.current;
         dispatch({ type: "FLUSH_AND_WAIT" } as AppAction);
         // Fallback: if streamed text was incomplete/missing, use preamble from tool_call_start
-        if (!hadLiveText && data.preamble?.trim()) {
+        if (!hadLiveText && preamble && !preambleAlreadyShown) {
           dispatch({
             type: "APPEND_ENTRY",
-            entry: { kind: "assistant", content: data.preamble.trim() },
+            entry: { kind: "assistant", content: preamble },
           } as AppAction);
+          preambleShownRef.current = preamble;
         }
         dispatch({
           type: "UPSERT_TOOL_ENTRY",

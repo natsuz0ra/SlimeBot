@@ -11,7 +11,6 @@ import type {
   ViewMode,
   ModelProvider,
 } from "./types.js";
-import { splitNarrationAndPlan } from "./utils/planUtils.js";
 
 export function createInitialState(
   apiURL: string,
@@ -448,23 +447,9 @@ export function reducer(state: AppState, action: AppAction): AppState {
 
     case "PLAN_BODY": {
       const entries = [...state.timeline];
-      // Flush liveAssistant (narration chunk) as assistant entry before splitting
       if (state.liveAssistant.trim()) {
         entries.push({ kind: "assistant", content: state.liveAssistant });
       }
-      // Find the last assistant entry and trim it to narration only
-      for (let i = entries.length - 1; i >= 0; i--) {
-        if (entries[i].kind === "assistant") {
-          if (action.narration !== undefined) {
-            entries[i] = { ...entries[i], content: action.narration };
-          } else {
-            const { narration } = splitNarrationAndPlan(entries[i].content || "");
-            entries[i] = { ...entries[i], content: narration };
-          }
-          break;
-        }
-      }
-      // Append plan entry
       entries.push({ kind: "plan", content: action.planBody });
       return { ...state, timeline: entries, liveAssistant: "" };
     }

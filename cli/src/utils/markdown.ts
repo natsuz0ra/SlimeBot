@@ -50,9 +50,9 @@ export function formatToken(
         .map((child) => formatToken(child, 0, null, token, compact))
         .join("");
       if (token.depth === 1) {
-        return `${chalk.bold.underline(content)}${blockBreak}`;
+        return `${chalk.bold.underline(content)}${EOL}`;
       }
-      return `${chalk.bold(content)}${blockBreak}`;
+      return `${chalk.bold(content)}${EOL}`;
     }
     case "strong":
       return chalk.bold(

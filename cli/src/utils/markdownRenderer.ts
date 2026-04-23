@@ -257,6 +257,11 @@ export function renderMarkdownLines(
   for (const token of tokens) {
     if (BLOCK_TYPES.has(token.type)) {
       flushBuffer();
+      // Add blank line before headings to separate from preceding content
+      if (token.type === "heading" && lines.length > 0 && !compact) {
+        const lastLine = lines[lines.length - 1];
+        if (lastLine !== "") lines.push("");
+      }
     }
     if (token.type === "table") {
       lines.push(...renderTableLines(token as Tokens.Table, terminalWidth, compact));

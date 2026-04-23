@@ -23,6 +23,7 @@ import { formatTimestamp } from "./utils/format.js";
 import { clearScreen, setTerminalTitle } from "./utils/terminal.js";
 import { CLISocket } from "./ws/socket.js";
 import { splitNarrationAndPlan } from "./utils/planUtils.js";
+import { hasContentMarkers, parseContentMarkers } from "./utils/contentMarkers.js";
 import type {
   AppAction,
   AppState,
@@ -92,35 +93,104 @@ export function mapHistoryMessages(
       continue;
     }
     if (msg.role === "assistant") {
-      // Tool calls happen BEFORE the final assistant response,
-      // so insert them before the assistant content.
       const toolCalls = [...(toolCallsByMsgId[msg.id] || [])].sort((a, b) => {
         return new Date(a.startedAt).getTime() - new Date(b.startedAt).getTime();
       });
-      for (const tc of toolCalls) {
-        entries.push({
-          kind: "tool",
-          content: tc.output || tc.error || "",
-          toolCallId: tc.toolCallId,
-          toolName: tc.toolName,
-          command: tc.command,
-          params: tc.params,
-          status: (tc.status || "completed") as ToolCallStatus,
-          output: tc.output,
-          error: tc.error,
-          ...(tc.parentToolCallId ? { parentToolCallId: tc.parentToolCallId } : {}),
-          ...(tc.subagentRunId ? { subagentRunId: tc.subagentRunId } : {}),
-        });
-      }
-      // Try to split narration from plan body for history display
-      const { narration, planBody } = splitNarrationAndPlan(msg.content);
-      if (planBody && planBody !== msg.content) {
-        if (narration) {
-          entries.push({ kind: "assistant", content: narration });
+
+      if (hasContentMarkers(msg.content)) {
+        // New messages with markers: split into separate timeline blocks
+        const toolCallMap = new Map(toolCalls.map(tc => [tc.toolCallId, tc]));
+        const segments = parseContentMarkers(msg.content);
+        const markerIds = new Set<string>();
+        let inPlan = false;
+        const planParts: string[] = [];
+        for (const seg of segments) {
+          if (seg.type === "plan_start") {
+            inPlan = true;
+            continue;
+          }
+          if (seg.type === "plan_end") {
+            if (planParts.length > 0) {
+              entries.push({ kind: "plan", content: planParts.join("") });
+            }
+            inPlan = false;
+            planParts.length = 0;
+            continue;
+          }
+          if (inPlan) {
+            if (seg.type === "text") planParts.push(seg.content);
+            continue;
+          }
+          if (seg.type === "text") {
+            entries.push({ kind: "assistant", content: seg.content });
+          } else if (seg.type === "tool_call_marker" && seg.toolCallId) {
+            markerIds.add(seg.toolCallId);
+            const tc = toolCallMap.get(seg.toolCallId);
+            if (tc) {
+              entries.push({
+                kind: "tool",
+                content: tc.output || tc.error || "",
+                toolCallId: tc.toolCallId,
+                toolName: tc.toolName,
+                command: tc.command,
+                params: tc.params,
+                status: (tc.status || "completed") as ToolCallStatus,
+                output: tc.output,
+                error: tc.error,
+                ...(tc.parentToolCallId ? { parentToolCallId: tc.parentToolCallId } : {}),
+                ...(tc.subagentRunId ? { subagentRunId: tc.subagentRunId } : {}),
+              });
+            }
+          }
         }
-        entries.push({ kind: "plan", content: planBody });
+        // Handle unclosed plan
+        if (inPlan && planParts.length > 0) {
+          entries.push({ kind: "plan", content: planParts.join("") });
+        }
+        // Fallback: append orphan tool (markers missing)
+        for (const tc of toolCalls) {
+          if (!markerIds.has(tc.toolCallId)) {
+            entries.push({
+              kind: "tool",
+              content: tc.output || tc.error || "",
+              toolCallId: tc.toolCallId,
+              toolName: tc.toolName,
+              command: tc.command,
+              params: tc.params,
+              status: (tc.status || "completed") as ToolCallStatus,
+              output: tc.output,
+              error: tc.error,
+              ...(tc.parentToolCallId ? { parentToolCallId: tc.parentToolCallId } : {}),
+              ...(tc.subagentRunId ? { subagentRunId: tc.subagentRunId } : {}),
+            });
+          }
+        }
       } else {
-        entries.push({ kind: "assistant", content: msg.content });
+        // Legacy: all tools first, then text
+        for (const tc of toolCalls) {
+          entries.push({
+            kind: "tool",
+            content: tc.output || tc.error || "",
+            toolCallId: tc.toolCallId,
+            toolName: tc.toolName,
+            command: tc.command,
+            params: tc.params,
+            status: (tc.status || "completed") as ToolCallStatus,
+            output: tc.output,
+            error: tc.error,
+            ...(tc.parentToolCallId ? { parentToolCallId: tc.parentToolCallId } : {}),
+            ...(tc.subagentRunId ? { subagentRunId: tc.subagentRunId } : {}),
+          });
+        }
+        const { narration, planBody } = splitNarrationAndPlan(msg.content);
+        if (planBody && planBody !== msg.content) {
+          if (narration) {
+            entries.push({ kind: "assistant", content: narration });
+          }
+          entries.push({ kind: "plan", content: planBody });
+        } else {
+          entries.push({ kind: "assistant", content: msg.content });
+        }
       }
       continue;
     }

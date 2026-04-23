@@ -397,7 +397,7 @@ func (w *Controller) handleChatIncoming(
 	}
 	donePayload := map[string]any{"type": "done", "sessionId": session.ID}
 	if streamResult != nil {
-		donePayload["answer"] = streamResult.Answer
+		donePayload["answer"] = chatsvc.StripContentMarkers(streamResult.Answer)
 		// Client uses flags for copy and rendering (e.g. i18n for "output stopped").
 		donePayload["isInterrupted"] = streamResult.IsInterrupted
 		donePayload["isStopPlaceholder"] = streamResult.IsStopPlaceholder

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"regexp"
 	"slimebot/internal/apperrors"
 	"slimebot/internal/logging"
 	"strings"
@@ -14,6 +15,19 @@ import (
 	"slimebot/internal/domain"
 	llmsvc "slimebot/internal/services/llm"
 )
+
+const (
+	toolCallMarkerFmt = "\n<!-- TOOL_CALL:%s -->\n"
+	planStartMarker   = "\n<!-- PLAN_START -->\n"
+	planEndMarker     = "\n<!-- PLAN_END -->\n"
+)
+
+var contentMarkerRegex = regexp.MustCompile(`\n?<!-- (?:TOOL_CALL:.+?|PLAN_START|PLAN_END) -->\n?`)
+
+// StripContentMarkers removes TOOL_CALL/PLAN markers from text for real-time display.
+func StripContentMarkers(input string) string {
+	return contentMarkerRegex.ReplaceAllString(input, "")
+}
 
 // chatTurnState holds intermediate state while preparing a chat turn.
 type chatTurnState struct {
@@ -198,10 +212,10 @@ func (s *ChatService) executeChatTurn(
 		if planMode {
 			if accumulator.planStarted {
 				accumulator.planBodyBuilder.WriteString(body)
-			} else {
-				accumulator.narrationBuilder.WriteString(body)
+				return nil // plan body: buffer only, send via OnPlanBody
 			}
-			return nil // plan mode: buffer only, send after loop completes
+			accumulator.narrationBuilder.WriteString(body)
+			// Narration: buffer AND stream in real-time (fall through to OnChunk)
 		}
 		if err := callbacks.OnChunk(body); err != nil {
 			accumulator.pushErr = err
@@ -227,8 +241,15 @@ func (s *ChatService) executeChatTurn(
 			if err := pushBody(parser.BeginAssistantTurn()); err != nil {
 				return err
 			}
+			// Insert marker into stored answer (not streamed to client).
+			accumulator.answerBuilder.WriteString(fmt.Sprintf(toolCallMarkerFmt, req.ToolCallID))
 			if callbacks.OnToolCallStart == nil {
 				return nil
+			}
+			// In plan mode, narration text is streamed in real-time.
+			// Clear preamble since text was already sent via chunks.
+			if planMode {
+				req.Preamble = ""
 			}
 			return callbacks.OnToolCallStart(req)
 		},
@@ -281,6 +302,7 @@ func (s *ChatService) executeChatTurn(
 		},
 		OnPlanStart: func() error {
 			accumulator.planStarted = true
+			accumulator.answerBuilder.WriteString(planStartMarker)
 			return nil
 		},
 	}
@@ -320,6 +342,9 @@ func (s *ChatService) executeChatTurn(
 	var resultPlanBody string
 
 	if planMode {
+		if accumulator.planStarted {
+			accumulator.answerBuilder.WriteString(planEndMarker)
+		}
 		accumulated := strings.TrimSpace(accumulator.answerBuilder.String())
 		finalAnswer = accumulated
 
@@ -334,12 +359,6 @@ func (s *ChatService) executeChatTurn(
 		resultNarration = narration
 		resultPlanBody = planBody
 
-		// Send narration as a single chunk (non-streaming)
-		if narration != "" && callbacks.OnChunk != nil {
-			if sendErr := callbacks.OnChunk(narration + "\n"); sendErr != nil && !interrupted {
-				return nil, sendErr
-			}
-		}
 		// Send plan body via OnPlanBody (non-streaming)
 		if planBody != "" && callbacks.OnPlanBody != nil {
 			if sendErr := callbacks.OnPlanBody(planBody); sendErr != nil && !interrupted {

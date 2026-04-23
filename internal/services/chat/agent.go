@@ -414,7 +414,7 @@ func (a *AgentService) RunAgentLoop(
 
 		// tool_calls: append assistant message (with tool_calls) to context.
 		messages = append(messages, result.AssistantMessage)
-		preamble := strings.TrimSpace(result.AssistantMessage.Content)
+		//preamble := strings.TrimSpace(result.AssistantMessage.Content)
 
 		for _, tc := range result.ToolCalls {
 			// Handle plan_start: signal transition from research to plan writing.
@@ -470,7 +470,7 @@ func (a *AgentService) RunAgentLoop(
 			}
 
 			if tc.Name == constants.RunSubagentTool {
-				if err := a.handleRunSubagentTool(ctx, modelConfig, sessionID, mcpConfigs, activatedSkills, callbacks, opts, tc, invocation, params, preamble, &messages); err != nil {
+				if err := a.handleRunSubagentTool(ctx, modelConfig, sessionID, mcpConfigs, activatedSkills, callbacks, opts, tc, invocation, params, "", &messages); err != nil {
 					return "", err
 				}
 				continue
@@ -483,13 +483,12 @@ func (a *AgentService) RunAgentLoop(
 					Command:          invocation.command,
 					Params:           params,
 					RequiresApproval: invocation.requiresApproval,
-					Preamble:         preamble,
 				}); err != nil {
 					return "", fmt.Errorf("failed to push tool approval request: %w", err)
 				}
 			}
 
-			approved, rejectionMessage := waitApprovalIfNeeded(ctx, callbacks, tc, invocation, params, preamble)
+			approved, rejectionMessage := waitApprovalIfNeeded(ctx, callbacks, tc, invocation, params, "")
 			if !approved {
 				messages = appendToolMessage(messages, tc.ID, rejectionMessage)
 				continue

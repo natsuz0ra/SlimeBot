@@ -6,6 +6,10 @@ export interface ContentSegment {
 
 const MARKER_RE = /\n?<!-- (TOOL_CALL:(.+?)|PLAN_START|PLAN_END) -->\n?/g
 
+export function stripContentMarkers(content: string): string {
+  return content.replace(new RegExp(MARKER_RE.source, 'g'), '')
+}
+
 export function hasContentMarkers(content: string): boolean {
   return content.includes('<!-- TOOL_CALL:') || content.includes('<!-- PLAN_START -->')
 }

@@ -6,11 +6,14 @@ import { MESSAGE_PLATFORM_SESSION_ID, sessionAPI } from '@/api/chat'
 import type { MessageAttachmentItem, MessageItem, SessionHistoryPayload, SessionItem, UploadedAttachmentItem } from '@/api/chat'
 import { i18n } from '@/i18n'
 import {
+  buildInterleavedTimeline,
+  buildLegacyTimeline,
   buildReplyBatchesFromHistory,
   normalizeToolStatus,
   type AssistantReplyBatch,
   type AssistantReplyTimelineItem,
 } from '@/utils/replyBatchBuilder'
+import { hasContentMarkers, stripContentMarkers } from '@/utils/contentMarkers'
 
 const HISTORY_PAGE_SIZE = 10
 const MAX_SESSION_PAGE_SIZE = 100
@@ -410,30 +413,12 @@ export const useChatStore = defineStore('chat', () => {
               : (meta?.isStopPlaceholder ? getStoppedPlaceholderText() : '')
           if (finalAnswer !== '') {
             if (assistant) {
-              assistant.content = finalAnswer
+              assistant.content = stripContentMarkers(finalAnswer)
               clearAssistantError(assistant.id)
             }
-            const mergedTextEntry = {
-              id: crypto.randomUUID(),
-              kind: 'text' as const,
-              content: finalAnswer,
-            }
-            const rebuiltTimeline: AssistantReplyTimelineItem[] = []
-            let insertedText = false
-            for (const entry of batch.timeline) {
-              if (entry.kind === 'text') {
-                if (!insertedText) {
-                  rebuiltTimeline.push(mergedTextEntry)
-                  insertedText = true
-                }
-                continue
-              }
-              rebuiltTimeline.push(entry)
-            }
-            if (!insertedText && finalAnswer.trim() !== '') {
-              rebuiltTimeline.push(mergedTextEntry)
-            }
-            batch.timeline = rebuiltTimeline
+            batch.timeline = hasContentMarkers(finalAnswer)
+              ? buildInterleavedTimeline(batch.toolCalls, finalAnswer)
+              : buildLegacyTimeline(batch.toolCalls, stripContentMarkers(finalAnswer))
           }
           batch.collapsed = true
         }
@@ -441,7 +426,7 @@ export const useChatStore = defineStore('chat', () => {
         if (meta?.planId) {
           pendingPlanConfirmation.value = {
             planId: meta.planId,
-            content: answer || '',
+            content: answer ? stripContentMarkers(answer) : '',
           }
         }
         await loadSessions()

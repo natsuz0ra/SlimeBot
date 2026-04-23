@@ -36,7 +36,7 @@ export function normalizeToolStatus(status?: string, fallbackError?: string): To
   return fallbackError ? 'error' : 'completed'
 }
 
-function buildLegacyTimeline(toolCalls: ToolCallItem[], content: string): AssistantReplyTimelineItem[] {
+export function buildLegacyTimeline(toolCalls: ToolCallItem[], content: string): AssistantReplyTimelineItem[] {
   const timeline: AssistantReplyTimelineItem[] = []
   for (const item of toolCalls) {
     if (item.parentToolCallId) continue
@@ -51,7 +51,7 @@ function buildLegacyTimeline(toolCalls: ToolCallItem[], content: string): Assist
   return timeline
 }
 
-function buildInterleavedTimeline(toolCalls: ToolCallItem[], content: string): AssistantReplyTimelineItem[] {
+export function buildInterleavedTimeline(toolCalls: ToolCallItem[], content: string): AssistantReplyTimelineItem[] {
   const toolCallMap = new Map(toolCalls.map(tc => [tc.toolCallId, tc]))
   const segments = parseContentMarkers(content)
   const timeline: AssistantReplyTimelineItem[] = []

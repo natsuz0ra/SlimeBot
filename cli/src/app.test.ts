@@ -149,6 +149,97 @@ test("mapHistoryMessages restores thinking entries from history markers", () => 
   ]);
 });
 
+test("mapHistoryMessages consumes thinking markers inside plan history without rendering them after the plan", () => {
+  const messages: Message[] = [
+    {
+      id: "a1",
+      sessionId: "s1",
+      role: "assistant",
+      content: [
+        "<!-- PLAN_START -->",
+        "<!-- THINKING:think-in-plan -->",
+        "# Plan",
+        "",
+        "Do the thing.",
+        "<!-- PLAN_END -->",
+      ].join("\n"),
+      seq: 1,
+      createdAt: "2026-01-01T00:00:01Z",
+    },
+  ];
+  const thinkingByMsgId: Record<string, ThinkingHistoryItem[]> = {
+    a1: [
+      {
+        thinkingId: "think-in-plan",
+        content: "internal plan reasoning",
+        status: "completed",
+        startedAt: "2026-01-01T00:00:00Z",
+        finishedAt: "2026-01-01T00:00:01Z",
+        durationMs: 1000,
+      },
+    ],
+  };
+
+  const entries = mapHistoryMessages(messages, {}, thinkingByMsgId);
+
+  assert.deepEqual(entries, [
+    { kind: "plan", content: "# Plan\n\nDo the thing." },
+  ]);
+});
+
+test("mapHistoryMessages keeps thinking outside a plan while consuming thinking inside it", () => {
+  const messages: Message[] = [
+    {
+      id: "a1",
+      sessionId: "s1",
+      role: "assistant",
+      content: [
+        "<!-- THINKING:think-before -->",
+        "Preamble",
+        "<!-- PLAN_START -->",
+        "<!-- THINKING:think-in-plan -->",
+        "# Plan",
+        "<!-- PLAN_END -->",
+        "<!-- THINKING:think-after -->",
+        "Done",
+      ].join("\n"),
+      seq: 1,
+      createdAt: "2026-01-01T00:00:01Z",
+    },
+  ];
+  const thinkingByMsgId: Record<string, ThinkingHistoryItem[]> = {
+    a1: [
+      {
+        thinkingId: "think-before",
+        content: "before reasoning",
+        status: "completed",
+        startedAt: "2026-01-01T00:00:00Z",
+        durationMs: 1000,
+      },
+      {
+        thinkingId: "think-in-plan",
+        content: "internal plan reasoning",
+        status: "completed",
+        startedAt: "2026-01-01T00:00:01Z",
+        durationMs: 1000,
+      },
+      {
+        thinkingId: "think-after",
+        content: "after reasoning",
+        status: "completed",
+        startedAt: "2026-01-01T00:00:02Z",
+        durationMs: 1000,
+      },
+    ],
+  };
+
+  const entries = mapHistoryMessages(messages, {}, thinkingByMsgId);
+
+  assert.deepEqual(entries.map((entry) => entry.kind), ["thinking", "assistant", "plan", "thinking", "assistant"]);
+  assert.equal(entries.filter((entry) => entry.kind === "thinking").length, 2);
+  assert.equal(entries.find((entry) => entry.kind === "plan")?.content, "# Plan");
+});
+
 function key(overrides: Partial<Key> = {}): Key {
   return {
     upArrow: false,

@@ -126,6 +126,12 @@ export function mapHistoryMessages(
           }
           if (inPlan) {
             if (seg.type === "text") planParts.push(seg.content);
+            if (seg.type === "thinking_marker" && seg.thinkingId) {
+              thinkingMarkerIds.add(seg.thinkingId);
+            }
+            if (seg.type === "tool_call_marker" && seg.toolCallId) {
+              markerIds.add(seg.toolCallId);
+            }
             continue;
           }
           if (seg.type === "text") {

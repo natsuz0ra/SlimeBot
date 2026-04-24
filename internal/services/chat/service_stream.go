@@ -59,6 +59,7 @@ func (s *ChatService) HandleChatStream(
 	sessionID string,
 	requestID string,
 	content string,
+	displayContent string,
 	modelID string,
 	attachmentIDs []string,
 	thinkingLevel string,
@@ -69,7 +70,7 @@ func (s *ChatService) HandleChatStream(
 		return nil, fmt.Errorf("Message cannot be empty.")
 	}
 
-	state, err := s.prepareChatTurn(ctx, sessionID, content, modelID, attachmentIDs, thinkingLevel)
+	state, err := s.prepareChatTurn(ctx, sessionID, content, displayContent, modelID, attachmentIDs, thinkingLevel)
 	if err != nil {
 		return nil, err
 	}
@@ -95,6 +96,7 @@ func (s *ChatService) prepareChatTurn(
 	ctx context.Context,
 	sessionID string,
 	content string,
+	displayContent string,
 	modelID string,
 	attachmentIDs []string,
 	thinkingLevel string,
@@ -125,6 +127,10 @@ func (s *ChatService) prepareChatTurn(
 	}
 
 	userContentForLLM := strings.TrimSpace(content)
+	userContentForDisplay := content
+	if strings.TrimSpace(displayContent) != "" {
+		userContentForDisplay = displayContent
+	}
 	userMessageParts := make([]llmsvc.ChatMessageContentPart, 0)
 	var attachmentFallback []string
 	if len(attachments) > 0 {
@@ -141,7 +147,7 @@ func (s *ChatService) prepareChatTurn(
 	if _, err := s.store.AddMessageWithInput(ctx, domain.AddMessageInput{
 		SessionID:   sessionID,
 		Role:        "user",
-		Content:     content,
+		Content:     userContentForDisplay,
 		Attachments: userMessageAttachments,
 	}); err != nil {
 		return nil, err
@@ -178,6 +184,8 @@ func (s *ChatService) prepareChatTurn(
 		} else {
 			overrideLatestUserTurn(contextMessages, userContentForLLM)
 		}
+	} else if strings.TrimSpace(displayContent) != "" {
+		overrideLatestUserTurn(contextMessages, userContentForLLM)
 	}
 	appendProtocolHintToLatestUser(contextMessages, time.Now())
 

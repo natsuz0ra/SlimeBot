@@ -29,6 +29,7 @@ func (m *mockPlatformChatService) HandleChatStream(
 	_ string,
 	_ string,
 	_ string,
+	_ string,
 	_ []string,
 	_ string,
 	_ bool,
@@ -70,6 +71,7 @@ func (m *captureAttachmentChatService) HandleChatStream(
 	_ string,
 	content string,
 	_ string,
+	_ string,
 	attachmentIDs []string,
 	_ string,
 	_ bool,
@@ -92,6 +94,7 @@ func (m *mockApprovalChatService) ResolvePlatformModel(_ context.Context) (strin
 
 func (m *mockApprovalChatService) HandleChatStream(
 	ctx context.Context,
+	_ string,
 	_ string,
 	_ string,
 	_ string,

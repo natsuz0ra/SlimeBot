@@ -28,16 +28,17 @@ type Controller struct {
 
 // chatIncoming is the client WebSocket message shape.
 type chatIncoming struct {
-	Type          string   `json:"type"`          // Message type: chat, ping, tool_approve, etc.
-	SessionID     string   `json:"sessionId"`     // Session ID
-	Content       string   `json:"content"`       // User input text
-	ModelID       string   `json:"modelId"`       // LLM config ID
-	AttachmentIDs []string `json:"attachmentIds"` // Attachment IDs
-	ToolCallID    string   `json:"toolCallId"`    // Tool call ID (for approval flow)
-	Approved      *bool    `json:"approved"`      // Approval outcome
-	ThinkingLevel string   `json:"thinkingLevel"` // Thinking level: off, low, medium, high
-	PlanMode      bool     `json:"planMode"`      // Plan mode: LLM generates plan instead of executing
-	PlanID        string   `json:"planId"`        // Plan ID (for approve/reject)
+	Type           string   `json:"type"`           // Message type: chat, ping, tool_approve, etc.
+	SessionID      string   `json:"sessionId"`      // Session ID
+	Content        string   `json:"content"`        // User input text
+	DisplayContent string   `json:"displayContent"` // Optional user-visible text when content is an internal prompt
+	ModelID        string   `json:"modelId"`        // LLM config ID
+	AttachmentIDs  []string `json:"attachmentIds"`  // Attachment IDs
+	ToolCallID     string   `json:"toolCallId"`     // Tool call ID (for approval flow)
+	Approved       *bool    `json:"approved"`       // Approval outcome
+	ThinkingLevel  string   `json:"thinkingLevel"`  // Thinking level: off, low, medium, high
+	PlanMode       bool     `json:"planMode"`       // Plan mode: LLM generates plan instead of executing
+	PlanID         string   `json:"planId"`         // Plan ID (for approve/reject)
 }
 
 type wsOutChunk struct {
@@ -243,11 +244,12 @@ func (w *Controller) startReadLoop(
 					_ = enqueue(map[string]any{"type": "plan_status", "planId": plan.ID, "status": plan.Status})
 					execContent := "Execute the following approved plan:\n\n" + plan.Content
 					execIncoming := chatIncoming{
-						Type:      "chat",
-						SessionID: incoming.SessionID,
-						Content:   execContent,
-						ModelID:   incoming.ModelID,
-						PlanMode:  false,
+						Type:           "chat",
+						SessionID:      incoming.SessionID,
+						Content:        execContent,
+						DisplayContent: incoming.DisplayContent,
+						ModelID:        incoming.ModelID,
+						PlanMode:       false,
 					}
 					select {
 					case <-sessionCtx.Done():
@@ -362,6 +364,7 @@ func (w *Controller) handleChatIncoming(
 		session.ID,
 		requestID,
 		incoming.Content,
+		incoming.DisplayContent,
 		incoming.ModelID,
 		incoming.AttachmentIDs,
 		incoming.ThinkingLevel,

@@ -8,7 +8,12 @@ export interface ContentSegment {
 const MARKER_RE = /\n?<!-- (TOOL_CALL:(.+?)|THINKING:(.+?)|PLAN_START|PLAN_END) -->\n?/g
 
 export function hasContentMarkers(content: string): boolean {
-  return content.includes('<!-- TOOL_CALL:') || content.includes('<!-- THINKING:') || content.includes('<!-- PLAN_START -->')
+  return (
+    content.includes('<!-- TOOL_CALL:') ||
+    content.includes('<!-- THINKING:') ||
+    content.includes('<!-- PLAN_START -->') ||
+    content.includes('<!-- PLAN_END -->')
+  )
 }
 
 export function parseContentMarkers(content: string): ContentSegment[] {

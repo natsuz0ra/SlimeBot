@@ -6,7 +6,8 @@
 import React, { useMemo } from "react";
 import { Box, Text } from "ink";
 import { renderMarkdownLines } from "../utils/markdownRenderer.js";
-import { DOT } from "../utils/terminal.js";
+import { DOT, stripAnsi } from "../utils/terminal.js";
+import { stringWidth } from "../utils/stringWidth.js";
 import type { TimelineEntry, ToolCallStatus } from "../types.js";
 import {
   formatToolInvocation,
@@ -158,27 +159,51 @@ function StreamingMarkdown({
   );
 }
 
+function padVisible(content: string, targetWidth: number): string {
+  const visible = stringWidth(stripAnsi(content));
+  return `${content}${" ".repeat(Math.max(0, targetWidth - visible))}`;
+}
+
+export function formatPlanBlockLines(content: string, maxWidth: number): string[] {
+  const outerWidth = Math.max(12, Math.floor(maxWidth) - 2);
+  const contentWidth = Math.max(1, outerWidth - 4);
+  const renderedLines = renderMarkdownLines(content, contentWidth, false, true);
+  const title = " Plan ";
+  const topPrefix = `╭─${title}`;
+  const topFill = "─".repeat(Math.max(0, outerWidth - stringWidth(topPrefix) - 1));
+  const lines = [`${topPrefix}${topFill}╮`];
+
+  for (const line of renderedLines) {
+    lines.push(`│ ${padVisible(line, contentWidth)} │`);
+  }
+
+  lines.push(`╰${"─".repeat(Math.max(0, outerWidth - 2))}╯`);
+  return lines;
+}
+
 function PlanBlock({ content, maxWidth }: { content: string; maxWidth: number }): React.ReactElement {
-  const innerWidth = Math.max(1, maxWidth - 4);
-  const lines = useMemo(
-    () => renderMarkdownLines(content, innerWidth, false, true),
-    [content, innerWidth],
-  );
+  const lines = useMemo(() => formatPlanBlockLines(content, maxWidth), [content, maxWidth]);
   const borderColor = "#22d3ee";
-  const headerLabel = "Plan";
-  const topContent = `${headerLabel} ${"─".repeat(Math.max(0, innerWidth - headerLabel.length - 1))}`;
-  const bottomWidth = Math.max(0, innerWidth + 1);
 
   return (
     <Box flexDirection="column">
-      <Text color={borderColor} bold>{`┌─ ${topContent}`}</Text>
-      {lines.map((line, i) => (
-        <Text key={i}>
-          <Text color={borderColor}>{"│ "}</Text>
-          <Text>{line}</Text>
-        </Text>
-      ))}
-      <Text color={borderColor}>{`└${"─".repeat(bottomWidth)}┘`}</Text>
+      {lines.map((line, i) => {
+        const isBody = i > 0 && i < lines.length - 1;
+        if (!isBody) {
+          return (
+            <Text key={i} color={borderColor} bold={i === 0}>
+              {line}
+            </Text>
+          );
+        }
+        return (
+          <Text key={i}>
+            <Text color={borderColor}>{"│ "}</Text>
+            <Text>{line.slice(2, -2)}</Text>
+            <Text color={borderColor}>{" │"}</Text>
+          </Text>
+        );
+      })}
     </Box>
   );
 }

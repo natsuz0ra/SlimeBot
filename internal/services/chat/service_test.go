@@ -233,7 +233,7 @@ func TestHandleChatStream_PersistsThinkingHistory(t *testing.T) {
 	provider := &fakeThinkingProvider{}
 	svc := NewChatService(repo, nil, llmsvc.NewFactory(provider), nil, nil, nil)
 
-	result, err := svc.HandleChatStream(ctx, session.ID, "request-1", "hello", model.ID, nil, "high", false, AgentCallbacks{
+	result, err := svc.HandleChatStream(ctx, session.ID, "request-1", "hello", "", model.ID, nil, "high", false, AgentCallbacks{
 		OnChunk: func(string) error { return nil },
 	})
 	if err != nil {
@@ -269,6 +269,127 @@ func TestHandleChatStream_PersistsThinkingHistory(t *testing.T) {
 	if records[0].Content != "reasoning" || records[0].Status != "completed" {
 		t.Fatalf("unexpected thinking record: %+v", records[0])
 	}
+}
+
+func TestHandleChatStream_FinishesThinkingBeforeAnswerChunk(t *testing.T) {
+	repo := newTestRepo(t)
+	ctx := context.Background()
+	session, err := repo.CreateSession(ctx, "s")
+	if err != nil {
+		t.Fatalf("create session failed: %v", err)
+	}
+	model, err := repo.CreateLLMConfig(domain.LLMConfig{
+		Name:     "fake",
+		Provider: llmsvc.ProviderOpenAI,
+		BaseURL:  "http://fake",
+		APIKey:   "key",
+		Model:    "fake-model",
+	})
+	if err != nil {
+		t.Fatalf("create model failed: %v", err)
+	}
+	provider := &fakeThinkingProvider{}
+	svc := NewChatService(repo, nil, llmsvc.NewFactory(provider), nil, nil, nil)
+
+	var events []string
+	_, err = svc.HandleChatStream(ctx, session.ID, "request-1", "hello", "", model.ID, nil, "high", false, AgentCallbacks{
+		OnThinkingStart: func() error {
+			events = append(events, "thinking_start")
+			return nil
+		},
+		OnThinkingChunk: func(string) error {
+			events = append(events, "thinking_chunk")
+			return nil
+		},
+		OnThinkingDone: func() error {
+			events = append(events, "thinking_done")
+			return nil
+		},
+		OnChunk: func(string) error {
+			events = append(events, "chunk")
+			return nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("HandleChatStream failed: %v", err)
+	}
+
+	want := []string{"thinking_start", "thinking_chunk", "thinking_done", "chunk"}
+	if strings.Join(events, ",") != strings.Join(want, ",") {
+		t.Fatalf("unexpected event order: got %v want %v", events, want)
+	}
+}
+
+func TestHandleChatStream_UsesDisplayContentForStoredUserMessage(t *testing.T) {
+	repo := newTestRepo(t)
+	ctx := context.Background()
+	session, err := repo.CreateSession(ctx, "s")
+	if err != nil {
+		t.Fatalf("create session failed: %v", err)
+	}
+	model, err := repo.CreateLLMConfig(domain.LLMConfig{
+		Name:     "fake",
+		Provider: llmsvc.ProviderOpenAI,
+		BaseURL:  "http://fake",
+		APIKey:   "key",
+		Model:    "fake-model",
+	})
+	if err != nil {
+		t.Fatalf("create model failed: %v", err)
+	}
+	provider := &captureMessagesProvider{}
+	svc := NewChatService(repo, nil, llmsvc.NewFactory(provider), nil, nil, nil)
+
+	internalPrompt := "Execute the following approved plan:\n\n# Plan"
+	displayContent := "Execute this plan"
+	_, err = svc.HandleChatStream(ctx, session.ID, "request-1", internalPrompt, displayContent, model.ID, nil, "off", false, AgentCallbacks{
+		OnChunk: func(string) error { return nil },
+	})
+	if err != nil {
+		t.Fatalf("HandleChatStream failed: %v", err)
+	}
+
+	messages, _, err := repo.ListSessionMessagesPage(session.ID, 10, nil, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("list messages failed: %v", err)
+	}
+	var storedUser string
+	for _, message := range messages {
+		if message.Role == "user" {
+			storedUser = message.Content
+			break
+		}
+	}
+	if storedUser != displayContent {
+		t.Fatalf("stored user message = %q, want %q", storedUser, displayContent)
+	}
+	if len(provider.messages) == 0 {
+		t.Fatal("expected provider messages")
+	}
+	last := provider.messages[len(provider.messages)-1]
+	if last.Role != "user" || !strings.Contains(last.Content, internalPrompt) {
+		t.Fatalf("provider latest user message = (%q, %q), want internal prompt", last.Role, last.Content)
+	}
+}
+
+type captureMessagesProvider struct {
+	messages []llmsvc.ChatMessage
+}
+
+func (p *captureMessagesProvider) StreamChatWithTools(
+	_ context.Context,
+	_ llmsvc.ModelRuntimeConfig,
+	messages []llmsvc.ChatMessage,
+	_ []llmsvc.ToolDef,
+	callbacks llmsvc.StreamCallbacks,
+) (*llmsvc.StreamResult, error) {
+	p.messages = append([]llmsvc.ChatMessage{}, messages...)
+	if callbacks.OnChunk != nil {
+		if err := callbacks.OnChunk("answer"); err != nil {
+			return nil, err
+		}
+	}
+	return &llmsvc.StreamResult{Type: llmsvc.StreamResultText}, nil
 }
 
 type fakeThinkingProvider struct{}

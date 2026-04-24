@@ -111,7 +111,7 @@
   --focus-ring: #6366f1;
   --tool-card-border: rgba(99, 102, 241, 0.14);
   --tool-card-border-hover: rgba(99, 102, 241, 0.28);
-  --tool-card-shadow-hover: 0 8px 18px rgba(99, 102, 241, 0.14);
+  --tool-card-shadow-hover: none;
   --tool-section-bg: rgba(99, 102, 241, 0.04);
   --tool-section-border: rgba(99, 102, 241, 0.14);
   --tool-section-title: #6366f1;
@@ -184,7 +184,7 @@
   --focus-ring: #818cf8;
   --tool-card-border: rgba(129, 140, 248, 0.26);
   --tool-card-border-hover: rgba(165, 180, 252, 0.42);
-  --tool-card-shadow-hover: 0 10px 22px rgba(0, 0, 0, 0.32);
+  --tool-card-shadow-hover: none;
   --tool-section-bg: rgba(255, 255, 255, 0.03);
   --tool-section-border: rgba(255, 255, 255, 0.12);
   --tool-section-title: #a5b4fc;

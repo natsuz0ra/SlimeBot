@@ -37,6 +37,7 @@ const toolLabel = computed(() => {
   if (props.item.toolName === 'http_request') return t('toolHttpRequest')
   if (props.item.toolName === 'web_search') return t('toolWebSearch')
   if (props.item.toolName === 'run_subagent') return t('toolRunSubagent')
+  if (props.item.toolName === 'search_memory') return t('toolSearchMemory')
   return props.item.toolName
 })
 

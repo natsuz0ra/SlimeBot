@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { renderMarkdown } from '@/utils/markdown'
 
@@ -13,15 +13,54 @@ const props = withDefaults(defineProps<{
 
 const { t } = useI18n()
 const hasBody = computed(() => props.content.trim().length > 0)
+const expanded = ref(false)
+
+const showBody = computed(() => {
+  if (!props.generating) return hasBody.value
+  return expanded.value && hasBody.value
+})
+
+const headerClickable = computed(() => props.generating && hasBody.value)
+
+function toggleExpand() {
+  if (headerClickable.value) expanded.value = !expanded.value
+}
 </script>
 
 <template>
-  <section class="plan-block" :class="{ 'plan-block--generating': generating }" aria-label="Plan">
-    <header class="plan-block-header">
+  <section
+    class="plan-block"
+    :class="{
+      'plan-block--generating': generating,
+      'plan-block--sticky': generating && expanded,
+      'plan-block--clickable': headerClickable,
+    }"
+    aria-label="Plan"
+  >
+    <header class="plan-block-header" @click="toggleExpand">
       <span class="plan-block-dot" aria-hidden="true" />
       <span class="plan-block-title">{{ generating ? t('planningLabel') : 'Plan' }}</span>
+      <span class="plan-block-spacer" />
+      <svg
+        v-if="headerClickable"
+        class="plan-block-chevron"
+        :class="{ 'plan-block-chevron--open': expanded }"
+        viewBox="0 0 16 16"
+        width="14"
+        height="14"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="2"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+        aria-hidden="true"
+      >
+        <path d="M4 6l4 4 4-4" />
+      </svg>
     </header>
-    <div v-if="hasBody" class="plan-block-body bubble-markdown" v-html="renderMarkdown(content)" />
+    <Transition name="plan-expand">
+      <div v-if="showBody" class="plan-block-body bubble-markdown" v-html="renderMarkdown(content)" />
+    </Transition>
   </section>
 </template>
 
@@ -40,6 +79,21 @@ const hasBody = computed(() => props.content.trim().length > 0)
 .plan-block:hover {
   border-color: rgba(245, 158, 11, 0.36);
   border-left-color: #f59e0b;
+}
+
+.plan-block--clickable .plan-block-header {
+  cursor: pointer;
+}
+
+.plan-block--clickable:hover {
+  border-color: rgba(245, 158, 11, 0.5);
+  border-left-color: #f59e0b;
+}
+
+.plan-block--sticky {
+  position: sticky;
+  bottom: 0;
+  z-index: 10;
 }
 
 .plan-block-header {
@@ -71,6 +125,20 @@ const hasBody = computed(() => props.content.trim().length > 0)
   letter-spacing: 0;
 }
 
+.plan-block-spacer {
+  flex: 1 1 auto;
+}
+
+.plan-block-chevron {
+  margin-left: 4px;
+  color: #d97706;
+  transition: transform 200ms ease;
+}
+
+.plan-block-chevron--open {
+  transform: rotate(180deg);
+}
+
 .plan-block-body {
   padding: 0 12px 12px 23px;
   color: var(--text-primary);
@@ -80,6 +148,26 @@ const hasBody = computed(() => props.content.trim().length > 0)
 .plan-block-body :deep(h2),
 .plan-block-body :deep(h3) {
   margin-top: 4px;
+}
+
+.plan-expand-enter-active {
+  transition: opacity 180ms ease, max-height 250ms ease;
+}
+
+.plan-expand-leave-active {
+  transition: opacity 120ms ease, max-height 180ms ease;
+}
+
+.plan-expand-enter-from,
+.plan-expand-leave-to {
+  opacity: 0;
+  max-height: 0;
+}
+
+.plan-expand-enter-to,
+.plan-expand-leave-from {
+  opacity: 1;
+  max-height: 800px;
 }
 
 .dark .plan-block {
@@ -95,12 +183,21 @@ const hasBody = computed(() => props.content.trim().length > 0)
   border-left-color: #fbbf24;
 }
 
+.dark .plan-block--clickable:hover {
+  border-color: rgba(253, 224, 71, 0.5);
+  border-left-color: #fbbf24;
+}
+
 .dark .plan-block-dot {
   background: #fbbf24;
   box-shadow: 0 0 0 3px rgba(253, 224, 71, 0.2);
 }
 
 .dark .plan-block-header {
+  color: #fcd34d;
+}
+
+.dark .plan-block-chevron {
   color: #fcd34d;
 }
 
@@ -118,6 +215,13 @@ const hasBody = computed(() => props.content.trim().length > 0)
 @media (prefers-reduced-motion: reduce) {
   .plan-block--generating .plan-block-dot {
     animation: none;
+  }
+  .plan-block-chevron {
+    transition: none;
+  }
+  .plan-expand-enter-active,
+  .plan-expand-leave-active {
+    transition: none;
   }
 }
 </style>

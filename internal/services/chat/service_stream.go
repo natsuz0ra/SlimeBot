@@ -366,9 +366,9 @@ func (s *ChatService) executeChatTurn(
 			}
 		}
 	} else {
-		finalAnswer = answer
-		if strings.TrimSpace(finalAnswer) == "" {
-			finalAnswer = strings.TrimSpace(accumulator.answerBuilder.String())
+		finalAnswer = strings.TrimSpace(accumulator.answerBuilder.String())
+		if finalAnswer == "" {
+			finalAnswer = answer
 		}
 	}
 

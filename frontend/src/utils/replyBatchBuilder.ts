@@ -22,6 +22,7 @@ export type AssistantReplyTimelineItem =
       id: string
       kind: 'plan'
       content: string
+      generating?: boolean
     }
   | { id: string; kind: 'thinking'; content: string; done: boolean; durationMs?: number; startedAt?: number }
 

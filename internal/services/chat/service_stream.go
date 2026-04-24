@@ -225,7 +225,12 @@ func (s *ChatService) executeChatTurn(
 		if planMode {
 			if accumulator.planStarted {
 				accumulator.planBodyBuilder.WriteString(body)
-				return nil // plan body: buffer only, send via OnPlanBody
+				if callbacks.OnPlanChunk != nil {
+					if err := callbacks.OnPlanChunk(body); err != nil {
+						accumulator.pushErr = err
+					}
+				}
+				return nil
 			}
 			accumulator.narrationBuilder.WriteString(body)
 			// Narration: buffer AND stream in real-time (fall through to OnChunk)
@@ -360,6 +365,7 @@ func (s *ChatService) executeChatTurn(
 			accumulator.answerBuilder.WriteString(planStartMarker)
 			return nil
 		},
+		OnPlanChunk: callbacks.OnPlanChunk,
 	}
 
 	activatedSkills := s.getSessionActivatedSkills(sessionID)

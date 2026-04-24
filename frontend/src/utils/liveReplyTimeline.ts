@@ -46,10 +46,32 @@ export function appendTextChunkToBatch(batch: AssistantReplyBatch, chunk: string
 export function appendPlanBodyToBatch(batch: AssistantReplyBatch, planBody: string) {
   if (planBody.trim() === '') return
   finishOpenThinkingEntries(batch)
+  const lastEntry = batch.timeline[batch.timeline.length - 1]
+  if (lastEntry && lastEntry.kind === 'plan' && lastEntry.generating) {
+    lastEntry.content = planBody
+    lastEntry.generating = false
+    return
+  }
   batch.timeline.push({
     id: crypto.randomUUID(),
     kind: 'plan',
     content: planBody,
+  })
+}
+
+export function appendPlanChunkToBatch(batch: AssistantReplyBatch, chunk: string) {
+  if (chunk === '') return
+  finishOpenThinkingEntries(batch)
+  const lastEntry = batch.timeline[batch.timeline.length - 1]
+  if (lastEntry && lastEntry.kind === 'plan' && lastEntry.generating) {
+    lastEntry.content += chunk
+    return
+  }
+  batch.timeline.push({
+    id: crypto.randomUUID(),
+    kind: 'plan',
+    content: chunk,
+    generating: true,
   })
 }
 

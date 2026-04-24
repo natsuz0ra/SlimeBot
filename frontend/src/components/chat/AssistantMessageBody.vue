@@ -30,6 +30,7 @@ const ctx = useChatContext()
         <PlanBlock
           v-else-if="entry.kind === 'plan'"
           :content="entry.content"
+          :generating="entry.generating ?? false"
         />
 
         <ToolCallInline
@@ -41,10 +42,6 @@ const ctx = useChatContext()
         />
       </div>
     </template>
-
-    <div v-if="ctx.planGenerating && ctx.isStreamingMessage(item.id)" class="assistant-reply-segment assistant-reply-segment--plan">
-      <PlanBlock generating content="" />
-    </div>
 
     <TypingDots v-if="ctx.isEmptyPlaceholder(item.id) && ctx.waiting" />
   </div>

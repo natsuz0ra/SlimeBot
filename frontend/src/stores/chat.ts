@@ -14,7 +14,7 @@ import {
   type AssistantReplyTimelineItem,
 } from '@/utils/replyBatchBuilder'
 import { hasContentMarkers, parseContentMarkers, stripContentMarkers } from '@/utils/contentMarkers'
-import { appendPlanBodyToBatch, appendTextChunkToBatch, finishOpenThinkingEntries, markLastThinkingDone } from '@/utils/liveReplyTimeline'
+import { appendPlanBodyToBatch, appendPlanChunkToBatch, appendTextChunkToBatch, finishOpenThinkingEntries, markLastThinkingDone } from '@/utils/liveReplyTimeline'
 
 const HISTORY_PAGE_SIZE = 10
 const MAX_SESSION_PAGE_SIZE = 100
@@ -574,6 +574,12 @@ export const useChatStore = defineStore('chat', () => {
         if (!batch) return
         finishOpenThinkingEntries(batch)
         planGenerating.value = true
+      },
+      onPlanChunk: (chunk, sessionId) => {
+        if (!sessionId || sessionId !== currentSessionId.value) return
+        const batch = getCurrentBatch()
+        if (!batch) return
+        appendPlanChunkToBatch(batch, chunk)
       },
       onPlanBody: (content, sessionId) => {
         if (!sessionId || sessionId !== currentSessionId.value) return

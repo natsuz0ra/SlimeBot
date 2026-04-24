@@ -17,6 +17,7 @@ type Handlers = {
   onThinkingChunk?: (chunk: string, sessionId?: string) => void
   onThinkingDone?: (sessionId?: string) => void
   onPlanStart?: (sessionId?: string) => void
+  onPlanChunk?: (chunk: string, sessionId?: string) => void
   onPlanBody?: (content: string, sessionId?: string) => void
   onOpen?: () => void
   onClose?: () => void
@@ -286,6 +287,7 @@ export class ChatSocket {
       if (data.type === 'thinking_chunk') this.handlers?.onThinkingChunk?.(data.content || '', data.sessionId)
       if (data.type === 'thinking_done') this.handlers?.onThinkingDone?.(data.sessionId)
       if (data.type === 'plan_start') this.handlers?.onPlanStart?.(data.sessionId)
+      if (data.type === 'plan_chunk') this.handlers?.onPlanChunk?.(data.content || '', data.sessionId)
       if (data.type === 'plan_body') this.handlers?.onPlanBody?.(data.content || '', data.sessionId)
     }
 

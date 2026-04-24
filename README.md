@@ -18,11 +18,17 @@ A personal AI agent demo: an extensible foundation for conversational AI apps. I
   - Multimodal support
 - **Tools & agent**
   - Multi-turn agent tool-call flow
-  - User approval for sensitive built-in tools (today: `exec`) in the web UI, CLI, and Telegram flows
+  - Approval modes: **standard** (manual confirm for sensitive tools) and **auto** (execute directly)
+  - User approval for sensitive built-in tools (today: `exec`) in web UI, CLI, and Telegram flows
   - Tool results stored in history with detail views
   - Built-in tools: `exec`, `http_request`, `web_search` (Tavily), **`run_subagent`** (nested agent)
   - **Subagent:** the main agent can delegate a self-contained task to an inner agent with **isolated context** (no parent chat history). Only **one nesting level** is allowed (the subagent cannot call `run_subagent` again). Inner tool calls are shown **nested under** the parent tool in the web UI and CLI; session history stores `parentToolCallId` so grouping survives a reload.
   - WebSocket subagent stream: `subagent_start`, `subagent_chunk`, `subagent_done` (in addition to `tool_call_start` / `tool_call_result`)
+- **Planning & reasoning controls**
+  - Plan mode for “draft first, execute after approval” workflow
+  - Plan lifecycle: generate, approve/reject, modify-and-regenerate, execute
+  - Thinking level controls (`off` / `low` / `medium` / `high`) for model reasoning depth
+  - Thinking stream events and timeline rendering in both web UI and CLI
 - **Memory**
   - Rolling session summaries
   - Long-context compression with recent-message backfill
@@ -148,6 +154,9 @@ make compose-down
 - `/model` — set default model
 - `/skills` — view / remove skills
 - `/mcp` — MCP CRUD with multiline editor
+- `/mode` — toggle approval mode (`standard` / `auto`)
+- `/effort` — set thinking level (`off` / `low` / `medium` / `high`)
+- `/plan` — toggle plan mode (`on` / `off`)
 - `/help` — help
 
 ## Data layout (`~/.slimebot`)
@@ -190,6 +199,8 @@ Variables read by the server (defaults shown where applicable):
 - `WEB_SEARCH_API_KEY` — Tavily API key for `web_search`
 - `JWT_SECRET` — **required in server mode**; server fails to start if unset (CLI headless mode can auto-generate one)
 - `JWT_EXPIRE` — JWT lifetime in minutes (default `21600` ≈ 15 days)
+- `approvalMode` (app setting) — `standard` or `auto`
+- `thinkingLevel` (app setting) — `off` / `low` / `medium` / `high`
 
 The file created on first boot follows the embedded template in [internal/runtime/env.template](internal/runtime/env.template). You can add the optional keys above manually if needed.
 
@@ -224,8 +235,10 @@ VITE_WS_URL=ws://localhost:8080
 
 **Done**
 
-- Sessions and WebSocket streaming (including errors, tool-call, and subagent events)
-- Agent tools and approvals (`exec` requires confirmation; `http_request`, `web_search` as configured)
+- Sessions and WebSocket streaming (including errors, tool-call, subagent, and thinking events)
+- Agent tools and approvals (`exec` requires confirmation in standard mode; optional auto approval mode)
+- Plan mode with plan generation, approve/reject/modify flow, and execution after approval
+- Thinking level controls (`off` / `low` / `medium` / `high`) with streamed reasoning display
 - Subagent / nested agent (`run_subagent`), nested tool UI, and persisted parent linkage in tool-call history
 - MCP and skills
 - File-backed persistent memory with full-text search and prompt injection

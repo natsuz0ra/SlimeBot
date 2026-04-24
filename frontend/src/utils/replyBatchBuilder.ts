@@ -1,4 +1,4 @@
-import type { SessionHistoryPayload, SessionHistoryToolCallItem, ToolCallItem } from '@/api/chat'
+import type { SessionHistoryPayload, SessionHistoryThinkingItem, SessionHistoryToolCallItem, ToolCallItem } from '@/api/chat'
 import type { ToolCallStatus } from '@/types/chat'
 import { hasContentMarkers, parseContentMarkers } from './contentMarkers'
 
@@ -36,8 +36,17 @@ export function normalizeToolStatus(status?: string, fallbackError?: string): To
   return fallbackError ? 'error' : 'completed'
 }
 
-export function buildLegacyTimeline(toolCalls: ToolCallItem[], content: string): AssistantReplyTimelineItem[] {
+export function buildLegacyTimeline(toolCalls: ToolCallItem[], content: string, thinkingRecords: SessionHistoryThinkingItem[] = []): AssistantReplyTimelineItem[] {
   const timeline: AssistantReplyTimelineItem[] = []
+  for (const item of thinkingRecords) {
+    timeline.push({
+      id: crypto.randomUUID(),
+      kind: 'thinking',
+      content: item.content || '',
+      done: item.status !== 'streaming',
+      durationMs: item.durationMs,
+    })
+  }
   for (const item of toolCalls) {
     if (item.parentToolCallId) continue
     timeline.push({ id: crypto.randomUUID(), kind: 'tool_start', toolCallId: item.toolCallId })
@@ -51,8 +60,13 @@ export function buildLegacyTimeline(toolCalls: ToolCallItem[], content: string):
   return timeline
 }
 
-export function buildInterleavedTimeline(toolCalls: ToolCallItem[], content: string): AssistantReplyTimelineItem[] {
+export function buildInterleavedTimeline(
+  toolCalls: ToolCallItem[],
+  content: string,
+  thinkingRecords: SessionHistoryThinkingItem[] = [],
+): AssistantReplyTimelineItem[] {
   const toolCallMap = new Map(toolCalls.map(tc => [tc.toolCallId, tc]))
+  const thinkingMap = new Map(thinkingRecords.map(item => [item.thinkingId, item]))
   const segments = parseContentMarkers(content)
   const timeline: AssistantReplyTimelineItem[] = []
 
@@ -67,6 +81,17 @@ export function buildInterleavedTimeline(toolCalls: ToolCallItem[], content: str
           timeline.push({ id: crypto.randomUUID(), kind: 'tool_result', toolCallId: tc.toolCallId })
         }
       }
+    } else if (seg.type === 'thinking_marker' && seg.thinkingId) {
+      const thinking = thinkingMap.get(seg.thinkingId)
+      if (thinking) {
+        timeline.push({
+          id: crypto.randomUUID(),
+          kind: 'thinking',
+          content: thinking.content || '',
+          done: thinking.status !== 'streaming',
+          durationMs: thinking.durationMs,
+        })
+      }
     }
   }
 
@@ -80,6 +105,18 @@ export function buildInterleavedTimeline(toolCalls: ToolCallItem[], content: str
       }
     }
   }
+  const thinkingMarkerIds = new Set(segments.filter(s => s.thinkingId).map(s => s.thinkingId))
+  for (const thinking of thinkingRecords) {
+    if (!thinkingMarkerIds.has(thinking.thinkingId)) {
+      timeline.unshift({
+        id: crypto.randomUUID(),
+        kind: 'thinking',
+        content: thinking.content || '',
+        done: thinking.status !== 'streaming',
+        durationMs: thinking.durationMs,
+      })
+    }
+  }
 
   return timeline
 }
@@ -89,6 +126,7 @@ export function buildReplyBatchesFromHistory(sessionId: string, history: Session
   for (const message of history.messages) {
     if (message.role !== 'assistant') continue
     const historyToolCalls = history.toolCallsByAssistantMessageId[message.id] || []
+    const historyThinking = history.thinkingByAssistantMessageId?.[message.id] || []
 
     const sortedCalls = [...historyToolCalls].sort((left, right) => {
       const leftAt = new Date(left.startedAt || 0).getTime()
@@ -110,8 +148,8 @@ export function buildReplyBatchesFromHistory(sessionId: string, history: Session
     }))
 
     const timeline = hasContentMarkers(message.content)
-      ? buildInterleavedTimeline(toolCalls, message.content)
-      : buildLegacyTimeline(toolCalls, message.content)
+      ? buildInterleavedTimeline(toolCalls, message.content, historyThinking)
+      : buildLegacyTimeline(toolCalls, message.content, historyThinking)
 
     nextBatches.push({
       id: crypto.randomUUID(),

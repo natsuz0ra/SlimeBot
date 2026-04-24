@@ -38,6 +38,27 @@ type ToolCallResultRecordInput struct {
 	FinishedAt time.Time
 }
 
+type ThinkingStartRecordInput struct {
+	SessionID  string
+	RequestID  string
+	ThinkingID string
+	StartedAt  time.Time
+}
+
+type ThinkingChunkRecordInput struct {
+	SessionID  string
+	RequestID  string
+	ThinkingID string
+	Chunk      string
+}
+
+type ThinkingFinishRecordInput struct {
+	SessionID  string
+	RequestID  string
+	ThinkingID string
+	FinishedAt time.Time
+}
+
 type MemoryVectorStore interface {
 	UpsertSessionMemoryVector(ctx context.Context, input MemoryVectorUpsertInput) error
 	SearchMemoriesInSession(ctx context.Context, queryVector []float32, sessionID string, limit int) ([]MemoryVectorSearchHit, error)

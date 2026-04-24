@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"slimebot/internal/domain"
+	llmsvc "slimebot/internal/services/llm"
 	prompts "slimebot/prompts"
 )
 
@@ -210,6 +211,86 @@ func TestApplySessionTitleUpdate_OnlyMarksUpdatedWhenStoreChanges(t *testing.T) 
 	if result.Title != "自动标题" {
 		t.Fatalf("unexpected result title: %q", result.Title)
 	}
+}
+
+func TestHandleChatStream_PersistsThinkingHistory(t *testing.T) {
+	repo := newTestRepo(t)
+	ctx := context.Background()
+	session, err := repo.CreateSession(ctx, "s")
+	if err != nil {
+		t.Fatalf("create session failed: %v", err)
+	}
+	model, err := repo.CreateLLMConfig(domain.LLMConfig{
+		Name:     "fake",
+		Provider: llmsvc.ProviderOpenAI,
+		BaseURL:  "http://fake",
+		APIKey:   "key",
+		Model:    "fake-model",
+	})
+	if err != nil {
+		t.Fatalf("create model failed: %v", err)
+	}
+	provider := &fakeThinkingProvider{}
+	svc := NewChatService(repo, nil, llmsvc.NewFactory(provider), nil, nil, nil)
+
+	result, err := svc.HandleChatStream(ctx, session.ID, "request-1", "hello", model.ID, nil, "high", false, AgentCallbacks{
+		OnChunk: func(string) error { return nil },
+	})
+	if err != nil {
+		t.Fatalf("HandleChatStream failed: %v", err)
+	}
+	if result == nil || !strings.Contains(result.Answer, "<!-- THINKING:") {
+		t.Fatalf("expected stored answer to contain thinking marker, got %#v", result)
+	}
+
+	messages, _, err := repo.ListSessionMessagesPage(session.ID, 10, nil, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("list messages failed: %v", err)
+	}
+	var assistantID string
+	for _, message := range messages {
+		if message.Role == "assistant" {
+			assistantID = message.ID
+			if !strings.Contains(message.Content, "<!-- THINKING:") {
+				t.Fatalf("assistant content missing thinking marker: %q", message.Content)
+			}
+		}
+	}
+	if assistantID == "" {
+		t.Fatal("expected assistant message")
+	}
+	records, err := repo.ListSessionThinkingRecordsByAssistantMessageIDs(session.ID, []string{assistantID})
+	if err != nil {
+		t.Fatalf("list thinking records failed: %v", err)
+	}
+	if len(records) != 1 {
+		t.Fatalf("expected 1 thinking record, got %d", len(records))
+	}
+	if records[0].Content != "reasoning" || records[0].Status != "completed" {
+		t.Fatalf("unexpected thinking record: %+v", records[0])
+	}
+}
+
+type fakeThinkingProvider struct{}
+
+func (p *fakeThinkingProvider) StreamChatWithTools(
+	_ context.Context,
+	_ llmsvc.ModelRuntimeConfig,
+	_ []llmsvc.ChatMessage,
+	_ []llmsvc.ToolDef,
+	callbacks llmsvc.StreamCallbacks,
+) (*llmsvc.StreamResult, error) {
+	if callbacks.OnThinkingChunk != nil {
+		if err := callbacks.OnThinkingChunk("reasoning"); err != nil {
+			return nil, err
+		}
+	}
+	if callbacks.OnChunk != nil {
+		if err := callbacks.OnChunk("answer"); err != nil {
+			return nil, err
+		}
+	}
+	return &llmsvc.StreamResult{Type: llmsvc.StreamResultText}, nil
 }
 
 type stubTitleUpdateStore struct {

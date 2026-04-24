@@ -1,17 +1,18 @@
 export interface ContentSegment {
-  type: 'text' | 'tool_call_marker' | 'plan_start' | 'plan_end'
+  type: 'text' | 'tool_call_marker' | 'thinking_marker' | 'plan_start' | 'plan_end'
   content: string
   toolCallId?: string
+  thinkingId?: string
 }
 
-const MARKER_RE = /\n?<!-- (TOOL_CALL:(.+?)|PLAN_START|PLAN_END) -->\n?/g
+const MARKER_RE = /\n?<!-- (TOOL_CALL:(.+?)|THINKING:(.+?)|PLAN_START|PLAN_END) -->\n?/g
 
 export function stripContentMarkers(content: string): string {
   return content.replace(new RegExp(MARKER_RE.source, 'g'), '')
 }
 
 export function hasContentMarkers(content: string): boolean {
-  return content.includes('<!-- TOOL_CALL:') || content.includes('<!-- PLAN_START -->')
+  return content.includes('<!-- TOOL_CALL:') || content.includes('<!-- THINKING:') || content.includes('<!-- PLAN_START -->')
 }
 
 export function parseContentMarkers(content: string): ContentSegment[] {
@@ -30,6 +31,8 @@ export function parseContentMarkers(content: string): ContentSegment[] {
     const full = match[1] ?? ''
     if (full.startsWith('TOOL_CALL:')) {
       segments.push({ type: 'tool_call_marker', content: '', toolCallId: match[2] })
+    } else if (full.startsWith('THINKING:')) {
+      segments.push({ type: 'thinking_marker', content: '', thinkingId: match[3] })
     } else if (full === 'PLAN_START') {
       segments.push({ type: 'plan_start', content: '' })
     } else if (full === 'PLAN_END') {

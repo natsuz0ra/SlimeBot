@@ -28,6 +28,7 @@ func NewSQLite(dbPath string) (*gorm.DB, error) {
 		&domain.Session{},
 		&domain.Message{},
 		&domain.ToolCallRecord{},
+		&domain.ThinkingRecord{},
 		&domain.AppSetting{},
 		&domain.LLMConfig{},
 		&domain.MCPConfig{},

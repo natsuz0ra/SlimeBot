@@ -13,4 +13,5 @@ type SessionStore interface {
 	DeleteSession(id string) error
 	ListSessionMessagesPage(sessionID string, limit int, before *time.Time, beforeSeq *int64, after *time.Time, afterSeq *int64) ([]Message, bool, error)
 	ListSessionToolCallRecordsByAssistantMessageIDs(sessionID string, messageIDs []string) ([]ToolCallRecord, error)
+	ListSessionThinkingRecordsByAssistantMessageIDs(sessionID string, messageIDs []string) ([]ThinkingRecord, error)
 }

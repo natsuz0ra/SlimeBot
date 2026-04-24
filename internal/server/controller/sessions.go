@@ -18,6 +18,7 @@ import (
 type sessionMessagesResponse struct {
 	Messages                      []domain.Message                    `json:"messages"`
 	ToolCallsByAssistantMessageID map[string][]sessionToolCallHistory `json:"toolCallsByAssistantMessageId"`
+	ThinkingByAssistantMessageID  map[string][]sessionThinkingHistory `json:"thinkingByAssistantMessageId"`
 	HasMore                       bool                                `json:"hasMore"`
 }
 
@@ -34,6 +35,15 @@ type sessionToolCallHistory struct {
 	Error            string            `json:"error,omitempty"`
 	StartedAt        string            `json:"startedAt"`
 	FinishedAt       string            `json:"finishedAt,omitempty"`
+}
+
+type sessionThinkingHistory struct {
+	ThinkingID string `json:"thinkingId"`
+	Content    string `json:"content"`
+	Status     string `json:"status"`
+	StartedAt  string `json:"startedAt"`
+	FinishedAt string `json:"finishedAt,omitempty"`
+	DurationMs int64  `json:"durationMs"`
 }
 
 // parseToolCallParams parses tool_call params JSON; on error returns empty map to avoid client crashes.
@@ -224,6 +234,11 @@ func (h *HTTPController) ListMessages(c WebContext) {
 		jsonInternalError(c, err)
 		return
 	}
+	thinkingRecords, err := h.sessions.ListThinkingRecordsByAssistantMessageIDs(sessionID, messageIDs)
+	if err != nil {
+		jsonInternalError(c, err)
+		return
+	}
 
 	toolCallsByAssistantMessageID := make(map[string][]sessionToolCallHistory)
 	for _, record := range records {
@@ -252,9 +267,31 @@ func (h *HTTPController) ListMessages(c WebContext) {
 		}
 		toolCallsByAssistantMessageID[key] = append(toolCallsByAssistantMessageID[key], item)
 	}
+	thinkingByAssistantMessageID := make(map[string][]sessionThinkingHistory)
+	for _, record := range thinkingRecords {
+		if record.AssistantMessageID == nil || strings.TrimSpace(*record.AssistantMessageID) == "" {
+			continue
+		}
+		key := strings.TrimSpace(*record.AssistantMessageID)
+		if _, ok := messageIDSet[key]; !ok {
+			continue
+		}
+		item := sessionThinkingHistory{
+			ThinkingID: record.ThinkingID,
+			Content:    record.Content,
+			Status:     record.Status,
+			StartedAt:  record.StartedAt.Format("2006-01-02T15:04:05.000Z07:00"),
+			DurationMs: record.DurationMs,
+		}
+		if record.FinishedAt != nil {
+			item.FinishedAt = record.FinishedAt.Format("2006-01-02T15:04:05.000Z07:00")
+		}
+		thinkingByAssistantMessageID[key] = append(thinkingByAssistantMessageID[key], item)
+	}
 	c.JSON(http.StatusOK, sessionMessagesResponse{
 		Messages:                      messages,
 		ToolCallsByAssistantMessageID: toolCallsByAssistantMessageID,
+		ThinkingByAssistantMessageID:  thinkingByAssistantMessageID,
 		HasMore:                       hasMore,
 	})
 	logging.Span("http_list_messages", listStart)

@@ -95,6 +95,9 @@ func (s *ChatService) buildContextMessages(ctx context.Context, sessionID string
 		if item.Role == "user" && len(item.Attachments) > 0 {
 			messageContent = buildHistoryMessageWithAttachments(item.Content, item.Attachments)
 		}
+		if item.Role == "assistant" {
+			messageContent = StripContentMarkers(messageContent)
+		}
 		msgs = append(msgs, llmsvc.ChatMessage{
 			Role:    item.Role,
 			Content: messageContent,

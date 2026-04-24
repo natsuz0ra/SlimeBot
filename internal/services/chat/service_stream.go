@@ -14,15 +14,18 @@ import (
 	"slimebot/internal/constants"
 	"slimebot/internal/domain"
 	llmsvc "slimebot/internal/services/llm"
+
+	"github.com/google/uuid"
 )
 
 const (
 	toolCallMarkerFmt = "\n<!-- TOOL_CALL:%s -->\n"
+	thinkingMarkerFmt = "\n<!-- THINKING:%s -->\n"
 	planStartMarker   = "\n<!-- PLAN_START -->\n"
 	planEndMarker     = "\n<!-- PLAN_END -->\n"
 )
 
-var contentMarkerRegex = regexp.MustCompile(`\n?<!-- (?:TOOL_CALL:.+?|PLAN_START|PLAN_END) -->\n?`)
+var contentMarkerRegex = regexp.MustCompile(`\n?<!-- (?:TOOL_CALL:.+?|THINKING:.+?|PLAN_START|PLAN_END) -->\n?`)
 
 // StripContentMarkers removes TOOL_CALL/PLAN markers from text for real-time display.
 func StripContentMarkers(input string) string {
@@ -200,6 +203,8 @@ func (s *ChatService) executeChatTurn(
 	accumulator := &chatStreamAccumulator{}
 	streamStart := time.Now()
 	var firstTokenAt time.Time
+	var activeThinkingID string
+	var activeThinkingDone bool
 
 	pushBody := func(body string) error {
 		if body == "" {
@@ -220,6 +225,21 @@ func (s *ChatService) executeChatTurn(
 		if err := callbacks.OnChunk(body); err != nil {
 			accumulator.pushErr = err
 		}
+		return nil
+	}
+	finishActiveThinking := func(finishedAt time.Time) error {
+		if activeThinkingID == "" || activeThinkingDone {
+			return nil
+		}
+		if err := s.store.FinishThinking(ctx, domain.ThinkingFinishRecordInput{
+			SessionID:  sessionID,
+			RequestID:  requestID,
+			ThinkingID: activeThinkingID,
+			FinishedAt: finishedAt,
+		}); err != nil {
+			return err
+		}
+		activeThinkingDone = true
 		return nil
 	}
 
@@ -283,18 +303,45 @@ func (s *ChatService) executeChatTurn(
 			return nil
 		},
 		OnThinkingStart: func() error {
+			if err := finishActiveThinking(time.Now()); err != nil {
+				return err
+			}
+			activeThinkingID = uuid.NewString()
+			activeThinkingDone = false
+			if err := s.store.UpsertThinkingStart(ctx, domain.ThinkingStartRecordInput{
+				SessionID:  sessionID,
+				RequestID:  requestID,
+				ThinkingID: activeThinkingID,
+				StartedAt:  time.Now(),
+			}); err != nil {
+				return err
+			}
+			accumulator.answerBuilder.WriteString(fmt.Sprintf(thinkingMarkerFmt, activeThinkingID))
 			if callbacks.OnThinkingStart == nil {
 				return nil
 			}
 			return callbacks.OnThinkingStart()
 		},
 		OnThinkingChunk: func(chunk string) error {
+			if activeThinkingID != "" {
+				if err := s.store.AppendThinkingChunk(ctx, domain.ThinkingChunkRecordInput{
+					SessionID:  sessionID,
+					RequestID:  requestID,
+					ThinkingID: activeThinkingID,
+					Chunk:      chunk,
+				}); err != nil {
+					return err
+				}
+			}
 			if callbacks.OnThinkingChunk == nil {
 				return nil
 			}
 			return callbacks.OnThinkingChunk(chunk)
 		},
 		OnThinkingDone: func() error {
+			if err := finishActiveThinking(time.Now()); err != nil {
+				return err
+			}
 			if callbacks.OnThinkingDone == nil {
 				return nil
 			}
@@ -321,6 +368,9 @@ func (s *ChatService) executeChatTurn(
 	answer, err := s.agent.RunAgentLoop(ctx, state.modelConfig, sessionID, state.contextMessages, state.enabledMCPConfigs, activatedSkills, agentCallbacks, AgentLoopOptions{ApprovalMode: approvalMode, PlanMode: planMode, PlanComplete: &planCompleted})
 	logging.Span("agent_loop", agentStart)
 	s.mergeSessionActivatedSkills(sessionID, activatedSkills)
+	if finishErr := finishActiveThinking(time.Now()); finishErr != nil && err == nil {
+		err = finishErr
+	}
 
 	interrupted := errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)
 	if err != nil && !interrupted && answer == "" {
@@ -419,6 +469,9 @@ func (s *ChatService) finalizeChatTurn(
 		return nil, err
 	}
 	if err := s.store.BindToolCallsToAssistantMessage(ctx, sessionID, requestID, assistantMessage.ID); err != nil {
+		return nil, err
+	}
+	if err := s.store.BindThinkingRecordsToAssistantMessage(ctx, sessionID, requestID, assistantMessage.ID); err != nil {
 		return nil, err
 	}
 

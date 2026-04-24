@@ -285,7 +285,9 @@ function TimelineBlock({
 
   if (entry.kind === "thinking") {
     const done = entry.thinkingDone;
-    const duration = done && entry.thinkingStartedAt
+    const duration = done && entry.thinkingDurationMs !== undefined
+      ? (entry.thinkingDurationMs / 1000).toFixed(1) + "s"
+      : done && entry.thinkingStartedAt
       ? ((Date.now() - entry.thinkingStartedAt) / 1000).toFixed(1) + "s"
       : "";
     const label = done

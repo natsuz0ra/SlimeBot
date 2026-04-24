@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import type { Key } from "ink";
 import { handleChatShortcut, mapHistoryMessages } from "./app";
-import type { Message, ToolCallHistoryItem } from "./types";
+import type { Message, ThinkingHistoryItem, ToolCallHistoryItem } from "./types";
 
 test("mapHistoryMessages inserts tool calls after assistant messages in timeline order", () => {
   const messages: Message[] = [
@@ -110,6 +110,43 @@ test("mapHistoryMessages preserves parentToolCallId for nested tool calls", () =
   assert.ok(child && child.kind === "tool");
   assert.equal(child.parentToolCallId, "parent");
   assert.equal(child.subagentRunId, "run-1");
+});
+
+test("mapHistoryMessages restores thinking entries from history markers", () => {
+  const messages: Message[] = [
+    {
+      id: "a1",
+      sessionId: "s1",
+      role: "assistant",
+      content: "<!-- THINKING:think-1 -->\nDone",
+      seq: 1,
+      createdAt: "2026-01-01T00:00:01Z",
+    },
+  ];
+  const thinkingByMsgId: Record<string, ThinkingHistoryItem[]> = {
+    a1: [
+      {
+        thinkingId: "think-1",
+        content: "reasoning text",
+        status: "completed",
+        startedAt: "2026-01-01T00:00:00Z",
+        finishedAt: "2026-01-01T00:00:01Z",
+        durationMs: 1000,
+      },
+    ],
+  };
+
+  const entries = mapHistoryMessages(messages, {}, thinkingByMsgId);
+
+  assert.deepEqual(entries, [
+    {
+      kind: "thinking",
+      content: "reasoning text",
+      thinkingDone: true,
+      thinkingDurationMs: 1000,
+    },
+    { kind: "assistant", content: "Done" },
+  ]);
 });
 
 function key(overrides: Partial<Key> = {}): Key {

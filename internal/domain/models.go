@@ -62,6 +62,22 @@ type ToolCallRecord struct {
 	UpdatedAt          time.Time  `json:"updatedAt"`
 }
 
+// ThinkingRecord persists one model thinking block for history replay.
+type ThinkingRecord struct {
+	ID                 string     `gorm:"primaryKey;size:36" json:"id"`
+	SessionID          string     `gorm:"size:36;index;not null;uniqueIndex:idx_thinking_request,priority:1" json:"sessionId"`
+	RequestID          string     `gorm:"size:36;index;not null;uniqueIndex:idx_thinking_request,priority:2" json:"requestId"`
+	AssistantMessageID *string    `gorm:"size:36;index" json:"assistantMessageId,omitempty"`
+	ThinkingID         string     `gorm:"size:128;index;not null;uniqueIndex:idx_thinking_request,priority:3" json:"thinkingId"`
+	Content            string     `gorm:"type:text" json:"content"`
+	Status             string     `gorm:"size:32;index;not null" json:"status"`
+	StartedAt          time.Time  `gorm:"index;not null" json:"startedAt"`
+	FinishedAt         *time.Time `gorm:"index" json:"finishedAt,omitempty"`
+	DurationMs         int64      `gorm:"not null;default:0" json:"durationMs"`
+	CreatedAt          time.Time  `json:"createdAt"`
+	UpdatedAt          time.Time  `json:"updatedAt"`
+}
+
 type AppSetting struct {
 	Key       string    `gorm:"primaryKey;size:64" json:"key"`
 	Value     string    `gorm:"type:text;not null" json:"value"`

@@ -3,7 +3,7 @@ import { computed, ref } from 'vue'
 
 import { ChatSocket, type ConnectionStatus } from '@/api/chatSocket'
 import { MESSAGE_PLATFORM_SESSION_ID, sessionAPI } from '@/api/chat'
-import type { MessageAttachmentItem, MessageItem, SessionHistoryPayload, SessionItem, UploadedAttachmentItem } from '@/api/chat'
+import type { MessageAttachmentItem, MessageItem, SessionHistoryPayload, SessionHistoryThinkingItem, SessionItem, UploadedAttachmentItem } from '@/api/chat'
 import { i18n } from '@/i18n'
 import {
   buildInterleavedTimeline,
@@ -13,7 +13,7 @@ import {
   type AssistantReplyBatch,
   type AssistantReplyTimelineItem,
 } from '@/utils/replyBatchBuilder'
-import { hasContentMarkers, stripContentMarkers } from '@/utils/contentMarkers'
+import { hasContentMarkers, parseContentMarkers, stripContentMarkers } from '@/utils/contentMarkers'
 
 const HISTORY_PAGE_SIZE = 10
 const MAX_SESSION_PAGE_SIZE = 100
@@ -122,6 +122,23 @@ export const useChatStore = defineStore('chat', () => {
 
   function isFailedUserMessage(messageId: string) {
     return failedUserMessageIds.value.has(messageId)
+  }
+
+  function buildLiveThinkingHistory(content: string, timeline: AssistantReplyTimelineItem[]): SessionHistoryThinkingItem[] {
+    const thinkingEntries = timeline.filter((entry) => entry.kind === 'thinking')
+    if (thinkingEntries.length === 0) return []
+    const thinkingIds = parseContentMarkers(content)
+      .filter((segment) => segment.type === 'thinking_marker' && segment.thinkingId)
+      .map((segment) => segment.thinkingId as string)
+    return thinkingIds.map((thinkingId, index) => {
+      const entry = thinkingEntries[index]
+      return {
+        thinkingId,
+        content: entry?.kind === 'thinking' ? entry.content : '',
+        status: entry?.kind === 'thinking' && !entry.done ? 'streaming' : 'completed',
+        durationMs: entry?.kind === 'thinking' ? entry.durationMs : undefined,
+      }
+    })
   }
 
   function pushFailedUserMessage(content: string) {
@@ -416,8 +433,9 @@ export const useChatStore = defineStore('chat', () => {
               assistant.content = stripContentMarkers(finalAnswer)
               clearAssistantError(assistant.id)
             }
+            const liveThinking = buildLiveThinkingHistory(finalAnswer, batch.timeline)
             batch.timeline = hasContentMarkers(finalAnswer)
-              ? buildInterleavedTimeline(batch.toolCalls, finalAnswer)
+              ? buildInterleavedTimeline(batch.toolCalls, finalAnswer, liveThinking)
               : buildLegacyTimeline(batch.toolCalls, stripContentMarkers(finalAnswer))
           }
           batch.collapsed = true

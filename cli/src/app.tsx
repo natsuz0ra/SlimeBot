@@ -35,6 +35,7 @@ import type {
   ModelProvider,
   Session,
   Skill,
+  ThinkingHistoryItem,
   TimelineEntry,
   ToolCallHistoryItem,
   ToolCallResultData,
@@ -81,6 +82,7 @@ interface AppProps {
 export function mapHistoryMessages(
   messages: Message[],
   toolCallsByMsgId: Record<string, ToolCallHistoryItem[]>,
+  thinkingByMsgId: Record<string, ThinkingHistoryItem[]> = {},
 ): TimelineEntry[] {
   const ordered = [...messages].sort((a, b) => (a.seq || 0) - (b.seq || 0));
   const entries: TimelineEntry[] = [];
@@ -96,12 +98,17 @@ export function mapHistoryMessages(
       const toolCalls = [...(toolCallsByMsgId[msg.id] || [])].sort((a, b) => {
         return new Date(a.startedAt).getTime() - new Date(b.startedAt).getTime();
       });
+      const thinkingRecords = [...(thinkingByMsgId[msg.id] || [])].sort((a, b) => {
+        return new Date(a.startedAt || 0).getTime() - new Date(b.startedAt || 0).getTime();
+      });
 
       if (hasContentMarkers(msg.content)) {
         // New messages with markers: split into separate timeline blocks
         const toolCallMap = new Map(toolCalls.map(tc => [tc.toolCallId, tc]));
+        const thinkingMap = new Map(thinkingRecords.map(item => [item.thinkingId, item]));
         const segments = parseContentMarkers(msg.content);
         const markerIds = new Set<string>();
+        const thinkingMarkerIds = new Set<string>();
         let inPlan = false;
         const planParts: string[] = [];
         for (const seg of segments) {
@@ -123,6 +130,17 @@ export function mapHistoryMessages(
           }
           if (seg.type === "text") {
             entries.push({ kind: "assistant", content: seg.content });
+          } else if (seg.type === "thinking_marker" && seg.thinkingId) {
+            thinkingMarkerIds.add(seg.thinkingId);
+            const thinking = thinkingMap.get(seg.thinkingId);
+            if (thinking) {
+              entries.push({
+                kind: "thinking",
+                content: thinking.content || "",
+                thinkingDone: thinking.status !== "streaming",
+                thinkingDurationMs: thinking.durationMs,
+              });
+            }
           } else if (seg.type === "tool_call_marker" && seg.toolCallId) {
             markerIds.add(seg.toolCallId);
             const tc = toolCallMap.get(seg.toolCallId);
@@ -147,6 +165,16 @@ export function mapHistoryMessages(
         if (inPlan && planParts.length > 0) {
           entries.push({ kind: "plan", content: planParts.join("") });
         }
+        for (const thinking of thinkingRecords) {
+          if (!thinkingMarkerIds.has(thinking.thinkingId)) {
+            entries.push({
+              kind: "thinking",
+              content: thinking.content || "",
+              thinkingDone: thinking.status !== "streaming",
+              thinkingDurationMs: thinking.durationMs,
+            });
+          }
+        }
         // Fallback: append orphan tool (markers missing)
         for (const tc of toolCalls) {
           if (!markerIds.has(tc.toolCallId)) {
@@ -167,6 +195,14 @@ export function mapHistoryMessages(
         }
       } else {
         // Legacy: all tools first, then text
+        for (const thinking of thinkingRecords) {
+          entries.push({
+            kind: "thinking",
+            content: thinking.content || "",
+            thinkingDone: thinking.status !== "streaming",
+            thinkingDurationMs: thinking.durationMs,
+          });
+        }
         for (const tc of toolCalls) {
           entries.push({
             kind: "tool",
@@ -464,6 +500,7 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
         entries: mapHistoryMessages(
           history.messages,
           history.toolCallsByAssistantMessageId || {},
+          history.thinkingByAssistantMessageId || {},
         ),
       } as AppAction);
     } catch (error) {

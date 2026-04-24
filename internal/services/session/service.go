@@ -53,3 +53,7 @@ func (s *SessionService) ListMessagesPage(sessionID string, limit int, before *t
 func (s *SessionService) ListToolCallRecordsByAssistantMessageIDs(sessionID string, messageIDs []string) ([]domain.ToolCallRecord, error) {
 	return s.store.ListSessionToolCallRecordsByAssistantMessageIDs(sessionID, messageIDs)
 }
+
+func (s *SessionService) ListThinkingRecordsByAssistantMessageIDs(sessionID string, messageIDs []string) ([]domain.ThinkingRecord, error) {
+	return s.store.ListSessionThinkingRecordsByAssistantMessageIDs(sessionID, messageIDs)
+}

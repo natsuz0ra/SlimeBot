@@ -52,9 +52,19 @@ export interface SessionHistoryToolCallItem {
   finishedAt?: string
 }
 
+export interface SessionHistoryThinkingItem {
+  thinkingId: string
+  content: string
+  status: string
+  startedAt?: string
+  finishedAt?: string
+  durationMs?: number
+}
+
 export interface SessionHistoryPayload {
   messages: MessageItem[]
   toolCallsByAssistantMessageId: Record<string, SessionHistoryToolCallItem[]>
+  thinkingByAssistantMessageId: Record<string, SessionHistoryThinkingItem[]>
   hasMore: boolean
 }
 

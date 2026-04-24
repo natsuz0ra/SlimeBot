@@ -21,7 +21,11 @@ type ChatStore interface {
 
 	AddMessageWithInput(ctx context.Context, input AddMessageInput) (*Message, error)
 	BindToolCallsToAssistantMessage(ctx context.Context, sessionID, requestID, assistantMessageID string) error
+	BindThinkingRecordsToAssistantMessage(ctx context.Context, sessionID, requestID, assistantMessageID string) error
 
 	UpsertToolCallStart(ctx context.Context, input ToolCallStartRecordInput) error
 	UpdateToolCallResult(ctx context.Context, input ToolCallResultRecordInput) error
+	UpsertThinkingStart(ctx context.Context, input ThinkingStartRecordInput) error
+	AppendThinkingChunk(ctx context.Context, input ThinkingChunkRecordInput) error
+	FinishThinking(ctx context.Context, input ThinkingFinishRecordInput) error
 }

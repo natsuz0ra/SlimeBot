@@ -63,6 +63,7 @@ export interface SessionListResponse {
 export interface SessionHistoryPayload {
   messages: Message[];
   toolCallsByAssistantMessageId: Record<string, ToolCallHistoryItem[]>;
+  thinkingByAssistantMessageId: Record<string, ThinkingHistoryItem[]>;
   hasMore: boolean;
 }
 
@@ -79,6 +80,15 @@ export interface ToolCallHistoryItem {
   error?: string;
   startedAt: string;
   finishedAt?: string;
+}
+
+export interface ThinkingHistoryItem {
+  thinkingId: string;
+  content: string;
+  status: string;
+  startedAt?: string;
+  finishedAt?: string;
+  durationMs?: number;
 }
 
 // ===== WebSocket message types =====
@@ -185,6 +195,8 @@ export interface TimelineEntry {
   thinkingDone?: boolean;
   /** Thinking entry: started timestamp (ms since epoch). */
   thinkingStartedAt?: number;
+  /** Thinking entry: persisted duration for history replay. */
+  thinkingDurationMs?: number;
 }
 
 export interface MenuItem {

@@ -251,6 +251,8 @@ export interface AppState {
   compact: boolean;
   toolOutputExpanded: boolean;
   planMode: boolean;
+  planGenerating: boolean;
+  planReceived: boolean;
 
   // Thinking detail view
   thinkingDetailContent: string;

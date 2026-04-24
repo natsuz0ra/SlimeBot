@@ -36,6 +36,7 @@ export const useChatStore = defineStore('chat', () => {
   const connectionError = ref('')
   const suppressNextConnectionNotice = ref(false)
   const planMode = ref(false)
+  const planGenerating = ref(false)
   const isSocketReady = computed(() => connectionStatus.value === 'connected')
 
   const replyBatches = ref<AssistantReplyBatch[]>([])
@@ -98,6 +99,12 @@ export const useChatStore = defineStore('chat', () => {
   function getCurrentBatch() {
     if (!currentBatchId.value) return undefined
     return replyBatches.value.find((item) => item.id === currentBatchId.value)
+  }
+
+  function isStreamingMessage(messageId: string): boolean {
+    if (!currentBatchId.value) return false
+    const batch = getCurrentBatch()
+    return batch?.assistantMessageId === messageId
   }
 
   function formatAssistantError(rawError: string) {
@@ -409,6 +416,7 @@ export const useChatStore = defineStore('chat', () => {
         if (!sessionId || sessionId !== currentSessionId.value) return
         waiting.value = false
         streamingStarted.value = false
+        planGenerating.value = false
         const batch = getCurrentBatch()
         if (batch) {
           const assistant = messages.value.find((msg) => msg.id === batch.assistantMessageId)
@@ -565,12 +573,14 @@ export const useChatStore = defineStore('chat', () => {
         const batch = getCurrentBatch()
         if (!batch) return
         finishOpenThinkingEntries(batch)
+        planGenerating.value = true
       },
       onPlanBody: (content, sessionId) => {
         if (!sessionId || sessionId !== currentSessionId.value) return
         const batch = getCurrentBatch()
         if (!batch) return
         appendPlanBodyToBatch(batch, content)
+        planGenerating.value = false
       },
       onSocketError: (error) => {
         waiting.value = false
@@ -756,6 +766,7 @@ export const useChatStore = defineStore('chat', () => {
     connectionStatus,
     isSocketReady,
     isAssistantErrorMessage,
+    isStreamingMessage,
     isFailedUserMessage,
     replyBatches,
     currentBatchId,
@@ -780,6 +791,7 @@ export const useChatStore = defineStore('chat', () => {
     disconnectSocket,
     consumeSuppressNextConnectionNotice,
     planMode,
+    planGenerating,
     togglePlanMode,
     pendingPlanConfirmation,
     approvePlan,

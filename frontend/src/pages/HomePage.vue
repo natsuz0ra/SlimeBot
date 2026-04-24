@@ -107,6 +107,8 @@ const {
 
 provideChatContext({
   waiting: computed(() => store.waiting),
+  planGenerating: computed(() => store.planGenerating),
+  isStreamingMessage: store.isStreamingMessage,
   getReplyToolCount,
   getReplyToolSummary,
   getReplyTimeline,

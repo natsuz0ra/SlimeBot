@@ -34,6 +34,8 @@ export function createInitialState(
     compact: true,
     toolOutputExpanded: false,
     planMode: false,
+    planGenerating: false,
+    planReceived: false,
     thinkingDetailContent: "",
     inputValue: "",
     inputKey: 0,
@@ -111,6 +113,7 @@ export function reducer(state: AppState, action: AppAction): AppState {
         streaming: true,
         assistantWaiting: true,
         liveAssistant: "",
+        planReceived: false,
       };
 
     case "STREAM_CHUNK": {
@@ -144,6 +147,8 @@ export function reducer(state: AppState, action: AppAction): AppState {
         assistantWaiting: false,
         liveAssistant: "",
         timeline: entries,
+        planGenerating: false,
+        planReceived: false,
       };
     }
 
@@ -208,6 +213,8 @@ export function reducer(state: AppState, action: AppAction): AppState {
         assistantWaiting: false,
         toolOutputExpanded: false,
         planMode: false,
+        planGenerating: false,
+        planReceived: false,
         thinkingDetailContent: "",
         view: "chat",
         menuKind: null,
@@ -446,7 +453,7 @@ export function reducer(state: AppState, action: AppAction): AppState {
       if (state.liveAssistant.trim()) {
         entries.push({ kind: "assistant", content: state.liveAssistant });
       }
-      return { ...state, timeline: entries, liveAssistant: "" };
+      return { ...state, timeline: entries, liveAssistant: "", planGenerating: true };
     }
 
     case "PLAN_BODY": {
@@ -455,7 +462,7 @@ export function reducer(state: AppState, action: AppAction): AppState {
         entries.push({ kind: "assistant", content: state.liveAssistant });
       }
       entries.push({ kind: "plan", content: action.planBody });
-      return { ...state, timeline: entries, liveAssistant: "" };
+      return { ...state, timeline: entries, liveAssistant: "", planGenerating: false, planReceived: true };
     }
 
     case "FLUSH_AND_WAIT": {

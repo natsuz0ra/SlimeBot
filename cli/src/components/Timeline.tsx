@@ -30,6 +30,8 @@ interface TimelineProps {
   compact: boolean;
   toolOutputExpanded: boolean;
   thinkingEntryIndex: number;
+  planGenerating: boolean;
+  planReceived: boolean;
 }
 
 function toolDotState(status: ToolCallStatus): { color: string; blink: boolean } {
@@ -396,6 +398,8 @@ export function Timeline({
   compact,
   toolOutputExpanded,
   thinkingEntryIndex,
+  planGenerating,
+  planReceived,
 }: TimelineProps): React.ReactElement {
   const displayRows = useMemo(() => buildTimelineDisplayRows(entries), [entries]);
   let thinkingCounter = 0;
@@ -442,13 +446,15 @@ export function Timeline({
               <Text> </Text>
             </>
           )}
-          <Box key="waiting">
-            <Spinner enabled={true} />
-            <GradientFlowText
-              text={` Waiting for response...`}
-              enabled={true}
-            />
-          </Box>
+          {!planReceived && (
+            <Box key="waiting">
+              <Spinner enabled={true} />
+              <GradientFlowText
+                text={planGenerating ? " Planning..." : " Waiting for response..."}
+                enabled={true}
+              />
+            </Box>
+          )}
         </>
       )}
     </Box>

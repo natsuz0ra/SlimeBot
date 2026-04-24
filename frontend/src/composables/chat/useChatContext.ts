@@ -4,6 +4,8 @@ import type { ReplyTimelineEntry } from '@/types/chat'
 
 export interface ChatMessageContext {
   waiting: ComputedRef<boolean>
+  planGenerating: ComputedRef<boolean>
+  isStreamingMessage: (messageId: string) => boolean
   getReplyToolCount: (messageId: string) => number
   getReplyToolSummary: (messageId: string) => string
   getReplyTimeline: (messageId: string) => ReplyTimelineEntry[]

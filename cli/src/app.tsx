@@ -1177,6 +1177,8 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
             compact={state.compact}
             toolOutputExpanded={state.toolOutputExpanded}
             thinkingEntryIndex={state.timeline.filter((e) => e.kind === "thinking").length}
+            planGenerating={state.planGenerating}
+            planReceived={state.planReceived}
           />
           <Text> </Text>
         </>

@@ -111,66 +111,75 @@ export function mapHistoryMessages(
         const thinkingMarkerIds = new Set<string>();
         let inPlan = false;
         const planParts: string[] = [];
+        const flushPlan = () => {
+          if (planParts.length > 0) {
+            entries.push({ kind: "plan", content: planParts.join("") });
+            planParts.length = 0;
+          }
+        };
+        const pushThinking = (thinkingId: string) => {
+          thinkingMarkerIds.add(thinkingId);
+          const thinking = thinkingMap.get(thinkingId);
+          if (thinking) {
+            entries.push({
+              kind: "thinking",
+              content: thinking.content || "",
+              thinkingDone: thinking.status !== "streaming",
+              thinkingDurationMs: thinking.durationMs,
+            });
+          }
+        };
+        const pushToolCall = (toolCallId: string) => {
+          markerIds.add(toolCallId);
+          const tc = toolCallMap.get(toolCallId);
+          if (tc) {
+            entries.push({
+              kind: "tool",
+              content: tc.output || tc.error || "",
+              toolCallId: tc.toolCallId,
+              toolName: tc.toolName,
+              command: tc.command,
+              params: tc.params,
+              status: (tc.status || "completed") as ToolCallStatus,
+              output: tc.output,
+              error: tc.error,
+              ...(tc.parentToolCallId ? { parentToolCallId: tc.parentToolCallId } : {}),
+              ...(tc.subagentRunId ? { subagentRunId: tc.subagentRunId } : {}),
+            });
+          }
+        };
         for (const seg of segments) {
           if (seg.type === "plan_start") {
             inPlan = true;
             continue;
           }
           if (seg.type === "plan_end") {
-            if (planParts.length > 0) {
-              entries.push({ kind: "plan", content: planParts.join("") });
-            }
+            flushPlan();
             inPlan = false;
-            planParts.length = 0;
             continue;
           }
           if (inPlan) {
             if (seg.type === "text") planParts.push(seg.content);
             if (seg.type === "thinking_marker" && seg.thinkingId) {
-              thinkingMarkerIds.add(seg.thinkingId);
+              flushPlan();
+              pushThinking(seg.thinkingId);
             }
             if (seg.type === "tool_call_marker" && seg.toolCallId) {
-              markerIds.add(seg.toolCallId);
+              flushPlan();
+              pushToolCall(seg.toolCallId);
             }
             continue;
           }
           if (seg.type === "text") {
             entries.push({ kind: "assistant", content: seg.content });
           } else if (seg.type === "thinking_marker" && seg.thinkingId) {
-            thinkingMarkerIds.add(seg.thinkingId);
-            const thinking = thinkingMap.get(seg.thinkingId);
-            if (thinking) {
-              entries.push({
-                kind: "thinking",
-                content: thinking.content || "",
-                thinkingDone: thinking.status !== "streaming",
-                thinkingDurationMs: thinking.durationMs,
-              });
-            }
+            pushThinking(seg.thinkingId);
           } else if (seg.type === "tool_call_marker" && seg.toolCallId) {
-            markerIds.add(seg.toolCallId);
-            const tc = toolCallMap.get(seg.toolCallId);
-            if (tc) {
-              entries.push({
-                kind: "tool",
-                content: tc.output || tc.error || "",
-                toolCallId: tc.toolCallId,
-                toolName: tc.toolName,
-                command: tc.command,
-                params: tc.params,
-                status: (tc.status || "completed") as ToolCallStatus,
-                output: tc.output,
-                error: tc.error,
-                ...(tc.parentToolCallId ? { parentToolCallId: tc.parentToolCallId } : {}),
-                ...(tc.subagentRunId ? { subagentRunId: tc.subagentRunId } : {}),
-              });
-            }
+            pushToolCall(seg.toolCallId);
           }
         }
         // Handle unclosed plan
-        if (inPlan && planParts.length > 0) {
-          entries.push({ kind: "plan", content: planParts.join("") });
-        }
+        if (inPlan) flushPlan();
         for (const thinking of thinkingRecords) {
           if (!thinkingMarkerIds.has(thinking.thinkingId)) {
             entries.push({
@@ -1016,10 +1025,14 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
       }
       if (key.return) {
         // cursor=0: Execute Plan
+        const displayContent = "Execute this plan";
+        dispatch({ type: "APPEND_ENTRY", entry: { kind: "user", content: displayContent } } as AppAction);
         socketRef.current?.sendPlanApprove(
-          state.pendingPlanId, state.sessionId, state.modelId,
+          state.pendingPlanId, state.sessionId, state.modelId, displayContent,
         );
-        dispatch({ type: "TOGGLE_PLAN_MODE" } as AppAction);
+        if (state.planMode) {
+          dispatch({ type: "TOGGLE_PLAN_MODE" } as AppAction);
+        }
         dispatch({ type: "CLEAR_PLAN_CONFIRMATION" } as AppAction);
         return;
       }
@@ -1272,6 +1285,7 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
           onFeedbackSubmit={(rawValue) => {
             const feedback = rawValue.trim();
             if (!feedback) return;
+            dispatch({ type: "APPEND_ENTRY", entry: { kind: "user", content: feedback } } as AppAction);
             socketRef.current?.sendPlanModify(
               state.pendingPlanId, state.sessionId, state.modelId,
               feedback, state.thinkingLevel,

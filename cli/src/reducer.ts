@@ -127,9 +127,9 @@ export function reducer(state: AppState, action: AppAction): AppState {
 
     case "STREAM_DONE": {
       const entries = [...state.timeline];
-      // In plan mode, PLAN_BODY already flushed liveAssistant — skip to avoid duplicate
-      const hasPlanEntry = entries.some((e) => e.kind === "plan");
-      if (!hasPlanEntry && state.liveAssistant.trim()) {
+      // In the current plan turn, PLAN_BODY already flushed liveAssistant; older plan entries
+      // must not suppress a later execution response.
+      if (!state.planReceived && state.liveAssistant.trim()) {
         entries.push({
           kind: "assistant",
           content: state.liveAssistant,
@@ -375,13 +375,23 @@ export function reducer(state: AppState, action: AppAction): AppState {
       };
 
     case "THINKING_START":
-      return {
-        ...state,
-        timeline: [
-          ...state.timeline,
-          { kind: "thinking", content: "", thinkingDone: false, thinkingStartedAt: Date.now() },
-        ],
-      };
+      {
+        const entries = [...state.timeline];
+        if (state.liveAssistant.trim()) {
+          entries.push({ kind: "assistant", content: state.liveAssistant });
+        }
+        entries.push({
+          kind: "thinking",
+          content: "",
+          thinkingDone: false,
+          thinkingStartedAt: Date.now(),
+        });
+        return {
+          ...state,
+          timeline: entries,
+          liveAssistant: "",
+        };
+      }
 
     case "THINKING_CHUNK": {
       const entries = [...state.timeline];

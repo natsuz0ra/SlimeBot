@@ -203,10 +203,10 @@ export class CLISocket {
     return true;
   }
 
-  sendPlanApprove(planId: string, sessionId: string, modelId: string): boolean {
+  sendPlanApprove(planId: string, sessionId: string, modelId: string, displayContent: string = ""): boolean {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return false;
     this.ws.send(
-      JSON.stringify({ type: "plan_approve", planId, sessionId, modelId }),
+      JSON.stringify({ type: "plan_approve", planId, sessionId, modelId, displayContent }),
     );
     return true;
   }

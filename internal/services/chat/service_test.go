@@ -7,8 +7,10 @@ import (
 	"strings"
 	"testing"
 
+	"slimebot/internal/constants"
 	"slimebot/internal/domain"
 	llmsvc "slimebot/internal/services/llm"
+	plansvc "slimebot/internal/services/plan"
 	prompts "slimebot/prompts"
 )
 
@@ -372,6 +374,71 @@ func TestHandleChatStream_UsesDisplayContentForStoredUserMessage(t *testing.T) {
 	}
 }
 
+func TestHandleChatStream_PlanModeSavesOnlyPlanBody(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+
+	repo := newTestRepo(t)
+	ctx := context.Background()
+	session, err := repo.CreateSession(ctx, "s")
+	if err != nil {
+		t.Fatalf("create session failed: %v", err)
+	}
+	model, err := repo.CreateLLMConfig(domain.LLMConfig{
+		Name:     "fake",
+		Provider: llmsvc.ProviderOpenAI,
+		BaseURL:  "http://fake",
+		APIKey:   "key",
+		Model:    "fake-model",
+	})
+	if err != nil {
+		t.Fatalf("create model failed: %v", err)
+	}
+	planService, err := plansvc.NewPlanService()
+	if err != nil {
+		t.Fatalf("create plan service failed: %v", err)
+	}
+	provider := &fakePlanModeProvider{}
+	svc := NewChatService(repo, nil, llmsvc.NewFactory(provider), nil, nil, nil)
+	svc.SetPlanService(planService)
+
+	result, err := svc.HandleChatStream(ctx, session.ID, "request-1", "make a plan", "", model.ID, nil, "high", true, AgentCallbacks{
+		OnChunk:         func(string) error { return nil },
+		OnThinkingStart: func() error { return nil },
+		OnThinkingChunk: func(string) error { return nil },
+		OnThinkingDone:  func() error { return nil },
+		OnPlanStart:     func() error { return nil },
+		OnPlanChunk:     func(string) error { return nil },
+		OnPlanBody:      func(string) error { return nil },
+	})
+	if err != nil {
+		t.Fatalf("HandleChatStream failed: %v", err)
+	}
+	if result.PlanID == "" {
+		t.Fatal("expected plan to be saved")
+	}
+
+	plans, err := planService.GetPlansBySession(session.ID)
+	if err != nil {
+		t.Fatalf("list plans failed: %v", err)
+	}
+	if len(plans) != 1 {
+		t.Fatalf("expected 1 plan, got %d", len(plans))
+	}
+	if plans[0].Content != "# Plan\n\nDo it." {
+		t.Fatalf("saved plan content = %q", plans[0].Content)
+	}
+	for _, marker := range []string{"<!-- THINKING:", "<!-- TOOL_CALL:", "<!-- PLAN_START -->", "<!-- PLAN_END -->", "Narration before plan."} {
+		if strings.Contains(plans[0].Content, marker) {
+			t.Fatalf("saved plan content should not contain %q: %q", marker, plans[0].Content)
+		}
+	}
+	if !strings.Contains(result.Answer, "<!-- THINKING:") || !strings.Contains(result.Answer, "<!-- PLAN_START -->") {
+		t.Fatalf("assistant answer should retain history markers, got %q", result.Answer)
+	}
+}
+
 type captureMessagesProvider struct {
 	messages []llmsvc.ChatMessage
 }
@@ -412,6 +479,78 @@ func (p *fakeThinkingProvider) StreamChatWithTools(
 		}
 	}
 	return &llmsvc.StreamResult{Type: llmsvc.StreamResultText}, nil
+}
+
+type fakePlanModeProvider struct {
+	call int
+}
+
+func (p *fakePlanModeProvider) StreamChatWithTools(
+	_ context.Context,
+	_ llmsvc.ModelRuntimeConfig,
+	_ []llmsvc.ChatMessage,
+	_ []llmsvc.ToolDef,
+	callbacks llmsvc.StreamCallbacks,
+) (*llmsvc.StreamResult, error) {
+	p.call++
+	switch p.call {
+	case 1:
+		if callbacks.OnThinkingChunk != nil {
+			if err := callbacks.OnThinkingChunk("narration thought"); err != nil {
+				return nil, err
+			}
+		}
+		if callbacks.OnChunk != nil {
+			if err := callbacks.OnChunk("Narration before plan."); err != nil {
+				return nil, err
+			}
+		}
+		return &llmsvc.StreamResult{
+			Type: llmsvc.StreamResultToolCalls,
+			ToolCalls: []llmsvc.ToolCallInfo{{
+				ID:        "plan-start-call",
+				Name:      constants.PlanStartTool,
+				Arguments: "{}",
+			}},
+			AssistantMessage: llmsvc.ChatMessage{
+				Role:    "assistant",
+				Content: "Narration before plan.",
+				ToolCalls: []llmsvc.ToolCallInfo{{
+					ID:        "plan-start-call",
+					Name:      constants.PlanStartTool,
+					Arguments: "{}",
+				}},
+			},
+		}, nil
+	default:
+		if callbacks.OnThinkingChunk != nil {
+			if err := callbacks.OnThinkingChunk("plan thought"); err != nil {
+				return nil, err
+			}
+		}
+		if callbacks.OnChunk != nil {
+			if err := callbacks.OnChunk("# Plan\n\nDo it."); err != nil {
+				return nil, err
+			}
+		}
+		return &llmsvc.StreamResult{
+			Type: llmsvc.StreamResultToolCalls,
+			ToolCalls: []llmsvc.ToolCallInfo{{
+				ID:        "plan-complete-call",
+				Name:      constants.PlanCompleteTool,
+				Arguments: "{}",
+			}},
+			AssistantMessage: llmsvc.ChatMessage{
+				Role:    "assistant",
+				Content: "# Plan\n\nDo it.",
+				ToolCalls: []llmsvc.ToolCallInfo{{
+					ID:        "plan-complete-call",
+					Name:      constants.PlanCompleteTool,
+					Arguments: "{}",
+				}},
+			},
+		}, nil
+	}
 }
 
 type stubTitleUpdateStore struct {

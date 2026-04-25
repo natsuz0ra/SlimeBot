@@ -19,8 +19,6 @@ import (
 	"slimebot/internal/tools"
 )
 
-const balancedTemperature = 1.0
-
 // ApprovalRequest is sent to the client for tool-call approval.
 type ApprovalRequest struct {
 	ToolCallID       string            `json:"toolCallId"`
@@ -359,8 +357,6 @@ func (a *AgentService) RunAgentLoop(
 	callbacks AgentCallbacks,
 	opts AgentLoopOptions,
 ) (string, error) {
-	modelConfig.Temperature = balancedTemperature
-
 	toolDefs, mcpToolMeta, err := a.buildRuntimeToolDefs(ctx, mcpConfigs, opts.Depth)
 	if err != nil {
 		return "", fmt.Errorf("failed to load MCP tools: %w", err)

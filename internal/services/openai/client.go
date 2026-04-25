@@ -67,9 +67,9 @@ func (c *OpenAIClient) StreamChatWithTools(
 	}
 
 	params := openai.ChatCompletionNewParams{
-		Messages:    requestMessages,
-		Model:       openai.ChatModel(model),
-		Temperature: openai.Float(modelConfig.Temperature),
+		Messages: requestMessages,
+		Model:    openai.ChatModel(model),
+		//Temperature: openai.Float(modelConfig.Temperature),
 	}
 
 	if effort := llmsvc.ThinkingReasoningEffort(modelConfig.ThinkingLevel); effort != "" {

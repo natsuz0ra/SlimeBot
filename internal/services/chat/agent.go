@@ -64,9 +64,10 @@ type AgentCallbacks struct {
 	OnThinkingStart  func() error
 	OnThinkingChunk  func(chunk string) error
 	OnThinkingDone   func() error
-	OnPlanStart      func() error                // plan writing phase has begun
-	OnPlanChunk      func(chunk string) error    // stream plan body chunk to the client (plan mode only)
-	OnPlanBody       func(planBody string) error // send complete plan body (non-streaming, plan mode only)
+	OnPlanStart      func() error                  // plan writing phase has begun
+	OnPlanChunk      func(chunk string) error      // stream plan body chunk to the client (plan mode only)
+	OnPlanBody       func(planBody string) error   // send complete plan body (non-streaming, plan mode only)
+	OnTitleGenerated func(sessionID, title string) // async notification when title is generated
 }
 
 // AgentLoopOptions configures nested agent execution.

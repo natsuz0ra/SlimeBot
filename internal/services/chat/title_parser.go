@@ -5,22 +5,17 @@ import (
 )
 
 const (
-	openTitleTag    = "<title>"
-	closeTitleTag   = "</title>"
 	openMemoryTag   = "<memory>"
 	closeMemoryTag  = "</memory>"
-	parserTagTitle  = "title"
 	parserTagMemory = "memory"
 )
 
 type titleStreamParser struct {
 	// When false, all chunks pass through unchanged.
 	enabled bool
-	// Last successfully parsed title.
-	title string
 	// Last successfully parsed memory JSON payload.
 	memory string
-	// Active protocol tag being parsed: title or memory.
+	// Active protocol tag being parsed: memory.
 	activeTag string
 	// Buffered bytes while detecting an opening tag across chunks.
 	openBuf []byte
@@ -94,10 +89,6 @@ func (p *titleStreamParser) Flush() string {
 	}
 	p.resetStreamState()
 	return out.String()
-}
-
-func (p *titleStreamParser) Title() string {
-	return p.title
 }
 
 func (p *titleStreamParser) Memory() string {
@@ -178,12 +169,7 @@ func (p *titleStreamParser) consumeTagByte(b byte) {
 }
 
 func (p *titleStreamParser) finishActiveTag() {
-	switch p.activeTag {
-	case parserTagTitle:
-		if cleaned := cleanProtocolTitle(string(p.tagContent)); cleaned != "" {
-			p.title = cleaned
-		}
-	case parserTagMemory:
+	if p.activeTag == parserTagMemory {
 		if cleaned := cleanProtocolMemory(string(p.tagContent)); cleaned != "" {
 			p.memory = cleaned
 		}
@@ -202,14 +188,6 @@ func (p *titleStreamParser) resetStreamState() {
 	p.trimNextTextPrefix = false
 }
 
-func cleanProtocolTitle(input string) string {
-	title := strings.ReplaceAll(input, "\r", "")
-	title = strings.ReplaceAll(title, "\n", "")
-	title = strings.Trim(title, "\"'\u201c\u201d")
-	title = truncateRunes(title, 20)
-	return strings.TrimSpace(title)
-}
-
 func cleanProtocolMemory(input string) string {
 	memory := strings.ReplaceAll(input, "\r\n", "\n")
 	memory = strings.ReplaceAll(memory, "\r", "\n")
@@ -224,21 +202,20 @@ func cleanProtocolMemory(input string) string {
 	return memory
 }
 
-// extractProtocolMetaAndBody is a fallback that strips protocol lines from the final body.
-func extractProtocolMetaAndBody(input string) (string, string, string) {
+// extractProtocolMetaAndBody is a fallback that strips protocol tags from the final body.
+// Title tags are stripped from the body as a migration safety net (prevents leaked tags in display)
+// but the title value is no longer extracted — it is discarded.
+func extractProtocolMetaAndBody(input string) (string, string) {
 	if strings.TrimSpace(input) == "" {
-		return "", "", input
+		return "", input
 	}
 
 	body := input
-	var extractedTitle string
 	var extractedMemory string
 	hasTagBlock := false
 
-	if title, cleaned, foundValue, removed := extractAndRemoveTagBlocks(body, "title", cleanProtocolTitle); removed {
-		if foundValue {
-			extractedTitle = title
-		}
+	// Strip any stray <title> tags from body (migration safety net).
+	if _, cleaned, _, removed := extractAndRemoveTagBlocks(body, "title", strings.TrimSpace); removed {
 		body = cleaned
 		hasTagBlock = true
 	}
@@ -251,10 +228,10 @@ func extractProtocolMetaAndBody(input string) (string, string, string) {
 	}
 
 	if !hasTagBlock {
-		return "", "", input
+		return "", input
 	}
 
-	return extractedTitle, extractedMemory, strings.Trim(body, "\r\n")
+	return extractedMemory, strings.Trim(body, "\r\n")
 }
 
 func extractAndRemoveTagBlocks(input string, tag string, cleaner func(string) string) (string, string, bool, bool) {
@@ -354,29 +331,21 @@ func isProtocolSeparatorByte(b byte) bool {
 }
 
 func isOpenTagPrefixBytes(candidate []byte) bool {
-	return hasBytePrefix([]byte(openTitleTag), candidate) || hasBytePrefix([]byte(openMemoryTag), candidate)
+	return hasBytePrefix([]byte(openMemoryTag), candidate)
 }
 
 func matchOpenTagBytes(candidate []byte) (string, bool) {
-	switch {
-	case bytesEqual([]byte(openTitleTag), candidate):
-		return parserTagTitle, true
-	case bytesEqual([]byte(openMemoryTag), candidate):
+	if bytesEqual([]byte(openMemoryTag), candidate) {
 		return parserTagMemory, true
-	default:
-		return "", false
 	}
+	return "", false
 }
 
 func parserEndTag(activeTag string) []byte {
-	switch activeTag {
-	case parserTagTitle:
-		return []byte(closeTitleTag)
-	case parserTagMemory:
+	if activeTag == parserTagMemory {
 		return []byte(closeMemoryTag)
-	default:
-		return nil
 	}
+	return nil
 }
 
 func hasBytePrefix(full []byte, prefix []byte) bool {

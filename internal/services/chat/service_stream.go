@@ -39,6 +39,7 @@ type chatTurnState struct {
 	contextMessages   []llmsvc.ChatMessage
 	enabledMCPConfigs []domain.MCPConfig
 	attachments       []UploadedAttachment
+	userContent       string
 }
 
 // chatTurnResult holds intermediate results after the agent runs.
@@ -46,7 +47,6 @@ type chatTurnResult struct {
 	answer        string
 	interrupted   bool
 	planCompleted bool
-	title         string
 	memoryPayload string
 	pushErr       error
 	narration     string
@@ -88,7 +88,7 @@ func (s *ChatService) HandleChatStream(
 		return nil, err
 	}
 
-	return s.finalizeChatTurn(ctx, sessionID, requestID, state, result, planMode)
+	return s.finalizeChatTurn(ctx, sessionID, requestID, state, result, planMode, callbacks)
 }
 
 // prepareChatTurn validates input, resolves model config, saves user message, builds context in parallel.
@@ -195,6 +195,7 @@ func (s *ChatService) prepareChatTurn(
 		contextMessages:   contextMessages,
 		enabledMCPConfigs: enabledMCPConfigs,
 		attachments:       attachments,
+		userContent:       userContentForLLM,
 	}, nil
 }
 
@@ -207,7 +208,7 @@ func (s *ChatService) executeChatTurn(
 	callbacks AgentCallbacks,
 	planMode bool,
 ) (*chatTurnResult, error) {
-	parser := newTitleStreamParser(!state.session.IsTitleLocked)
+	parser := newTitleStreamParser(true)
 	accumulator := &chatStreamAccumulator{}
 	streamStart := time.Now()
 	var firstTokenAt time.Time
@@ -436,12 +437,8 @@ func (s *ChatService) executeChatTurn(
 		}
 	}
 
-	title := parser.Title()
 	memoryPayload := parser.Memory()
-	if parsedTitle, parsedMemory, cleanBody := extractProtocolMetaAndBody(finalAnswer); parsedTitle != "" || parsedMemory != "" || cleanBody != finalAnswer {
-		if parsedTitle != "" {
-			title = parsedTitle
-		}
+	if parsedMemory, cleanBody := extractProtocolMetaAndBody(finalAnswer); parsedMemory != "" || cleanBody != finalAnswer {
 		if parsedMemory != "" {
 			memoryPayload = parsedMemory
 		}
@@ -455,7 +452,6 @@ func (s *ChatService) executeChatTurn(
 		answer:        finalAnswer,
 		interrupted:   interrupted,
 		planCompleted: planCompleted,
-		title:         title,
 		memoryPayload: memoryPayload,
 		pushErr:       accumulator.pushErr,
 		narration:     resultNarration,
@@ -463,7 +459,7 @@ func (s *ChatService) executeChatTurn(
 	}, nil
 }
 
-// finalizeChatTurn persists assistant message, updates title, enqueues memory, saves plan if applicable.
+// finalizeChatTurn persists assistant message, enqueues memory, triggers async title generation, saves plan if applicable.
 func (s *ChatService) finalizeChatTurn(
 	ctx context.Context,
 	sessionID string,
@@ -471,6 +467,7 @@ func (s *ChatService) finalizeChatTurn(
 	state *chatTurnState,
 	result *chatTurnResult,
 	planMode bool,
+	callbacks AgentCallbacks,
 ) (*ChatStreamResult, error) {
 	assistantMessage, err := s.store.AddMessageWithInput(ctx, domain.AddMessageInput{
 		SessionID:         sessionID,
@@ -496,9 +493,7 @@ func (s *ChatService) finalizeChatTurn(
 		Narration:         result.narration,
 		PlanBody:          result.planBody,
 	}
-	if err := s.applySessionTitleUpdate(ctx, s.store, state.session, result.title, streamResult); err != nil {
-		return nil, err
-	}
+	s.maybeGenerateTitleAsync(state.session, state.modelConfig, state.userContent, result.answer, callbacks.OnTitleGenerated)
 	if s.memory != nil && strings.TrimSpace(result.memoryPayload) != "" {
 		s.memory.EnqueueTurnMemory(sessionID, assistantMessage.ID, result.memoryPayload)
 		logging.Info("memory_enqueue_triggered", "session", sessionID)
@@ -529,33 +524,6 @@ func (s *ChatService) finalizeChatTurn(
 		streamResult.PushError = result.pushErr.Error()
 	}
 	return streamResult, nil
-}
-
-type sessionTitleUpdater interface {
-	UpdateSessionTitle(ctx context.Context, id, name string) (bool, error)
-}
-
-func (s *ChatService) applySessionTitleUpdate(ctx context.Context, store sessionTitleUpdater, session *domain.Session, title string, result *ChatStreamResult) error {
-	_ = s
-	if store == nil || session == nil || result == nil {
-		return nil
-	}
-	title = strings.TrimSpace(title)
-	if title == "" || session.IsTitleLocked {
-		return nil
-	}
-	if session.Name != "" && session.Name != "New Chat" && session.Name == title {
-		return nil
-	}
-	updated, err := store.UpdateSessionTitle(ctx, session.ID, title)
-	if err != nil {
-		return err
-	}
-	if updated {
-		result.TitleUpdated = true
-		result.Title = title
-	}
-	return nil
 }
 
 // splitNarrationAndPlan splits accumulated plan text into narration (before first heading)

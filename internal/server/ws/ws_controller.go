@@ -380,15 +380,6 @@ func (w *Controller) handleChatIncoming(
 			"error":     err.Error(),
 		})
 	}
-	if streamResult != nil && streamResult.TitleUpdated {
-		if !enqueue(map[string]any{
-			"type":      "session_title",
-			"sessionId": session.ID,
-			"title":     streamResult.Title,
-		}) {
-			return false
-		}
-	}
 	if streamResult != nil && streamResult.PushFailed {
 		if !enqueue(map[string]any{
 			"type":      "error",
@@ -592,6 +583,13 @@ func (w *Controller) buildCallbacks(
 				return context.Canceled
 			}
 			return nil
+		},
+		OnTitleGenerated: func(titleSessionID, title string) {
+			enqueue(map[string]any{
+				"type":      "session_title",
+				"sessionId": titleSessionID,
+				"title":     title,
+			})
 		},
 	}
 }

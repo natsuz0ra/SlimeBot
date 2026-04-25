@@ -22,6 +22,7 @@ type ChatService struct {
 	memory         *memsvc.MemoryService
 	planService    *plansvc.PlanService
 	uploads        *ChatUploadService
+	titleGen       *titleGenerator
 	skillsMu       sync.Mutex
 	skillsBySess   map[string]map[string]struct{}
 	skillTouchedAt map[string]time.Time
@@ -51,8 +52,6 @@ type ChatStreamResult struct {
 	Answer            string
 	IsInterrupted     bool
 	IsStopPlaceholder bool
-	TitleUpdated      bool
-	Title             string
 	SummaryUpdated    bool
 	PushFailed        bool
 	PushError         string
@@ -68,6 +67,7 @@ func NewChatService(store domain.ChatStore, settingsStore domain.SettingsStore, 
 		settingsStore:  settingsStore,
 		skillRuntime:   skillRuntime,
 		memory:         memory,
+		titleGen:       newTitleGenerator(providerFactory, store),
 		skillsBySess:   make(map[string]map[string]struct{}),
 		skillTouchedAt: make(map[string]time.Time),
 	}

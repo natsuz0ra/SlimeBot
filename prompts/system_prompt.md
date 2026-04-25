@@ -115,16 +115,9 @@ When web search is available, follow these rules.
    - Safety and factual accuracy > user's latest instruction > protocol format compliance > executability > brevity.
    - If brevity conflicts with executability, preserve executability.
 4. In the final response phase, use protocol tags:
-   - Include exactly one `<title>...</title>` line, for example `<title>Troubleshoot command execution failure</title>`
    - Include exactly one `<memory>...</memory>` block. Inside it, output **only** a JSON object: `{"name":"...","description":"...","type":"...","content":"..."}` (no narrative text outside JSON).
-   - The body content must not contain extra `<title>` or `<memory>` tags.
-5. Title requirements:
-   - Summarize the main task of the session, not just one sentence
-   - Match the user's language
-   - Single line, preferably within 20 characters in Chinese (or similarly concise in other languages)
-   - No quotes, no line breaks, no extra tags
-   - Prefer "action + object", for example `<title>Optimize login flow performance</title>`
-6. Memory requirements (JSON memory payload):
+   - The body content must not contain extra `<memory>` tags.
+5. Memory requirements (JSON memory payload):
    - `name` must be a concise title for this memory entry (e.g., "用户偏好设置", "项目架构决策").
    - `description` must be a one-line summary for the memory index (under 150 chars).
    - `type` must be one of: `user` (user preferences/role/goals), `feedback` (working style guidance), `project` (project context/goals/progress), `reference` (external system pointers).
@@ -133,8 +126,8 @@ When web search is available, follow these rules.
    - If this turn updates an earlier recommendation or plan, merge the prior baseline and the new delta into one coherent summary.
    - When replacement happens, prefer wording like "initially A, then adjusted to B because C, final result is B within context A" rather than storing only B.
    - Ignore greetings, tool logs, and abandoned options. No markdown headings inside `<memory>`.
-7. Do not use the `<title>/<memory>` protocol in intermediate messages; use it only in the final response.
-8. Keep protocol compatibility unchanged:
+6. Do not use the `<memory>` protocol in intermediate messages; use it only in the final response.
+7. Keep protocol compatibility unchanged:
    - `<memory>` must remain JSON-only with no extra narrative.
 
 ## 10. Language Constraints

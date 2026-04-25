@@ -359,6 +359,7 @@ export type AppAction =
   | { type: "PLAN_CONFIRM_NAV"; delta: number }
   | { type: "SET_PLAN_MODIFY_INPUT"; value: string }
   | { type: "CLEAR_PLAN_CONFIRMATION" }
+  | { type: "PLAN_CHUNK"; chunk: string }
   | { type: "PLAN_BODY"; planBody: string; narration?: string }
   | { type: "PLAN_START" }
   | { type: "VIEW_THINKING_DETAIL"; content: string }

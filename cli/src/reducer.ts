@@ -472,6 +472,23 @@ export function reducer(state: AppState, action: AppAction): AppState {
       return { ...state, timeline: entries, liveAssistant: "", planGenerating: true };
     }
 
+    case "PLAN_CHUNK": {
+      if (action.chunk === "") {
+        return state;
+      }
+      const entries = [...state.timeline];
+      if (!state.planGenerating && state.liveAssistant.trim()) {
+        entries.push({ kind: "assistant", content: state.liveAssistant });
+      }
+      return {
+        ...state,
+        timeline: entries,
+        liveAssistant: "",
+        planGenerating: true,
+        planReceived: false,
+      };
+    }
+
     case "PLAN_BODY": {
       const entries = [...state.timeline];
       if (state.liveAssistant.trim()) {

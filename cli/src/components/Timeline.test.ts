@@ -1,7 +1,16 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { TimelineEntry } from "../types";
-import { formatThinkingLabel, formatToolOutputLines, formatToolParamLines, formatPlanFrameLines } from "./Timeline";
+import {
+  PLAN_GOLD,
+  formatPlanningIndicatorParts,
+  formatThinkingLabel,
+  formatToolOutputLines,
+  formatToolParamLines,
+  formatPlanFrameLines,
+  shouldSeparatePlanningAndWaiting,
+  shouldShowWaitingPrompt,
+} from "./Timeline";
 import { stringWidth } from "../utils/stringWidth";
 import { stripAnsi } from "../utils/terminal";
 
@@ -115,6 +124,37 @@ test("formatThinkingLabel uses fixed duration after thinking completes", () => {
   assert.equal(label, "Thought for 1.8s");
 });
 
+test("PLAN_GOLD matches the frontend plan card gold", () => {
+  assert.equal(PLAN_GOLD, "#f59e0b");
+});
+
+test("formatPlanningIndicatorParts uses a fixed-width blinking gold dot", () => {
+  assert.deepEqual(formatPlanningIndicatorParts(true), {
+    dot: "●",
+    label: "Planning...",
+    color: PLAN_GOLD,
+  });
+  assert.deepEqual(formatPlanningIndicatorParts(false), {
+    dot: " ",
+    label: "Planning...",
+    color: PLAN_GOLD,
+  });
+});
+
+test("shouldShowWaitingPrompt keeps ordinary waiting text while planning", () => {
+  assert.equal(shouldShowWaitingPrompt(false, false), true);
+  assert.equal(shouldShowWaitingPrompt(true, false), true);
+  assert.equal(shouldShowWaitingPrompt(false, true), false);
+  assert.equal(shouldShowWaitingPrompt(true, true), false);
+});
+
+test("shouldSeparatePlanningAndWaiting adds a blank line only while both prompts show", () => {
+  assert.equal(shouldSeparatePlanningAndWaiting(false, false), false);
+  assert.equal(shouldSeparatePlanningAndWaiting(true, false), true);
+  assert.equal(shouldSeparatePlanningAndWaiting(false, true), false);
+  assert.equal(shouldSeparatePlanningAndWaiting(true, true), false);
+});
+
 test("formatPlanFrameLines renders only top and bottom borders", () => {
   const lines = formatPlanFrameLines("# Plan\n\nDo the thing.", 40);
   const plain = lines.map((line) => stripAnsi(line));
@@ -122,6 +162,8 @@ test("formatPlanFrameLines renders only top and bottom borders", () => {
   assert.ok(lines.length >= 4);
   assert.match(plain[0]!, /^─+ Plan ─+$/);
   assert.match(plain[plain.length - 1]!, /^─+$/);
+  assert.equal(stringWidth(plain[0]!), 40);
+  assert.equal(stringWidth(plain[plain.length - 1]!), 40);
   assert.ok(plain.slice(1, -1).every((line) => line.startsWith("  ")));
   assert.ok(plain.slice(1, -1).every((line) => !line.startsWith("│") && !line.endsWith("│")));
   assert.equal(new Set([stringWidth(plain[0]!), stringWidth(plain[plain.length - 1]!)]).size, 1);

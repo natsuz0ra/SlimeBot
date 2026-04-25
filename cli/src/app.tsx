@@ -950,6 +950,9 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
       onPlanBody: (content: string) => {
         dispatch({ type: "PLAN_BODY", planBody: content } as AppAction);
       },
+      onPlanChunk: (chunk: string) => {
+        dispatch({ type: "PLAN_CHUNK", chunk } as AppAction);
+      },
       onPlanStart: () => {
         planStartedRef.current = true;
         dispatch({ type: "PLAN_START" } as AppAction);

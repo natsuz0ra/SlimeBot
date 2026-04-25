@@ -501,21 +501,25 @@ func (s *ChatService) finalizeChatTurn(
 		logging.Info("memory_enqueue_skipped", "session", sessionID, "reason", "empty_or_unparsed")
 	}
 
-	if planMode && result.planCompleted && s.planService != nil && strings.TrimSpace(result.planBody) != "" {
-		planContent := strings.TrimSpace(result.planBody)
-		title := "Plan"
-		for _, line := range strings.Split(planContent, "\n") {
-			line = strings.TrimSpace(line)
-			if strings.HasPrefix(line, "# ") {
-				title = strings.TrimSpace(strings.TrimPrefix(line, "# "))
-				break
-			}
-		}
-		if plan, saveErr := s.planService.SavePlan(sessionID, title, planContent); saveErr != nil {
-			logging.Info("plan_save_error", "session", sessionID, "error", saveErr.Error())
+	if planMode && !result.interrupted && s.planService != nil && strings.TrimSpace(result.planBody) != "" {
+		if !result.planCompleted {
+			logging.Info("plan_not_submitted", "session", sessionID)
 		} else {
-			logging.Info("plan_saved", "session", sessionID)
-			streamResult.PlanID = plan.ID
+			planContent := strings.TrimSpace(result.planBody)
+			title := "Plan"
+			for _, line := range strings.Split(planContent, "\n") {
+				line = strings.TrimSpace(line)
+				if strings.HasPrefix(line, "# ") {
+					title = strings.TrimSpace(strings.TrimPrefix(line, "# "))
+					break
+				}
+			}
+			if plan, saveErr := s.planService.SavePlan(sessionID, title, planContent); saveErr != nil {
+				logging.Info("plan_save_error", "session", sessionID, "error", saveErr.Error())
+			} else {
+				logging.Info("plan_saved", "session", sessionID)
+				streamResult.PlanID = plan.ID
+			}
 		}
 	}
 

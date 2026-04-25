@@ -185,3 +185,115 @@ test("STREAM_DONE does not duplicate a plan body received in the current turn", 
 		1,
 	);
 });
+
+test("PLAN_CHUNK starts plan generation without showing streamed plan content", () => {
+	let state: AppState = {
+		...initState(),
+		streaming: true,
+	};
+
+	state = reduce(state, { type: "PLAN_CHUNK", chunk: "# Plan\n" });
+	state = reduce(state, { type: "PLAN_CHUNK", chunk: "\nDo the thing." });
+
+	assert.equal(state.planGenerating, true);
+	assert.equal(state.planReceived, false);
+	assert.deepEqual(state.timeline, []);
+	assert.equal(state.liveAssistant, "");
+});
+
+test("PLAN_CHUNK flushes narration before hiding plan chunks", () => {
+	let state: AppState = {
+		...initState(),
+		liveAssistant: "Narration before plan.",
+		streaming: true,
+	};
+
+	state = reduce(state, { type: "PLAN_CHUNK", chunk: "# Draft" });
+
+	assert.deepEqual(
+		state.timeline.map((entry) => entry.kind),
+		["assistant"],
+	);
+	assert.equal(state.timeline[0].content, "Narration before plan.");
+	assert.equal(state.liveAssistant, "");
+	assert.equal(state.planGenerating, true);
+});
+
+test("PLAN_BODY appends the final plan after hidden streamed chunks", () => {
+	let state: AppState = {
+		...initState(),
+		streaming: true,
+	};
+
+	state = reduce(state, { type: "PLAN_CHUNK", chunk: "# Draft" });
+	state = reduce(state, { type: "PLAN_BODY", planBody: "# Final Plan" });
+
+	assert.equal(state.planGenerating, false);
+	assert.equal(state.planReceived, true);
+	assert.deepEqual(
+		state.timeline.map((entry) => entry.kind),
+		["plan"],
+	);
+	assert.equal(state.timeline[0].content, "# Final Plan");
+});
+
+test("PLAN_BODY appends a new plan without replacing an existing plan", () => {
+	let state: AppState = {
+		...initState(),
+		timeline: [{ kind: "plan", content: "# Existing Plan" }],
+		streaming: true,
+	};
+
+	state = reduce(state, { type: "PLAN_CHUNK", chunk: "# Draft" });
+	state = reduce(state, { type: "PLAN_BODY", planBody: "# Final Plan" });
+
+	assert.deepEqual(
+		state.timeline.map((entry) => entry.kind),
+		["plan", "plan"],
+	);
+	assert.equal(state.timeline[0].content, "# Existing Plan");
+	assert.equal(state.timeline[1].content, "# Final Plan");
+});
+
+test("STREAM_DONE clears plan generation after an interrupted plan stream", () => {
+	let state: AppState = {
+		...initState(),
+		streaming: true,
+	};
+
+	state = reduce(state, { type: "PLAN_CHUNK", chunk: "# Draft" });
+	state = reduce(state, { type: "STREAM_DONE", error: null });
+
+	assert.equal(state.planGenerating, false);
+	assert.equal(state.planReceived, false);
+	assert.deepEqual(state.timeline, []);
+});
+
+test("SET_PLAN_CONFIRMATION enters plan-confirm view", () => {
+	let state = initState();
+	state = reduce(state, {
+		type: "SET_PLAN_CONFIRMATION",
+		planId: "plan-1",
+		content: "# Plan\n\nDo it.",
+	});
+
+	assert.equal(state.view, "plan-confirm");
+	assert.equal(state.pendingPlanId, "plan-1");
+	assert.equal(state.pendingPlanContent, "# Plan\n\nDo it.");
+	assert.equal(state.planConfirmCursor, 0);
+});
+
+test("PLAN_BODY updates visible plan content without entering plan-confirm view", () => {
+	let state: AppState = {
+		...initState(),
+		view: "chat",
+		streaming: true,
+	};
+
+	state = reduce(state, { type: "PLAN_BODY", planBody: "# Plan\n\nDo it." });
+
+	assert.equal(state.view, "chat");
+	assert.equal(state.pendingPlanId, "");
+	assert.equal(state.pendingPlanContent, "");
+	assert.deepEqual(state.timeline.map((entry) => entry.kind), ["plan"]);
+});

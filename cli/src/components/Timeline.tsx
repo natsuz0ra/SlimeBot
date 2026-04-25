@@ -21,6 +21,8 @@ import { GradientFlowText } from "./GradientFlowText.js";
 import { Markdown, StreamingMarkdown } from "./Markdown.js";
 import { Spinner } from "./Spinner.js";
 
+export const PLAN_GOLD = "#f59e0b";
+
 interface TimelineProps {
   entries: TimelineEntry[];
   blinkOn: boolean;
@@ -129,8 +131,24 @@ export function formatThinkingLabel(entry: TimelineEntry): string {
   return done ? `Thought for ${duration}` : "Thinking...";
 }
 
+export function formatPlanningIndicatorParts(blinkOn: boolean): { dot: string; label: string; color: string } {
+  return {
+    dot: blinkOn ? DOT : " ",
+    label: "Planning...",
+    color: PLAN_GOLD,
+  };
+}
+
+export function shouldShowWaitingPrompt(planGenerating: boolean, planReceived: boolean): boolean {
+  return !planReceived;
+}
+
+export function shouldSeparatePlanningAndWaiting(planGenerating: boolean, planReceived: boolean): boolean {
+  return planGenerating && shouldShowWaitingPrompt(planGenerating, planReceived);
+}
+
 function formatPlanBorderLine(maxWidth: number, title?: string): string {
-  const width = Math.max(12, Math.floor(maxWidth) - 2);
+  const width = Math.max(12, Math.floor(maxWidth));
   if (!title) return "─".repeat(width);
 
   const label = ` ${title} `;
@@ -142,7 +160,7 @@ function formatPlanBorderLine(maxWidth: number, title?: string): string {
 }
 
 export function formatPlanFrameLines(content: string, maxWidth: number): string[] {
-  const width = Math.max(12, Math.floor(maxWidth) - 2);
+  const width = Math.max(12, Math.floor(maxWidth));
   const contentWidth = Math.max(1, width - 2);
   const renderedLines = renderMarkdownLines(content, contentWidth, false, true);
   return [
@@ -155,12 +173,11 @@ export function formatPlanFrameLines(content: string, maxWidth: number): string[
 function PlanBlock({ content, maxWidth }: { content: string; maxWidth: number }): React.ReactElement {
   const topBorder = useMemo(() => formatPlanBorderLine(maxWidth, "Plan"), [maxWidth]);
   const bottomBorder = useMemo(() => formatPlanBorderLine(maxWidth), [maxWidth]);
-  const contentWidth = Math.max(1, Math.max(12, Math.floor(maxWidth) - 2) - 2);
-  const borderColor = "#22d3ee";
+  const contentWidth = Math.max(1, Math.max(12, Math.floor(maxWidth)) - 2);
 
   return (
     <Box flexDirection="column">
-      <Text color={borderColor} bold>{topBorder}</Text>
+      <Text color={PLAN_GOLD} bold>{topBorder}</Text>
       <Box marginLeft={2}>
         <Markdown
           content={content}
@@ -169,8 +186,19 @@ function PlanBlock({ content, maxWidth }: { content: string; maxWidth: number })
           preserveTrailingBlanks
         />
       </Box>
-      <Text color={borderColor}>{bottomBorder}</Text>
+      <Text color={PLAN_GOLD}>{bottomBorder}</Text>
     </Box>
+  );
+}
+
+function PlanningIndicator({ blinkOn }: { blinkOn: boolean }): React.ReactElement {
+  const parts = formatPlanningIndicatorParts(blinkOn);
+  return (
+    <Text>
+      <Text bold color={parts.color}>{parts.dot}</Text>
+      <Text>{" "}</Text>
+      <Text color={parts.color} bold>{parts.label}</Text>
+    </Text>
   );
 }
 
@@ -438,11 +466,15 @@ export function Timeline({
               <Text> </Text>
             </>
           )}
-          {!planReceived && (
+          {planGenerating && !planReceived && (
+            <PlanningIndicator blinkOn={blinkOn} />
+          )}
+          {shouldSeparatePlanningAndWaiting(planGenerating, planReceived) && <Text> </Text>}
+          {shouldShowWaitingPrompt(planGenerating, planReceived) && (
             <Box key="waiting">
               <Spinner enabled={true} />
               <GradientFlowText
-                text={planGenerating ? " Planning..." : " Waiting for response..."}
+                text=" Waiting for response..."
                 enabled={true}
               />
             </Box>

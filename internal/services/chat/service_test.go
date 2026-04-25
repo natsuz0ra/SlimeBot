@@ -352,6 +352,60 @@ func TestHandleChatStream_PlanModeSavesOnlyPlanBody(t *testing.T) {
 	}
 }
 
+func TestHandleChatStream_PlanModeDoesNotSavePlanBodyWithoutSubmitTool(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+
+	repo := newTestRepo(t)
+	ctx := context.Background()
+	session, err := repo.CreateSession(ctx, "s")
+	if err != nil {
+		t.Fatalf("create session failed: %v", err)
+	}
+	model, err := repo.CreateLLMConfig(domain.LLMConfig{
+		Name:     "fake",
+		Provider: llmsvc.ProviderOpenAI,
+		BaseURL:  "http://fake",
+		APIKey:   "key",
+		Model:    "fake-model",
+	})
+	if err != nil {
+		t.Fatalf("create model failed: %v", err)
+	}
+	planService, err := plansvc.NewPlanService()
+	if err != nil {
+		t.Fatalf("create plan service failed: %v", err)
+	}
+	provider := &fakePlanTextProvider{}
+	svc := NewChatService(repo, nil, llmsvc.NewFactory(provider), nil, nil, nil)
+	svc.SetPlanService(planService)
+
+	result, err := svc.HandleChatStream(ctx, session.ID, "request-1", "make a plan", "", model.ID, nil, "high", true, AgentCallbacks{
+		OnChunk:     func(string) error { return nil },
+		OnPlanStart: func() error { return nil },
+		OnPlanChunk: func(string) error { return nil },
+		OnPlanBody:  func(string) error { return nil },
+	})
+	if err != nil {
+		t.Fatalf("HandleChatStream failed: %v", err)
+	}
+	if result.PlanID != "" {
+		t.Fatalf("expected no plan id when submit tool is missing, got %q", result.PlanID)
+	}
+	if result.PlanBody != "# Plan\n\nDo it." {
+		t.Fatalf("plan body = %q", result.PlanBody)
+	}
+
+	plans, err := planService.GetPlansBySession(session.ID)
+	if err != nil {
+		t.Fatalf("list plans failed: %v", err)
+	}
+	if len(plans) != 0 {
+		t.Fatalf("expected 0 saved plans, got %d", len(plans))
+	}
+}
+
 func TestHandleChatStream_StartsTitleGenerationBeforeAssistantChunk(t *testing.T) {
 	repo := newTestRepo(t)
 	ctx := context.Background()
@@ -500,6 +554,46 @@ func (p *fakePlanModeProvider) StreamChatWithTools(
 			},
 		}, nil
 	}
+}
+
+type fakePlanTextProvider struct{}
+
+func (p *fakePlanTextProvider) StreamChatWithTools(
+	_ context.Context,
+	_ llmsvc.ModelRuntimeConfig,
+	messages []llmsvc.ChatMessage,
+	_ []llmsvc.ToolDef,
+	callbacks llmsvc.StreamCallbacks,
+) (*llmsvc.StreamResult, error) {
+	if callbacks.OnChunk == nil {
+		return &llmsvc.StreamResult{Type: llmsvc.StreamResultText}, nil
+	}
+	if len(messages) == 0 || !strings.Contains(messages[len(messages)-1].Content, "Plan writing phase started.") {
+		if err := callbacks.OnChunk("Narration before plan."); err != nil {
+			return nil, err
+		}
+		return &llmsvc.StreamResult{
+			Type: llmsvc.StreamResultToolCalls,
+			ToolCalls: []llmsvc.ToolCallInfo{{
+				ID:        "plan-start-call",
+				Name:      constants.PlanStartTool,
+				Arguments: "{}",
+			}},
+			AssistantMessage: llmsvc.ChatMessage{
+				Role:    "assistant",
+				Content: "Narration before plan.",
+				ToolCalls: []llmsvc.ToolCallInfo{{
+					ID:        "plan-start-call",
+					Name:      constants.PlanStartTool,
+					Arguments: "{}",
+				}},
+			},
+		}, nil
+	}
+	if err := callbacks.OnChunk("# Plan\n\nDo it."); err != nil {
+		return nil, err
+	}
+	return &llmsvc.StreamResult{Type: llmsvc.StreamResultText}, nil
 }
 
 type earlyTitleProvider struct {

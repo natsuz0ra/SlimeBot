@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { TimelineEntry } from "../types";
-import { formatThinkingLabel, formatToolOutputLines, formatToolParamLines, formatPlanBlockLines } from "./Timeline";
+import { formatThinkingLabel, formatToolOutputLines, formatToolParamLines, formatPlanFrameLines } from "./Timeline";
 import { stringWidth } from "../utils/stringWidth";
 import { stripAnsi } from "../utils/terminal";
 
@@ -115,21 +115,35 @@ test("formatThinkingLabel uses fixed duration after thinking completes", () => {
   assert.equal(label, "Thought for 1.8s");
 });
 
-test("formatPlanBlockLines renders a closed fixed-width border", () => {
-  const lines = formatPlanBlockLines("# Plan\n\nDo the thing.", 40);
-  const widths = lines.map((line) => stringWidth(stripAnsi(line)));
+test("formatPlanFrameLines renders only top and bottom borders", () => {
+  const lines = formatPlanFrameLines("# Plan\n\nDo the thing.", 40);
+  const plain = lines.map((line) => stripAnsi(line));
 
   assert.ok(lines.length >= 4);
-  assert.equal(new Set(widths).size, 1);
-  assert.match(lines[0]!, /^╭.*╮$/);
-  assert.match(lines[lines.length - 1]!, /^╰.*╯$/);
-  assert.ok(lines.slice(1, -1).every((line) => line.startsWith("│ ") && line.endsWith(" │")));
+  assert.match(plain[0]!, /^─+ Plan ─+$/);
+  assert.match(plain[plain.length - 1]!, /^─+$/);
+  assert.ok(plain.slice(1, -1).every((line) => line.startsWith("  ")));
+  assert.ok(plain.slice(1, -1).every((line) => !line.startsWith("│") && !line.endsWith("│")));
+  assert.equal(new Set([stringWidth(plain[0]!), stringWidth(plain[plain.length - 1]!)]).size, 1);
 });
 
-test("formatPlanBlockLines keeps right border aligned for CJK content", () => {
-  const lines = formatPlanBlockLines("# 更新计划\n\n检查当前版本并备份配置。", 36);
-  const widths = lines.map((line) => stringWidth(stripAnsi(line)));
+test("formatPlanFrameLines keeps horizontal borders aligned for CJK content", () => {
+  const lines = formatPlanFrameLines("# 更新计划\n\n检查当前版本并备份配置。", 36);
+  const plain = lines.map((line) => stripAnsi(line));
 
-  assert.equal(new Set(widths).size, 1);
-  assert.ok(lines.slice(1, -1).every((line) => line.endsWith(" │")));
+  assert.equal(stringWidth(plain[0]!), stringWidth(plain[plain.length - 1]!));
+  assert.ok(plain.some((line) => line.includes("更新计划")));
+  assert.ok(plain.slice(1, -1).every((line) => !line.includes("│")));
+});
+
+test("formatPlanFrameLines keeps plan body spacious even when chat is compact", () => {
+  const lines = formatPlanFrameLines("# Plan\n\nParagraph one.\n\n- item one\n- item two", 60);
+  const plain = lines.map((line) => stripAnsi(line));
+  const body = plain.slice(1, -1);
+
+  assert.ok(body.includes("  "));
+  assert.ok(body.some((line) => line.trim() === "Plan"));
+  assert.ok(body.some((line) => line.trim() === "Paragraph one."));
+  assert.ok(body.some((line) => line.trim() === "- item one"));
+  assert.ok(body.filter((line) => line.trim() === "").length >= 2);
 });

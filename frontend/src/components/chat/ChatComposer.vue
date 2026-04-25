@@ -277,7 +277,6 @@ watch(
 
 .plan-confirm-btn--execute:hover {
   background: var(--tool-success-bg-hover);
-  box-shadow: 0 2px 8px rgba(16, 185, 129, 0.22);
 }
 
 @media (max-width: 640px) {

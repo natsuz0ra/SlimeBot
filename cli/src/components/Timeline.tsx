@@ -6,7 +6,7 @@
 import React, { useMemo } from "react";
 import { Box, Text } from "ink";
 import { renderMarkdownLines } from "../utils/markdownRenderer.js";
-import { DOT, stripAnsi } from "../utils/terminal.js";
+import { DOT } from "../utils/terminal.js";
 import { stringWidth } from "../utils/stringWidth.js";
 import type { TimelineEntry, ToolCallStatus } from "../types.js";
 import {
@@ -18,6 +18,7 @@ import {
   formatToolParamEntries,
 } from "../utils/format.js";
 import { GradientFlowText } from "./GradientFlowText.js";
+import { Markdown, StreamingMarkdown } from "./Markdown.js";
 import { Spinner } from "./Spinner.js";
 
 interface TimelineProps {
@@ -128,84 +129,47 @@ export function formatThinkingLabel(entry: TimelineEntry): string {
   return done ? `Thought for ${duration}` : "Thinking...";
 }
 
-function StreamingMarkdown({
-  content,
-  maxWidth,
-  compact,
-}: {
-  content: string;
-  maxWidth: number;
-  compact: boolean;
-}): React.ReactElement {
-  const contentWidth = Math.max(1, maxWidth - 2);
-  const lines = useMemo(
-    () => renderMarkdownLines(content, contentWidth, compact),
-    [content, contentWidth, compact],
-  );
+function formatPlanBorderLine(maxWidth: number, title?: string): string {
+  const width = Math.max(12, Math.floor(maxWidth) - 2);
+  if (!title) return "─".repeat(width);
 
-  return (
-    <Box flexDirection="column">
-      {lines.map((line, index) => (
-        <Text key={`${content}-${index}`}>
-          {index === 0 ? (
-            <Text bold color="white">
-              {DOT}{" "}
-            </Text>
-          ) : (
-            <Text>{"  "}</Text>
-          )}
-          <Text>{line}</Text>
-        </Text>
-      ))}
-    </Box>
-  );
+  const label = ` ${title} `;
+  const labelWidth = stringWidth(label);
+  const fillWidth = Math.max(2, width - labelWidth);
+  const leftWidth = Math.floor(fillWidth / 2);
+  const rightWidth = fillWidth - leftWidth;
+  return `${"─".repeat(leftWidth)}${label}${"─".repeat(rightWidth)}`;
 }
 
-function padVisible(content: string, targetWidth: number): string {
-  const visible = stringWidth(stripAnsi(content));
-  return `${content}${" ".repeat(Math.max(0, targetWidth - visible))}`;
-}
-
-export function formatPlanBlockLines(content: string, maxWidth: number): string[] {
-  const outerWidth = Math.max(12, Math.floor(maxWidth) - 2);
-  const contentWidth = Math.max(1, outerWidth - 4);
+export function formatPlanFrameLines(content: string, maxWidth: number): string[] {
+  const width = Math.max(12, Math.floor(maxWidth) - 2);
+  const contentWidth = Math.max(1, width - 2);
   const renderedLines = renderMarkdownLines(content, contentWidth, false, true);
-  const title = " Plan ";
-  const topPrefix = `╭─${title}`;
-  const topFill = "─".repeat(Math.max(0, outerWidth - stringWidth(topPrefix) - 1));
-  const lines = [`${topPrefix}${topFill}╮`];
-
-  for (const line of renderedLines) {
-    lines.push(`│ ${padVisible(line, contentWidth)} │`);
-  }
-
-  lines.push(`╰${"─".repeat(Math.max(0, outerWidth - 2))}╯`);
-  return lines;
+  return [
+    formatPlanBorderLine(maxWidth, "Plan"),
+    ...renderedLines.map((line) => `  ${line}`),
+    formatPlanBorderLine(maxWidth),
+  ];
 }
 
 function PlanBlock({ content, maxWidth }: { content: string; maxWidth: number }): React.ReactElement {
-  const lines = useMemo(() => formatPlanBlockLines(content, maxWidth), [content, maxWidth]);
+  const topBorder = useMemo(() => formatPlanBorderLine(maxWidth, "Plan"), [maxWidth]);
+  const bottomBorder = useMemo(() => formatPlanBorderLine(maxWidth), [maxWidth]);
+  const contentWidth = Math.max(1, Math.max(12, Math.floor(maxWidth) - 2) - 2);
   const borderColor = "#22d3ee";
 
   return (
     <Box flexDirection="column">
-      {lines.map((line, i) => {
-        const isBody = i > 0 && i < lines.length - 1;
-        if (!isBody) {
-          return (
-            <Text key={i} color={borderColor} bold={i === 0}>
-              {line}
-            </Text>
-          );
-        }
-        return (
-          <Text key={i}>
-            <Text color={borderColor}>{"│ "}</Text>
-            <Text>{line.slice(2, -2)}</Text>
-            <Text color={borderColor}>{" │"}</Text>
-          </Text>
-        );
-      })}
+      <Text color={borderColor} bold>{topBorder}</Text>
+      <Box marginLeft={2}>
+        <Markdown
+          content={content}
+          maxWidth={contentWidth}
+          compact={false}
+          preserveTrailingBlanks
+        />
+      </Box>
+      <Text color={borderColor}>{bottomBorder}</Text>
     </Box>
   );
 }
@@ -306,7 +270,22 @@ function TimelineBlock({
   }
 
   if (entry.kind === "assistant") {
-    return <StreamingMarkdown content={entry.content} maxWidth={maxWidth} compact={compact} />;
+    return (
+      <StreamingMarkdown
+        content={entry.content}
+        maxWidth={Math.max(1, maxWidth - 2)}
+        compact={compact}
+        renderPrefix={(index) =>
+          index === 0 ? (
+            <Text bold color="white">
+              {DOT}{" "}
+            </Text>
+          ) : (
+            <Text>{"  "}</Text>
+          )
+        }
+      />
+    );
   }
 
   if (entry.kind === "system") {
@@ -442,7 +421,20 @@ export function Timeline({
           {entries.length > 0 && <Text> </Text>}
           {liveAssistant && !assistantWaiting && (
             <>
-              <StreamingMarkdown content={liveAssistant} maxWidth={maxWidth} compact={compact} />
+              <StreamingMarkdown
+                content={liveAssistant}
+                maxWidth={Math.max(1, maxWidth - 2)}
+                compact={compact}
+                renderPrefix={(index) =>
+                  index === 0 ? (
+                    <Text bold color="white">
+                      {DOT}{" "}
+                    </Text>
+                  ) : (
+                    <Text>{"  "}</Text>
+                  )
+                }
+              />
               <Text> </Text>
             </>
           )}

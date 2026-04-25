@@ -38,3 +38,21 @@ test("renderMarkdownLines compact mode no blank line between list and heading", 
 
   assert.equal(blankCount, 0, "compact mode should have no blank lines");
 });
+
+test("renderMarkdownLines non-compact mode preserves plan section spacing", () => {
+  const input = "# Plan\n\nParagraph one.\n\n- item1\n- item2\n\n## Verify\n\nRun tests.";
+  const normal = renderMarkdownLines(input, 80, false).map((l) => stripAnsi(l));
+  const compact = renderMarkdownLines(input, 80, true).map((l) => stripAnsi(l));
+
+  assert.ok(normal.filter((line) => line.trim() === "").length >= 3);
+  assert.equal(compact.filter((line) => line.trim() === "").length, 0);
+});
+
+test("renderMarkdownLines keeps wrapped list continuation indented", () => {
+  const input = "- this item has enough detail to wrap onto another line without merging into the next paragraph";
+  const lines = renderMarkdownLines(input, 36, true).map((l) => stripAnsi(l));
+
+  assert.ok(lines.length > 1);
+  assert.equal(lines[0]!.startsWith("- "), true);
+  assert.ok(lines.slice(1).every((line) => line.startsWith("  ")));
+});

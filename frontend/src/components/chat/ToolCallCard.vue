@@ -1,10 +1,10 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { mdiCheck, mdiClose, mdiConsoleLine, mdiWeb } from '@mdi/js'
+import { mdiCheck, mdiClose, mdiConsoleLine, mdiHelpCircleOutline, mdiWeb } from '@mdi/js'
 import { useI18n } from 'vue-i18n'
 import MdiIcon from '@/components/ui/MdiIcon.vue'
 import type { ToolCallItem } from '@/api/chat'
-import { buildToolResultDisplay, formatDisplayText, formatToolParams } from '@/utils/toolDisplay'
+import { buildToolResultDisplay, formatDisplayText, formatToolParams, parseAskQuestionsAnswers, parseAskQuestionsQuestions } from '@/utils/toolDisplay'
 
 const props = withDefaults(defineProps<{
   item: ToolCallItem & { preamble?: string }
@@ -24,11 +24,13 @@ const emit = defineEmits<{
 
 const { t } = useI18n()
 const isOutputExpanded = ref(false)
+const isCollapsed = ref(props.item.toolName === 'ask_questions')
 
 const toolIcon = computed(() => {
   if (props.item.toolName === 'exec') return mdiConsoleLine
   if (props.item.toolName === 'http_request') return mdiWeb
   if (props.item.toolName === 'web_search') return mdiWeb
+  if (props.item.toolName === 'ask_questions') return mdiHelpCircleOutline
   return mdiConsoleLine
 })
 
@@ -38,6 +40,7 @@ const toolLabel = computed(() => {
   if (props.item.toolName === 'web_search') return t('toolWebSearch')
   if (props.item.toolName === 'run_subagent') return t('toolRunSubagent')
   if (props.item.toolName === 'search_memory') return t('toolSearchMemory')
+  if (props.item.toolName === 'ask_questions') return t('toolAskQuestions')
   return props.item.toolName
 })
 
@@ -92,6 +95,27 @@ const isRunSubagent = computed(() => props.item.toolName === 'run_subagent')
 const execExitOk = computed(() => resultDisplay.value.mode === 'exec' && resultDisplay.value.exec && resultDisplay.value.exec.exit_code === 0)
 const shouldShowPreamble = computed(() => !!props.showPreamble && !!props.item.preamble)
 const outputPanelId = computed(() => `tool-output-${props.item.toolCallId}`)
+const isAskQuestions = computed(() => props.item.toolName === 'ask_questions')
+
+const askQuestionsData = computed(() => {
+  if (!isAskQuestions.value) return null
+  const questionsRaw = props.item.params?.questions ?? ''
+  const questions = parseAskQuestionsQuestions(questionsRaw)
+  const answers = parseAskQuestionsAnswers(props.item.output ?? '')
+  if (!questions || !answers) return null
+  return questions.map((q) => {
+    const answer = answers.find((a) => a.questionId === q.id)
+    let displayAnswer = ''
+    if (answer) {
+      displayAnswer = answer.selectedOption >= 0 ? (q.options[answer.selectedOption] ?? '') : answer.customAnswer
+    }
+    return { question: q.question, answer: displayAnswer }
+  })
+})
+
+function toggleCollapse() {
+  if (isAskQuestions.value) isCollapsed.value = !isCollapsed.value
+}
 
 function onOutputToggle(event: Event) {
   const target = event.currentTarget as HTMLDetailsElement | null
@@ -100,19 +124,22 @@ function onOutputToggle(event: Event) {
 </script>
 
 <template>
-  <article :class="['tool-card w-full rounded-xl text-base', { 'tool-card--dense': dense }]">
-    <header class="tool-header">
+  <article :class="['tool-card w-full rounded-xl text-base', { 'tool-card--dense': dense, 'tool-card--collapsed': isCollapsed }]">
+    <header :class="['tool-header', { 'tool-header--clickable': isAskQuestions }]" @click="toggleCollapse">
       <div class="tool-header-main">
         <div class="tool-meta">
           <MdiIcon :path="toolIcon" :size="16" class="tool-icon flex-shrink-0" />
           <span class="tool-label">{{ toolLabel }}</span>
           <code
-            v-if="item.command"
+            v-if="item.command && !isAskQuestions"
             class="tool-command"
             :title="item.command"
           >
             {{ item.command }}
           </code>
+          <span v-if="isAskQuestions && askQuestionsData" class="tool-qa-count">
+            {{ askQuestionsData.length }} {{ t('qaTitle') }}
+          </span>
         </div>
 
         <div class="tool-status ml-auto">
@@ -131,11 +158,29 @@ function onOutputToggle(event: Event) {
             <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" />
             <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
           </svg>
+          <span v-if="isAskQuestions" class="tool-collapse-arrow" :class="{ 'tool-collapse-arrow--open': !isCollapsed }">▸</span>
         </div>
       </div>
     </header>
 
-    <section v-if="paramsDisplay.length > 0" class="tool-section mt-2">
+    <!-- ask_questions: custom Q&A result section (hidden when collapsed) -->
+    <template v-if="isAskQuestions && !isCollapsed">
+      <section v-if="askQuestionsData && askQuestionsData.length > 0" class="tool-section mt-2">
+        <p class="tool-section-title">{{ t('toolCallResult') }}</p>
+        <div class="tool-qa-list">
+          <div v-for="(qa, idx) in askQuestionsData" :key="idx" class="tool-qa-pair">
+            <div class="tool-qa-q">{{ idx + 1 }}. {{ qa.question }}</div>
+            <div class="tool-qa-a">{{ qa.answer }}</div>
+          </div>
+        </div>
+      </section>
+      <section v-else-if="showResult && item.error" class="tool-section mt-2">
+        <div class="tool-error">{{ errorDisplay }}</div>
+      </section>
+    </template>
+
+    <!-- non-ask_questions params section -->
+    <section v-if="!isAskQuestions && paramsDisplay.length > 0" class="tool-section mt-2">
       <p class="tool-section-title">{{ t('toolCallParams') }}</p>
       <div class="tool-kv-list sb-scrollbar">
         <div v-for="row in paramsDisplay" :key="row.key" class="tool-kv-row">
@@ -145,7 +190,7 @@ function onOutputToggle(event: Event) {
       </div>
     </section>
 
-    <section v-if="!isRunSubagent && showResult" class="tool-section mt-2">
+    <section v-if="!isRunSubagent && !isAskQuestions && showResult" class="tool-section mt-2">
       <details v-if="item.output" class="tool-output-details text-sm" @toggle="onOutputToggle">
         <summary
           class="tool-result-summary"
@@ -721,6 +766,63 @@ details[open] > .tool-result-summary .tool-result-arrow {
 .subagent-nested-list :deep(.tool-card) {
   border-color: var(--tool-section-border);
   box-shadow: none;
+}
+
+.tool-header--clickable {
+  cursor: pointer;
+  border-radius: inherit;
+}
+
+.tool-header--clickable:hover {
+  opacity: 0.85;
+}
+
+.tool-collapse-arrow {
+  display: inline-block;
+  font-size: 10px;
+  color: var(--tool-summary-text);
+  transition: transform 150ms ease;
+  flex-shrink: 0;
+}
+
+.tool-collapse-arrow--open {
+  transform: rotate(90deg);
+}
+
+.tool-qa-count {
+  font-size: 11px;
+  color: var(--text-secondary);
+  background: var(--primary-alpha-08);
+  padding: 1px 6px;
+  border-radius: 6px;
+  white-space: nowrap;
+}
+
+.tool-qa-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.tool-qa-pair {
+  border: 1px solid var(--tool-section-border);
+  border-radius: 8px;
+  padding: 8px 10px;
+  background: #000000;
+}
+
+.tool-qa-q {
+  font-size: 12px;
+  color: var(--tool-summary-text);
+  margin-bottom: 4px;
+  line-height: 1.45;
+}
+
+.tool-qa-a {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--tool-detail-body-text);
+  line-height: 1.45;
 }
 
 @keyframes tool-dot-pulse {

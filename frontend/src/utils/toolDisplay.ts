@@ -21,10 +21,52 @@ export interface WebSearchPayload {
 }
 
 export interface ToolResultDisplay {
-  mode: 'text' | 'exec' | 'web_search'
+  mode: 'text' | 'exec' | 'web_search' | 'ask_questions'
   outputText: string
   exec?: ExecOutputPayload
   webSearch?: WebSearchPayload
+}
+
+export interface AskQuestionsAnswer {
+  questionId: string
+  selectedOption: number
+  customAnswer: string
+}
+
+export interface AskQuestionsQuestion {
+  id: string
+  question: string
+  options: string[]
+}
+
+export function parseAskQuestionsAnswers(raw: string): AskQuestionsAnswer[] | null {
+  const parsed = tryParseJSON(raw)
+  if (!Array.isArray(parsed)) return null
+  const answers: AskQuestionsAnswer[] = []
+  for (const item of parsed) {
+    if (!isRecord(item)) return null
+    const questionId = item.questionId
+    const selectedOption = item.selectedOption
+    const customAnswer = item.customAnswer
+    if (typeof questionId !== 'string' || typeof selectedOption !== 'number' || typeof customAnswer !== 'string') return null
+    answers.push({ questionId, selectedOption, customAnswer })
+  }
+  return answers.length > 0 ? answers : null
+}
+
+export function parseAskQuestionsQuestions(raw: string): AskQuestionsQuestion[] | null {
+  const parsed = tryParseJSON(raw)
+  if (!Array.isArray(parsed)) return null
+  const questions: AskQuestionsQuestion[] = []
+  for (const item of parsed) {
+    if (!isRecord(item)) return null
+    const id = item.id
+    const question = item.question
+    const options = item.options
+    if (typeof id !== 'string' || typeof question !== 'string' || !Array.isArray(options)) return null
+    questions.push({ id, question, options: options.filter((o): o is string => typeof o === 'string') })
+  }
+  return questions.length > 0 ? questions : null
 }
 
 function tryParseJSON(raw: string): unknown | null {
@@ -162,6 +204,16 @@ export function buildToolResultDisplay(toolName: string, command: string, output
         mode: 'web_search',
         outputText: formatDisplayText(raw),
         webSearch,
+      }
+    }
+  }
+
+  if (toolName === 'ask_questions') {
+    const answers = parseAskQuestionsAnswers(raw)
+    if (answers) {
+      return {
+        mode: 'ask_questions',
+        outputText: raw,
       }
     }
   }

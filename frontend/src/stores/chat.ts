@@ -502,6 +502,10 @@ export const useChatStore = defineStore('chat', () => {
           item.requiresApproval = data.requiresApproval
           if (data.parentToolCallId) item.parentToolCallId = data.parentToolCallId
           if (data.subagentRunId) item.subagentRunId = data.subagentRunId
+          // Auto-close ask_questions drawer when tool times out or is rejected
+          if (item.toolName === 'ask_questions' && (item.status === 'error' || item.status === 'rejected')) {
+            pendingQuestions.value = null
+          }
         }
         if (!data.parentToolCallId) {
           batch.timeline.push({

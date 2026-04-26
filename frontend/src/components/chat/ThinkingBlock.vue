@@ -99,7 +99,7 @@ const summaryText = computed(() => {
   border: none;
   cursor: default;
   color: var(--text-secondary, #4c4980);
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 500;
   line-height: 1;
   text-align: left;
@@ -167,7 +167,7 @@ const summaryText = computed(() => {
 .thinking-content-text {
   margin: 0;
   color: var(--text-secondary, #4c4980);
-  font-size: 12px;
+  font-size: 14px;
   line-height: 1.55;
   white-space: pre-wrap;
   overflow-wrap: anywhere;

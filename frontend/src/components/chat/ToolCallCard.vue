@@ -378,7 +378,7 @@ function onOutputToggle(event: Event) {
   border: 1px solid var(--tool-command-border);
   border-radius: 7px;
   padding: 1px 6px;
-  font-size: 12px;
+  font-size: 13px;
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
   white-space: nowrap;
   overflow: hidden;
@@ -446,11 +446,11 @@ function onOutputToggle(event: Event) {
 
 .tool-card--dense .tool-label,
 .tool-card--dense .tool-status-text {
-  font-size: 13px;
+  font-size: 14px;
 }
 
 .tool-card--dense .tool-command {
-  font-size: 11px;
+  font-size: 13px;
   padding: 1px 5px;
 }
 
@@ -461,7 +461,7 @@ function onOutputToggle(event: Event) {
 
 .tool-card--dense .tool-section-title {
   margin-bottom: 5px;
-  font-size: 11px;
+  font-size: 13px;
 }
 
 .tool-card--dense .tool-params,
@@ -469,7 +469,7 @@ function onOutputToggle(event: Event) {
 .tool-card--dense .tool-error,
 .tool-card--dense .tool-output,
 .tool-card--dense .tool-output-summary {
-  font-size: 12px;
+  font-size: 14px;
 }
 
 .tool-card--dense .tool-params,
@@ -484,13 +484,13 @@ function onOutputToggle(event: Event) {
 
 .tool-card--dense .tool-action-btn {
   min-height: 28px;
-  font-size: 12px;
+  font-size: 13px;
   padding: 5px 10px;
 }
 
 .tool-section-title {
   margin: 0 0 6px 0;
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 700;
   letter-spacing: 0.02em;
   color: var(--tool-summary-text);
@@ -504,7 +504,7 @@ function onOutputToggle(event: Event) {
   border: 1px solid var(--tool-section-border);
   border-radius: 7px;
   padding: 8px;
-  font-size: 12px;
+  font-size: 14px;
   line-height: 1.45;
   scrollbar-width: thin;
   max-height: 176px;
@@ -530,7 +530,7 @@ function onOutputToggle(event: Event) {
 
 .tool-kv-key {
   color: var(--tool-summary-text);
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.02em;
@@ -540,7 +540,7 @@ function onOutputToggle(event: Event) {
 .tool-kv-value {
   margin: 0;
   color: var(--tool-detail-body-text);
-  font-size: 12px;
+  font-size: 14px;
   line-height: 1.45;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
@@ -613,7 +613,7 @@ function onOutputToggle(event: Event) {
 
 .tool-result-arrow {
   display: inline-block;
-  font-size: 10px;
+  font-size: 12px;
   color: var(--tool-summary-text);
   transition: transform 150ms ease;
   flex-shrink: 0;
@@ -642,7 +642,7 @@ details[open] > .tool-result-summary .tool-result-arrow {
 
 .tool-result-label {
   color: var(--tool-summary-text);
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 700;
   letter-spacing: 0.02em;
   text-transform: uppercase;
@@ -658,7 +658,7 @@ details[open] > .tool-result-summary .tool-result-arrow {
   padding: 2px 8px;
   user-select: none;
   transition: color 150ms ease, border-color 150ms ease, background-color 150ms ease;
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 600;
   line-height: 1.25;
 }
@@ -679,7 +679,7 @@ details[open] > .tool-result-summary .tool-result-arrow {
   color: var(--tool-detail-body-text);
   border: 1px solid var(--tool-section-border);
   border-radius: 7px;
-  font-size: 12px;
+  font-size: 14px;
   line-height: 1.45;
   max-height: 224px;
   overflow-y: auto;
@@ -703,7 +703,7 @@ details[open] > .tool-result-summary .tool-result-arrow {
   border: 1px solid var(--tool-section-border);
   border-radius: 999px;
   padding: 2px 8px;
-  font-size: 11px;
+  font-size: 13px;
   transition: color 150ms ease, border-color 150ms ease, background-color 150ms ease;
 }
 
@@ -724,7 +724,7 @@ details[open] > .tool-result-summary .tool-result-arrow {
 .tool-exec-label {
   margin: 0 0 4px 0;
   color: var(--tool-summary-text);
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.02em;
@@ -743,7 +743,7 @@ details[open] > .tool-result-summary .tool-result-arrow {
 .tool-exec-empty {
   margin-top: 8px;
   color: var(--tool-detail-body-text);
-  font-size: 12px;
+  font-size: 14px;
 }
 
 .tool-result-summary:focus-visible {
@@ -776,7 +776,7 @@ details[open] > .tool-result-summary .tool-result-arrow {
 
 .tool-collapse-arrow {
   display: inline-block;
-  font-size: 10px;
+  font-size: 12px;
   color: var(--tool-summary-text);
   transition: transform 150ms ease;
   flex-shrink: 0;
@@ -787,7 +787,7 @@ details[open] > .tool-result-summary .tool-result-arrow {
 }
 
 .tool-qa-count {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--text-secondary);
   background: var(--primary-alpha-08);
   padding: 1px 6px;
@@ -811,14 +811,14 @@ details[open] > .tool-result-summary .tool-result-arrow {
 }
 
 .tool-qa-q {
-  font-size: 12px;
+  font-size: 14px;
   color: var(--tool-summary-text);
   margin-bottom: 2px;
   line-height: 1.45;
 }
 
 .tool-qa-a {
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 600;
   color: var(--tool-detail-body-text);
   line-height: 1.45;

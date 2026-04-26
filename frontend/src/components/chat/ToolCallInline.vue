@@ -284,7 +284,7 @@ function toggleExpanded() {
   border: none;
   cursor: pointer;
   color: var(--tool-content-text, #64748b);
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 500;
   line-height: 1;
   text-align: left;
@@ -309,7 +309,7 @@ function toggleExpanded() {
 .inline-tool-preamble {
   margin-bottom: 4px;
   color: var(--text-muted, #94a3b8);
-  font-size: 12px;
+  font-size: 13px;
   line-height: 1.4;
   font-style: italic;
 }
@@ -328,7 +328,7 @@ function toggleExpanded() {
   border: 1px solid var(--tool-command-border, rgba(100, 116, 139, 0.2));
   border-radius: 5px;
   padding: 1px 5px;
-  font-size: 11px;
+  font-size: 13px;
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
   white-space: nowrap;
   overflow: hidden;
@@ -337,14 +337,14 @@ function toggleExpanded() {
 
 .inline-tool-pending-label {
   color: var(--tool-pending-text, #facc15);
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 600;
   white-space: nowrap;
 }
 
 .inline-tool-status {
   margin-left: auto;
-  font-size: 13px;
+  font-size: 14px;
   flex-shrink: 0;
   line-height: 1;
 }
@@ -392,7 +392,7 @@ function toggleExpanded() {
 
 .inline-section-title {
   margin: 0 0 4px 0;
-  font-size: 10px;
+  font-size: 13px;
   font-weight: 700;
   letter-spacing: 0.03em;
   text-transform: uppercase;
@@ -419,7 +419,7 @@ function toggleExpanded() {
 }
 
 .inline-kv-key {
-  font-size: 10px;
+  font-size: 13px;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.02em;
@@ -428,7 +428,7 @@ function toggleExpanded() {
 
 .inline-kv-value {
   margin: 0;
-  font-size: 11px;
+  font-size: 14px;
   color: var(--tool-detail-body-text, #e2e8f0);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
@@ -443,7 +443,7 @@ function toggleExpanded() {
 
 .inline-output-text {
   margin: 0;
-  font-size: 11px;
+  font-size: 14px;
   color: var(--tool-detail-body-text, #e2e8f0);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
@@ -463,7 +463,7 @@ function toggleExpanded() {
   border: 1px solid var(--tool-section-border, rgba(100, 116, 139, 0.15));
   border-radius: 999px;
   padding: 1px 6px;
-  font-size: 10px;
+  font-size: 13px;
 }
 
 .inline-kv-pill--ok { border-color: rgba(16, 185, 129, 0.3); }
@@ -475,7 +475,7 @@ function toggleExpanded() {
   background: var(--tool-section-bg, rgba(0, 0, 0, 0.2));
   border: 1px solid var(--tool-section-border, rgba(100, 116, 139, 0.1));
   border-radius: 5px;
-  font-size: 11px;
+  font-size: 14px;
   color: var(--tool-detail-body-text, #e2e8f0);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
@@ -490,7 +490,7 @@ function toggleExpanded() {
 .inline-exec-empty {
   margin-top: 4px;
   color: var(--tool-detail-body-text, #e2e8f0);
-  font-size: 11px;
+  font-size: 14px;
   line-height: 1.4;
 }
 
@@ -510,7 +510,7 @@ function toggleExpanded() {
 
 .inline-web-title {
   color: var(--tool-command-text, #4f46e5);
-  font-size: 11px;
+  font-size: 14px;
   font-weight: 600;
   line-height: 1.4;
   text-decoration: none;
@@ -524,7 +524,7 @@ function toggleExpanded() {
 .inline-web-content {
   margin: 3px 0 0;
   color: var(--tool-content-text, #2e2a64);
-  font-size: 11px;
+  font-size: 14px;
   line-height: 1.4;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
@@ -533,7 +533,7 @@ function toggleExpanded() {
 .inline-error {
   margin-top: 4px;
   color: var(--tool-error-text, #ef4444);
-  font-size: 11px;
+  font-size: 14px;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   line-height: 1.4;
@@ -555,14 +555,14 @@ function toggleExpanded() {
 }
 
 .inline-qa-q {
-  font-size: 11px;
+  font-size: 14px;
   color: var(--tool-summary-text, #94a3b8);
   line-height: 1.4;
   margin-bottom: 2px;
 }
 
 .inline-qa-a {
-  font-size: 11px;
+  font-size: 14px;
   font-weight: 600;
   color: var(--tool-detail-body-text, #e2e8f0);
   line-height: 1.4;
@@ -594,7 +594,7 @@ function toggleExpanded() {
   min-height: 24px;
   padding: 3px 10px;
   border-radius: 6px;
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 600;
   cursor: pointer;
   transition: background-color 150ms ease, box-shadow 150ms ease;

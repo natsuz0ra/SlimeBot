@@ -18,7 +18,7 @@
   color: #c4b5fd;
   overflow-x: auto;
   white-space: pre;
-  font-size: 13px;
+  font-size: 14px;
   border: 1px solid var(--primary-alpha-20);
   scrollbar-width: thin;
   scrollbar-color: var(--scrollbar-thumb) transparent;
@@ -45,7 +45,7 @@
 .bubble-markdown pre > code { display: block; }
 .bubble-markdown code {
   font-family: var(--font-mono);
-  font-size: 0.875em;
+  font-size: 1em;
 }
 .bubble-markdown :not(pre) > code {
   padding: 2px 6px;
@@ -80,7 +80,7 @@
   border-collapse: collapse;
   margin: 8px 0;
   width: 100%;
-  font-size: 13px;
+  font-size: 14px;
 }
 .bubble-markdown th, .bubble-markdown td {
   border: 1px solid var(--primary-alpha-15);

@@ -285,7 +285,7 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown))
 }
 
 .drawer-step-badge {
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 600;
   padding: 2px 8px;
   border-radius: 6px;
@@ -404,7 +404,7 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown))
 }
 
 .qa-confirm-question {
-  font-size: 12px;
+  font-size: 14px;
   color: var(--text-secondary);
   margin-bottom: 4px;
 }

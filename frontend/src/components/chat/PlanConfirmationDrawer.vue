@@ -203,7 +203,7 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown))
 
 .drawer-plan-content {
   margin: 0;
-  font-size: 12px;
+  font-size: 14px;
   line-height: 1.5;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
@@ -218,7 +218,7 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown))
   padding: 10px;
   background: var(--tool-section-bg);
   color: var(--text-primary);
-  font-size: 13px;
+  font-size: 14px;
   line-height: 1.5;
   resize: none;
   outline: none;

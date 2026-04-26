@@ -112,7 +112,7 @@ function toggleExpand() {
 }
 
 .plan-block-title {
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 600;
   line-height: 1;
   letter-spacing: 0;

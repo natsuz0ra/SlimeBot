@@ -527,15 +527,16 @@ func (a *AgentService) RunAgentLoop(
 
 			// ask_questions tool: use answers from approval directly, skip executeInvocation.
 			if invocation.toolName == constants.AskQuestionsTool {
+				formattedAnswers := formatAskQuestionsAnswers(params["questions"], answers)
 				notifyToolResult(callbacks, ToolCallResult{
 					ToolCallID:       tc.ID,
 					ToolName:         invocation.toolName,
 					Command:          invocation.command,
 					RequiresApproval: invocation.requiresApproval,
 					Status:           constants.ToolCallStatusCompleted,
-					Output:           answers,
+					Output:           formattedAnswers,
 				})
-				messages = appendToolMessage(messages, tc.ID, "User answers:\n"+answers)
+				messages = appendToolMessage(messages, tc.ID, "User answers:\n"+formattedAnswers)
 				continue
 			}
 
@@ -684,4 +685,56 @@ func appendToolMessage(messages []llmsvc.ChatMessage, toolCallID string, content
 		ToolCallID: toolCallID,
 		Content:    content,
 	})
+}
+
+func formatAskQuestionsAnswers(questionsJSON string, answersJSON string) string {
+	type qItem struct {
+		ID       string   `json:"id"`
+		Question string   `json:"question"`
+		Options  []string `json:"options"`
+	}
+	type answer struct {
+		QuestionID     string `json:"questionId"`
+		SelectedOption int    `json:"selectedOption"`
+		CustomAnswer   string `json:"customAnswer"`
+	}
+	type readableAnswer struct {
+		ID       string `json:"id"`
+		Question string `json:"question"`
+		Answer   string `json:"answer"`
+	}
+
+	var questions []qItem
+	if err := json.Unmarshal([]byte(questionsJSON), &questions); err != nil {
+		return answersJSON
+	}
+	var answers []answer
+	if err := json.Unmarshal([]byte(answersJSON), &answers); err != nil {
+		return answersJSON
+	}
+
+	qMap := make(map[string]qItem, len(questions))
+	for _, q := range questions {
+		qMap[q.ID] = q
+	}
+
+	result := make([]readableAnswer, 0, len(answers))
+	for _, a := range answers {
+		q, ok := qMap[a.QuestionID]
+		if !ok {
+			result = append(result, readableAnswer{ID: a.QuestionID, Question: "(unknown)", Answer: a.CustomAnswer})
+			continue
+		}
+		ansText := a.CustomAnswer
+		if a.SelectedOption >= 0 && a.SelectedOption < len(q.Options) {
+			ansText = q.Options[a.SelectedOption]
+		}
+		result = append(result, readableAnswer{ID: q.ID, Question: q.Question, Answer: ansText})
+	}
+
+	b, err := json.Marshal(result)
+	if err != nil {
+		return answersJSON
+	}
+	return string(b)
 }

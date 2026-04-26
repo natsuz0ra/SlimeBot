@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import { ref, watch, nextTick, onMounted, onUnmounted } from 'vue'
+import { ref, reactive, watch, nextTick, onMounted, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 interface QuestionItem {
   id: string
   question: string
   options: string[]
+  option_descriptions?: string[]
 }
 
 interface Answer {
@@ -29,6 +30,26 @@ const { t } = useI18n()
 const step = ref<'questions' | 'confirm'>('questions')
 const answers = ref<Answer[]>([])
 const submitBtnRef = ref<HTMLButtonElement | null>(null)
+
+const tooltipState = reactive({
+  visible: false,
+  text: '',
+  x: 0,
+  y: 0,
+})
+
+function showTooltip(e: MouseEvent, text: string) {
+  const el = e.currentTarget as HTMLElement
+  const rect = el.getBoundingClientRect()
+  tooltipState.visible = true
+  tooltipState.text = text
+  tooltipState.x = rect.left + rect.width / 2
+  tooltipState.y = rect.top - 8
+}
+
+function hideTooltip() {
+  tooltipState.visible = false
+}
 
 watch(
   () => props.visible,
@@ -126,10 +147,6 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown))
         <div class="drawer-panel" role="dialog" aria-modal="true" :aria-label="t('qaTitle')">
           <header class="drawer-header">
             <h3 class="drawer-title">{{ t('qaTitle') }}</h3>
-            <span v-if="step === 'questions'" class="drawer-step-badge">
-              {{ t('qaStepQuestions') }}
-            </span>
-            <span v-else class="drawer-step-badge">{{ t('qaStepConfirm') }}</span>
           </header>
 
           <section class="drawer-body">
@@ -155,6 +172,9 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown))
                     />
                     <span class="qa-option-radio" />
                     <span class="qa-option-text">{{ opt }}</span>
+                    <span v-if="q.option_descriptions?.[oi]" class="qa-option-help ml-auto flex-shrink-0" @mouseenter="showTooltip($event, q.option_descriptions[oi])" @mouseleave="hideTooltip">
+                      <span class="qa-option-help-icon">?</span>
+                    </span>
                   </label>
                   <!-- Custom input option -->
                   <label
@@ -221,6 +241,16 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown))
             </template>
           </footer>
         </div>
+      </div>
+    </Transition>
+    <Transition name="tooltip-fade">
+      <div
+        v-if="tooltipState.visible"
+        class="qa-desc-floating-tooltip"
+        :style="{ left: tooltipState.x + 'px', top: tooltipState.y + 'px' }"
+      >
+        {{ tooltipState.text }}
+        <span class="qa-desc-floating-arrow" />
       </div>
     </Transition>
   </Teleport>
@@ -370,6 +400,27 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown))
 .qa-option-text {
   font-size: 13px;
   color: var(--text-primary);
+}
+
+.qa-option-help {
+  display: inline-flex;
+  align-items: center;
+  cursor: help;
+}
+
+.qa-option-help-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  font-size: 10px;
+  font-weight: 700;
+  background: var(--tool-section-border);
+  color: var(--text-secondary);
+  line-height: 1;
+  cursor: help;
 }
 
 .qa-custom-input {
@@ -523,5 +574,42 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown))
   .drawer-slide-leave-active .drawer-panel {
     transition: none;
   }
+}
+</style>
+
+<style>
+.qa-desc-floating-tooltip {
+  position: fixed;
+  transform: translate(-50%, -100%);
+  width: 220px;
+  border-radius: 8px;
+  padding: 8px 12px;
+  font-size: 12px;
+  line-height: 20px;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.78);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  z-index: 99999;
+  pointer-events: none;
+}
+
+.qa-desc-floating-arrow {
+  position: absolute;
+  bottom: -4px;
+  left: 50%;
+  transform: translateX(-50%) rotate(45deg);
+  width: 8px;
+  height: 8px;
+  background: rgba(0, 0, 0, 0.78);
+}
+
+.tooltip-fade-enter-active,
+.tooltip-fade-leave-active {
+  transition: opacity 150ms;
+}
+
+.tooltip-fade-enter-from,
+.tooltip-fade-leave-to {
+  opacity: 0;
 }
 </style>

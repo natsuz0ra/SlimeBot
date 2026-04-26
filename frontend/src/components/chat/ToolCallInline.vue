@@ -4,7 +4,7 @@ import { useI18n } from 'vue-i18n'
 import { mdiConsoleLine, mdiHelpCircleOutline, mdiWeb } from '@mdi/js'
 import MdiIcon from '@/components/ui/MdiIcon.vue'
 import type { ToolCallItem } from '@/api/chat'
-import { buildToolResultDisplay, formatDisplayText, formatToolParams, parseAskQuestionsAnswers, parseAskQuestionsQuestions } from '@/utils/toolDisplay'
+import { buildToolResultDisplay, formatDisplayText, formatToolParams, parseAskQuestionsReadableAnswers } from '@/utils/toolDisplay'
 import { shouldAutoExpandToolCall } from '@/utils/toolApprovalExpansion'
 
 const props = withDefaults(defineProps<{
@@ -86,18 +86,11 @@ const isAskQuestions = computed(() => props.item.toolName === 'ask_questions')
 
 const askQuestionsData = computed(() => {
   if (!isAskQuestions.value) return null
-  const questionsRaw = props.item.params?.questions ?? ''
-  const questions = parseAskQuestionsQuestions(questionsRaw)
-  const answers = parseAskQuestionsAnswers(props.item.output ?? '')
-  if (!questions || !answers) return null
-  return questions.map((q) => {
-    const answer = answers.find((a) => a.questionId === q.id)
-    let displayAnswer = ''
-    if (answer) {
-      displayAnswer = answer.selectedOption >= 0 ? (q.options[answer.selectedOption] ?? '') : answer.customAnswer
-    }
-    return { question: q.question, answer: displayAnswer }
-  })
+  const readableAnswers = parseAskQuestionsReadableAnswers(props.item.output ?? '')
+  if (readableAnswers) {
+    return readableAnswers.map((a) => ({ question: a.question, answer: a.answer }))
+  }
+  return null
 })
 
 watch(
@@ -160,7 +153,7 @@ function toggleExpanded() {
 
     <Transition name="inline-expand">
       <div v-if="expanded" class="inline-tool-detail">
-        <section v-if="paramsDisplay.length > 0" class="inline-section">
+        <section v-if="!isAskQuestions && paramsDisplay.length > 0" class="inline-section">
           <p class="inline-section-title">{{ t('toolCallParams') }}</p>
           <div class="inline-kv-list sb-scrollbar">
             <div v-for="row in paramsDisplay" :key="row.key" class="inline-kv-row">
@@ -175,7 +168,8 @@ function toggleExpanded() {
             <div class="inline-qa-list">
               <div v-for="(qa, idx) in askQuestionsData" :key="idx" class="inline-qa-pair">
                 <div class="inline-qa-q">{{ idx + 1 }}. {{ qa.question }}</div>
-                <div class="inline-qa-a">{{ qa.answer }}</div>
+                <div v-if="qa.answer" class="inline-qa-a">{{ qa.answer }}</div>
+                <div v-else class="inline-qa-a inline-qa-a--empty">{{ t('qaNotSelected') }}</div>
               </div>
             </div>
           </template>
@@ -566,6 +560,12 @@ function toggleExpanded() {
   font-weight: 600;
   color: var(--tool-detail-body-text, #e2e8f0);
   line-height: 1.4;
+}
+
+.inline-qa-a--empty {
+  color: var(--text-muted, #94a3b8);
+  font-weight: 400;
+  font-style: italic;
 }
 
 .inline-nested-list {

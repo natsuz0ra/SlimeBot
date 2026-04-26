@@ -33,10 +33,17 @@ export interface AskQuestionsAnswer {
   customAnswer: string
 }
 
+export interface AskQuestionsReadableAnswer {
+  id: string
+  question: string
+  answer: string
+}
+
 export interface AskQuestionsQuestion {
   id: string
   question: string
   options: string[]
+  option_descriptions?: string[]
 }
 
 export function parseAskQuestionsAnswers(raw: string): AskQuestionsAnswer[] | null {
@@ -54,6 +61,21 @@ export function parseAskQuestionsAnswers(raw: string): AskQuestionsAnswer[] | nu
   return answers.length > 0 ? answers : null
 }
 
+export function parseAskQuestionsReadableAnswers(raw: string): AskQuestionsReadableAnswer[] | null {
+  const parsed = tryParseJSON(raw)
+  if (!Array.isArray(parsed)) return null
+  const answers: AskQuestionsReadableAnswer[] = []
+  for (const item of parsed) {
+    if (!isRecord(item)) return null
+    const id = item.id
+    const question = item.question
+    const answer = item.answer
+    if (typeof id !== 'string' || typeof question !== 'string' || typeof answer !== 'string') return null
+    answers.push({ id, question, answer })
+  }
+  return answers.length > 0 ? answers : null
+}
+
 export function parseAskQuestionsQuestions(raw: string): AskQuestionsQuestion[] | null {
   const parsed = tryParseJSON(raw)
   if (!Array.isArray(parsed)) return null
@@ -64,7 +86,7 @@ export function parseAskQuestionsQuestions(raw: string): AskQuestionsQuestion[] 
     const question = item.question
     const options = item.options
     if (typeof id !== 'string' || typeof question !== 'string' || !Array.isArray(options)) return null
-    questions.push({ id, question, options: options.filter((o): o is string => typeof o === 'string') })
+    questions.push({ id, question, options: options.filter((o): o is string => typeof o === 'string'), option_descriptions: Array.isArray(item.option_descriptions) ? item.option_descriptions.filter((d: unknown): d is string => typeof d === 'string') : undefined })
   }
   return questions.length > 0 ? questions : null
 }

@@ -12,9 +12,10 @@ import (
 type askQuestionsTool struct{}
 
 type questionItem struct {
-	ID       string   `json:"id"`
-	Question string   `json:"question"`
-	Options  []string `json:"options"`
+	ID                 string   `json:"id"`
+	Question           string   `json:"question"`
+	Options            []string `json:"options"`
+	OptionDescriptions []string `json:"option_descriptions,omitempty"`
 }
 
 func init() {
@@ -27,7 +28,8 @@ func (a *askQuestionsTool) Description() string {
 	return "Ask the user structured clarification questions when the request is ambiguous or has multiple possible interpretations. " +
 		"Use this tool when you need to disambiguate user intent before proceeding. " +
 		"Each question can have up to 5 preset options; the UI always adds a custom-input option automatically. " +
-		"The user's answers will be returned as the tool result."
+		"Each option can include an optional description for more context. " +
+		"The user's answers will be returned as human-readable text (question and selected answer in plain text)."
 }
 
 func (a *askQuestionsTool) Commands() []Command {
@@ -46,8 +48,8 @@ func (a *askQuestionsTool) Commands() []Command {
 				{
 					Name:        "questions",
 					Required:    true,
-					Description: "JSON array of questions. Each item: {\"id\":\"unique_id\",\"question\":\"the question text\",\"options\":[\"option1\",\"option2\"]}. Max 5 questions, max 5 options each.",
-					Example:     `[{"id":"q1","question":"Which framework do you prefer?","options":["React","Vue","Angular"]}]`,
+					Description: "JSON array of questions. Each item: {\"id\":\"unique_id\",\"question\":\"the question text\",\"options\":[\"option1\",\"option2\"],\"option_descriptions\":[\"desc for option1\",\"desc for option2\"]}. Max 5 questions, max 5 options each. option_descriptions is optional; if provided, its length must match options.",
+					Example:     `[{"id":"q1","question":"Which framework do you prefer?","options":["React","Vue","Angular"],"option_descriptions":["A declarative component-based UI library","A progressive framework for building UIs","A full-featured enterprise framework"]}]`,
 				},
 			},
 		},
@@ -90,6 +92,9 @@ func (a *askQuestionsTool) ask(params map[string]string) (*ExecuteResult, error)
 		}
 		if len(q.Options) > constants.AskQuestionsMaxOptionsPerQ {
 			return nil, fmt.Errorf("question %d (%s): too many options: got %d, max %d.", i+1, q.ID, len(q.Options), constants.AskQuestionsMaxOptionsPerQ)
+		}
+		if len(q.OptionDescriptions) > 0 && len(q.OptionDescriptions) != len(q.Options) {
+			return nil, fmt.Errorf("question %d (%s): option_descriptions length (%d) must match options length (%d) or be omitted.", i+1, q.ID, len(q.OptionDescriptions), len(q.Options))
 		}
 	}
 

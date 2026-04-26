@@ -1,9 +1,12 @@
 import { Box, Text, useInput } from "ink";
+import { wrapText } from "../utils/format.js";
+import { MENU_ITEM_COLORS } from "./MenuView.js";
 
 interface QuestionItem {
   id: string;
   question: string;
   options: string[];
+  option_descriptions?: string[];
 }
 
 interface Answer {
@@ -27,7 +30,7 @@ interface Props {
 
 function getDisplayAnswer(q: QuestionItem, a: Answer): string {
   if (a.selectedOption >= 0 && a.selectedOption < q.options.length) return q.options[a.selectedOption];
-  return a.customAnswer || "(未回答)";
+  return a.customAnswer || "(Unanswered)";
 }
 
 export default function QuestionAnswerView({
@@ -52,7 +55,7 @@ export default function QuestionAnswerView({
     return (
       <Box flexDirection="column" paddingX={1} width={width}>
         <Box borderStyle="round" borderColor="cyan" paddingX={1}>
-          <Text bold color="cyan">确认回答</Text>
+          <Text bold color="cyan">Confirm Answers</Text>
         </Box>
         <Box flexDirection="column" marginTop={1}>
           {questions.map((q, i) => (
@@ -63,16 +66,16 @@ export default function QuestionAnswerView({
           ))}
         </Box>
         <Box marginTop={1}>
-          <Text color={cursor === 0 ? "cyan" : "gray"}>[Enter] 提交</Text>
+          <Text color={cursor === 0 ? "cyan" : "gray"}>[Enter] Submit</Text>
           <Text>  </Text>
-          <Text color={cursor === 1 ? "yellow" : "gray"}>[Esc] 返回</Text>
+          <Text color={cursor === 1 ? "yellow" : "gray"}>[Esc] Back</Text>
         </Box>
       </Box>
     );
   }
 
   const q = questions[currentIndex];
-  if (!q) return <Text>无问题</Text>;
+  if (!q) return <Text>No questions</Text>;
   const currentAnswer = answers[currentIndex];
   const totalOptions = q.options.length + 1; // +1 for custom
   const isCustomSelected = currentAnswer?.selectedOption === -1;
@@ -80,7 +83,7 @@ export default function QuestionAnswerView({
   return (
     <Box flexDirection="column" paddingX={1} width={width}>
       <Box borderStyle="round" borderColor="cyan" paddingX={1}>
-        <Text bold color="cyan">澄清问题</Text>
+        <Text bold color="cyan">Questions</Text>
         <Text> ({currentIndex + 1}/{questions.length})</Text>
       </Box>
       <Box flexDirection="column" marginTop={1}>
@@ -88,12 +91,20 @@ export default function QuestionAnswerView({
         {q.options.map((opt, oi) => {
           const isSelected = currentAnswer?.selectedOption === oi;
           const isHovered = cursor === oi;
+          const desc = q.option_descriptions?.[oi];
           return (
-            <Box key={oi}>
-              <Text>{isHovered ? "❯" : " "} </Text>
-              <Text color={isSelected ? "green" : isHovered ? "cyan" : "white"}>
-                {isSelected ? "●" : "○"} {opt}
-              </Text>
+            <Box key={oi} flexDirection="column">
+              <Box>
+                <Text>{isHovered ? "❯" : " "} </Text>
+                <Text color={isSelected ? "green" : isHovered ? "cyan" : "white"}>
+                  {isSelected ? "●" : "○"} {opt}
+                </Text>
+              </Box>
+              {desc && wrapText(desc, width - 4).split("\n").map((line, li) => (
+                <Text key={`desc-${oi}-${li}`} color={MENU_ITEM_COLORS.description}>
+                  {`    ${line}`}
+                </Text>
+              ))}
             </Box>
           );
         })}
@@ -101,17 +112,17 @@ export default function QuestionAnswerView({
         <Box>
           <Text>{cursor === q.options.length ? "❯" : " "} </Text>
           <Text color={isCustomSelected ? "green" : cursor === q.options.length ? "cyan" : "white"}>
-            {isCustomSelected ? "●" : "○"} 自定义输入
+            {isCustomSelected ? "●" : "○"} Custom input
           </Text>
         </Box>
         {isCustomSelected && (
           <Box marginLeft={2} marginTop={0}>
-            <Text color="gray">{customInput || "输入自定义回答..."}</Text>
+            <Text color="gray">{customInput || "Type custom answer..."}</Text>
           </Box>
         )}
       </Box>
       <Box marginTop={1}>
-        <Text color="gray">↑↓ 选择  Enter 确认  Esc 取消</Text>
+        <Text color="gray">Up/Down navigate  Enter select  Esc cancel</Text>
       </Box>
     </Box>
   );

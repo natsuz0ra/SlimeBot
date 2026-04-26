@@ -4,7 +4,7 @@ import { mdiCheck, mdiClose, mdiConsoleLine, mdiHelpCircleOutline, mdiWeb } from
 import { useI18n } from 'vue-i18n'
 import MdiIcon from '@/components/ui/MdiIcon.vue'
 import type { ToolCallItem } from '@/api/chat'
-import { buildToolResultDisplay, formatDisplayText, formatToolParams, parseAskQuestionsAnswers, parseAskQuestionsQuestions } from '@/utils/toolDisplay'
+import { buildToolResultDisplay, formatDisplayText, formatToolParams, parseAskQuestionsReadableAnswers } from '@/utils/toolDisplay'
 
 const props = withDefaults(defineProps<{
   item: ToolCallItem & { preamble?: string }
@@ -87,7 +87,7 @@ const paramsDisplay = computed(() => {
   return formatToolParams(props.item.params)
 })
 
-const showActions = computed(() => props.item.status === 'pending')
+const showActions = computed(() => props.item.status === 'pending' && !isAskQuestions.value)
 const showResult = computed(() => props.item.status === 'completed' || props.item.status === 'error')
 const resultDisplay = computed(() => buildToolResultDisplay(props.item.toolName, props.item.command, props.item.output))
 const errorDisplay = computed(() => (props.item.error ? formatDisplayText(props.item.error) : ''))
@@ -99,18 +99,11 @@ const isAskQuestions = computed(() => props.item.toolName === 'ask_questions')
 
 const askQuestionsData = computed(() => {
   if (!isAskQuestions.value) return null
-  const questionsRaw = props.item.params?.questions ?? ''
-  const questions = parseAskQuestionsQuestions(questionsRaw)
-  const answers = parseAskQuestionsAnswers(props.item.output ?? '')
-  if (!questions || !answers) return null
-  return questions.map((q) => {
-    const answer = answers.find((a) => a.questionId === q.id)
-    let displayAnswer = ''
-    if (answer) {
-      displayAnswer = answer.selectedOption >= 0 ? (q.options[answer.selectedOption] ?? '') : answer.customAnswer
-    }
-    return { question: q.question, answer: displayAnswer }
-  })
+  const readableAnswers = parseAskQuestionsReadableAnswers(props.item.output ?? '')
+  if (readableAnswers) {
+    return readableAnswers.map((a) => ({ question: a.question, answer: a.answer }))
+  }
+  return null
 })
 
 function toggleCollapse() {
@@ -168,7 +161,8 @@ function onOutputToggle(event: Event) {
       <section v-if="askQuestionsData && askQuestionsData.length > 0" class="tool-qa-list mt-2">
         <div v-for="(qa, idx) in askQuestionsData" :key="idx" class="tool-qa-pair">
           <div class="tool-qa-q">{{ idx + 1 }}. {{ qa.question }}</div>
-          <div class="tool-qa-a">{{ qa.answer }}</div>
+          <div v-if="qa.answer" class="tool-qa-a">{{ qa.answer }}</div>
+          <div v-else class="tool-qa-a tool-qa-a--empty">{{ t('qaNotSelected') }}</div>
         </div>
       </section>
       <section v-else-if="showResult && item.error" class="tool-section mt-2">
@@ -822,6 +816,12 @@ details[open] > .tool-result-summary .tool-result-arrow {
   font-weight: 600;
   color: var(--tool-detail-body-text);
   line-height: 1.45;
+}
+
+.tool-qa-a--empty {
+  color: var(--text-muted);
+  font-weight: 400;
+  font-style: italic;
 }
 
 @keyframes tool-dot-pulse {

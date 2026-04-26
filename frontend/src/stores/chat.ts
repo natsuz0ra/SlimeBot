@@ -49,6 +49,7 @@ export const useChatStore = defineStore('chat', () => {
     id: string
     question: string
     options: string[]
+    option_descriptions?: string[]
   }
   const pendingQuestions = ref<{ toolCallId: string; questions: QuestionItem[] } | null>(null)
 
@@ -710,9 +711,13 @@ export const useChatStore = defineStore('chat', () => {
     const batch = replyBatches.value.find((group) => group.toolCalls.some((tc) => tc.toolCallId === toolCallId))
     const item = batch?.toolCalls.find((tc) => tc.toolCallId === toolCallId)
     if (item) {
-      item.status = 'rejected'
+      item.status = 'executing'
     }
-    ws.sendToolApproval(toolCallId, false)
+    const questions = pendingQuestions.value?.questions ?? []
+    const nullAnswers = JSON.stringify(
+      questions.map((q) => ({ questionId: q.id, selectedOption: -2, customAnswer: '' })),
+    )
+    ws.sendToolApproval(toolCallId, true, nullAnswers)
     pendingQuestions.value = null
   }
 

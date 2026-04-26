@@ -1128,7 +1128,10 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
         }
       }
       if (key.escape) {
-        socketRef.current?.sendToolApproval(state.qaToolCallId, false);
+        const cancelAnswers = JSON.stringify(
+          state.qaQuestions.map((q: { id: string }) => ({ questionId: q.id, selectedOption: -2, customAnswer: "" })),
+        );
+        socketRef.current?.sendToolApproval(state.qaToolCallId, true, cancelAnswers);
         dispatch({ type: "CLEAR_QA" } as AppAction);
       }
       return;
@@ -1405,7 +1408,10 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
             dispatch({ type: "QA_SET_CUSTOM_INPUT", value } as AppAction);
           }}
           onEscape={() => {
-            socketRef.current?.sendToolApproval(state.qaToolCallId, false);
+            const cancelAnswers = JSON.stringify(
+              state.qaQuestions.map((q: { id: string }) => ({ questionId: q.id, selectedOption: -2, customAnswer: "" })),
+            );
+            socketRef.current?.sendToolApproval(state.qaToolCallId, true, cancelAnswers);
             dispatch({ type: "CLEAR_QA" } as AppAction);
           }}
           columns={width}

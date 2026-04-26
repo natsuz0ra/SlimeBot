@@ -303,7 +303,7 @@ export interface AppState {
 
   // Question-answer
   qaToolCallId: string;
-  qaQuestions: { id: string; question: string; options: string[] }[];
+  qaQuestions: { id: string; question: string; options: string[]; option_descriptions?: string[] }[];
   qaCurrentIndex: number;
   qaAnswers: { questionId: string; selectedOption: number; customAnswer: string }[];
   qaStep: "questions" | "confirm";
@@ -373,7 +373,7 @@ export type AppAction =
   | { type: "PLAN_BODY"; planBody: string; narration?: string }
   | { type: "PLAN_START" }
   | { type: "VIEW_THINKING_DETAIL"; content: string }
-  | { type: "SET_QA"; toolCallId: string; questions: { id: string; question: string; options: string[] }[] }
+  | { type: "SET_QA"; toolCallId: string; questions: { id: string; question: string; options: string[]; option_descriptions?: string[] }[] }
   | { type: "QA_NAV"; delta: number }
   | { type: "QA_SELECT"; optionIndex: number }
   | { type: "QA_SET_CUSTOM_INPUT"; value: string }

@@ -16,6 +16,8 @@ import {
   TOOL_OUTPUT_PREVIEW_LINES,
   formatToolExecutionOutput,
   formatToolParamEntries,
+  formatAskQuestionsDisplay,
+  formatAskQuestionsPending,
 } from "../utils/format.js";
 import { GradientFlowText } from "./GradientFlowText.js";
 import { Markdown, StreamingMarkdown } from "./Markdown.js";
@@ -360,8 +362,16 @@ function TimelineBlock({
       entry.toolName || "",
       entry.command || "",
     );
-  const paramLines = formatToolParamLines(entry, maxWidth);
-  const resultLines = (status === "completed" || status === "error" || status === "rejected")
+  const isAskQuestions = (entry.toolName || "").trim().toLowerCase() === "ask_questions";
+  let qaDisplayLines: string[] | null = null;
+  if (isAskQuestions && (status === "completed" || status === "error" || status === "rejected")) {
+    qaDisplayLines = formatAskQuestionsDisplay((entry.output || entry.content) || "");
+  } else if (isAskQuestions && (status === "pending" || status === "executing")) {
+    const questionsRaw = entry.params?.questions;
+    if (questionsRaw) qaDisplayLines = formatAskQuestionsPending(questionsRaw);
+  }
+  const paramLines = qaDisplayLines ? [] : formatToolParamLines(entry, maxWidth);
+  const resultLines = qaDisplayLines ? [] : (status === "completed" || status === "error" || status === "rejected")
     ? formatToolOutputLines(entry, maxWidth, toolOutputExpanded)
     : [];
   const subStreamLines =
@@ -378,19 +388,29 @@ function TimelineBlock({
         <Text>{" "}</Text>
         <Text>{invocation}{renderToolSuffix(status)}</Text>
       </Text>
-      {paramLines.map((line, index) => (
-        <Text key={`${entry.toolCallId || invocation}-param-${index}`} color="gray">
-          {line}
-        </Text>
-      ))}
-      {subStreamLines.map((line, index) => (
-        <Text key={`${entry.toolCallId || invocation}-sub-${index}`} color="gray">
-          {line}
-        </Text>
-      ))}
-      {resultLines.map((line, index) => (
-        <Text key={`${entry.toolCallId || invocation}-result-${index}`}>{line}</Text>
-      ))}
+      {qaDisplayLines ? (
+        qaDisplayLines.map((line, index) => (
+          <Text key={`${entry.toolCallId || invocation}-qa-${index}`} color="gray">
+            {"   "}{line}
+          </Text>
+        ))
+      ) : (
+        <>
+          {paramLines.map((line, index) => (
+            <Text key={`${entry.toolCallId || invocation}-param-${index}`} color="gray">
+              {line}
+            </Text>
+          ))}
+          {subStreamLines.map((line, index) => (
+            <Text key={`${entry.toolCallId || invocation}-sub-${index}`} color="gray">
+              {line}
+            </Text>
+          ))}
+          {resultLines.map((line, index) => (
+            <Text key={`${entry.toolCallId || invocation}-result-${index}`}>{line}</Text>
+          ))}
+        </>
+      )}
     </Box>
   );
 }

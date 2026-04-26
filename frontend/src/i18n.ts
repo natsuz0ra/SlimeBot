@@ -157,7 +157,7 @@ const messages = {
     planConfirmBack: '返回',
     planExecuteUserMessage: '确认执行该计划',
 
-    qaTitle: '澄清问题',
+    qaTitle: '问答',
     qaStepQuestions: '回答问题',
     qaStepConfirm: '确认回答',
     qaNext: '下一步',
@@ -167,6 +167,7 @@ const messages = {
     qaCustomOption: '自定义输入',
     qaCustomPlaceholder: '请输入你的回答...',
     qaConfirmTitle: '请确认你的回答',
+    qaNotSelected: '未选择',
   },
   'en-US': {
     newSession: 'New Session',
@@ -324,7 +325,7 @@ const messages = {
     planConfirmBack: 'Back',
     planExecuteUserMessage: 'Execute this plan',
 
-    qaTitle: 'Clarification Questions',
+    qaTitle: 'Q&A',
     qaStepQuestions: 'Answer Questions',
     qaStepConfirm: 'Confirm Answers',
     qaNext: 'Next',
@@ -334,6 +335,7 @@ const messages = {
     qaCustomOption: 'Custom Input',
     qaCustomPlaceholder: 'Type your answer...',
     qaConfirmTitle: 'Please confirm your answers',
+    qaNotSelected: 'Not selected',
   },
 }
 

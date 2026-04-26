@@ -165,13 +165,10 @@ function onOutputToggle(event: Event) {
 
     <!-- ask_questions: custom Q&A result section (hidden when collapsed) -->
     <template v-if="isAskQuestions && !isCollapsed">
-      <section v-if="askQuestionsData && askQuestionsData.length > 0" class="tool-section mt-2">
-        <p class="tool-section-title">{{ t('toolCallResult') }}</p>
-        <div class="tool-qa-list">
-          <div v-for="(qa, idx) in askQuestionsData" :key="idx" class="tool-qa-pair">
-            <div class="tool-qa-q">{{ idx + 1 }}. {{ qa.question }}</div>
-            <div class="tool-qa-a">{{ qa.answer }}</div>
-          </div>
+      <section v-if="askQuestionsData && askQuestionsData.length > 0" class="tool-qa-list mt-2">
+        <div v-for="(qa, idx) in askQuestionsData" :key="idx" class="tool-qa-pair">
+          <div class="tool-qa-q">{{ idx + 1 }}. {{ qa.question }}</div>
+          <div class="tool-qa-a">{{ qa.answer }}</div>
         </div>
       </section>
       <section v-else-if="showResult && item.error" class="tool-section mt-2">
@@ -801,20 +798,22 @@ details[open] > .tool-result-summary .tool-result-arrow {
 .tool-qa-list {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 0;
 }
 
 .tool-qa-pair {
-  border: 1px solid var(--tool-section-border);
-  border-radius: 8px;
-  padding: 8px 10px;
-  background: #000000;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--tool-section-border);
+}
+
+.tool-qa-pair:last-child {
+  border-bottom: none;
 }
 
 .tool-qa-q {
   font-size: 12px;
   color: var(--tool-summary-text);
-  margin-bottom: 4px;
+  margin-bottom: 2px;
   line-height: 1.45;
 }
 

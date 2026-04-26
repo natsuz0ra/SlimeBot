@@ -1,10 +1,10 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { mdiConsoleLine, mdiWeb } from '@mdi/js'
+import { mdiConsoleLine, mdiHelpCircleOutline, mdiWeb } from '@mdi/js'
 import MdiIcon from '@/components/ui/MdiIcon.vue'
 import type { ToolCallItem } from '@/api/chat'
-import { buildToolResultDisplay, formatDisplayText, formatToolParams } from '@/utils/toolDisplay'
+import { buildToolResultDisplay, formatDisplayText, formatToolParams, parseAskQuestionsAnswers, parseAskQuestionsQuestions } from '@/utils/toolDisplay'
 import { shouldAutoExpandToolCall } from '@/utils/toolApprovalExpansion'
 
 const props = withDefaults(defineProps<{
@@ -26,6 +26,7 @@ const toolIcon = computed(() => {
   if (props.item.toolName === 'exec') return mdiConsoleLine
   if (props.item.toolName === 'http_request') return mdiWeb
   if (props.item.toolName === 'web_search') return mdiWeb
+  if (props.item.toolName === 'ask_questions') return mdiHelpCircleOutline
   return mdiConsoleLine
 })
 
@@ -35,6 +36,7 @@ const toolLabel = computed(() => {
   if (props.item.toolName === 'web_search') return t('toolWebSearch')
   if (props.item.toolName === 'run_subagent') return t('toolRunSubagent')
   if (props.item.toolName === 'search_memory') return t('toolSearchMemory')
+  if (props.item.toolName === 'ask_questions') return t('toolAskQuestions')
   return props.item.toolName
 })
 
@@ -80,6 +82,23 @@ const showPreamble = computed(() => !!props.item.preamble && props.item.preamble
 const showActions = computed(() => props.item.status === 'pending')
 const showNested = computed(() => props.nestedTools.length > 0)
 const shouldAutoExpand = computed(() => shouldAutoExpandToolCall(props.item, props.nestedTools))
+const isAskQuestions = computed(() => props.item.toolName === 'ask_questions')
+
+const askQuestionsData = computed(() => {
+  if (!isAskQuestions.value) return null
+  const questionsRaw = props.item.params?.questions ?? ''
+  const questions = parseAskQuestionsQuestions(questionsRaw)
+  const answers = parseAskQuestionsAnswers(props.item.output ?? '')
+  if (!questions || !answers) return null
+  return questions.map((q) => {
+    const answer = answers.find((a) => a.questionId === q.id)
+    let displayAnswer = ''
+    if (answer) {
+      displayAnswer = answer.selectedOption >= 0 ? (q.options[answer.selectedOption] ?? '') : answer.customAnswer
+    }
+    return { question: q.question, answer: displayAnswer }
+  })
+})
 
 watch(
   shouldAutoExpand,
@@ -107,7 +126,7 @@ function toggleExpanded() {
         <MdiIcon :path="toolIcon" :size="14" class="inline-tool-icon" />
 
         <span class="inline-tool-name">{{ toolLabel }}</span>
-      <code v-if="commandDisplay" class="inline-tool-cmd">{{ commandDisplay }}</code>
+      <code v-if="commandDisplay && !isAskQuestions" class="inline-tool-cmd">{{ commandDisplay }}</code>
 
       <span v-if="showPendingLabel" class="inline-tool-pending-label">
         {{ t('toolWaitingApproval') }}
@@ -152,44 +171,54 @@ function toggleExpanded() {
         </section>
 
         <section v-if="showResult" class="inline-section">
-          <p class="inline-section-title">{{ t('toolCallResult') }}</p>
-          <div v-if="item.output" class="inline-output sb-scrollbar">
-            <template v-if="resultDisplay.mode === 'exec' && resultDisplay.exec">
-              <div class="inline-kv-grid">
-                <div :class="['inline-kv-pill', resultDisplay.exec.exit_code === 0 ? 'inline-kv-pill--ok' : 'inline-kv-pill--err']">
-                  exit_code: {{ resultDisplay.exec.exit_code }}
+          <template v-if="isAskQuestions && askQuestionsData && askQuestionsData.length > 0">
+            <div class="inline-qa-list">
+              <div v-for="(qa, idx) in askQuestionsData" :key="idx" class="inline-qa-pair">
+                <div class="inline-qa-q">{{ idx + 1 }}. {{ qa.question }}</div>
+                <div class="inline-qa-a">{{ qa.answer }}</div>
+              </div>
+            </div>
+          </template>
+          <template v-else>
+            <p class="inline-section-title">{{ t('toolCallResult') }}</p>
+            <div v-if="item.output" class="inline-output sb-scrollbar">
+              <template v-if="resultDisplay.mode === 'exec' && resultDisplay.exec">
+                <div class="inline-kv-grid">
+                  <div :class="['inline-kv-pill', resultDisplay.exec.exit_code === 0 ? 'inline-kv-pill--ok' : 'inline-kv-pill--err']">
+                    exit_code: {{ resultDisplay.exec.exit_code }}
+                  </div>
+                  <div class="inline-kv-pill">duration_ms: {{ resultDisplay.exec.duration_ms }}</div>
                 </div>
-                <div class="inline-kv-pill">duration_ms: {{ resultDisplay.exec.duration_ms }}</div>
-              </div>
-              <pre v-if="resultDisplay.exec.stdout.trim()" class="inline-exec-pre">{{ formatDisplayText(resultDisplay.exec.stdout) }}</pre>
-              <pre v-if="resultDisplay.exec.stderr.trim()" class="inline-exec-pre inline-exec-pre--stderr">{{ formatDisplayText(resultDisplay.exec.stderr) }}</pre>
-            </template>
-            <template v-else-if="resultDisplay.mode === 'web_search' && resultDisplay.webSearch">
-              <div class="inline-kv-grid">
-                <div class="inline-kv-pill">query: {{ resultDisplay.webSearch.query }}</div>
-                <div class="inline-kv-pill">results: {{ resultDisplay.webSearch.results.length }}</div>
-              </div>
-              <div v-if="resultDisplay.webSearch.results.length > 0" class="inline-web-list">
-                <article
-                  v-for="(result, idx) in resultDisplay.webSearch.results"
-                  :key="`${result.url}-${idx}`"
-                  class="inline-web-card"
-                >
-                  <a
-                    :href="result.url"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    class="inline-web-title"
+                <pre v-if="resultDisplay.exec.stdout.trim()" class="inline-exec-pre">{{ formatDisplayText(resultDisplay.exec.stdout) }}</pre>
+                <pre v-if="resultDisplay.exec.stderr.trim()" class="inline-exec-pre inline-exec-pre--stderr">{{ formatDisplayText(resultDisplay.exec.stderr) }}</pre>
+              </template>
+              <template v-else-if="resultDisplay.mode === 'web_search' && resultDisplay.webSearch">
+                <div class="inline-kv-grid">
+                  <div class="inline-kv-pill">query: {{ resultDisplay.webSearch.query }}</div>
+                  <div class="inline-kv-pill">results: {{ resultDisplay.webSearch.results.length }}</div>
+                </div>
+                <div v-if="resultDisplay.webSearch.results.length > 0" class="inline-web-list">
+                  <article
+                    v-for="(result, idx) in resultDisplay.webSearch.results"
+                    :key="`${result.url}-${idx}`"
+                    class="inline-web-card"
                   >
-                    {{ result.title || result.url }}
-                  </a>
-                  <p v-if="result.content.trim()" class="inline-web-content">{{ result.content }}</p>
-                </article>
-              </div>
-              <div v-else class="inline-exec-empty">(No results)</div>
-            </template>
-            <pre v-else class="inline-output-text">{{ resultDisplay.outputText }}</pre>
-          </div>
+                    <a
+                      :href="result.url"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      class="inline-web-title"
+                    >
+                      {{ result.title || result.url }}
+                    </a>
+                    <p v-if="result.content.trim()" class="inline-web-content">{{ result.content }}</p>
+                  </article>
+                </div>
+                <div v-else class="inline-exec-empty">(No results)</div>
+              </template>
+              <pre v-else class="inline-output-text">{{ resultDisplay.outputText }}</pre>
+            </div>
+          </template>
           <div v-if="item.error" class="inline-error">{{ errorDisplay }}</div>
         </section>
 
@@ -507,6 +536,35 @@ function toggleExpanded() {
   font-size: 11px;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+  line-height: 1.4;
+}
+
+.inline-qa-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.inline-qa-pair {
+  padding: 4px 0;
+  border-bottom: 1px solid var(--tool-section-border, rgba(100, 116, 139, 0.1));
+}
+
+.inline-qa-pair:last-child {
+  border-bottom: none;
+}
+
+.inline-qa-q {
+  font-size: 11px;
+  color: var(--tool-summary-text, #94a3b8);
+  line-height: 1.4;
+  margin-bottom: 2px;
+}
+
+.inline-qa-a {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--tool-detail-body-text, #e2e8f0);
   line-height: 1.4;
 }
 

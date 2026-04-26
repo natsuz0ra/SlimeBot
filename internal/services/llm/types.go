@@ -30,6 +30,9 @@ type ChatMessage struct {
 	ToolCallID   string                   `json:"toolCallId,omitempty"`
 	// ToolCalls is set when role=assistant and the model requested tools.
 	ToolCalls []ToolCallInfo `json:"toolCalls,omitempty"`
+	// ReasoningContent carries thinking/reasoning output from providers like DeepSeek.
+	// Must be passed back in multi-turn agent loops to avoid API errors.
+	ReasoningContent string `json:"reasoningContent,omitempty"`
 }
 
 // ChatMessageContentPartType enumerates multimodal part kinds.

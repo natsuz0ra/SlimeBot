@@ -82,6 +82,7 @@ func (c *OpenAIClient) StreamChatWithTools(
 
 	stream := client.Chat.Completions.NewStreaming(ctx, params)
 	acc := openai.ChatCompletionAccumulator{}
+	var reasoningBuf strings.Builder
 
 	for stream.Next() {
 		chunk := stream.Current()
@@ -92,6 +93,7 @@ func (c *OpenAIClient) StreamChatWithTools(
 
 			// Handle reasoning_content from Volcengine/DeepSeek/Zhipu compatible APIs.
 			if reasoning := extractReasoningContent(delta); reasoning != "" {
+				reasoningBuf.WriteString(reasoning)
 				if callbacks.OnThinkingChunk != nil {
 					if err := callbacks.OnThinkingChunk(reasoning); err != nil {
 						return nil, err
@@ -128,9 +130,10 @@ func (c *OpenAIClient) StreamChatWithTools(
 			Type:      llmsvc.StreamResultToolCalls,
 			ToolCalls: calls,
 			AssistantMessage: llmsvc.ChatMessage{
-				Role:      "assistant",
-				Content:   choice.Message.Content,
-				ToolCalls: calls,
+				Role:             "assistant",
+				Content:          choice.Message.Content,
+				ToolCalls:        calls,
+				ReasoningContent: reasoningBuf.String(),
 			},
 		}, nil
 	}
@@ -189,31 +192,11 @@ func buildRequestMessages(messages []llmsvc.ChatMessage, supportDeveloperRole bo
 			}
 			result = append(result, openai.SystemMessage(content))
 		case "assistant":
-			if len(msg.ToolCalls) > 0 {
-				var toolCalls []openai.ChatCompletionMessageToolCallUnionParam
-				for _, tc := range msg.ToolCalls {
-					toolCalls = append(toolCalls, openai.ChatCompletionMessageToolCallUnionParam{
-						OfFunction: &openai.ChatCompletionMessageFunctionToolCallParam{
-							ID: tc.ID,
-							Function: openai.ChatCompletionMessageFunctionToolCallFunctionParam{
-								Name:      tc.Name,
-								Arguments: tc.Arguments,
-							},
-						},
-					})
-				}
-				result = append(result, openai.ChatCompletionMessageParamUnion{
-					OfAssistant: &openai.ChatCompletionAssistantMessageParam{
-						Content:   openai.ChatCompletionAssistantMessageParamContentUnion{OfString: openai.String(content)},
-						ToolCalls: toolCalls,
-					},
-				})
-			} else {
-				if content == "" {
-					continue
-				}
-				result = append(result, openai.AssistantMessage(content))
+			ap := buildAssistantMessageParam(msg, content)
+			if ap == nil {
+				continue
 			}
+			result = append(result, openai.ChatCompletionMessageParamUnion{OfAssistant: ap})
 		case "tool":
 			result = append(result, openai.ToolMessage(msg.Content, msg.ToolCallID))
 		case "developer":
@@ -245,6 +228,44 @@ func buildRequestMessages(messages []llmsvc.ChatMessage, supportDeveloperRole bo
 		}
 	}
 	return result
+}
+
+// buildAssistantMessageParam builds the SDK assistant message param, including
+// reasoning_content via SetExtraFields when present (required by DeepSeek).
+func buildAssistantMessageParam(msg llmsvc.ChatMessage, content string) *openai.ChatCompletionAssistantMessageParam {
+	if len(msg.ToolCalls) > 0 {
+		var toolCalls []openai.ChatCompletionMessageToolCallUnionParam
+		for _, tc := range msg.ToolCalls {
+			toolCalls = append(toolCalls, openai.ChatCompletionMessageToolCallUnionParam{
+				OfFunction: &openai.ChatCompletionMessageFunctionToolCallParam{
+					ID: tc.ID,
+					Function: openai.ChatCompletionMessageFunctionToolCallFunctionParam{
+						Name:      tc.Name,
+						Arguments: tc.Arguments,
+					},
+				},
+			})
+		}
+		ap := &openai.ChatCompletionAssistantMessageParam{
+			Content:   openai.ChatCompletionAssistantMessageParamContentUnion{OfString: openai.String(content)},
+			ToolCalls: toolCalls,
+		}
+		if msg.ReasoningContent != "" {
+			ap.SetExtraFields(map[string]any{"reasoning_content": msg.ReasoningContent})
+		}
+		return ap
+	}
+
+	if content == "" {
+		return nil
+	}
+	ap := &openai.ChatCompletionAssistantMessageParam{
+		Content: openai.ChatCompletionAssistantMessageParamContentUnion{OfString: openai.String(content)},
+	}
+	if msg.ReasoningContent != "" {
+		ap.SetExtraFields(map[string]any{"reasoning_content": msg.ReasoningContent})
+	}
+	return ap
 }
 
 // buildRequestUserContentParts converts multimodal ContentParts to OpenAI user content parts (image/audio/file blocks).

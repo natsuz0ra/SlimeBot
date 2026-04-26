@@ -149,7 +149,7 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown))
             <h3 class="drawer-title">{{ t('qaTitle') }}</h3>
           </header>
 
-          <section class="drawer-body">
+          <section class="drawer-body sb-scrollbar">
             <!-- Questions step -->
             <template v-if="step === 'questions'">
               <div v-for="(q, qi) in questions" :key="q.id" class="qa-question-block">

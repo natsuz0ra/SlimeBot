@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { mdiConsoleLine, mdiHelpCircleOutline, mdiWeb } from '@mdi/js'
+import { mdiBrain, mdiConsoleLine, mdiHelpCircleOutline, mdiWeb } from '@mdi/js'
 import MdiIcon from '@/components/ui/MdiIcon.vue'
 import type { ToolCallItem } from '@/api/chat'
 import { buildToolResultDisplay, formatDisplayText, formatToolParams, parseAskQuestionsReadableAnswers } from '@/utils/toolDisplay'
@@ -26,6 +26,7 @@ const toolIcon = computed(() => {
   if (props.item.toolName === 'exec') return mdiConsoleLine
   if (props.item.toolName === 'http_request') return mdiWeb
   if (props.item.toolName === 'web_search') return mdiWeb
+  if (props.item.toolName === 'search_memory') return mdiBrain
   if (props.item.toolName === 'ask_questions') return mdiHelpCircleOutline
   return mdiConsoleLine
 })

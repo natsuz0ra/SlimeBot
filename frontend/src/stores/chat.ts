@@ -45,6 +45,13 @@ export const useChatStore = defineStore('chat', () => {
   const failedUserMessageIds = ref(new Set<string>())
   const pendingPlanConfirmation = ref<{ planId: string; content: string } | null>(null)
 
+  interface QuestionItem {
+    id: string
+    question: string
+    options: string[]
+  }
+  const pendingQuestions = ref<{ toolCallId: string; questions: QuestionItem[] } | null>(null)
+
   const ws = new ChatSocket()
 
   function resetSessionRuntimeState() {
@@ -52,6 +59,7 @@ export const useChatStore = defineStore('chat', () => {
     currentBatchId.value = ''
     assistantErrorIds.value.clear()
     failedUserMessageIds.value.clear()
+    pendingQuestions.value = null
   }
 
   function resetHistoryState() {
@@ -454,6 +462,15 @@ export const useChatStore = defineStore('chat', () => {
         const batch = getCurrentBatch()
         if (!batch) return
         finishOpenThinkingEntries(batch)
+        // Handle ask_questions tool: parse questions and show Q&A drawer.
+        if (data.toolName === 'ask_questions' && data.params?.questions) {
+          try {
+            const questions = JSON.parse(data.params.questions) as QuestionItem[]
+            if (Array.isArray(questions) && questions.length > 0) {
+              pendingQuestions.value = { toolCallId: data.toolCallId, questions }
+            }
+          } catch { /* ignore parse errors, tool will timeout */ }
+        }
         batch.toolCalls.push({
           toolCallId: data.toolCallId,
           toolName: data.toolName,
@@ -675,6 +692,26 @@ export const useChatStore = defineStore('chat', () => {
     ws.sendToolApproval(toolCallId, approved)
   }
 
+  function submitQuestionAnswers(toolCallId: string, answers: string) {
+    const batch = replyBatches.value.find((group) => group.toolCalls.some((tc) => tc.toolCallId === toolCallId))
+    const item = batch?.toolCalls.find((tc) => tc.toolCallId === toolCallId)
+    if (item) {
+      item.status = 'executing'
+    }
+    ws.sendToolApproval(toolCallId, true, answers)
+    pendingQuestions.value = null
+  }
+
+  function cancelQuestionAnswers(toolCallId: string) {
+    const batch = replyBatches.value.find((group) => group.toolCalls.some((tc) => tc.toolCallId === toolCallId))
+    const item = batch?.toolCalls.find((tc) => tc.toolCallId === toolCallId)
+    if (item) {
+      item.status = 'rejected'
+    }
+    ws.sendToolApproval(toolCallId, false)
+    pendingQuestions.value = null
+  }
+
   function disconnectSocket(options?: { silentConnectionNotice?: boolean }) {
     if (options?.silentConnectionNotice) {
       markSuppressNextConnectionNotice()
@@ -782,5 +819,9 @@ export const useChatStore = defineStore('chat', () => {
     rejectPlan,
     modifyPlan,
     dismissPlanConfirmation,
+
+    pendingQuestions,
+    submitQuestionAnswers,
+    cancelQuestionAnswers,
   }
 })

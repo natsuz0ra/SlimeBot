@@ -55,7 +55,7 @@ func (a *AgentService) handleRunSubagentTool(
 		}
 	}
 
-	approved, rejectionMessage := waitApprovalIfNeeded(ctx, callbacks, tc, invocation, params, preamble)
+	approved, rejectionMessage, _ := waitApprovalIfNeeded(ctx, callbacks, tc, invocation, params, preamble)
 	if !approved {
 		*messages = appendToolMessage(*messages, tc.ID, rejectionMessage)
 		return nil

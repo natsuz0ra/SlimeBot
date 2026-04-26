@@ -36,6 +36,7 @@ type chatIncoming struct {
 	AttachmentIDs  []string `json:"attachmentIds"`  // Attachment IDs
 	ToolCallID     string   `json:"toolCallId"`     // Tool call ID (for approval flow)
 	Approved       *bool    `json:"approved"`       // Approval outcome
+	Answers        string   `json:"answers"`        // JSON-encoded answers for ask_questions tool
 	ThinkingLevel  string   `json:"thinkingLevel"`  // Thinking level: off, low, medium, high
 	PlanMode       bool     `json:"planMode"`       // Plan mode: LLM generates plan instead of executing
 	PlanID         string   `json:"planId"`         // Plan ID (for approve/reject)
@@ -227,6 +228,7 @@ func (w *Controller) startReadLoop(
 					broker.Resolve(incoming.ToolCallID, chatsvc.ApprovalResponse{
 						ToolCallID: incoming.ToolCallID,
 						Approved:   *incoming.Approved,
+						Answers:    incoming.Answers,
 					})
 				}
 			case "stop":

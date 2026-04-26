@@ -67,6 +67,16 @@ export function createInitialState(
     planConfirmCursor: 0,
     planModifyInput: "",
     planModifyInputKey: 0,
+
+    qaToolCallId: "",
+    qaQuestions: [],
+    qaCurrentIndex: 0,
+    qaAnswers: [],
+    qaStep: "questions",
+    qaCursor: 0,
+    qaCustomInput: "",
+    qaCustomInputKey: 0,
+
     apiURL,
     cliToken,
     version,
@@ -497,6 +507,83 @@ export function reducer(state: AppState, action: AppAction): AppState {
       entries.push({ kind: "plan", content: action.planBody });
       return { ...state, timeline: entries, liveAssistant: "", planGenerating: false, planReceived: true };
     }
+
+    case "SET_QA": {
+      const answers = action.questions.map((q) => ({
+        questionId: q.id,
+        selectedOption: -1,
+        customAnswer: "",
+      }));
+      return {
+        ...state,
+        view: "question-answer",
+        qaToolCallId: action.toolCallId,
+        qaQuestions: action.questions,
+        qaCurrentIndex: 0,
+        qaAnswers: answers,
+        qaStep: "questions",
+        qaCursor: 0,
+        qaCustomInput: "",
+        qaCustomInputKey: 0,
+      };
+    }
+
+    case "QA_NAV": {
+      const q = state.qaQuestions[state.qaCurrentIndex];
+      const maxIdx = q ? q.options.length : 0; // options + custom
+      return {
+        ...state,
+        qaCursor: Math.max(0, Math.min(state.qaCursor + action.delta, maxIdx)),
+      };
+    }
+
+    case "QA_SELECT": {
+      const answers = [...state.qaAnswers];
+      answers[state.qaCurrentIndex] = {
+        ...answers[state.qaCurrentIndex],
+        selectedOption: action.optionIndex,
+        customAnswer: "",
+      };
+      return { ...state, qaAnswers: answers, qaCustomInput: "" };
+    }
+
+    case "QA_SET_CUSTOM_INPUT":
+      return { ...state, qaCustomInput: action.value };
+
+    case "QA_NEXT_QUESTION": {
+      const nextIdx = state.qaCurrentIndex + 1;
+      if (nextIdx >= state.qaQuestions.length) {
+        return { ...state, qaStep: "confirm", qaCursor: 0 };
+      }
+      return { ...state, qaCurrentIndex: nextIdx, qaCursor: 0, qaCustomInput: "" };
+    }
+
+    case "QA_PREV_QUESTION": {
+      if (state.qaCurrentIndex <= 0) return state;
+      return { ...state, qaCurrentIndex: state.qaCurrentIndex - 1, qaCursor: 0, qaCustomInput: "" };
+    }
+
+    case "QA_STEP_CONFIRM":
+      return { ...state, qaStep: "confirm", qaCursor: 0 };
+
+    case "QA_STEP_BACK":
+      return { ...state, qaStep: "questions", qaCursor: 0 };
+
+    case "QA_CONFIRM_NAV":
+      return { ...state, qaCursor: Math.max(0, Math.min(state.qaCursor + action.delta, 1)) };
+
+    case "CLEAR_QA":
+      return {
+        ...state,
+        view: "chat",
+        qaToolCallId: "",
+        qaQuestions: [],
+        qaCurrentIndex: 0,
+        qaAnswers: [],
+        qaStep: "questions",
+        qaCursor: 0,
+        qaCustomInput: "",
+      };
 
     case "FLUSH_AND_WAIT": {
       const entries = [...state.timeline];

@@ -9,6 +9,7 @@ import type { Key } from "ink";
 import { APIClient } from "./api/client.js";
 import { ApprovalView } from "./components/ApprovalView.js";
 import { PlanConfirmView } from "./components/PlanConfirmView.js";
+import QuestionAnswerView from "./components/QuestionAnswerView.js";
 import { Banner } from "./components/Banner.js";
 import { CommandHints } from "./components/CommandHints.js";
 import { MCPEditor } from "./components/MCPEditor.js";
@@ -903,14 +904,28 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
         } as AppAction);
 
         if (data.requiresApproval) {
-          dispatch({
-            type: "SET_APPROVAL",
-            toolCallId: data.toolCallId,
-            toolName: data.toolName,
-            command: data.command,
-            params: data.params,
-            replyCh: () => {},
-          } as AppAction);
+          // ask_questions: show Q&A view instead of simple approval.
+          if (data.toolName === "ask_questions" && data.params?.questions) {
+            try {
+              const questions = JSON.parse(data.params.questions);
+              if (Array.isArray(questions) && questions.length > 0) {
+                dispatch({
+                  type: "SET_QA",
+                  toolCallId: data.toolCallId,
+                  questions,
+                } as AppAction);
+              }
+            } catch { /* ignore */ }
+          } else {
+            dispatch({
+              type: "SET_APPROVAL",
+              toolCallId: data.toolCallId,
+              toolName: data.toolName,
+              command: data.command,
+              params: data.params,
+              replyCh: () => {},
+            } as AppAction);
+          }
         }
       },
       onToolCallResult: (data: ToolCallResultData) => {
@@ -1051,6 +1066,70 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
           state.pendingPlanId, state.sessionId,
         );
         dispatch({ type: "CLEAR_PLAN_CONFIRMATION" } as AppAction);
+      }
+      return;
+    }
+
+        if (state.view === "question-answer") {
+      if (state.qaStep === "questions") {
+        if (key.upArrow) {
+          dispatch({ type: "QA_NAV", delta: -1 } as AppAction);
+          return;
+        }
+        if (key.downArrow) {
+          dispatch({ type: "QA_NAV", delta: 1 } as AppAction);
+          return;
+        }
+        if (key.return) {
+          const q = state.qaQuestions[state.qaCurrentIndex];
+          if (!q) return;
+          const maxIdx = q.options.length; // last = custom
+          if (state.qaCursor < maxIdx) {
+            dispatch({ type: "QA_SELECT", optionIndex: state.qaCursor } as AppAction);
+          } else {
+            // Custom option selected
+            dispatch({ type: "QA_SELECT", optionIndex: -1 } as AppAction);
+          }
+          // Auto-advance after selecting preset, stay for custom input
+          if (state.qaCursor < maxIdx) {
+            if (state.qaCurrentIndex < state.qaQuestions.length - 1) {
+              dispatch({ type: "QA_NEXT_QUESTION" } as AppAction);
+            } else {
+              dispatch({ type: "QA_STEP_CONFIRM" } as AppAction);
+            }
+          }
+          return;
+        }
+        if (key.tab) {
+          // Tab to go to next question or confirm
+          if (state.qaCurrentIndex < state.qaQuestions.length - 1) {
+            dispatch({ type: "QA_NEXT_QUESTION" } as AppAction);
+          } else {
+            dispatch({ type: "QA_STEP_CONFIRM" } as AppAction);
+          }
+          return;
+        }
+      } else {
+        // Confirm step
+        if (key.upArrow || key.downArrow) {
+          dispatch({ type: "QA_CONFIRM_NAV", delta: key.upArrow ? -1 : 1 } as AppAction);
+          return;
+        }
+        if (key.return && state.qaCursor === 0) {
+          // Submit answers
+          const answersJSON = JSON.stringify(state.qaAnswers);
+          socketRef.current?.sendToolApproval(state.qaToolCallId, true, answersJSON);
+          dispatch({ type: "CLEAR_QA" } as AppAction);
+          return;
+        }
+        if (key.return && state.qaCursor === 1) {
+          dispatch({ type: "QA_STEP_BACK" } as AppAction);
+          return;
+        }
+      }
+      if (key.escape) {
+        socketRef.current?.sendToolApproval(state.qaToolCallId, false);
+        dispatch({ type: "CLEAR_QA" } as AppAction);
       }
       return;
     }
@@ -1307,6 +1386,27 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
               state.pendingPlanId, state.sessionId,
             );
             dispatch({ type: "CLEAR_PLAN_CONFIRMATION" } as AppAction);
+          }}
+          columns={width}
+        />
+      )}
+
+            {state.view === "question-answer" && (
+        <QuestionAnswerView
+          questions={state.qaQuestions}
+          currentIndex={state.qaCurrentIndex}
+          answers={state.qaAnswers}
+          step={state.qaStep}
+          cursor={state.qaCursor}
+          customInput={state.qaCustomInput}
+          onCustomInputChange={(value) => dispatch({ type: "QA_SET_CUSTOM_INPUT", value } as AppAction)}
+          onCustomInputSubmit={(value) => {
+            dispatch({ type: "QA_SELECT", optionIndex: -1 } as AppAction);
+            dispatch({ type: "QA_SET_CUSTOM_INPUT", value } as AppAction);
+          }}
+          onEscape={() => {
+            socketRef.current?.sendToolApproval(state.qaToolCallId, false);
+            dispatch({ type: "CLEAR_QA" } as AppAction);
           }}
           columns={width}
         />

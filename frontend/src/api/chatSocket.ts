@@ -135,12 +135,14 @@ export class ChatSocket {
     return true
   }
 
-  sendToolApproval(toolCallId: string, approved: boolean) {
+  sendToolApproval(toolCallId: string, approved: boolean, answers?: string) {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
       this.handlers?.onSocketError?.('socket is not connected')
       return false
     }
-    this.ws.send(JSON.stringify({ type: 'tool_approve', toolCallId, approved }))
+    const payload: Record<string, unknown> = { type: 'tool_approve', toolCallId, approved }
+    if (answers) payload.answers = answers
+    this.ws.send(JSON.stringify(payload))
     return true
   }
 

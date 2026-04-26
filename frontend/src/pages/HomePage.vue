@@ -6,6 +6,7 @@ import {
   mdiPencilOutline,
 } from '@mdi/js'
 
+import QuestionAnswerDrawer from '@/components/chat/QuestionAnswerDrawer.vue'
 import MdiIcon from '@/components/ui/MdiIcon.vue'
 import ChatComposer from '@/components/chat/ChatComposer.vue'
 import ChatMessageList from '@/components/chat/ChatMessageList.vue'
@@ -323,6 +324,14 @@ provideChatContext({
         </button>
       </div>
     </Transition>
+
+    <QuestionAnswerDrawer
+      :visible="!!store.pendingQuestions"
+      :questions="store.pendingQuestions?.questions ?? []"
+      :tool-call-id="store.pendingQuestions?.toolCallId ?? ''"
+      @submit="store.submitQuestionAnswers"
+      @cancel="store.cancelQuestionAnswers"
+    />
 
     <HomeDialogs
       v-model:rename-visible="renameVisible"

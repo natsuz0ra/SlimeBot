@@ -45,6 +45,9 @@ const (
 	ExecMaxTimeoutMs               = 600_000
 	ExecMaxOutputBytes             = 64 * 1024
 	ExecToolName                   = "exec"
+	AskQuestionsTool               = "ask_questions"
+	AskQuestionsMaxQuestions       = 5
+	AskQuestionsMaxOptionsPerQ     = 5
 	ActivateSkillTool              = "activate_skill"
 	RunSubagentTool                = "run_subagent"
 	SearchMemoryTool               = "search_memory"

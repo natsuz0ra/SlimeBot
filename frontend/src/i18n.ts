@@ -155,6 +155,17 @@ const messages = {
     planConfirmSendFeedback: '发送反馈',
     planConfirmBack: '返回',
     planExecuteUserMessage: '确认执行该计划',
+
+    qaTitle: '澄清问题',
+    qaStepQuestions: '回答问题',
+    qaStepConfirm: '确认回答',
+    qaNext: '下一步',
+    qaSubmit: '提交回答',
+    qaBack: '上一步',
+    qaCancel: '取消',
+    qaCustomOption: '自定义输入',
+    qaCustomPlaceholder: '请输入你的回答...',
+    qaConfirmTitle: '请确认你的回答',
   },
   'en-US': {
     newSession: 'New Session',
@@ -310,6 +321,17 @@ const messages = {
     planConfirmSendFeedback: 'Send Feedback',
     planConfirmBack: 'Back',
     planExecuteUserMessage: 'Execute this plan',
+
+    qaTitle: 'Clarification Questions',
+    qaStepQuestions: 'Answer Questions',
+    qaStepConfirm: 'Confirm Answers',
+    qaNext: 'Next',
+    qaSubmit: 'Submit',
+    qaBack: 'Back',
+    qaCancel: 'Cancel',
+    qaCustomOption: 'Custom Input',
+    qaCustomPlaceholder: 'Type your answer...',
+    qaConfirmTitle: 'Please confirm your answers',
   },
 }
 

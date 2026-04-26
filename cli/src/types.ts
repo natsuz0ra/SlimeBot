@@ -131,7 +131,7 @@ export interface SubagentChunkData {
 
 // ===== UI state types =====
 
-export type ViewMode = "chat" | "menu" | "mcp-editor" | "mcp-template" | "model-editor" | "approval" | "thinking-detail" | "plan-confirm";
+export type ViewMode = "chat" | "menu" | "mcp-editor" | "mcp-template" | "model-editor" | "approval" | "thinking-detail" | "plan-confirm" | "question-answer";
 
 export type MenuKind =
   | "session"
@@ -301,6 +301,16 @@ export interface AppState {
   planModifyInput: string;
   planModifyInputKey: number;
 
+  // Question-answer
+  qaToolCallId: string;
+  qaQuestions: { id: string; question: string; options: string[] }[];
+  qaCurrentIndex: number;
+  qaAnswers: { questionId: string; selectedOption: number; customAnswer: string }[];
+  qaStep: "questions" | "confirm";
+  qaCursor: number;
+  qaCustomInput: string;
+  qaCustomInputKey: number;
+
   // Connection
   apiURL: string;
   cliToken: string;
@@ -363,4 +373,14 @@ export type AppAction =
   | { type: "PLAN_BODY"; planBody: string; narration?: string }
   | { type: "PLAN_START" }
   | { type: "VIEW_THINKING_DETAIL"; content: string }
+  | { type: "SET_QA"; toolCallId: string; questions: { id: string; question: string; options: string[] }[] }
+  | { type: "QA_NAV"; delta: number }
+  | { type: "QA_SELECT"; optionIndex: number }
+  | { type: "QA_SET_CUSTOM_INPUT"; value: string }
+  | { type: "QA_NEXT_QUESTION" }
+  | { type: "QA_PREV_QUESTION" }
+  | { type: "QA_STEP_CONFIRM" }
+  | { type: "QA_STEP_BACK" }
+  | { type: "QA_CONFIRM_NAV"; delta: number }
+  | { type: "CLEAR_QA" }
   | { type: "FLUSH_AND_WAIT" };

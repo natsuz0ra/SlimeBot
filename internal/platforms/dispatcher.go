@@ -2,6 +2,7 @@ package platforms
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"slimebot/internal/domain"
 	"strings"
@@ -77,11 +78,19 @@ func (d *Dispatcher) HandleInbound(ctx context.Context, message InboundMessage, 
 		return err
 	}
 
+	// Track ask_questions toolCallIDs for auto-approval on platforms without Q&A UI.
+	askQuestionsIDs := make(map[string]string) // toolCallID -> questions JSON
+
 	callbacks := chatsvc.AgentCallbacks{
 		OnChunk: func(_ string) error {
 			return nil
 		},
 		OnToolCallStart: func(req chatsvc.ApprovalRequest) error {
+			// ask_questions: skip approval UI, auto-approve in WaitApproval.
+			if req.ToolName == constants.AskQuestionsTool {
+				askQuestionsIDs[req.ToolCallID] = req.Params["questions"]
+				return nil
+			}
 			if req.RequiresApproval {
 				if d.approvals == nil {
 					return fmt.Errorf("dispatcher approvals is not initialized")
@@ -95,6 +104,12 @@ func (d *Dispatcher) HandleInbound(ctx context.Context, message InboundMessage, 
 			return sender.SendText(chatID, formatToolStartSummary(req))
 		},
 		WaitApproval: func(waitCtx context.Context, toolCallID string) (*chatsvc.ApprovalResponse, error) {
+			// ask_questions: auto-approve with a default response.
+			if questionsJSON, ok := askQuestionsIDs[toolCallID]; ok {
+				delete(askQuestionsIDs, toolCallID)
+				defaultAnswers := buildDefaultAskQuestionsAnswers(questionsJSON)
+				return &chatsvc.ApprovalResponse{ToolCallID: toolCallID, Approved: true, Answers: defaultAnswers}, nil
+			}
 			if d.approvals == nil {
 				return nil, fmt.Errorf("dispatcher approvals is not initialized")
 			}
@@ -181,4 +196,33 @@ func formatToolApprovalPrompt(req chatsvc.ApprovalRequest) string {
 		base = fmt.Sprintf("%s (%s)", base, strings.TrimSpace(req.Command))
 	}
 	return base + "\nPlease choose Approve or Reject."
+}
+
+// buildDefaultAskQuestionsAnswers constructs a default answer response for ask_questions
+// on platforms that cannot display the Q&A UI.
+func buildDefaultAskQuestionsAnswers(questionsJSON string) string {
+	type qItem struct {
+		ID       string   `json:"id"`
+		Question string   `json:"question"`
+		Options  []string `json:"options"`
+	}
+	var questions []qItem
+	if err := json.Unmarshal([]byte(questionsJSON), &questions); err != nil {
+		return `[{"questionId":"unknown","selectedOption":0,"customAnswer":"User cannot answer on this platform. Please use your best judgment."}]`
+	}
+	type answer struct {
+		QuestionID     string `json:"questionId"`
+		SelectedOption int    `json:"selectedOption"`
+		CustomAnswer   string `json:"customAnswer"`
+	}
+	answers := make([]answer, len(questions))
+	for i, q := range questions {
+		answers[i] = answer{
+			QuestionID:     q.ID,
+			SelectedOption: -1,
+			CustomAnswer:   "User cannot answer on this platform. Please use your best judgment.",
+		}
+	}
+	b, _ := json.Marshal(answers)
+	return string(b)
 }

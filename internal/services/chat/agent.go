@@ -35,6 +35,7 @@ type ApprovalRequest struct {
 type ApprovalResponse struct {
 	ToolCallID string `json:"toolCallId"`
 	Approved   bool   `json:"approved"`
+	Answers    string `json:"answers,omitempty"` // JSON-encoded answers for ask_questions tool
 }
 
 // ToolCallResult is pushed to the client after tool execution.
@@ -518,9 +519,23 @@ func (a *AgentService) RunAgentLoop(
 				}
 			}
 
-			approved, rejectionMessage := waitApprovalIfNeeded(ctx, callbacks, tc, invocation, params, "")
+			approved, rejectionMessage, answers := waitApprovalIfNeeded(ctx, callbacks, tc, invocation, params, "")
 			if !approved {
 				messages = appendToolMessage(messages, tc.ID, rejectionMessage)
+				continue
+			}
+
+			// ask_questions tool: use answers from approval directly, skip executeInvocation.
+			if invocation.toolName == constants.AskQuestionsTool {
+				notifyToolResult(callbacks, ToolCallResult{
+					ToolCallID:       tc.ID,
+					ToolName:         invocation.toolName,
+					Command:          invocation.command,
+					RequiresApproval: invocation.requiresApproval,
+					Status:           constants.ToolCallStatusCompleted,
+					Output:           answers,
+				})
+				messages = appendToolMessage(messages, tc.ID, "User answers:\n"+answers)
 				continue
 			}
 
@@ -648,9 +663,12 @@ func executeToolCall(ctx context.Context, toolName, command string, params map[s
 	return result
 }
 
-// requiresToolApproval defines which tools need user approval (currently exec only).
-// When approvalMode is "auto", all tools skip approval.
+// requiresToolApproval defines which tools need user approval.
+// When approvalMode is "auto", all tools skip approval except ask_questions (which always needs user interaction).
 func requiresToolApproval(toolName string, isMCP bool, approvalMode string) bool {
+	if toolName == constants.AskQuestionsTool {
+		return true
+	}
 	if approvalMode == constants.ApprovalModeAuto {
 		return false
 	}

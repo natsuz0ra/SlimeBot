@@ -77,7 +77,7 @@ func notifyToolResult(callbacks AgentCallbacks, result ToolCallResult) {
 	}
 }
 
-// waitApprovalIfNeeded blocks for frontend approval when required; returns rejection text for the model.
+// waitApprovalIfNeeded blocks for frontend approval when required; returns (approved, rejectionMessage, answers).
 func waitApprovalIfNeeded(
 	ctx context.Context,
 	callbacks AgentCallbacks,
@@ -85,9 +85,9 @@ func waitApprovalIfNeeded(
 	invocation resolvedToolInvocation,
 	params map[string]string,
 	preamble string,
-) (bool, string) {
+) (bool, string, string) {
 	if !invocation.requiresApproval {
-		return true, ""
+		return true, "", ""
 	}
 	approvalCtx, cancel := context.WithTimeout(ctx, constants.AgentApprovalTimeout)
 	defer cancel()
@@ -98,18 +98,18 @@ func waitApprovalIfNeeded(
 			ToolCallID: tc.ID, ToolName: invocation.toolName, Command: invocation.command,
 			RequiresApproval: invocation.requiresApproval, Status: constants.ToolCallStatusError, Error: "Approval timed out.",
 		})
-		return false, "Approval timed out or failed. The tool call was cancelled."
+		return false, "Approval timed out or failed. The tool call was cancelled.", ""
 	}
 	if !approval.Approved {
 		notifyToolResult(callbacks, ToolCallResult{
 			ToolCallID: tc.ID, ToolName: invocation.toolName, Command: invocation.command,
 			RequiresApproval: invocation.requiresApproval, Status: constants.ToolCallStatusRejected, Error: "Execution was rejected by the user.",
 		})
-		return false, "The user rejected this tool call. Please answer in another way or explain that authorization is required."
+		return false, "The user rejected this tool call. Please answer in another way or explain that authorization is required.", ""
 	}
 	_ = params
 	_ = preamble
-	return true, ""
+	return true, "", approval.Answers
 }
 
 // executeInvocation dispatches to MCP, memory, or built-in tool execution.

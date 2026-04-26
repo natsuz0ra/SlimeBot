@@ -50,3 +50,62 @@ func TestBuildAssistantBlocksPreservesThinkingBeforeToolUse(t *testing.T) {
 		t.Fatalf("expected third block to be tool_use, got %v: %s", got[2]["type"], raw)
 	}
 }
+
+func TestBuildAnthropicToolsUsesToolParametersAsInputSchema(t *testing.T) {
+	tools := buildAnthropicTools([]llmsvc.ToolDef{{
+		Name:        "activate_skill",
+		Description: "Load a skill guide by name.",
+		Parameters: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"name": map[string]any{
+					"type":        "string",
+					"description": "Skill name to activate.",
+					"enum":        []any{"systematic-debugging"},
+				},
+			},
+			"required": []string{"name"},
+		},
+	}})
+
+	raw, err := json.Marshal(tools)
+	if err != nil {
+		t.Fatalf("marshal tools failed: %v", err)
+	}
+
+	var got []map[string]any
+	if err := json.Unmarshal(raw, &got); err != nil {
+		t.Fatalf("unmarshal tools failed: %v\njson=%s", err, raw)
+	}
+	if len(got) != 1 {
+		t.Fatalf("expected one tool, got %d: %s", len(got), raw)
+	}
+
+	inputSchema, ok := got[0]["input_schema"].(map[string]any)
+	if !ok {
+		t.Fatalf("input_schema missing or invalid: %#v\njson=%s", got[0]["input_schema"], raw)
+	}
+	if inputSchema["type"] != "object" {
+		t.Fatalf("input_schema.type = %v, want object: %s", inputSchema["type"], raw)
+	}
+
+	properties, ok := inputSchema["properties"].(map[string]any)
+	if !ok {
+		t.Fatalf("input_schema.properties missing or invalid: %#v\njson=%s", inputSchema["properties"], raw)
+	}
+	nameSchema, ok := properties["name"].(map[string]any)
+	if !ok {
+		t.Fatalf("properties.name missing or invalid: %#v\njson=%s", properties["name"], raw)
+	}
+	if nameSchema["type"] != "string" {
+		t.Fatalf("properties.name.type = %v, want string: %s", nameSchema["type"], raw)
+	}
+	if _, nested := properties["required"]; nested {
+		t.Fatalf("input_schema.required was incorrectly nested under properties: %s", raw)
+	}
+
+	required, ok := inputSchema["required"].([]any)
+	if !ok || len(required) != 1 || required[0] != "name" {
+		t.Fatalf("input_schema.required = %#v, want [name]: %s", inputSchema["required"], raw)
+	}
+}

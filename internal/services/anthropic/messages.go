@@ -185,13 +185,48 @@ func buildAnthropicTools(defs []llmsvc.ToolDef) []anthropic.ToolUnionParam {
 			OfTool: &anthropic.ToolParam{
 				Name:        def.Name,
 				Description: anthropic.String(def.Description),
-				InputSchema: anthropic.ToolInputSchemaParam{
-					Type:        "object",
-					Properties:  def.Parameters,
-					ExtraFields: map[string]any{},
-				},
+				InputSchema: buildAnthropicInputSchema(def.Parameters),
 			},
 		})
 	}
 	return tools
+}
+
+func buildAnthropicInputSchema(parameters map[string]any) anthropic.ToolInputSchemaParam {
+	schema := anthropic.ToolInputSchemaParam{
+		Properties:  map[string]any{},
+		ExtraFields: map[string]any{},
+	}
+	for key, value := range parameters {
+		switch key {
+		case "type":
+			continue
+		case "properties":
+			if properties, ok := value.(map[string]any); ok {
+				schema.Properties = properties
+			}
+		case "required":
+			schema.Required = toStringSlice(value)
+		default:
+			schema.ExtraFields[key] = value
+		}
+	}
+	return schema
+}
+
+func toStringSlice(value any) []string {
+	switch items := value.(type) {
+	case []string:
+		return items
+	case []any:
+		result := make([]string, 0, len(items))
+		for _, item := range items {
+			if s, ok := item.(string); ok {
+				result = append(result, s)
+			}
+		}
+		return result
+	default:
+		return nil
+	}
 }

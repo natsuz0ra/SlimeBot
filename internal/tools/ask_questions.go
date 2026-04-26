@@ -33,8 +33,15 @@ func (a *askQuestionsTool) Description() string {
 func (a *askQuestionsTool) Commands() []Command {
 	return []Command{
 		{
-			Name:        "ask",
-			Description: "Present clarification questions to the user and wait for their answers.",
+			Name: "ask",
+			Description: "Use this tool to ask the user multiple choice questions to clarify ambiguity, gather preferences, confirm decisions, or resolve conflicting requirements. " +
+				"Each question can have up to 5 preset options; the UI always provides a custom-input option automatically so the user is never constrained to only presets. " +
+				"Use this tool proactively when:\n" +
+				"- The user request could be interpreted in multiple ways\n" +
+				"- Key details are missing and there are several likely alternatives\n" +
+				"- A decision between technical approaches, frameworks, or strategies is needed\n" +
+				"- Preferences or configuration choices affect the outcome\n" +
+				"Do NOT guess or assume when you could ask instead. Clarifying early prevents rework and leads to better results.",
 			Params: []CommandParam{
 				{
 					Name:        "questions",

@@ -37,7 +37,7 @@ watch(
       step.value = 'questions'
       answers.value = props.questions.map((q) => ({
         questionId: q.id,
-        selectedOption: -1,
+        selectedOption: -2,
         customAnswer: '',
       }))
       await nextTick()
@@ -257,11 +257,11 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown))
 }
 
 :root:not(.dark) .drawer-panel {
-  background: rgba(255, 255, 255, 0.82);
+  background: rgba(255, 255, 255, 0.96);
 }
 
 .dark .drawer-panel {
-  background: rgba(24, 24, 48, 0.88);
+  background: rgba(24, 24, 48, 0.96);
   box-shadow:
     0 -8px 40px rgba(0, 0, 0, 0.5),
     0 0 0 1px rgba(255, 255, 255, 0.06),
@@ -356,7 +356,7 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown))
 }
 
 .qa-option--selected .qa-option-radio {
-  border-color: var(--primary-alpha-08);
+  border-color: var(--color-primary);
 }
 
 .qa-option--selected .qa-option-radio::after {
@@ -364,7 +364,7 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown))
   position: absolute;
   inset: 2px;
   border-radius: 50%;
-  background: var(--primary-alpha-08);
+  background: var(--color-primary);
 }
 
 .qa-option-text {

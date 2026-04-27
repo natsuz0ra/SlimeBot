@@ -15,7 +15,7 @@ const ctx = useChatContext()
 </script>
 
 <template>
-  <div class="assistant-reply-body text-sm leading-relaxed w-full">
+  <div class="assistant-reply-body min-w-0 text-sm leading-relaxed w-full">
     <template v-for="entry in ctx.getReplyTimeline(item.id)" :key="entry.id">
       <div class="assistant-reply-segment" :class="`assistant-reply-segment--${entry.kind}`">
         <ThinkingBlock
@@ -52,6 +52,7 @@ const ctx = useChatContext()
   display: flex;
   flex-direction: column;
   gap: 10px;
+  max-width: 100%;
 }
 
 .assistant-reply-segment {

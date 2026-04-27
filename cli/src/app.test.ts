@@ -1,9 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { Key } from "ink";
-import type { Dispatch } from "react";
 import { handleChatShortcut, mapHistoryMessages } from "./app";
-import type { AppAction, Message, ThinkingHistoryItem, ToolCallHistoryItem } from "./types";
+import type { Message, ThinkingHistoryItem, ToolCallHistoryItem } from "./types";
 
 test("mapHistoryMessages inserts tool calls after assistant messages in timeline order", () => {
   const messages: Message[] = [
@@ -322,37 +321,16 @@ function key(overrides: Partial<Key> = {}): Key {
 
 test("handleChatShortcut handles Ctrl+O and raw Ctrl+O", () => {
   const actions: string[] = [];
-  let redraws = 0;
-  const dispatch: Dispatch<AppAction> = (action) => {
+  const dispatch = (action: { type: string }) => {
     actions.push(action.type);
+    return action as any;
   };
 
-  const handledNormal = handleChatShortcut("o", key({ ctrl: true }), dispatch, () => {
-    redraws += 1;
-  });
-  const handledRaw = handleChatShortcut(String.fromCharCode(15), key(), dispatch, () => {
-    redraws += 1;
-  });
+  const handledNormal = handleChatShortcut("o", key({ ctrl: true }), dispatch as any);
+  const handledRaw = handleChatShortcut(String.fromCharCode(15), key(), dispatch as any);
 
   assert.equal(handledNormal, true);
   assert.equal(handledRaw, true);
   assert.equal(actions.filter((x) => x === "TOGGLE_TOOL_OUTPUT").length, 2);
-  assert.equal(redraws, 2);
-});
-
-test("handleChatShortcut requests redraw when compact mode changes", () => {
-  const actions: string[] = [];
-  let redraws = 0;
-  const dispatch: Dispatch<AppAction> = (action) => {
-    actions.push(action.type);
-  };
-
-  const handled = handleChatShortcut("k", key({ ctrl: true }), dispatch, () => {
-    redraws += 1;
-  });
-
-  assert.equal(handled, true);
-  assert.deepEqual(actions, ["TOGGLE_COMPACT"]);
-  assert.equal(redraws, 1);
 });
 

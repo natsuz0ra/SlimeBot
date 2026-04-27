@@ -22,13 +22,6 @@ import { reducer, createInitialState } from "./reducer.js";
 import { completeCommand, isCommand } from "./utils/commands.js";
 import { formatTimestamp } from "./utils/format.js";
 import { clearScreen, setTerminalTitle } from "./utils/terminal.js";
-import {
-  countThinkingEntries,
-  findStableTimelineFlushCount,
-  formatLiveAssistantForTranscript,
-  formatTimelineEntriesForTranscript,
-  splitLiveAssistantForTranscript,
-} from "./utils/transcript.js";
 import { CLISocket } from "./ws/socket.js";
 import { splitNarrationAndPlan } from "./utils/planUtils.js";
 import { hasContentMarkers, parseContentMarkers } from "./utils/contentMarkers.js";
@@ -61,20 +54,13 @@ function isCtrlKey(input: string, key: Key, letter: string): boolean {
   return input.charCodeAt(0) === expected;
 }
 
-export function handleChatShortcut(
-  input: string,
-  key: Key,
-  dispatch: React.Dispatch<AppAction>,
-  onDisplayModeChange?: () => void,
-): boolean {
+export function handleChatShortcut(input: string, key: Key, dispatch: React.Dispatch<AppAction>): boolean {
   if (isCtrlKey(input, key, "k")) {
     dispatch({ type: "TOGGLE_COMPACT" } as AppAction);
-    onDisplayModeChange?.();
     return true;
   }
   if (isCtrlKey(input, key, "o")) {
     dispatch({ type: "TOGGLE_TOOL_OUTPUT" } as AppAction);
-    onDisplayModeChange?.();
     return true;
   }
   return false;
@@ -92,61 +78,6 @@ interface AppProps {
   apiURL: string;
   cliToken: string;
   version: string;
-}
-
-interface TranscriptCursor {
-  timelineCount: number;
-  liveAssistantLength: number;
-  hasOutput: boolean;
-  epoch: number;
-}
-
-function createTranscriptCursor(epoch = 0): TranscriptCursor {
-  return {
-    timelineCount: 0,
-    liveAssistantLength: 0,
-    hasOutput: false,
-    epoch,
-  };
-}
-
-function withTerminalNewline(output: string, prefixBlank = false): string {
-  if (!output) return "";
-  const prefix = prefixBlank ? "\n" : "";
-  return `${prefix}${output}${output.endsWith("\n") ? "" : "\n"}`;
-}
-
-function applyFlushedLiveAssistantPrefix(
-  entries: readonly TimelineEntry[],
-  flushedLiveAssistantLength: number,
-): {
-  entries: TimelineEntry[];
-  firstAssistantContinuation: boolean;
-  liveAssistantLengthConsumed: boolean;
-} {
-  if (flushedLiveAssistantLength <= 0 || entries[0]?.kind !== "assistant") {
-    return {
-      entries: [...entries],
-      firstAssistantContinuation: false,
-      liveAssistantLengthConsumed: false,
-    };
-  }
-
-  const [first, ...rest] = entries;
-  const remaining = first.content.slice(Math.min(flushedLiveAssistantLength, first.content.length));
-  if (remaining.length === 0) {
-    return {
-      entries: rest,
-      firstAssistantContinuation: false,
-      liveAssistantLengthConsumed: true,
-    };
-  }
-
-  return {
-    entries: [{ ...first, content: remaining }, ...rest],
-    firstAssistantContinuation: true,
-    liveAssistantLengthConsumed: true,
-  };
 }
 
 export function mapHistoryMessages(
@@ -324,9 +255,8 @@ export function mapHistoryMessages(
 
 export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement {
   const { exit } = useApp();
-  const { stdout, write: writeStdout } = useStdout();
+  const { stdout } = useStdout();
   const [width, setWidth] = React.useState(() => Math.max(20, stdout?.columns || 80));
-  const [transcriptCursor, setTranscriptCursor] = React.useState<TranscriptCursor>(() => createTranscriptCursor());
   const border = "─".repeat(width);
 
   const [state, dispatch] = useReducer(
@@ -342,16 +272,8 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
   const planModeRef = useRef(false);
   const planStartedRef = useRef(false);
   const preambleShownRef = useRef("");
-  const requestTranscriptRedraw = useCallback((defer = false) => {
-    const reset = () => {
-      clearScreen();
-      setTranscriptCursor((current) => createTranscriptCursor(current.epoch + 1));
-    };
-    if (defer) {
-      setImmediate(reset);
-      return;
-    }
-    reset();
+  const clearScreenDeferred = useCallback(() => {
+    setImmediate(() => clearScreen());
   }, []);
 
   const appendSystem = useCallback((content: string) => {
@@ -586,7 +508,7 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
     dispatch({ type: "SET_SESSION", sessionId: session.id, sessionName: session.name } as AppAction);
     dispatch({ type: "CLOSE_MENU" } as AppAction);
     applyTerminalTitle(session.name);
-    requestTranscriptRedraw(true);
+    clearScreenDeferred();
     try {
       const history = await apiRef.current.getSessionMessages(session.id);
       dispatch({
@@ -600,7 +522,7 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
     } catch (error) {
       appendSystem(`Failed to load session history: ${(error as Error).message}`);
     }
-  }, [appendSystem, applyTerminalTitle, requestTranscriptRedraw]);
+  }, [appendSystem, applyTerminalTitle, clearScreenDeferred]);
 
   const handleMenuSelect = useCallback(async (item: MenuItem | undefined) => {
     if (!item || !state.menuKind) return;
@@ -661,7 +583,7 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
         if (session.id === state.sessionId) {
           dispatch({ type: "RESET_SESSION" } as AppAction);
           applyTerminalTitle("");
-          requestTranscriptRedraw(true);
+          clearScreenDeferred();
         }
         await loadSessions();
         return;
@@ -680,7 +602,7 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
     } catch (error) {
       appendSystem(`Delete failed: ${(error as Error).message}`);
     }
-  }, [appendSystem, applyTerminalTitle, loadMCPConfigs, loadSessions, loadSkills, requestTranscriptRedraw, state.menuKind, state.sessionId]);
+  }, [appendSystem, applyTerminalTitle, clearScreenDeferred, loadMCPConfigs, loadSessions, loadSkills, state.menuKind, state.sessionId]);
 
   const handleMenuAdd = useCallback(() => {
     if (state.menuKind === "mcp") {
@@ -821,7 +743,7 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
     if (cmd === "/new") {
       dispatch({ type: "RESET_SESSION" } as AppAction);
       applyTerminalTitle("");
-      requestTranscriptRedraw(true);
+      clearScreenDeferred();
       return;
     }
     if (cmd === "/session") {
@@ -862,96 +784,23 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
       return;
     }
     appendSystem(`Unknown command: ${cmd}`);
-  }, [appendSystem, applyTerminalTitle, loadMCPConfigs, loadModels, loadSessions, loadSkills, requestTranscriptRedraw, showHelp]);
+  }, [appendSystem, applyTerminalTitle, clearScreenDeferred, loadMCPConfigs, loadModels, loadSessions, loadSkills, showHelp]);
 
   // Initial clear + default model.
   useEffect(() => {
-    requestTranscriptRedraw();
+    clearScreen();
     applyTerminalTitle("");
     void loadDefaultModel();
     void loadApprovalMode();
     void loadThinkingLevel();
-  }, [applyTerminalTitle, loadApprovalMode, loadDefaultModel, loadThinkingLevel, requestTranscriptRedraw]);
+  }, [applyTerminalTitle, loadDefaultModel, loadApprovalMode]);
 
   // Terminal resize.
   useEffect(() => {
-    const handleResize = () => {
-      setWidth(Math.max(20, stdout?.columns || 80));
-      requestTranscriptRedraw();
-    };
+    const handleResize = () => setWidth(Math.max(20, stdout?.columns || 80));
     stdout?.on("resize", handleResize);
     return () => { stdout?.off("resize", handleResize); };
-  }, [requestTranscriptRedraw, stdout]);
-
-  useEffect(() => {
-    let nextCursor = transcriptCursor;
-    let changed = false;
-
-    const writeTranscript = (output: string, prefixBlank = false) => {
-      const payload = withTerminalNewline(output, prefixBlank);
-      if (!payload) return;
-      writeStdout(payload);
-      nextCursor = { ...nextCursor, hasOutput: true };
-      changed = true;
-    };
-
-    const stableTimelineCount = findStableTimelineFlushCount(state.timeline);
-    if (stableTimelineCount > nextCursor.timelineCount) {
-      const rawEntries = state.timeline.slice(nextCursor.timelineCount, stableTimelineCount);
-      const adjusted = applyFlushedLiveAssistantPrefix(rawEntries, nextCursor.liveAssistantLength);
-      const thinkingStartIndex = countThinkingEntries(state.timeline.slice(0, nextCursor.timelineCount));
-      const output = formatTimelineEntriesForTranscript(adjusted.entries, {
-        maxWidth: width,
-        compact: state.compact,
-        toolOutputExpanded: state.toolOutputExpanded,
-        thinkingStartIndex,
-        firstAssistantContinuation: adjusted.firstAssistantContinuation,
-      });
-      writeTranscript(output, nextCursor.hasOutput && !adjusted.firstAssistantContinuation);
-      nextCursor = {
-        ...nextCursor,
-        timelineCount: stableTimelineCount,
-        liveAssistantLength: adjusted.liveAssistantLengthConsumed ? 0 : nextCursor.liveAssistantLength,
-      };
-      changed = true;
-    }
-
-    if (state.streaming && state.liveAssistant.length > nextCursor.liveAssistantLength) {
-      const split = splitLiveAssistantForTranscript(state.liveAssistant, nextCursor.liveAssistantLength);
-      if (split.flushText.length > 0) {
-        const output = formatLiveAssistantForTranscript(split.flushText, {
-          maxWidth: width,
-          compact: state.compact,
-          toolOutputExpanded: state.toolOutputExpanded,
-          continuation: split.flushContinuation,
-        });
-        writeTranscript(output, nextCursor.hasOutput && !split.flushContinuation);
-        nextCursor = {
-          ...nextCursor,
-          liveAssistantLength: split.nextFlushedLength,
-        };
-        changed = true;
-      }
-    }
-
-    if (!state.streaming && state.liveAssistant.length === 0 && nextCursor.liveAssistantLength > 0) {
-      nextCursor = { ...nextCursor, liveAssistantLength: 0 };
-      changed = true;
-    }
-
-    if (changed) {
-      setTranscriptCursor(nextCursor);
-    }
-  }, [
-    state.compact,
-    state.liveAssistant,
-    state.streaming,
-    state.timeline,
-    state.toolOutputExpanded,
-    transcriptCursor,
-    width,
-    writeStdout,
-  ]);
+  }, [stdout]);
 
   // Blink timer.
   useEffect(() => {
@@ -1129,30 +978,6 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
       socket.close();
     };
   }, [apiURL, cliToken]);
-
-  const activeTimeline = React.useMemo(() => {
-    const rawEntries = state.timeline.slice(transcriptCursor.timelineCount);
-    const adjusted = applyFlushedLiveAssistantPrefix(rawEntries, transcriptCursor.liveAssistantLength);
-    return {
-      entries: adjusted.entries,
-      firstAssistantContinuation: adjusted.firstAssistantContinuation,
-      thinkingStartIndex: countThinkingEntries(state.timeline.slice(0, transcriptCursor.timelineCount)),
-    };
-  }, [state.timeline, transcriptCursor.liveAssistantLength, transcriptCursor.timelineCount]);
-
-  const activeLiveAssistant = React.useMemo(() => {
-    if (!state.liveAssistant) {
-      return {
-        content: "",
-        continuation: false,
-      };
-    }
-    const split = splitLiveAssistantForTranscript(state.liveAssistant, transcriptCursor.liveAssistantLength);
-    return {
-      content: split.activeText,
-      continuation: split.activeContinuation,
-    };
-  }, [state.liveAssistant, transcriptCursor.liveAssistantLength]);
 
   useInput((input, key) => {
     if (key.ctrl && input === "c") {
@@ -1445,23 +1270,20 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
     <Box flexDirection="column">
       <Banner version={state.version} modelName={state.modelName} cwd={state.cwd} approvalMode={state.approvalMode} thinkingLevel={state.thinkingLevel} />
       <Text> </Text>
-      {(activeTimeline.entries.length > 0 || state.streaming) && (
+      {(state.timeline.length > 0 || state.streaming) && (
         <>
           <Timeline
-            entries={activeTimeline.entries}
+            entries={state.timeline}
             blinkOn={state.blinkOn}
             streaming={state.streaming}
             assistantWaiting={state.assistantWaiting}
-            liveAssistant={activeLiveAssistant.content}
+            liveAssistant={state.liveAssistant}
             maxWidth={width}
             compact={state.compact}
             toolOutputExpanded={state.toolOutputExpanded}
-            thinkingEntryIndex={activeTimeline.entries.filter((e) => e.kind === "thinking").length}
+            thinkingEntryIndex={state.timeline.filter((e) => e.kind === "thinking").length}
             planGenerating={state.planGenerating}
             planReceived={state.planReceived}
-            thinkingStartIndex={activeTimeline.thinkingStartIndex}
-            firstAssistantContinuation={activeTimeline.firstAssistantContinuation}
-            liveAssistantContinuation={activeLiveAssistant.continuation}
           />
           <Text> </Text>
         </>
@@ -1518,7 +1340,7 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
             }}
             onUnhandledInput={(input, key) => {
               if (state.view !== "chat" || state.streaming) return;
-              handleChatShortcut(input, key, dispatch, () => requestTranscriptRedraw());
+              handleChatShortcut(input, key, dispatch);
             }}
             focus={state.view === "chat" && !state.streaming}
             columns={Math.max(20, width - 3)}

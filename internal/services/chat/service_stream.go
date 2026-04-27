@@ -89,7 +89,12 @@ func (s *ChatService) HandleChatStream(
 		return nil, err
 	}
 
-	return s.finalizeChatTurn(ctx, sessionID, requestID, state, result, planMode, callbacks)
+	// Use background context for finalization when interrupted so DB operations succeed.
+	finalizeCtx := ctx
+	if result.interrupted {
+		finalizeCtx = context.Background()
+	}
+	return s.finalizeChatTurn(finalizeCtx, sessionID, requestID, state, result, planMode, callbacks)
 }
 
 // prepareChatTurn validates input, resolves model config, saves user message, builds context in parallel.
@@ -523,7 +528,7 @@ func (s *ChatService) finalizeChatTurn(
 		}
 	}
 
-	if result.pushErr != nil {
+	if result.pushErr != nil && !result.interrupted {
 		streamResult.PushFailed = true
 		streamResult.PushError = result.pushErr.Error()
 	}

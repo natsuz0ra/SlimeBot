@@ -4,6 +4,7 @@ import type { TimelineEntry } from "../types";
 import {
   PLAN_GOLD,
   formatSubagentThinkingLines,
+  formatRunSubagentDetailLines,
   formatPlanningIndicatorParts,
   formatThinkingLabel,
   formatToolOutputLines,
@@ -160,6 +161,109 @@ test("formatSubagentThinkingLines collapses completed child reasoning by default
 
   assert.equal(lines[0], "   Sub-agent thought for 1.2s");
   assert.ok(lines.some((line) => line.includes("ctrl+o to expand")));
+});
+
+function runSubagentFixture(): { parent: TimelineEntry; nested: TimelineEntry[] } {
+  return {
+    parent: {
+      kind: "tool",
+      content: "",
+      toolCallId: "parent",
+      toolName: "run_subagent",
+      command: "delegate",
+      status: "completed",
+      params: {
+        context: "repo context line 1\nrepo context line 2\nrepo context line 3\nrepo context line 4",
+        task: "inspect the display ordering\nthen report a concise answer",
+        priority: "high",
+      },
+      output: "final result line 1\nfinal result line 2\nfinal result line 3\nfinal result line 4",
+      subagentThinking: {
+        content: "child reason 1\nchild reason 2\nchild reason 3\nchild reason 4",
+        thinkingDone: true,
+        thinkingDurationMs: 1250,
+      },
+    },
+    nested: [{
+      kind: "tool",
+      content: "hits",
+      toolCallId: "child",
+      toolName: "web_search",
+      command: "search",
+      status: "completed",
+      output: "hits",
+      parentToolCallId: "parent",
+      subagentRunId: "run-1",
+    }],
+  };
+}
+
+test("formatRunSubagentDetailLines follows frontend section order", () => {
+  const { parent, nested } = runSubagentFixture();
+  const lines = formatRunSubagentDetailLines(parent, nested, 100, false);
+
+  const contextIndex = lines.findIndex((line) => line.includes("Context"));
+  const taskIndex = lines.findIndex((line) => line.includes("Task"));
+  const thinkingIndex = lines.findIndex((line) => line.includes("Thinking & tools"));
+  const resultIndex = lines.findIndex((line) => line.includes("Result"));
+
+  assert.ok(contextIndex >= 0);
+  assert.ok(contextIndex < taskIndex);
+  assert.ok(taskIndex < thinkingIndex);
+  assert.ok(thinkingIndex < resultIndex);
+  assert.ok(lines.some((line) => line.includes("├─ Context →")));
+  assert.ok(lines.some((line) => line.includes("└─ Result →")));
+});
+
+test("formatRunSubagentDetailLines keeps collapsed display to one-line summaries", () => {
+  const { parent, nested } = runSubagentFixture();
+  const lines = formatRunSubagentDetailLines(parent, nested, 100, false);
+
+  assert.ok(lines.some((line) => line.includes("Context → repo context line 1 ... +3 more lines")));
+  assert.ok(lines.some((line) => line.includes("Task → inspect the display ordering ... +1 more lines")));
+  assert.ok(lines.some((line) => line.includes("Thinking & tools: thinking complete in 1.3s · 1 tool")));
+  assert.ok(lines.some((line) => line.includes("Result → final result line 1")));
+  assert.ok(lines.every((line) => !line.includes("child reason 4")));
+  assert.ok(lines.every((line) => !line.includes("final result line 4")));
+});
+
+test("formatRunSubagentDetailLines aligns wrapped collapsed summaries under the value", () => {
+  const { parent, nested } = runSubagentFixture();
+  parent.output = "This is a very long subagent result summary that must wrap onto a continuation line";
+
+  const lines = formatRunSubagentDetailLines(parent, nested, 40, false);
+  const resultIndex = lines.findIndex((line) => line.includes("Result →"));
+
+  assert.ok(resultIndex >= 0);
+  const resultLine = lines[resultIndex]!;
+  const continuationLine = lines[resultIndex + 1]!;
+  const valueStart = resultLine.indexOf("This");
+  const continuationIndent = continuationLine.match(/^ */)?.[0].length ?? 0;
+
+  assert.ok(valueStart > 0);
+  assert.ok(continuationIndent > 0);
+  assert.equal(continuationIndent, valueStart);
+});
+
+test("formatRunSubagentDetailLines expands full details and keeps collapse hint", () => {
+  const { parent, nested } = runSubagentFixture();
+  const lines = formatRunSubagentDetailLines(parent, nested, 100, true);
+
+  assert.ok(lines.some((line) => line.includes("repo context line 4")));
+  assert.ok(lines.some((line) => line.includes("child reason 4")));
+  assert.ok(lines.some((line) => line.includes("final result line 4")));
+  assert.ok(lines.some((line) => line.includes("ctrl+o to collapse")));
+});
+
+test("formatRunSubagentDetailLines hides context and task from extra params", () => {
+  const { parent, nested } = runSubagentFixture();
+  const lines = formatRunSubagentDetailLines(parent, nested, 100, false);
+  const paramsIndex = lines.findIndex((line) => line.includes("Params"));
+  const afterParams = paramsIndex >= 0 ? lines.slice(paramsIndex) : [];
+
+  assert.ok(afterParams.some((line) => line.includes("priority: high")));
+  assert.ok(afterParams.every((line) => !line.includes("context:")));
+  assert.ok(afterParams.every((line) => !line.includes("task:")));
 });
 
 test("PLAN_GOLD matches the frontend plan card gold", () => {

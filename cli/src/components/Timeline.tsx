@@ -15,9 +15,11 @@ import {
   formatCollapsedLines,
   TOOL_OUTPUT_PREVIEW_LINES,
   formatToolExecutionOutput,
+  formatToolTextValue,
   formatToolParamEntries,
   formatAskQuestionsDisplay,
   formatAskQuestionsPending,
+  truncateText,
 } from "../utils/format.js";
 import { GradientFlowText } from "./GradientFlowText.js";
 import { Markdown, StreamingMarkdown } from "./Markdown.js";
@@ -107,11 +109,15 @@ export function formatToolOutputLines(entry: TimelineEntry, maxWidth: number, ex
 }
 
 export function formatToolParamLines(entry: TimelineEntry, maxWidth: number): string[] {
+  return formatToolParamLinesForParams(entry.params, maxWidth);
+}
+
+function formatToolParamLinesForParams(params: Record<string, string> | undefined, maxWidth: number): string[] {
   const paramPrefix = "   :: ";
   const continuationPrefix = "      ";
   const prefixWidth = paramPrefix.length;
   const contentWidth = Math.max(1, maxWidth - prefixWidth);
-  const rawLines = formatToolParamEntries(entry.params);
+  const rawLines = formatToolParamEntries(params);
   const result: string[] = [];
   for (const line of rawLines) {
     const wrapped = wrapText(line, contentWidth);
@@ -150,6 +156,168 @@ export function formatSubagentThinkingLines(entry: TimelineEntry, maxWidth: numb
     }
   }
   return lines;
+}
+
+function isRunSubagentEntry(entry: TimelineEntry): boolean {
+  return (entry.toolName || "").trim().toLowerCase() === "run_subagent";
+}
+
+function displayParamValue(params: Record<string, string> | undefined, key: string): string {
+  return formatToolTextValue(String(params?.[key] ?? "")).trim();
+}
+
+function summarizeMultilineText(text: string, maxLen: number): string {
+  const normalized = text.trim().replace(/\r\n/g, "\n");
+  if (!normalized) return "(No output)";
+  const rawLines = normalized.split("\n");
+  const firstLine = truncateText(rawLines[0] || "", maxLen);
+  if (rawLines.length <= 1) return firstLine;
+  return `${firstLine} ... +${rawLines.length - 1} more lines`;
+}
+
+function runSubagentExtraParams(params: Record<string, string> | undefined): Record<string, string> | undefined {
+  if (!params) return undefined;
+  const filtered: Record<string, string> = {};
+  for (const [key, value] of Object.entries(params)) {
+    const normalized = key.trim().toLowerCase();
+    if (normalized === "context" || normalized === "task") continue;
+    filtered[key] = value;
+  }
+  return Object.keys(filtered).length > 0 ? filtered : undefined;
+}
+
+type RunSubagentTreeItem = {
+  label: string;
+  summary: string;
+  detailLines: string[];
+};
+
+function treeConnector(index: number, total: number): string {
+  return index === total - 1 ? "└─" : "├─";
+}
+
+function treeDetailPrefix(index: number, total: number): string {
+  return index === total - 1 ? "   " : "│  ";
+}
+
+function formatRunSubagentTreeLines(lines: string[], maxWidth: number): string[] {
+  const items: RunSubagentTreeItem[] = [];
+  const sectionPattern = /^(Context|Task|Thinking & tools|Params|Result):\s*(.*)$/;
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+    const match = trimmed.match(sectionPattern);
+    if (match) {
+      items.push({ label: match[1]!, summary: match[2] || "", detailLines: [] });
+      continue;
+    }
+    const current = items[items.length - 1];
+    if (current && trimmed) {
+      current.detailLines.push(trimmed);
+    }
+  }
+
+  const result: string[] = [];
+  for (let i = 0; i < items.length; i++) {
+    const item = items[i]!;
+    const separator = item.label === "Thinking & tools" ? ": " : " → ";
+    const summaryPrefix = `   ${treeConnector(i, items.length)} ${item.label}${item.summary ? separator : ""}`;
+    if (item.summary) {
+      const wrapped = wrapText(item.summary, Math.max(1, maxWidth - summaryPrefix.length)).split("\n");
+      result.push(`${summaryPrefix}${wrapped[0] ?? ""}`);
+      const continuationPrefix = " ".repeat(summaryPrefix.length);
+      for (const part of wrapped.slice(1)) {
+        result.push(`${continuationPrefix}${part}`);
+      }
+    } else {
+      result.push(...wrapText(summaryPrefix, maxWidth).split("\n"));
+    }
+
+    const detailPrefix = `   ${treeDetailPrefix(i, items.length)}  `;
+    for (const detail of item.detailLines) {
+      const wrapped = wrapText(detail, Math.max(1, maxWidth - detailPrefix.length));
+      result.push(...wrapped.split("\n").map((part) => `${detailPrefix}${part}`));
+    }
+  }
+  return result;
+}
+
+function formatSubagentSectionLines(label: string, body: string, maxWidth: number, expanded: boolean): string[] {
+  const normalized = body.trim();
+  if (!normalized) return [];
+  const prefix = `   ${label}: `;
+  const detailPrefix = "      ";
+  const contentWidth = Math.max(1, maxWidth - prefix.length);
+  if (!expanded) {
+    return [`${prefix}${summarizeMultilineText(normalized, contentWidth)}`];
+  }
+
+  const { lines } = formatCollapsedLines(normalized, TOOL_OUTPUT_PREVIEW_LINES, true);
+  const result = [`   ${label}:`];
+  for (const line of lines) {
+    const wrapped = wrapText(line, Math.max(1, maxWidth - detailPrefix.length));
+    result.push(...wrapped.split("\n").map((sub) => `${detailPrefix}${sub}`));
+  }
+  return result;
+}
+
+export function formatRunSubagentDetailLines(
+  entry: TimelineEntry,
+  nestedTools: TimelineEntry[] = [],
+  maxWidth: number,
+  expanded: boolean,
+): string[] {
+  const context = displayParamValue(entry.params, "context");
+  const task = displayParamValue(entry.params, "task");
+  const lines: string[] = [];
+
+  lines.push(...formatSubagentSectionLines("Context", context, maxWidth, expanded));
+  lines.push(...formatSubagentSectionLines("Task", task, maxWidth, expanded));
+
+  const thinkingLabel = entry.subagentThinking
+    ? (entry.subagentThinking.thinkingDone
+      ? `thinking complete${entry.subagentThinking.thinkingDurationMs !== undefined ? ` in ${(entry.subagentThinking.thinkingDurationMs / 1000).toFixed(1)}s` : ""}`
+      : "Sub-agent thinking...")
+    : "";
+  const toolCount = nestedTools.length;
+  const thinkingToolsSummary = [
+    thinkingLabel,
+    toolCount > 0 ? `${toolCount} tool${toolCount === 1 ? "" : "s"}` : "",
+  ].filter(Boolean).join(" · ") || "No thinking or tools yet";
+  lines.push(`   Thinking & tools: ${thinkingToolsSummary}${expanded ? " (ctrl+o to collapse)" : " (ctrl+o to expand)"}`);
+
+  if (expanded) {
+    lines.push(...formatSubagentThinkingLines(entry, maxWidth, true));
+    for (const child of nestedTools) {
+      lines.push(...formatToolParamLinesForParams({ tool: formatToolInvocation(child.toolName || "", child.command || "") }, maxWidth));
+      if (child.status === "completed" || child.status === "error" || child.status === "rejected") {
+        lines.push(...formatToolOutputLines(child, maxWidth, true));
+      }
+    }
+  }
+
+  const extraParamLines = formatToolParamLinesForParams(runSubagentExtraParams(entry.params), maxWidth);
+  if (extraParamLines.length > 0) {
+    lines.push("   Params:");
+    lines.push(...extraParamLines);
+  }
+
+  const resultRaw = (entry.status === "error" || entry.status === "rejected")
+    ? (entry.error || entry.content || "")
+    : (entry.output || entry.subagentStream || entry.content || "");
+  if (resultRaw.trim()) {
+    if (expanded) {
+      lines.push("   Result:");
+      lines.push(...formatToolOutputLines({ ...entry, output: resultRaw }, maxWidth, true));
+    } else {
+      const formatted = formatToolExecutionOutput(entry.toolName || "", entry.command || "", resultRaw);
+      lines.push(`   Result: ${summarizeMultilineText(formatted, Math.max(20, maxWidth - 14))} (ctrl+o to expand)`);
+    }
+  } else if (entry.status === "executing" || entry.status === "pending") {
+    lines.push("   Result: waiting for sub-agent output");
+  }
+
+  return formatRunSubagentTreeLines(lines, maxWidth);
 }
 
 export function formatPlanningIndicatorParts(blinkOn: boolean): { dot: string; label: string; color: string } {
@@ -287,6 +455,7 @@ function TimelineBlock({
   toolOutputExpanded,
   nestedUnderParent,
   thinkingNumber,
+  nestedTools,
 }: {
   entry: TimelineEntry;
   blinkOn: boolean;
@@ -295,6 +464,7 @@ function TimelineBlock({
   toolOutputExpanded: boolean;
   nestedUnderParent?: boolean;
   thinkingNumber?: number;
+  nestedTools?: TimelineEntry[];
 }): React.ReactElement {
   if (entry.kind === "plan") {
     return <PlanBlock content={entry.content} maxWidth={maxWidth} />;
@@ -382,6 +552,7 @@ function TimelineBlock({
       entry.command || "",
     );
   const isAskQuestions = (entry.toolName || "").trim().toLowerCase() === "ask_questions";
+  const isRunSubagent = isRunSubagentEntry(entry);
   let qaDisplayLines: string[] | null = null;
   if (isAskQuestions && (status === "completed" || status === "error" || status === "rejected")) {
     qaDisplayLines = formatAskQuestionsDisplay((entry.output || entry.content) || "");
@@ -389,7 +560,7 @@ function TimelineBlock({
     const questionsRaw = entry.params?.questions;
     if (questionsRaw) qaDisplayLines = formatAskQuestionsPending(questionsRaw);
   }
-  const paramLines = qaDisplayLines ? [] : formatToolParamLines(entry, maxWidth);
+  const paramLines = qaDisplayLines || isRunSubagent ? [] : formatToolParamLines(entry, maxWidth);
   const resultLines = qaDisplayLines ? [] : (status === "completed" || status === "error" || status === "rejected")
     ? formatToolOutputLines(entry, maxWidth, toolOutputExpanded)
     : [];
@@ -398,6 +569,9 @@ function TimelineBlock({
       ? formatSubagentStreamLines(entry.subagentStream, maxWidth, toolOutputExpanded)
       : [];
   const subThinkingLines = formatSubagentThinkingLines(entry, maxWidth, toolOutputExpanded);
+  const runSubagentLines = isRunSubagent
+    ? formatRunSubagentDetailLines(entry, nestedTools || [], maxWidth, toolOutputExpanded)
+    : [];
 
   return (
     <Box flexDirection="column">
@@ -412,6 +586,12 @@ function TimelineBlock({
         qaDisplayLines.map((line, index) => (
           <Text key={`${entry.toolCallId || invocation}-qa-${index}`} color="gray">
             {"   "}{line}
+          </Text>
+        ))
+      ) : isRunSubagent ? (
+        runSubagentLines.map((line, index) => (
+          <Text key={`${entry.toolCallId || invocation}-run-subagent-${index}`} color={line.includes("Thinking & tools") ? "cyan" : "gray"}>
+            {line}
           </Text>
         ))
       ) : (
@@ -468,8 +648,9 @@ export function Timeline({
             compact={compact}
             toolOutputExpanded={toolOutputExpanded}
             thinkingNumber={row.entry.kind === "thinking" ? ++thinkingCounter : undefined}
+            nestedTools={row.nestedTools}
           />
-          {row.nestedTools && row.nestedTools.length > 0 ? (
+          {row.nestedTools && row.nestedTools.length > 0 && !isRunSubagentEntry(row.entry) ? (
             <Box flexDirection="column" marginLeft={2}>
               {row.nestedTools.map((child, ci) => (
                 <React.Fragment key={`nested-${child.toolCallId ?? ci}`}>

@@ -54,6 +54,8 @@ export interface SessionHistoryToolCallItem {
 
 export interface SessionHistoryThinkingItem {
   thinkingId: string
+  parentToolCallId?: string
+  subagentRunId?: string
   content: string
   status: string
   startedAt?: string
@@ -104,6 +106,14 @@ export interface ToolCallItem {
   subagentStream?: string
   /** Task summary from subagent_start */
   subagentTask?: string
+  subagentThinking?: SubagentThinkingItem
+}
+
+export interface SubagentThinkingItem {
+  content: string
+  done: boolean
+  startedAt?: number
+  durationMs?: number
 }
 
 export const sessionAPI = {

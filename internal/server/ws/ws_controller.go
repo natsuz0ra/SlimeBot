@@ -441,20 +441,41 @@ func (w *Controller) buildCallbacks(
 			}
 			return nil
 		},
-		OnThinkingStart: func() error {
-			if !enqueue(map[string]any{"type": "thinking_start", "sessionId": sessionID}) {
+		OnThinkingStart: func(meta chatsvc.ThinkingEventMeta) error {
+			payload := map[string]any{"type": "thinking_start", "sessionId": sessionID}
+			if meta.ParentToolCallID != "" {
+				payload["parentToolCallId"] = meta.ParentToolCallID
+			}
+			if meta.SubagentRunID != "" {
+				payload["subagentRunId"] = meta.SubagentRunID
+			}
+			if !enqueue(payload) {
 				return context.Canceled
 			}
 			return nil
 		},
-		OnThinkingChunk: func(chunk string) error {
-			if !enqueue(map[string]any{"type": "thinking_chunk", "sessionId": sessionID, "content": chunk}) {
+		OnThinkingChunk: func(chunk string, meta chatsvc.ThinkingEventMeta) error {
+			payload := map[string]any{"type": "thinking_chunk", "sessionId": sessionID, "content": chunk}
+			if meta.ParentToolCallID != "" {
+				payload["parentToolCallId"] = meta.ParentToolCallID
+			}
+			if meta.SubagentRunID != "" {
+				payload["subagentRunId"] = meta.SubagentRunID
+			}
+			if !enqueue(payload) {
 				return context.Canceled
 			}
 			return nil
 		},
-		OnThinkingDone: func() error {
-			if !enqueue(map[string]any{"type": "thinking_done", "sessionId": sessionID}) {
+		OnThinkingDone: func(meta chatsvc.ThinkingEventMeta) error {
+			payload := map[string]any{"type": "thinking_done", "sessionId": sessionID}
+			if meta.ParentToolCallID != "" {
+				payload["parentToolCallId"] = meta.ParentToolCallID
+			}
+			if meta.SubagentRunID != "" {
+				payload["subagentRunId"] = meta.SubagentRunID
+			}
+			if !enqueue(payload) {
 				return context.Canceled
 			}
 			return nil

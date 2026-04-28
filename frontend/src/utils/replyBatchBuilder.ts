@@ -45,6 +45,7 @@ export function normalizeToolStatus(status?: string, fallbackError?: string): To
 export function buildLegacyTimeline(toolCalls: ToolCallItem[], content: string, thinkingRecords: SessionHistoryThinkingItem[] = []): AssistantReplyTimelineItem[] {
   const timeline: AssistantReplyTimelineItem[] = []
   for (const item of thinkingRecords) {
+    if (item.parentToolCallId || item.subagentRunId) continue
     timeline.push({
       id: crypto.randomUUID(),
       kind: 'thinking',
@@ -72,7 +73,7 @@ export function buildInterleavedTimeline(
   thinkingRecords: SessionHistoryThinkingItem[] = [],
 ): AssistantReplyTimelineItem[] {
   const toolCallMap = new Map(toolCalls.map(tc => [tc.toolCallId, tc]))
-  const thinkingMap = new Map(thinkingRecords.map(item => [item.thinkingId, item]))
+  const thinkingMap = new Map(thinkingRecords.filter(item => !item.parentToolCallId && !item.subagentRunId).map(item => [item.thinkingId, item]))
   const segments = parseContentMarkers(content)
   const timeline: AssistantReplyTimelineItem[] = []
   const planParts: string[] = []
@@ -138,6 +139,7 @@ export function buildInterleavedTimeline(
   }
   const thinkingMarkerIds = new Set(segments.filter(s => s.thinkingId).map(s => s.thinkingId))
   for (const thinking of thinkingRecords) {
+    if (thinking.parentToolCallId || thinking.subagentRunId) continue
     if (!thinkingMarkerIds.has(thinking.thinkingId)) {
       timeline.unshift({
         id: crypto.randomUUID(),
@@ -177,6 +179,21 @@ export function buildReplyBatchesFromHistory(sessionId: string, history: Session
       parentToolCallId: item.parentToolCallId,
       subagentRunId: item.subagentRunId,
     }))
+
+    for (const thinking of historyThinking) {
+      if (!thinking.parentToolCallId && !thinking.subagentRunId) continue
+      const parent = toolCalls.find((item) => item.toolCallId === thinking.parentToolCallId)
+      if (!parent) continue
+      parent.subagentThinking = {
+        content: thinking.content || '',
+        done: thinking.status !== 'streaming',
+        durationMs: thinking.durationMs,
+        startedAt: thinking.startedAt ? new Date(thinking.startedAt).getTime() : undefined,
+      }
+      if (thinking.subagentRunId && !parent.subagentRunId) {
+        parent.subagentRunId = thinking.subagentRunId
+      }
+    }
 
     const timeline = hasContentMarkers(message.content)
       ? buildInterleavedTimeline(toolCalls, message.content, historyThinking)

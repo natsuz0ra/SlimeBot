@@ -69,6 +69,8 @@ type ThinkingRecord struct {
 	RequestID          string     `gorm:"size:36;index;not null;uniqueIndex:idx_thinking_request,priority:2" json:"requestId"`
 	AssistantMessageID *string    `gorm:"size:36;index" json:"assistantMessageId,omitempty"`
 	ThinkingID         string     `gorm:"size:128;index;not null;uniqueIndex:idx_thinking_request,priority:3" json:"thinkingId"`
+	ParentToolCallID   string     `gorm:"size:128;index" json:"parentToolCallId,omitempty"`
+	SubagentRunID      string     `gorm:"size:128;index" json:"subagentRunId,omitempty"`
 	Content            string     `gorm:"type:text" json:"content"`
 	Status             string     `gorm:"size:32;index;not null" json:"status"`
 	StartedAt          time.Time  `gorm:"index;not null" json:"startedAt"`

@@ -191,6 +191,7 @@ export function reducer(state: AppState, action: AppAction): AppState {
           ...prev,
           ...nextEntry,
           subagentStream: nextEntry.subagentStream ?? prev.subagentStream,
+          subagentThinking: nextEntry.subagentThinking ?? prev.subagentThinking,
         };
       }
       return { ...state, timeline: entries };
@@ -392,6 +393,23 @@ export function reducer(state: AppState, action: AppAction): AppState {
 
     case "THINKING_START":
       {
+        if (action.parentToolCallId && action.subagentRunId) {
+          const entries = [...state.timeline];
+          const idx = entries.findIndex(
+            (entry) => entry.kind === "tool" && entry.toolCallId === action.parentToolCallId,
+          );
+          if (idx === -1) return state;
+          const prev = entries[idx];
+          entries[idx] = {
+            ...prev,
+            subagentThinking: {
+              content: prev.subagentThinking?.content || "",
+              thinkingDone: false,
+              thinkingStartedAt: action.startedAt ?? Date.now(),
+            },
+          };
+          return { ...state, timeline: entries };
+        }
         const entries = [...state.timeline];
         if (state.liveAssistant.trim()) {
           entries.push({ kind: "assistant", content: state.liveAssistant });
@@ -410,6 +428,24 @@ export function reducer(state: AppState, action: AppAction): AppState {
       }
 
     case "THINKING_CHUNK": {
+      if (action.parentToolCallId && action.subagentRunId) {
+        const entries = [...state.timeline];
+        const idx = entries.findIndex(
+          (entry) => entry.kind === "tool" && entry.toolCallId === action.parentToolCallId,
+        );
+        if (idx === -1) return state;
+        const prev = entries[idx];
+        const thinking = prev.subagentThinking ?? { content: "", thinkingDone: false, thinkingStartedAt: Date.now() };
+        entries[idx] = {
+          ...prev,
+          subagentThinking: {
+            ...thinking,
+            content: thinking.content + action.chunk,
+            thinkingDone: false,
+          },
+        };
+        return { ...state, timeline: entries };
+      }
       const entries = [...state.timeline];
       for (let i = entries.length - 1; i >= 0; i--) {
         if (entries[i].kind === "thinking" && !entries[i].thinkingDone) {
@@ -421,6 +457,27 @@ export function reducer(state: AppState, action: AppAction): AppState {
     }
 
     case "THINKING_DONE": {
+      if (action.parentToolCallId && action.subagentRunId) {
+        const entries = [...state.timeline];
+        const idx = entries.findIndex(
+          (entry) => entry.kind === "tool" && entry.toolCallId === action.parentToolCallId,
+        );
+        if (idx === -1 || !entries[idx].subagentThinking) return state;
+        const prev = entries[idx];
+        const startedAt = prev.subagentThinking?.thinkingStartedAt;
+        entries[idx] = {
+          ...prev,
+          subagentThinking: {
+            ...prev.subagentThinking,
+            content: prev.subagentThinking.content,
+            thinkingDone: true,
+            thinkingDurationMs: startedAt !== undefined
+              ? Math.max(0, (action.finishedAt ?? Date.now()) - startedAt)
+              : prev.subagentThinking.thinkingDurationMs,
+          },
+        };
+        return { ...state, timeline: entries };
+      }
       const entries = [...state.timeline];
       for (let i = entries.length - 1; i >= 0; i--) {
         if (entries[i].kind === "thinking" && !entries[i].thinkingDone) {

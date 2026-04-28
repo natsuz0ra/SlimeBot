@@ -2,6 +2,7 @@ package chat
 
 // wrapSubagentCallbacks routes child stream chunks to OnSubagentChunk and tags nested tool events.
 func wrapSubagentCallbacks(base AgentCallbacks, parentToolCallID, subagentRunID string) AgentCallbacks {
+	thinkingMeta := ThinkingEventMeta{ParentToolCallID: parentToolCallID, SubagentRunID: subagentRunID}
 	return AgentCallbacks{
 		OnChunk: func(chunk string) error {
 			if chunk == "" {
@@ -29,8 +30,23 @@ func wrapSubagentCallbacks(base AgentCallbacks, parentToolCallID, subagentRunID 
 			result.SubagentRunID = subagentRunID
 			return base.OnToolCallResult(result)
 		},
-		OnThinkingStart: base.OnThinkingStart,
-		OnThinkingChunk: base.OnThinkingChunk,
-		OnThinkingDone:  base.OnThinkingDone,
+		OnThinkingStart: func(_ ThinkingEventMeta) error {
+			if base.OnThinkingStart == nil {
+				return nil
+			}
+			return base.OnThinkingStart(thinkingMeta)
+		},
+		OnThinkingChunk: func(chunk string, _ ThinkingEventMeta) error {
+			if base.OnThinkingChunk == nil {
+				return nil
+			}
+			return base.OnThinkingChunk(chunk, thinkingMeta)
+		},
+		OnThinkingDone: func(_ ThinkingEventMeta) error {
+			if base.OnThinkingDone == nil {
+				return nil
+			}
+			return base.OnThinkingDone(thinkingMeta)
+		},
 	}
 }

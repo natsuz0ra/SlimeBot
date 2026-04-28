@@ -133,6 +133,22 @@ export function formatThinkingLabel(entry: TimelineEntry): string {
   return done ? `Thought for ${duration}` : "Thinking...";
 }
 
+function formatSubagentThinkingLines(entry: TimelineEntry, maxWidth: number): string[] {
+  if (!entry.subagentThinking) return [];
+  const thinking = entry.subagentThinking;
+  const done = thinking.thinkingDone;
+  const duration = done && thinking.thinkingDurationMs !== undefined
+    ? (thinking.thinkingDurationMs / 1000).toFixed(1) + "s"
+    : "";
+  const label = done ? `Sub-agent thought for ${duration}` : "Sub-agent thinking...";
+  const lines = [`   ${label}`];
+  if (done && thinking.content.trim() !== "") {
+    const wrapped = wrapText(thinking.content, Math.max(20, maxWidth - 6));
+    lines.push(...wrapped.split("\n").map((line) => `     ${line}`));
+  }
+  return lines;
+}
+
 export function formatPlanningIndicatorParts(blinkOn: boolean): { dot: string; label: string; color: string } {
   return {
     dot: blinkOn ? DOT : " ",
@@ -378,6 +394,7 @@ function TimelineBlock({
     entry.subagentStream && entry.subagentStream.trim() !== ""
       ? formatSubagentStreamLines(entry.subagentStream, maxWidth, toolOutputExpanded)
       : [];
+  const subThinkingLines = formatSubagentThinkingLines(entry, maxWidth);
 
   return (
     <Box flexDirection="column">
@@ -398,6 +415,11 @@ function TimelineBlock({
         <>
           {paramLines.map((line, index) => (
             <Text key={`${entry.toolCallId || invocation}-param-${index}`} color="gray">
+              {line}
+            </Text>
+          ))}
+          {subThinkingLines.map((line, index) => (
+            <Text key={`${entry.toolCallId || invocation}-subthink-${index}`} color="cyan">
               {line}
             </Text>
           ))}

@@ -6,6 +6,12 @@
 import WebSocket from "ws";
 import type { SubagentChunkData, ToolCallStartData, ToolCallResultData } from "../types.js";
 
+export interface ThinkingEventData {
+  content?: string;
+  parentToolCallId?: string;
+  subagentRunId?: string;
+}
+
 export interface WSHandlers {
   onSession: (sessionId: string) => void;
   onStart: (sessionId?: string) => void;
@@ -19,9 +25,9 @@ export interface WSHandlers {
   onToolCallStart?: (data: ToolCallStartData, sessionId?: string) => void;
   onToolCallResult?: (data: ToolCallResultData, sessionId?: string) => void;
   onSubagentChunk?: (data: SubagentChunkData, sessionId?: string) => void;
-  onThinkingStart?: () => void;
-  onThinkingChunk?: (chunk: string) => void;
-  onThinkingDone?: () => void;
+  onThinkingStart?: (data: ThinkingEventData) => void;
+  onThinkingChunk?: (data: ThinkingEventData) => void;
+  onThinkingDone?: (data: ThinkingEventData) => void;
   onPlanBody?: (content: string, sessionId?: string) => void;
   onPlanChunk?: (chunk: string, sessionId?: string) => void;
   onPlanStart?: () => void;
@@ -241,13 +247,23 @@ export function dispatchWSMessage(raw: string, handlers: WSHandlers | null): voi
   }
 
   if (msg.type === "thinking_start") {
-    handlers?.onThinkingStart?.();
+    handlers?.onThinkingStart?.({
+      parentToolCallId: msg.parentToolCallId,
+      subagentRunId: msg.subagentRunId,
+    });
   }
   if (msg.type === "thinking_chunk") {
-    handlers?.onThinkingChunk?.(msg.content || "");
+    handlers?.onThinkingChunk?.({
+      content: msg.content || "",
+      parentToolCallId: msg.parentToolCallId,
+      subagentRunId: msg.subagentRunId,
+    });
   }
   if (msg.type === "thinking_done") {
-    handlers?.onThinkingDone?.();
+    handlers?.onThinkingDone?.({
+      parentToolCallId: msg.parentToolCallId,
+      subagentRunId: msg.subagentRunId,
+    });
   }
 
   if (msg.type === "plan_body") {

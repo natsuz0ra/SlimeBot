@@ -46,6 +46,48 @@ func TestHandleRunSubagentTool_PlanModeChildKeepsReadOnlyToolFilter(t *testing.T
 	}
 }
 
+func TestWrapSubagentCallbacksTagsThinkingEvents(t *testing.T) {
+	var starts []ThinkingEventMeta
+	var chunks []ThinkingEventMeta
+	var done []ThinkingEventMeta
+	base := AgentCallbacks{
+		OnThinkingStart: func(meta ThinkingEventMeta) error {
+			starts = append(starts, meta)
+			return nil
+		},
+		OnThinkingChunk: func(_ string, meta ThinkingEventMeta) error {
+			chunks = append(chunks, meta)
+			return nil
+		},
+		OnThinkingDone: func(meta ThinkingEventMeta) error {
+			done = append(done, meta)
+			return nil
+		},
+	}
+
+	wrapped := wrapSubagentCallbacks(base, "parent-tool", "sub-run")
+	if err := wrapped.OnThinkingStart(ThinkingEventMeta{}); err != nil {
+		t.Fatalf("OnThinkingStart failed: %v", err)
+	}
+	if err := wrapped.OnThinkingChunk("thought", ThinkingEventMeta{}); err != nil {
+		t.Fatalf("OnThinkingChunk failed: %v", err)
+	}
+	if err := wrapped.OnThinkingDone(ThinkingEventMeta{}); err != nil {
+		t.Fatalf("OnThinkingDone failed: %v", err)
+	}
+
+	want := ThinkingEventMeta{ParentToolCallID: "parent-tool", SubagentRunID: "sub-run"}
+	if len(starts) != 1 || starts[0] != want {
+		t.Fatalf("unexpected thinking starts: %+v", starts)
+	}
+	if len(chunks) != 1 || chunks[0] != want {
+		t.Fatalf("unexpected thinking chunks: %+v", chunks)
+	}
+	if len(done) != 1 || done[0] != want {
+		t.Fatalf("unexpected thinking done: %+v", done)
+	}
+}
+
 type captureToolDefsProvider struct {
 	toolDefs []llmsvc.ToolDef
 }

@@ -208,15 +208,15 @@ func TestHandleChatStream_FinishesThinkingBeforeAnswerChunk(t *testing.T) {
 
 	var events []string
 	_, err = svc.HandleChatStream(ctx, session.ID, "request-1", "hello", "", model.ID, nil, "high", false, AgentCallbacks{
-		OnThinkingStart: func() error {
+		OnThinkingStart: func(ThinkingEventMeta) error {
 			events = append(events, "thinking_start")
 			return nil
 		},
-		OnThinkingChunk: func(string) error {
+		OnThinkingChunk: func(string, ThinkingEventMeta) error {
 			events = append(events, "thinking_chunk")
 			return nil
 		},
-		OnThinkingDone: func() error {
+		OnThinkingDone: func(ThinkingEventMeta) error {
 			events = append(events, "thinking_done")
 			return nil
 		},
@@ -318,9 +318,9 @@ func TestHandleChatStream_PlanModeSavesOnlyPlanBody(t *testing.T) {
 
 	result, err := svc.HandleChatStream(ctx, session.ID, "request-1", "make a plan", "", model.ID, nil, "high", true, AgentCallbacks{
 		OnChunk:         func(string) error { return nil },
-		OnThinkingStart: func() error { return nil },
-		OnThinkingChunk: func(string) error { return nil },
-		OnThinkingDone:  func() error { return nil },
+		OnThinkingStart: func(ThinkingEventMeta) error { return nil },
+		OnThinkingChunk: func(string, ThinkingEventMeta) error { return nil },
+		OnThinkingDone:  func(ThinkingEventMeta) error { return nil },
 		OnPlanStart:     func() error { return nil },
 		OnPlanChunk:     func(string) error { return nil },
 		OnPlanBody:      func(string) error { return nil },

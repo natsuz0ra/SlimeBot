@@ -111,7 +111,12 @@ export function mapHistoryMessages(
       if (hasContentMarkers(msg.content)) {
         // New messages with markers: split into separate timeline blocks
         const toolCallMap = new Map(toolCalls.map(tc => [tc.toolCallId, tc]));
-        const thinkingMap = new Map(thinkingRecords.map(item => [item.thinkingId, item]));
+        const thinkingMap = new Map(thinkingRecords
+          .filter(item => !item.parentToolCallId && !item.subagentRunId)
+          .map(item => [item.thinkingId, item]));
+        const subagentThinkingByParent = new Map(thinkingRecords
+          .filter(item => item.parentToolCallId || item.subagentRunId)
+          .map(item => [item.parentToolCallId || "", item]));
         const segments = parseContentMarkers(msg.content);
         const markerIds = new Set<string>();
         const thinkingMarkerIds = new Set<string>();
@@ -139,6 +144,7 @@ export function mapHistoryMessages(
           markerIds.add(toolCallId);
           const tc = toolCallMap.get(toolCallId);
           if (tc) {
+            const subagentThinking = subagentThinkingByParent.get(tc.toolCallId);
             entries.push({
               kind: "tool",
               content: tc.output || tc.error || "",
@@ -151,6 +157,14 @@ export function mapHistoryMessages(
               error: tc.error,
               ...(tc.parentToolCallId ? { parentToolCallId: tc.parentToolCallId } : {}),
               ...(tc.subagentRunId ? { subagentRunId: tc.subagentRunId } : {}),
+              ...(subagentThinking ? {
+                subagentThinking: {
+                  content: subagentThinking.content || "",
+                  thinkingDone: subagentThinking.status !== "streaming",
+                  thinkingDurationMs: subagentThinking.durationMs,
+                  thinkingStartedAt: subagentThinking.startedAt ? new Date(subagentThinking.startedAt).getTime() : undefined,
+                },
+              } : {}),
             });
           }
         };
@@ -187,6 +201,7 @@ export function mapHistoryMessages(
         // Handle unclosed plan
         if (inPlan) flushPlan();
         for (const thinking of thinkingRecords) {
+          if (thinking.parentToolCallId || thinking.subagentRunId) continue;
           if (!thinkingMarkerIds.has(thinking.thinkingId)) {
             entries.push({
               kind: "thinking",
@@ -199,6 +214,7 @@ export function mapHistoryMessages(
         // Fallback: append orphan tool (markers missing)
         for (const tc of toolCalls) {
           if (!markerIds.has(tc.toolCallId)) {
+            const subagentThinking = subagentThinkingByParent.get(tc.toolCallId);
             entries.push({
               kind: "tool",
               content: tc.output || tc.error || "",
@@ -211,12 +227,21 @@ export function mapHistoryMessages(
               error: tc.error,
               ...(tc.parentToolCallId ? { parentToolCallId: tc.parentToolCallId } : {}),
               ...(tc.subagentRunId ? { subagentRunId: tc.subagentRunId } : {}),
+              ...(subagentThinking ? {
+                subagentThinking: {
+                  content: subagentThinking.content || "",
+                  thinkingDone: subagentThinking.status !== "streaming",
+                  thinkingDurationMs: subagentThinking.durationMs,
+                  thinkingStartedAt: subagentThinking.startedAt ? new Date(subagentThinking.startedAt).getTime() : undefined,
+                },
+              } : {}),
             });
           }
         }
       } else {
         // Legacy: all tools first, then text
         for (const thinking of thinkingRecords) {
+          if (thinking.parentToolCallId || thinking.subagentRunId) continue;
           entries.push({
             kind: "thinking",
             content: thinking.content || "",
@@ -225,6 +250,7 @@ export function mapHistoryMessages(
           });
         }
         for (const tc of toolCalls) {
+          const subagentThinking = thinkingRecords.find((item) => item.parentToolCallId === tc.toolCallId);
           entries.push({
             kind: "tool",
             content: tc.output || tc.error || "",
@@ -237,6 +263,14 @@ export function mapHistoryMessages(
             error: tc.error,
             ...(tc.parentToolCallId ? { parentToolCallId: tc.parentToolCallId } : {}),
             ...(tc.subagentRunId ? { subagentRunId: tc.subagentRunId } : {}),
+            ...(subagentThinking ? {
+              subagentThinking: {
+                content: subagentThinking.content || "",
+                thinkingDone: subagentThinking.status !== "streaming",
+                thinkingDurationMs: subagentThinking.durationMs,
+                thinkingStartedAt: subagentThinking.startedAt ? new Date(subagentThinking.startedAt).getTime() : undefined,
+              },
+            } : {}),
           });
         }
         const { narration, planBody } = splitNarrationAndPlan(msg.content);
@@ -958,14 +992,28 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
           content: data.content,
         } as AppAction);
       },
-      onThinkingStart: () => {
-        dispatch({ type: "THINKING_START" } as AppAction);
+      onThinkingStart: (data) => {
+        dispatch({
+          type: "THINKING_START",
+          parentToolCallId: data.parentToolCallId,
+          subagentRunId: data.subagentRunId,
+        } as AppAction);
       },
-      onThinkingChunk: (chunk) => {
-        dispatch({ type: "THINKING_CHUNK", chunk } as AppAction);
+      onThinkingChunk: (data) => {
+        dispatch({
+          type: "THINKING_CHUNK",
+          chunk: data.content || "",
+          parentToolCallId: data.parentToolCallId,
+          subagentRunId: data.subagentRunId,
+        } as AppAction);
       },
-      onThinkingDone: () => {
-        dispatch({ type: "THINKING_DONE", finishedAt: Date.now() } as AppAction);
+      onThinkingDone: (data) => {
+        dispatch({
+          type: "THINKING_DONE",
+          finishedAt: Date.now(),
+          parentToolCallId: data.parentToolCallId,
+          subagentRunId: data.subagentRunId,
+        } as AppAction);
       },
       onPlanBody: (content: string) => {
         dispatch({ type: "PLAN_BODY", planBody: content } as AppAction);

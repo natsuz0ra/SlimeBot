@@ -149,6 +149,44 @@ test("THINKING_START flushes live assistant text before new thinking block", () 
 	assert.equal(next.liveAssistant, "");
 });
 
+test("tagged subagent thinking updates parent tool instead of global timeline", () => {
+	let state: AppState = {
+		...initState(),
+		timeline: [{
+			kind: "tool",
+			content: "",
+			toolCallId: "parent-tool",
+			toolName: "run_subagent",
+			command: "delegate",
+			status: "executing",
+		}],
+	};
+
+	state = reduce(state, {
+		type: "THINKING_START",
+		parentToolCallId: "parent-tool",
+		subagentRunId: "sub-run",
+		startedAt: 1_000,
+	});
+	state = reduce(state, {
+		type: "THINKING_CHUNK",
+		chunk: "child reasoning",
+		parentToolCallId: "parent-tool",
+		subagentRunId: "sub-run",
+	});
+	state = reduce(state, {
+		type: "THINKING_DONE",
+		parentToolCallId: "parent-tool",
+		subagentRunId: "sub-run",
+		finishedAt: 1_400,
+	});
+
+	assert.deepEqual(state.timeline.map((entry) => entry.kind), ["tool"]);
+	assert.equal(state.timeline[0].subagentThinking?.content, "child reasoning");
+	assert.equal(state.timeline[0].subagentThinking?.thinkingDone, true);
+	assert.equal(state.timeline[0].subagentThinking?.thinkingDurationMs, 400);
+});
+
 test("STREAM_DONE keeps final assistant when previous timeline already has a plan", () => {
 	const state: AppState = {
 		...initState(),

@@ -23,12 +23,14 @@ func (r *Repository) UpsertThinkingStart(ctx context.Context, input domain.Think
 		startedAt = time.Now()
 	}
 	record := domain.ThinkingRecord{
-		ID:         uuid.NewString(),
-		SessionID:  input.SessionID,
-		RequestID:  input.RequestID,
-		ThinkingID: strings.TrimSpace(input.ThinkingID),
-		Status:     thinkingStatusStreaming,
-		StartedAt:  startedAt,
+		ID:               uuid.NewString(),
+		SessionID:        input.SessionID,
+		RequestID:        input.RequestID,
+		ThinkingID:       strings.TrimSpace(input.ThinkingID),
+		ParentToolCallID: strings.TrimSpace(input.ParentToolCallID),
+		SubagentRunID:    strings.TrimSpace(input.SubagentRunID),
+		Status:           thinkingStatusStreaming,
+		StartedAt:        startedAt,
 	}
 	return r.dbWithContext(ctx).Clauses(clause.OnConflict{
 		Columns: []clause.Column{
@@ -43,6 +45,8 @@ func (r *Repository) UpsertThinkingStart(ctx context.Context, input domain.Think
 			"finished_at":          nil,
 			"duration_ms":          0,
 			"assistant_message_id": nil,
+			"parent_tool_call_id":  strings.TrimSpace(input.ParentToolCallID),
+			"subagent_run_id":      strings.TrimSpace(input.SubagentRunID),
 			"updated_at":           time.Now(),
 		}),
 	}).Create(&record).Error

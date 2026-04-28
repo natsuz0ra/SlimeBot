@@ -79,3 +79,43 @@ test('buildInterleavedTimeline preserves thinking and tool ordering around plans
     ['thinking', 'plan', 'tool_start', 'tool_result', 'text'],
   )
 })
+
+test('buildReplyBatchesFromHistory attaches subagent thinking to parent run_subagent tool', async () => {
+  const { buildReplyBatchesFromHistory } = await import('../src/utils/replyBatchBuilder')
+  const batches = buildReplyBatchesFromHistory('session-1', {
+    messages: [{
+      id: 'assistant-1',
+      role: 'assistant',
+      content: '<!-- TOOL_CALL:parent-tool -->\nDone.',
+      seq: 1,
+    }],
+    toolCallsByAssistantMessageId: {
+      'assistant-1': [{
+        toolCallId: 'parent-tool',
+        toolName: 'run_subagent',
+        command: 'delegate',
+        params: {},
+        requiresApproval: false,
+        status: 'completed',
+        output: 'child answer',
+        startedAt: '2026-04-28T00:00:00.000Z',
+      }],
+    },
+    thinkingByAssistantMessageId: {
+      'assistant-1': [{
+        thinkingId: 'child-think',
+        content: 'child reasoning',
+        status: 'completed',
+        durationMs: 250,
+        parentToolCallId: 'parent-tool',
+        subagentRunId: 'sub-run',
+      }],
+    },
+    hasMore: false,
+  })
+
+  const batch = batches[0]!
+  assert.deepEqual(batch.timeline.map((entry) => entry.kind), ['tool_start', 'tool_result', 'text'])
+  assert.equal(batch.toolCalls[0]!.subagentThinking?.content, 'child reasoning')
+  assert.equal(batch.toolCalls[0]!.subagentThinking?.done, true)
+})

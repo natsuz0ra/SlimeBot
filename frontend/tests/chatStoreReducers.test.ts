@@ -2,6 +2,8 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import type { AssistantReplyBatch } from '../src/utils/replyBatchBuilder'
 import {
+  appendSubagentThinkingChunk,
+  finishSubagentThinking,
   appendPlanBodyToBatch,
   appendPlanChunkToBatch,
   appendTextChunkToBatch,
@@ -74,6 +76,32 @@ test('finishOpenThinkingEntries is a no-op when all thinking entries are done', 
   finishOpenThinkingEntries(batch)
 
   assert.deepEqual(batch.timeline, [{ id: 'thinking-1', kind: 'thinking', content: 'done', done: true, durationMs: 500 }])
+})
+
+test('subagent thinking helpers update the parent tool without adding timeline thinking', () => {
+  const batch: AssistantReplyBatch = {
+    id: 'batch-1',
+    sessionId: 'session-1',
+    assistantMessageId: 'assistant-1',
+    toolCalls: [{
+      toolCallId: 'parent-tool',
+      toolName: 'run_subagent',
+      command: 'delegate',
+      params: {},
+      requiresApproval: false,
+      status: 'executing',
+    }],
+    timeline: [],
+    collapsed: false,
+  }
+
+  appendSubagentThinkingChunk(batch, 'parent-tool', 'child thought', 1000)
+  finishSubagentThinking(batch, 'parent-tool', 1250)
+
+  assert.deepEqual(batch.timeline, [])
+  assert.equal(batch.toolCalls[0]!.subagentThinking?.content, 'child thought')
+  assert.equal(batch.toolCalls[0]!.subagentThinking?.done, true)
+  assert.equal(batch.toolCalls[0]!.subagentThinking?.durationMs, 250)
 })
 
 test('getLiveReplyContentSignature changes when streaming plan content grows in place', () => {

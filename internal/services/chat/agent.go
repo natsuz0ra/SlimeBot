@@ -51,6 +51,11 @@ type ToolCallResult struct {
 	SubagentRunID    string `json:"subagentRunId,omitempty"`
 }
 
+type ThinkingEventMeta struct {
+	ParentToolCallID string
+	SubagentRunID    string
+}
+
 // AgentCallbacks wires the agent loop to the outside world (streaming, approval, results).
 type AgentCallbacks struct {
 	OnChunk          func(chunk string) error                                                // stream text chunks to the client
@@ -60,9 +65,9 @@ type AgentCallbacks struct {
 	OnSubagentStart  func(parentToolCallID, runID, task string) error
 	OnSubagentChunk  func(parentToolCallID, runID, chunk string) error
 	OnSubagentDone   func(parentToolCallID, runID string, runErr error) error
-	OnThinkingStart  func() error
-	OnThinkingChunk  func(chunk string) error
-	OnThinkingDone   func() error
+	OnThinkingStart  func(meta ThinkingEventMeta) error
+	OnThinkingChunk  func(chunk string, meta ThinkingEventMeta) error
+	OnThinkingDone   func(meta ThinkingEventMeta) error
 	OnPlanStart      func() error                  // plan writing phase has begun
 	OnPlanChunk      func(chunk string) error      // stream plan body chunk to the client (plan mode only)
 	OnPlanBody       func(planBody string) error   // send complete plan body (non-streaming, plan mode only)
@@ -389,12 +394,13 @@ func (a *AgentService) RunAgentLoop(
 		var chunkBuf strings.Builder
 		var thinkingStarted bool
 		var thinkingDone bool
+		thinkingMeta := ThinkingEventMeta{}
 		finishThinking := func() error {
 			if !thinkingStarted || thinkingDone || callbacks.OnThinkingDone == nil {
 				thinkingDone = thinkingStarted
 				return nil
 			}
-			if err := callbacks.OnThinkingDone(); err != nil {
+			if err := callbacks.OnThinkingDone(thinkingMeta); err != nil {
 				return err
 			}
 			thinkingDone = true
@@ -417,7 +423,7 @@ func (a *AgentService) RunAgentLoop(
 				if !thinkingStarted {
 					thinkingStarted = true
 					if callbacks.OnThinkingStart != nil {
-						if err := callbacks.OnThinkingStart(); err != nil {
+						if err := callbacks.OnThinkingStart(thinkingMeta); err != nil {
 							return err
 						}
 					}
@@ -425,7 +431,7 @@ func (a *AgentService) RunAgentLoop(
 				if callbacks.OnThinkingChunk == nil {
 					return nil
 				}
-				return callbacks.OnThinkingChunk(thinkingChunk)
+				return callbacks.OnThinkingChunk(thinkingChunk, thinkingMeta)
 			},
 		})
 		if err != nil {

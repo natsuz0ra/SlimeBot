@@ -322,27 +322,31 @@ func (s *ChatService) executeChatTurn(
 			}
 			return nil
 		},
-		OnThinkingStart: func() error {
+		OnThinkingStart: func(meta ThinkingEventMeta) error {
 			if err := finishActiveThinking(time.Now()); err != nil {
 				return err
 			}
 			activeThinkingID = uuid.NewString()
 			activeThinkingDone = false
 			if err := s.store.UpsertThinkingStart(ctx, domain.ThinkingStartRecordInput{
-				SessionID:  sessionID,
-				RequestID:  requestID,
-				ThinkingID: activeThinkingID,
-				StartedAt:  time.Now(),
+				SessionID:        sessionID,
+				RequestID:        requestID,
+				ThinkingID:       activeThinkingID,
+				ParentToolCallID: meta.ParentToolCallID,
+				SubagentRunID:    meta.SubagentRunID,
+				StartedAt:        time.Now(),
 			}); err != nil {
 				return err
 			}
-			accumulator.answerBuilder.WriteString(fmt.Sprintf(thinkingMarkerFmt, activeThinkingID))
+			if meta.ParentToolCallID == "" && meta.SubagentRunID == "" {
+				accumulator.answerBuilder.WriteString(fmt.Sprintf(thinkingMarkerFmt, activeThinkingID))
+			}
 			if callbacks.OnThinkingStart == nil {
 				return nil
 			}
-			return callbacks.OnThinkingStart()
+			return callbacks.OnThinkingStart(meta)
 		},
-		OnThinkingChunk: func(chunk string) error {
+		OnThinkingChunk: func(chunk string, meta ThinkingEventMeta) error {
 			if activeThinkingID != "" {
 				if err := s.store.AppendThinkingChunk(ctx, domain.ThinkingChunkRecordInput{
 					SessionID:  sessionID,
@@ -356,16 +360,16 @@ func (s *ChatService) executeChatTurn(
 			if callbacks.OnThinkingChunk == nil {
 				return nil
 			}
-			return callbacks.OnThinkingChunk(chunk)
+			return callbacks.OnThinkingChunk(chunk, meta)
 		},
-		OnThinkingDone: func() error {
+		OnThinkingDone: func(meta ThinkingEventMeta) error {
 			if err := finishActiveThinking(time.Now()); err != nil {
 				return err
 			}
 			if callbacks.OnThinkingDone == nil {
 				return nil
 			}
-			return callbacks.OnThinkingDone()
+			return callbacks.OnThinkingDone(meta)
 		},
 		OnPlanStart: func() error {
 			accumulator.planStarted = true

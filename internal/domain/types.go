@@ -39,10 +39,12 @@ type ToolCallResultRecordInput struct {
 }
 
 type ThinkingStartRecordInput struct {
-	SessionID  string
-	RequestID  string
-	ThinkingID string
-	StartedAt  time.Time
+	SessionID        string
+	RequestID        string
+	ThinkingID       string
+	ParentToolCallID string
+	SubagentRunID    string
+	StartedAt        time.Time
 }
 
 type ThinkingChunkRecordInput struct {

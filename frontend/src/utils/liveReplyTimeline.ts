@@ -28,6 +28,46 @@ export function finishOpenThinkingEntries(batch: AssistantReplyBatch, finishedAt
   }
 }
 
+function findToolCall(batch: AssistantReplyBatch, toolCallId: string) {
+  return batch.toolCalls.find((item) => item.toolCallId === toolCallId)
+}
+
+export function startSubagentThinking(batch: AssistantReplyBatch, parentToolCallId: string, startedAt = Date.now()) {
+  const toolCall = findToolCall(batch, parentToolCallId)
+  if (!toolCall) return
+  toolCall.subagentThinking = {
+    content: toolCall.subagentThinking?.content || '',
+    done: false,
+    startedAt,
+    durationMs: undefined,
+  }
+}
+
+export function appendSubagentThinkingChunk(batch: AssistantReplyBatch, parentToolCallId: string, chunk: string, startedAt = Date.now()) {
+  if (chunk === '') return
+  const toolCall = findToolCall(batch, parentToolCallId)
+  if (!toolCall) return
+  if (!toolCall.subagentThinking) {
+    toolCall.subagentThinking = { content: '', done: false, startedAt }
+  }
+  toolCall.subagentThinking = {
+    ...toolCall.subagentThinking,
+    content: toolCall.subagentThinking.content + chunk,
+    done: false,
+  }
+}
+
+export function finishSubagentThinking(batch: AssistantReplyBatch, parentToolCallId: string, finishedAt = Date.now()) {
+  const toolCall = findToolCall(batch, parentToolCallId)
+  if (!toolCall?.subagentThinking) return
+  const startedAt = toolCall.subagentThinking.startedAt
+  toolCall.subagentThinking = {
+    ...toolCall.subagentThinking,
+    done: true,
+    durationMs: startedAt ? Math.max(0, finishedAt - startedAt) : toolCall.subagentThinking.durationMs,
+  }
+}
+
 export function appendTextChunkToBatch(batch: AssistantReplyBatch, chunk: string) {
   if (chunk === '') return
   finishOpenThinkingEntries(batch)
@@ -104,6 +144,8 @@ export function getLiveReplyContentSignature(batch: AssistantReplyBatch | undefi
       item.output?.length ?? 0,
       item.error?.length ?? 0,
       item.subagentStream?.length ?? 0,
+      item.subagentThinking?.content.length ?? 0,
+      item.subagentThinking?.done ? 1 : 0,
     ].join(':'))
   }
 

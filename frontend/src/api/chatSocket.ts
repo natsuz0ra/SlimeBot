@@ -13,9 +13,9 @@ type Handlers = {
   onSubagentStart?: (data: SubagentStartData, sessionId?: string) => void
   onSubagentChunk?: (data: SubagentChunkData, sessionId?: string) => void
   onSubagentDone?: (data: SubagentDoneData, sessionId?: string) => void
-  onThinkingStart?: (sessionId?: string) => void
-  onThinkingChunk?: (chunk: string, sessionId?: string) => void
-  onThinkingDone?: (sessionId?: string) => void
+  onThinkingStart?: (data: ThinkingEventData, sessionId?: string) => void
+  onThinkingChunk?: (data: ThinkingEventData, sessionId?: string) => void
+  onThinkingDone?: (data: ThinkingEventData, sessionId?: string) => void
   onPlanStart?: (sessionId?: string) => void
   onPlanChunk?: (chunk: string, sessionId?: string) => void
   onPlanBody?: (content: string, sessionId?: string) => void
@@ -66,6 +66,12 @@ export interface SubagentDoneData {
   parentToolCallId: string
   subagentRunId: string
   error?: string
+}
+
+export interface ThinkingEventData {
+  content?: string
+  parentToolCallId?: string
+  subagentRunId?: string
 }
 
 type WSIncoming = {
@@ -285,9 +291,19 @@ export class ChatSocket {
         }, data.sessionId)
       }
 
-      if (data.type === 'thinking_start') this.handlers?.onThinkingStart?.(data.sessionId)
-      if (data.type === 'thinking_chunk') this.handlers?.onThinkingChunk?.(data.content || '', data.sessionId)
-      if (data.type === 'thinking_done') this.handlers?.onThinkingDone?.(data.sessionId)
+      if (data.type === 'thinking_start') this.handlers?.onThinkingStart?.({
+        parentToolCallId: data.parentToolCallId,
+        subagentRunId: data.subagentRunId,
+      }, data.sessionId)
+      if (data.type === 'thinking_chunk') this.handlers?.onThinkingChunk?.({
+        content: data.content || '',
+        parentToolCallId: data.parentToolCallId,
+        subagentRunId: data.subagentRunId,
+      }, data.sessionId)
+      if (data.type === 'thinking_done') this.handlers?.onThinkingDone?.({
+        parentToolCallId: data.parentToolCallId,
+        subagentRunId: data.subagentRunId,
+      }, data.sessionId)
       if (data.type === 'plan_start') this.handlers?.onPlanStart?.(data.sessionId)
       if (data.type === 'plan_chunk') this.handlers?.onPlanChunk?.(data.content || '', data.sessionId)
       if (data.type === 'plan_body') this.handlers?.onPlanBody?.(data.content || '', data.sessionId)

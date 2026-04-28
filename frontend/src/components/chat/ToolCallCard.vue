@@ -3,6 +3,7 @@ import { computed, ref } from 'vue'
 import { mdiBrain, mdiCheck, mdiClose, mdiConsoleLine, mdiHelpCircleOutline, mdiWeb } from '@mdi/js'
 import { useI18n } from 'vue-i18n'
 import MdiIcon from '@/components/ui/MdiIcon.vue'
+import ThinkingBlock from '@/components/chat/ThinkingBlock.vue'
 import type { ToolCallItem } from '@/api/chat'
 import { buildToolResultDisplay, formatDisplayText, formatToolParams, parseAskQuestionsReadableAnswers } from '@/utils/toolDisplay'
 
@@ -48,6 +49,7 @@ const toolLabel = computed(() => {
 const showSubagentStream = computed(() => {
   return props.item.toolName === 'run_subagent' && !!props.item.subagentStream && props.item.subagentStream.trim() !== ''
 })
+const showSubagentThinking = computed(() => props.item.toolName === 'run_subagent' && !!props.item.subagentThinking)
 
 const showNestedTools = computed(() => props.nestedTools.length > 0)
 
@@ -230,6 +232,14 @@ function onOutputToggle(event: Event) {
       <div class="tool-preamble">
       {{ item.preamble }}
       </div>
+    </section>
+
+    <section v-if="showSubagentThinking && item.subagentThinking" class="tool-section mt-2.5">
+      <ThinkingBlock
+        :content="item.subagentThinking.content"
+        :done="item.subagentThinking.done"
+        :duration-ms="item.subagentThinking.durationMs"
+      />
     </section>
 
     <section v-if="showSubagentStream" class="tool-section mt-2.5">

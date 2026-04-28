@@ -14,7 +14,7 @@ import {
   type AssistantReplyTimelineItem,
 } from '@/utils/replyBatchBuilder'
 import { hasContentMarkers, parseContentMarkers, stripContentMarkers } from '@/utils/contentMarkers'
-import { appendPlanBodyToBatch, appendPlanChunkToBatch, appendTextChunkToBatch, finishOpenThinkingEntries, markLastThinkingDone } from '@/utils/liveReplyTimeline'
+import { appendPlanBodyToBatch, appendPlanChunkToBatch, appendSubagentThinkingChunk, appendTextChunkToBatch, finishOpenThinkingEntries, finishSubagentThinking, markLastThinkingDone, startSubagentThinking } from '@/utils/liveReplyTimeline'
 
 const HISTORY_PAGE_SIZE = 10
 const MAX_SESSION_PAGE_SIZE = 100
@@ -541,10 +541,14 @@ export const useChatStore = defineStore('chat', () => {
         if (!sessionId || sessionId !== currentSessionId.value) return
         // Final text also arrives via tool_call_result; no state change required here.
       },
-      onThinkingStart: (sessionId) => {
+      onThinkingStart: (data, sessionId) => {
         if (!sessionId || sessionId !== currentSessionId.value) return
         const batch = getCurrentBatch()
         if (!batch) return
+        if (data.parentToolCallId && data.subagentRunId) {
+          startSubagentThinking(batch, data.parentToolCallId)
+          return
+        }
         batch.timeline.push({
           id: crypto.randomUUID(),
           kind: 'thinking',
@@ -553,26 +557,34 @@ export const useChatStore = defineStore('chat', () => {
           startedAt: Date.now(),
         })
       },
-      onThinkingChunk: (chunk, sessionId) => {
+      onThinkingChunk: (data, sessionId) => {
         if (!sessionId || sessionId !== currentSessionId.value) return
         const batch = getCurrentBatch()
         if (!batch) return
+        if (data.parentToolCallId && data.subagentRunId) {
+          appendSubagentThinkingChunk(batch, data.parentToolCallId, data.content || '')
+          return
+        }
         const entries = [...batch.timeline]
         for (let i = entries.length - 1; i >= 0; i--) {
           const e = entries[i]
           // @ts-ignore
           if (e.kind === 'thinking' && !e.done) {
             // @ts-ignore
-            entries[i] = { ...e, content: (e.content || '') + chunk }
+            entries[i] = { ...e, content: (e.content || '') + (data.content || '') }
             batch.timeline = entries
             break
           }
         }
       },
-      onThinkingDone: (sessionId) => {
+      onThinkingDone: (data, sessionId) => {
         if (!sessionId || sessionId !== currentSessionId.value) return
         const batch = getCurrentBatch()
         if (!batch) return
+        if (data.parentToolCallId && data.subagentRunId) {
+          finishSubagentThinking(batch, data.parentToolCallId)
+          return
+        }
         batch.timeline = markLastThinkingDone(batch.timeline)
       },
       onPlanStart: (sessionId) => {

@@ -180,16 +180,26 @@ export function buildReplyBatchesFromHistory(sessionId: string, history: Session
       subagentRunId: item.subagentRunId,
     }))
 
-    for (const thinking of historyThinking) {
+    const subagentThinkingRecords = historyThinking
+      .filter((thinking) => thinking.parentToolCallId || thinking.subagentRunId)
+      .sort((left, right) => {
+        const leftAt = new Date(left.startedAt || 0).getTime()
+        const rightAt = new Date(right.startedAt || 0).getTime()
+        return leftAt - rightAt
+      })
+
+    for (const thinking of subagentThinkingRecords) {
       if (!thinking.parentToolCallId && !thinking.subagentRunId) continue
       const parent = toolCalls.find((item) => item.toolCallId === thinking.parentToolCallId)
       if (!parent) continue
-      parent.subagentThinking = {
+      const entry = {
         content: thinking.content || '',
         done: thinking.status !== 'streaming',
         durationMs: thinking.durationMs,
         startedAt: thinking.startedAt ? new Date(thinking.startedAt).getTime() : undefined,
       }
+      parent.subagentThinkings = [...(parent.subagentThinkings ?? (parent.subagentThinking ? [parent.subagentThinking] : [])), entry]
+      parent.subagentThinking = entry
       if (thinking.subagentRunId && !parent.subagentRunId) {
         parent.subagentRunId = thinking.subagentRunId
       }

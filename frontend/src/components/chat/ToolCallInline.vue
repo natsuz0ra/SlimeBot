@@ -3,6 +3,7 @@ import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { mdiBrain, mdiConsoleLine, mdiHelpCircleOutline, mdiWeb } from '@mdi/js'
 import MdiIcon from '@/components/ui/MdiIcon.vue'
+import ThinkingBlock from '@/components/chat/ThinkingBlock.vue'
 import type { ToolCallItem } from '@/api/chat'
 import { buildToolResultDisplay, formatDisplayText, formatToolParams, parseAskQuestionsReadableAnswers } from '@/utils/toolDisplay'
 import { shouldAutoExpandToolCall } from '@/utils/toolApprovalExpansion'
@@ -82,6 +83,12 @@ const showPreamble = computed(() => !!props.item.preamble && props.item.preamble
 
 const showActions = computed(() => props.item.status === 'pending')
 const showNested = computed(() => props.nestedTools.length > 0)
+const subagentThinkingItems = computed(() => {
+  if (props.item.toolName !== 'run_subagent') return []
+  return props.item.subagentThinkings ?? (props.item.subagentThinking ? [props.item.subagentThinking] : [])
+})
+const showSubagentThinking = computed(() => subagentThinkingItems.value.length > 0)
+const showSubagentToolCallsThinking = computed(() => showSubagentThinking.value || showNested.value)
 const shouldAutoExpand = computed(() => shouldAutoExpandToolCall(props.item, props.nestedTools))
 const isAskQuestions = computed(() => props.item.toolName === 'ask_questions')
 
@@ -154,6 +161,29 @@ function toggleExpanded() {
 
     <Transition name="inline-expand">
       <div v-if="expanded" class="inline-tool-detail">
+        <section v-if="showSubagentToolCallsThinking" class="inline-section inline-subagent-tool-calls-thinking">
+          <p class="inline-section-title">{{ t('subagentToolCallsThinkingTitle') }}</p>
+          <div v-if="showSubagentThinking" class="inline-subagent-thinking-list">
+            <ThinkingBlock
+              v-for="thinking in subagentThinkingItems"
+              :key="`${item.toolCallId}-thinking-${thinking.startedAt ?? thinking.content.length}`"
+              :content="thinking.content"
+              :done="thinking.done"
+              :duration-ms="thinking.durationMs"
+              variant="subagent"
+            />
+          </div>
+          <div v-if="showNested" class="inline-nested-list">
+            <ToolCallInline
+              v-for="nested in nestedTools"
+              :key="nested.toolCallId"
+              :item="nested"
+              @approve="emit('approve', $event)"
+              @reject="emit('reject', $event)"
+            />
+          </div>
+        </section>
+
         <section v-if="!isAskQuestions && paramsDisplay.length > 0" class="inline-section">
           <p class="inline-section-title">{{ t('toolCallParams') }}</p>
           <div class="inline-kv-list sb-scrollbar">
@@ -215,19 +245,6 @@ function toggleExpanded() {
             </div>
           </template>
           <div v-if="item.error" class="inline-error">{{ errorDisplay }}</div>
-        </section>
-
-        <section v-if="showNested" class="inline-section">
-          <p class="inline-section-title">{{ t('subagentNestedTitle') }}</p>
-          <div class="inline-nested-list">
-            <ToolCallInline
-              v-for="nested in nestedTools"
-              :key="nested.toolCallId"
-              :item="nested"
-              @approve="emit('approve', $event)"
-              @reject="emit('reject', $event)"
-            />
-          </div>
         </section>
 
         <div v-if="showActions" class="inline-actions">
@@ -367,6 +384,17 @@ function toggleExpanded() {
 
 .inline-tool-chevron--open {
   transform: rotate(180deg);
+}
+
+.inline-subagent-thinking-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.inline-subagent-thinking-list:last-child {
+  margin-bottom: 0;
 }
 
 /* --- Expanded detail --- */

@@ -80,6 +80,32 @@ test('ThinkingBlock supports live subagent reasoning content before completion',
   const thinkingBlockSource = readFileSync(resolve(import.meta.dirname, '../src/components/chat/ThinkingBlock.vue'), 'utf8')
 
   assert.match(thinkingBlockSource, /variant\?: 'default' \| 'subagent'/)
-  assert.match(thinkingBlockSource, /v-if="hasVisibleContent && \(!done \|\| expanded\)"/)
+  assert.match(thinkingBlockSource, /thinking-preview/)
+  assert.match(thinkingBlockSource, /v-if="hasVisibleContent && done && expanded"/)
   assert.match(thinkingBlockSource, /subagentThinkingLabel/)
+  assert.match(thinkingBlockSource, /subagentThoughtFor/)
+  assert.match(thinkingBlockSource, /\.thinking-chevron\s*\{[\s\S]*margin-left:\s*auto/)
+  assert.doesNotMatch(thinkingBlockSource, /Sub-agent thought/)
+})
+
+test('ToolCallCard renders subagent thinking entries with the shared ThinkingBlock', () => {
+  const toolCallCardSource = readFileSync(resolve(import.meta.dirname, '../src/components/chat/ToolCallCard.vue'), 'utf8')
+
+  assert.match(toolCallCardSource, /subagentThinkingItems/)
+  assert.match(toolCallCardSource, /showSubagentToolCallsThinking/)
+  assert.match(toolCallCardSource, /subagentToolCallsThinkingTitle/)
+  assert.match(toolCallCardSource, /v-for="thinking in subagentThinkingItems"/)
+  assert.match(toolCallCardSource, /variant="subagent"/)
+  assert.match(toolCallCardSource, /\.tool-result-arrow\s*\{[\s\S]*margin-left:\s*auto/)
+})
+
+test('i18n includes subagent thinking and combined tool-call labels', () => {
+  const i18nSource = readFileSync(resolve(import.meta.dirname, '../src/i18n.ts'), 'utf8')
+
+  assert.match(i18nSource, /subagentThinkingLabel:\s*'子代理思考中\.\.\.'/)
+  assert.match(i18nSource, /subagentThoughtFor:\s*'子代理思考了 \{duration\}'/)
+  assert.match(i18nSource, /subagentToolCallsThinkingTitle:\s*'子代理工具调用&思考'/)
+  assert.match(i18nSource, /subagentThinkingLabel:\s*'Sub-agent thinking\.\.\.'/)
+  assert.match(i18nSource, /subagentThoughtFor:\s*'Sub-agent thought for \{duration\}'/)
+  assert.match(i18nSource, /subagentToolCallsThinkingTitle:\s*'Sub-agent tool calls & thinking'/)
 })

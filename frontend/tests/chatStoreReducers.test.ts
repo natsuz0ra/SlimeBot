@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import type { AssistantReplyBatch } from '../src/utils/replyBatchBuilder'
 import {
+  startSubagentThinking,
   appendSubagentThinkingChunk,
   finishSubagentThinking,
   appendPlanBodyToBatch,
@@ -78,7 +79,7 @@ test('finishOpenThinkingEntries is a no-op when all thinking entries are done', 
   assert.deepEqual(batch.timeline, [{ id: 'thinking-1', kind: 'thinking', content: 'done', done: true, durationMs: 500 }])
 })
 
-test('subagent thinking helpers update the parent tool without adding timeline thinking', () => {
+test('subagent thinking helpers append multiple entries to the parent tool without adding timeline thinking', () => {
   const batch: AssistantReplyBatch = {
     id: 'batch-1',
     sessionId: 'session-1',
@@ -95,13 +96,44 @@ test('subagent thinking helpers update the parent tool without adding timeline t
     collapsed: false,
   }
 
+  startSubagentThinking(batch, 'parent-tool', 1000)
   appendSubagentThinkingChunk(batch, 'parent-tool', 'child thought', 1000)
   finishSubagentThinking(batch, 'parent-tool', 1250)
+  startSubagentThinking(batch, 'parent-tool', 2000)
+  appendSubagentThinkingChunk(batch, 'parent-tool', 'second thought', 2000)
+  finishSubagentThinking(batch, 'parent-tool', 2600)
 
   assert.deepEqual(batch.timeline, [])
-  assert.equal(batch.toolCalls[0]!.subagentThinking?.content, 'child thought')
-  assert.equal(batch.toolCalls[0]!.subagentThinking?.done, true)
-  assert.equal(batch.toolCalls[0]!.subagentThinking?.durationMs, 250)
+  assert.deepEqual(batch.toolCalls[0]!.subagentThinkings?.map((item) => item.content), ['child thought', 'second thought'])
+  assert.deepEqual(batch.toolCalls[0]!.subagentThinkings?.map((item) => item.done), [true, true])
+  assert.deepEqual(batch.toolCalls[0]!.subagentThinkings?.map((item) => item.durationMs), [250, 600])
+})
+
+test('subagent thinking chunks only update the latest open entry', () => {
+  const batch: AssistantReplyBatch = {
+    id: 'batch-1',
+    sessionId: 'session-1',
+    assistantMessageId: 'assistant-1',
+    toolCalls: [{
+      toolCallId: 'parent-tool',
+      toolName: 'run_subagent',
+      command: 'delegate',
+      params: {},
+      requiresApproval: false,
+      status: 'executing',
+    }],
+    timeline: [],
+    collapsed: false,
+  }
+
+  startSubagentThinking(batch, 'parent-tool', 1000)
+  appendSubagentThinkingChunk(batch, 'parent-tool', 'first', 1000)
+  startSubagentThinking(batch, 'parent-tool', 1500)
+  appendSubagentThinkingChunk(batch, 'parent-tool', 'second', 1500)
+  finishSubagentThinking(batch, 'parent-tool', 1800)
+
+  assert.deepEqual(batch.toolCalls[0]!.subagentThinkings?.map((item) => item.content), ['first', 'second'])
+  assert.deepEqual(batch.toolCalls[0]!.subagentThinkings?.map((item) => item.done), [false, true])
 })
 
 test('getLiveReplyContentSignature changes when streaming plan content grows in place', () => {

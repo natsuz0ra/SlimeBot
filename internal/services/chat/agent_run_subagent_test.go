@@ -3,6 +3,7 @@ package chat
 import (
 	"context"
 	"fmt"
+	"strings"
 	"testing"
 
 	"slimebot/internal/constants"
@@ -246,6 +247,56 @@ func TestHandleRunSubagentTool_PreservesChildReasoningAcrossToolIterations(t *te
 	}
 }
 
+func TestRunAgentLoop_SubagentCanRunBeyondFormerThirtyIterationCap(t *testing.T) {
+	provider := &loopUntilTextProvider{textAtCall: 31}
+	agent := NewAgentService(llmsvc.NewFactory(provider), nil, nil, nil)
+
+	answer, err := agent.RunAgentLoop(
+		context.Background(),
+		llmsvc.ModelRuntimeConfig{Provider: llmsvc.ProviderOpenAI},
+		"session-1",
+		[]llmsvc.ChatMessage{{Role: "user", Content: "keep going"}},
+		nil,
+		map[string]struct{}{},
+		AgentCallbacks{},
+		AgentLoopOptions{Depth: 1},
+	)
+	if err != nil {
+		t.Fatalf("subagent should not stop at the former 30-iteration cap: %v", err)
+	}
+	if answer != "done after loop" {
+		t.Fatalf("unexpected answer: %q", answer)
+	}
+	if provider.call != 31 {
+		t.Fatalf("expected 31 model calls, got %d", provider.call)
+	}
+}
+
+func TestRunAgentLoop_MainAgentStillStopsAtMaxIterations(t *testing.T) {
+	provider := &loopUntilTextProvider{textAtCall: constants.AgentMaxIterations + 1}
+	agent := NewAgentService(llmsvc.NewFactory(provider), nil, nil, nil)
+
+	_, err := agent.RunAgentLoop(
+		context.Background(),
+		llmsvc.ModelRuntimeConfig{Provider: llmsvc.ProviderOpenAI},
+		"session-1",
+		[]llmsvc.ChatMessage{{Role: "user", Content: "keep going"}},
+		nil,
+		map[string]struct{}{},
+		AgentCallbacks{},
+		AgentLoopOptions{},
+	)
+	if err == nil {
+		t.Fatal("expected main agent to stop at max iterations")
+	}
+	if !strings.Contains(err.Error(), fmt.Sprintf("max iterations (%d)", constants.AgentMaxIterations)) {
+		t.Fatalf("unexpected max iteration error: %v", err)
+	}
+	if provider.call != constants.AgentMaxIterations {
+		t.Fatalf("expected %d model calls, got %d", constants.AgentMaxIterations, provider.call)
+	}
+}
+
 type stubSubagentHost struct {
 	resolved     llmsvc.ModelRuntimeConfig
 	resolveErr   error
@@ -256,6 +307,45 @@ type stubSubagentHost struct {
 type subagentReasoningIterationProvider struct {
 	call                int
 	secondCallAssistant *llmsvc.ChatMessage
+}
+
+type loopUntilTextProvider struct {
+	call       int
+	textAtCall int
+}
+
+func (p *loopUntilTextProvider) StreamChatWithTools(
+	_ context.Context,
+	_ llmsvc.ModelRuntimeConfig,
+	_ []llmsvc.ChatMessage,
+	_ []llmsvc.ToolDef,
+	callbacks llmsvc.StreamCallbacks,
+) (*llmsvc.StreamResult, error) {
+	p.call++
+	if p.call >= p.textAtCall {
+		if callbacks.OnChunk != nil {
+			if err := callbacks.OnChunk("done after loop"); err != nil {
+				return nil, err
+			}
+		}
+		return &llmsvc.StreamResult{Type: llmsvc.StreamResultText}, nil
+	}
+	return &llmsvc.StreamResult{
+		Type: llmsvc.StreamResultToolCalls,
+		ToolCalls: []llmsvc.ToolCallInfo{{
+			ID:        fmt.Sprintf("plan-start-%d", p.call),
+			Name:      constants.PlanStartTool,
+			Arguments: "{}",
+		}},
+		AssistantMessage: llmsvc.ChatMessage{
+			Role: "assistant",
+			ToolCalls: []llmsvc.ToolCallInfo{{
+				ID:        fmt.Sprintf("plan-start-%d", p.call),
+				Name:      constants.PlanStartTool,
+				Arguments: "{}",
+			}},
+		},
+	}, nil
 }
 
 func (p *subagentReasoningIterationProvider) StreamChatWithTools(

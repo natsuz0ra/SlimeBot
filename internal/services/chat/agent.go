@@ -383,12 +383,11 @@ func (a *AgentService) RunAgentLoop(
 
 	provider := a.providerFactory.GetProvider(modelConfig.Provider)
 
-	maxIter := constants.AgentMaxIterations
-	if opts.Depth > 0 {
-		maxIter = constants.SubagentMaxIterations
-	}
+	for i := 0; ; i++ {
+		if opts.Depth == 0 && i >= constants.AgentMaxIterations {
+			return finalAnswer.String(), fmt.Errorf("agent loop reached max iterations (%d)", constants.AgentMaxIterations)
+		}
 
-	for i := 0; i < maxIter; i++ {
 		logging.Info("agent_iteration", "iteration", i+1, "messages", len(messages), "agent_depth", opts.Depth)
 
 		var chunkBuf strings.Builder
@@ -568,7 +567,7 @@ func (a *AgentService) RunAgentLoop(
 		}
 	}
 
-	return finalAnswer.String(), fmt.Errorf("agent loop reached max iterations (%d)", maxIter)
+	return finalAnswer.String(), nil
 }
 
 // isPlanModeAllowedTool returns true if the tool function name is allowed in plan mode.

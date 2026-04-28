@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { getThinkingPreviewLine, getThinkingPreviewLineIndex } from '@/utils/thinkingPreview'
 
 const props = withDefaults(defineProps<{
   content: string
@@ -20,13 +21,14 @@ const durationText = computed(() => {
 })
 
 const hasVisibleContent = computed(() => props.content.trim() !== '')
-const subagentThinkingLabel = computed(() => (props.done ? 'Sub-agent thought' : 'Sub-agent thinking...'))
+const previewLine = computed(() => getThinkingPreviewLine(props.content))
+const previewLineKey = computed(() => getThinkingPreviewLineIndex(props.content))
 
 const summaryText = computed(() => {
   if (props.variant === 'subagent') {
-    if (!props.done) return subagentThinkingLabel.value
-    if (durationText.value) return `Sub-agent thought for ${durationText.value}`
-    return subagentThinkingLabel.value
+    if (!props.done) return t('subagentThinkingLabel')
+    if (durationText.value) return t('subagentThoughtFor', { duration: durationText.value })
+    return t('subagentThoughtLabel')
   }
   if (!props.done) return t('thinkingLabel')
   if (durationText.value) return t('thoughtFor', { duration: durationText.value })
@@ -57,6 +59,12 @@ const canToggle = computed(() => props.done && hasVisibleContent.value)
 
       <span class="thinking-summary-text">{{ summaryText }}</span>
 
+      <span v-if="!done && previewLine" class="thinking-preview" aria-live="polite">
+        <Transition name="thinking-preview-slide" mode="out-in">
+          <span :key="previewLineKey" class="thinking-preview-line">{{ previewLine }}</span>
+        </Transition>
+      </span>
+
       <svg
         v-if="canToggle"
         class="thinking-chevron"
@@ -76,7 +84,7 @@ const canToggle = computed(() => props.done && hasVisibleContent.value)
     </button>
 
     <Transition name="thinking-expand">
-      <div v-if="hasVisibleContent && (!done || expanded)" class="thinking-content">
+      <div v-if="hasVisibleContent && done && expanded" class="thinking-content">
         <pre class="thinking-content-text sb-scrollbar">{{ content }}</pre>
       </div>
     </Transition>
@@ -154,13 +162,32 @@ const canToggle = computed(() => props.done && hasVisibleContent.value)
 }
 
 .thinking-summary-text {
-  flex: 1 1 auto;
+  flex: 0 0 auto;
   color: #0284c7;
   font-weight: 650;
+  white-space: nowrap;
+}
+
+.thinking-preview {
+  position: relative;
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 1.2em;
+  overflow: hidden;
+  color: var(--text-secondary, #4c4980);
+  font-weight: 500;
+}
+
+.thinking-preview-line {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .thinking-chevron {
   flex-shrink: 0;
+  margin-left: auto;
   color: var(--text-muted, #9ca3af);
   transition: transform 200ms ease;
 }
@@ -229,6 +256,21 @@ const canToggle = computed(() => props.done && hasVisibleContent.value)
   max-height: 280px;
 }
 
+.thinking-preview-slide-enter-active,
+.thinking-preview-slide-leave-active {
+  transition: opacity 160ms ease, transform 160ms ease;
+}
+
+.thinking-preview-slide-enter-from {
+  opacity: 0;
+  transform: translateY(0.65em);
+}
+
+.thinking-preview-slide-leave-to {
+  opacity: 0;
+  transform: translateY(-0.65em);
+}
+
 @media (prefers-reduced-motion: reduce) {
   .thinking-dot--pulsing {
     animation: none;
@@ -236,6 +278,8 @@ const canToggle = computed(() => props.done && hasVisibleContent.value)
   .thinking-chevron {
     transition: none;
   }
+  .thinking-preview-slide-enter-active,
+  .thinking-preview-slide-leave-active,
   .thinking-expand-enter-active,
   .thinking-expand-leave-active {
     transition: none;

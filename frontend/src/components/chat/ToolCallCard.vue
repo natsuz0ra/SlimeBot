@@ -49,9 +49,14 @@ const toolLabel = computed(() => {
 const showSubagentStream = computed(() => {
   return props.item.toolName === 'run_subagent' && !!props.item.subagentStream && props.item.subagentStream.trim() !== ''
 })
-const showSubagentThinking = computed(() => props.item.toolName === 'run_subagent' && !!props.item.subagentThinking)
+const subagentThinkingItems = computed(() => {
+  if (props.item.toolName !== 'run_subagent') return []
+  return props.item.subagentThinkings ?? (props.item.subagentThinking ? [props.item.subagentThinking] : [])
+})
+const showSubagentThinking = computed(() => subagentThinkingItems.value.length > 0)
 
 const showNestedTools = computed(() => props.nestedTools.length > 0)
+const showSubagentToolCallsThinking = computed(() => showSubagentThinking.value || showNestedTools.value)
 
 const statusLabel = computed(() => {
   switch (props.item.status) {
@@ -191,9 +196,9 @@ function onOutputToggle(event: Event) {
           :aria-expanded="isOutputExpanded ? 'true' : 'false'"
           :aria-controls="outputPanelId"
         >
-          <span class="tool-result-arrow" aria-hidden="true">▸</span>
           <span class="tool-result-label">{{ t('toolCallResult') }}</span>
           <span class="tool-output-summary">{{ t('toolCallOutput') }}</span>
+          <span class="tool-result-arrow" aria-hidden="true">▸</span>
         </summary>
         <div :id="outputPanelId" class="tool-output sb-scrollbar">
           <template v-if="resultDisplay.mode === 'exec' && resultDisplay.exec">
@@ -234,23 +239,24 @@ function onOutputToggle(event: Event) {
       </div>
     </section>
 
-    <section v-if="showSubagentThinking && item.subagentThinking" class="tool-section mt-2.5">
-      <ThinkingBlock
-        :content="item.subagentThinking.content"
-        :done="item.subagentThinking.done"
-        :duration-ms="item.subagentThinking.durationMs"
-        variant="subagent"
-      />
-    </section>
-
     <section v-if="showSubagentStream" class="tool-section mt-2.5">
       <p class="tool-section-title">{{ t('subagentStreamTitle') }}</p>
       <pre class="tool-params sb-scrollbar">{{ item.subagentStream }}</pre>
     </section>
 
-    <section v-if="showNestedTools" class="tool-section mt-2.5 subagent-nested-wrap">
-      <p class="tool-section-title">{{ t('subagentNestedTitle') }}</p>
-      <div class="subagent-nested-list flex flex-col gap-2">
+    <section v-if="showSubagentToolCallsThinking" class="tool-section mt-2.5 subagent-tool-calls-thinking-wrap">
+      <p class="tool-section-title">{{ t('subagentToolCallsThinkingTitle') }}</p>
+      <div v-if="showSubagentThinking" class="subagent-thinking-list">
+        <ThinkingBlock
+          v-for="thinking in subagentThinkingItems"
+          :key="`${item.toolCallId}-thinking-${thinking.startedAt ?? thinking.content.length}`"
+          :content="thinking.content"
+          :done="thinking.done"
+          :duration-ms="thinking.durationMs"
+          variant="subagent"
+        />
+      </div>
+      <div v-if="showNestedTools" class="subagent-nested-list flex flex-col gap-2">
         <ToolCallCard
           v-for="nested in nestedTools"
           :key="nested.toolCallId"
@@ -269,9 +275,9 @@ function onOutputToggle(event: Event) {
           :aria-expanded="isOutputExpanded ? 'true' : 'false'"
           :aria-controls="outputPanelId"
         >
-          <span class="tool-result-arrow" aria-hidden="true">▸</span>
           <span class="tool-result-label">{{ t('toolCallResult') }}</span>
           <span class="tool-output-summary">{{ t('toolCallOutput') }}</span>
+          <span class="tool-result-arrow" aria-hidden="true">▸</span>
         </summary>
         <div :id="outputPanelId" class="tool-output sb-scrollbar">
           <template v-if="resultDisplay.mode === 'exec' && resultDisplay.exec">
@@ -620,6 +626,7 @@ function onOutputToggle(event: Event) {
 .tool-result-arrow {
   display: inline-block;
   font-size: 12px;
+  margin-left: auto;
   color: var(--tool-summary-text);
   transition: transform 150ms ease;
   flex-shrink: 0;
@@ -632,7 +639,7 @@ details[open] > .tool-result-summary .tool-result-arrow {
 .tool-result-summary {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-start;
   gap: 8px;
   list-style: none;
   cursor: pointer;
@@ -758,12 +765,23 @@ details[open] > .tool-result-summary .tool-result-arrow {
   border-radius: 6px;
 }
 
-.subagent-nested-wrap {
+.subagent-tool-calls-thinking-wrap {
   border-left: 3px solid var(--tool-running-border);
   padding-left: 12px;
   margin-left: 4px;
   border-radius: 0 10px 10px 0;
   background: var(--tool-section-bg);
+}
+
+.subagent-thinking-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.subagent-thinking-list:last-child {
+  margin-bottom: 0;
 }
 
 .subagent-nested-list :deep(.tool-card) {

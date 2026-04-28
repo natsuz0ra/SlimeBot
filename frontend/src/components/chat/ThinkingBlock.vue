@@ -172,10 +172,15 @@ const canToggle = computed(() => props.done && hasVisibleContent.value)
   position: relative;
   flex: 1 1 auto;
   min-width: 0;
+  max-width: clamp(120px, 42vw, 320px);
   height: 1.2em;
   overflow: hidden;
-  color: var(--text-secondary, #4c4980);
-  font-weight: 500;
+  margin-left: 4px;
+  margin-right: 8px;
+  color: var(--text-muted, #94a3b8);
+  font-size: 12px;
+  font-weight: 450;
+  line-height: 1.2;
 }
 
 .thinking-preview-line {
@@ -186,16 +191,21 @@ const canToggle = computed(() => props.done && hasVisibleContent.value)
 }
 
 .thinking-chevron {
-  display: inline-block;
-  font-size: 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  font-size: 0;
   flex-shrink: 0;
   margin-left: auto;
   color: var(--text-muted, #9ca3af);
   transition: transform 150ms ease;
+  transform: rotate(-90deg);
 }
 
 .thinking-chevron--open {
-  transform: rotate(90deg);
+  transform: rotate(0deg);
 }
 
 .thinking-content {

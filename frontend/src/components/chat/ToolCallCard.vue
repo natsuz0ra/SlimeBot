@@ -179,7 +179,22 @@ function toggleSubagentTimeline() {
             <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" />
             <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
           </svg>
-          <span v-if="isAskQuestions" class="tool-collapse-arrow" :class="{ 'tool-collapse-arrow--open': !isCollapsed }">▸</span>
+          <svg
+            v-if="isAskQuestions"
+            class="tool-collapse-arrow"
+            :class="{ 'tool-collapse-arrow--open': !isCollapsed }"
+            viewBox="0 0 16 16"
+            width="14"
+            height="14"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-hidden="true"
+          >
+            <path d="M4 6l4 4 4-4" />
+          </svg>
         </div>
       </div>
     </header>
@@ -228,7 +243,20 @@ function toggleSubagentTimeline() {
         >
           <span class="tool-result-label">{{ t('toolCallResult') }}</span>
           <span class="tool-output-summary">{{ t('toolCallOutput') }}</span>
-          <span class="tool-result-arrow" aria-hidden="true">▸</span>
+          <svg
+            class="tool-result-arrow"
+            viewBox="0 0 16 16"
+            width="14"
+            height="14"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-hidden="true"
+          >
+            <path d="M4 6l4 4 4-4" />
+          </svg>
         </summary>
         <div :id="outputPanelId" class="tool-output sb-scrollbar">
           <template v-if="resultDisplay.mode === 'exec' && resultDisplay.exec">
@@ -328,7 +356,20 @@ function toggleSubagentTimeline() {
         >
           <span class="tool-result-label">{{ t('subagentResultLabel') }}</span>
           <span class="tool-output-summary">{{ t('toolCallOutput') }}</span>
-          <span class="tool-result-arrow" aria-hidden="true">▸</span>
+          <svg
+            class="tool-result-arrow"
+            viewBox="0 0 16 16"
+            width="14"
+            height="14"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-hidden="true"
+          >
+            <path d="M4 6l4 4 4-4" />
+          </svg>
         </summary>
         <div :id="outputPanelId" class="tool-output sb-scrollbar">
           <template v-if="resultDisplay.mode === 'exec' && resultDisplay.exec">
@@ -702,6 +743,7 @@ details[open] > .tool-result-summary .tool-result-arrow {
   align-items: center;
   justify-content: flex-start;
   gap: 8px;
+  min-height: 34px;
   list-style: none;
   cursor: pointer;
 }
@@ -888,15 +930,20 @@ details[open] > .tool-result-summary .tool-result-arrow {
 }
 
 .tool-collapse-arrow {
-  display: inline-block;
-  font-size: 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  font-size: 0;
   color: var(--tool-summary-text);
   transition: transform 150ms ease;
   flex-shrink: 0;
+  transform: rotate(-90deg);
 }
 
 .tool-collapse-arrow--open {
-  transform: rotate(90deg);
+  transform: rotate(0deg);
 }
 
 .tool-qa-count {

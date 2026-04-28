@@ -87,7 +87,8 @@ test('ThinkingBlock supports live subagent reasoning content before completion',
   assert.match(thinkingBlockSource, /class="thinking-chevron"/)
   assert.match(thinkingBlockSource, /<svg[\s\S]*class="thinking-chevron"[\s\S]*viewBox="0 0 16 16"/)
   assert.match(thinkingBlockSource, /<path d="M4 6l4 4 4-4" \/>/)
-  assert.match(thinkingBlockSource, /\.thinking-chevron--open\s*\{[\s\S]*rotate\(90deg\)/)
+  assert.match(thinkingBlockSource, /\.thinking-chevron\s*\{[\s\S]*width:\s*14px[\s\S]*height:\s*14px[\s\S]*rotate\(-90deg\)/)
+  assert.match(thinkingBlockSource, /\.thinking-chevron--open\s*\{[\s\S]*rotate\(0deg\)/)
   assert.match(thinkingBlockSource, /\.thinking-expand-enter-active\s*\{[\s\S]*opacity 180ms ease, max-height 250ms ease/)
   assert.match(thinkingBlockSource, /\.thinking-expand-leave-active\s*\{[\s\S]*opacity 120ms ease, max-height 180ms ease/)
   assert.doesNotMatch(thinkingBlockSource, /Sub-agent thought/)
@@ -105,8 +106,11 @@ test('ToolCallCard renders subagent thinking entries with the shared ThinkingBlo
   assert.match(toolCallCardSource, /variant="subagent"/)
   assert.match(toolCallCardSource, /tool-result-summary--button/)
   assert.match(toolCallCardSource, /<Transition name="tool-subagent-expand">/)
+  assert.match(toolCallCardSource, /<svg[\s\S]*class="tool-collapse-arrow"[\s\S]*viewBox="0 0 16 16"/)
   assert.match(toolCallCardSource, /<svg[\s\S]*class="tool-result-arrow"[\s\S]*viewBox="0 0 16 16"/)
   assert.match(toolCallCardSource, /<path d="M4 6l4 4 4-4" \/>/)
+  assert.match(toolCallCardSource, /\.tool-collapse-arrow\s*\{[\s\S]*width:\s*14px[\s\S]*height:\s*14px[\s\S]*rotate\(-90deg\)/)
+  assert.match(toolCallCardSource, /\.tool-collapse-arrow--open\s*\{[\s\S]*rotate\(0deg\)/)
   assert.match(toolCallCardSource, /\.tool-result-arrow--open\s*\{[\s\S]*rotate\(0deg\)/)
   assert.match(toolCallCardSource, /\.tool-subagent-expand-enter-active\s*\{[\s\S]*opacity 180ms ease, max-height 250ms ease/)
 })
@@ -117,9 +121,21 @@ test('ToolCallInline keeps subagent tool calls collapsed by default with the sha
   assert.match(toolCallInlineSource, /subagentTimelineExpanded = ref\(false\)/)
   assert.match(toolCallInlineSource, /inline-subagent-tool-calls-thinking/)
   assert.match(toolCallInlineSource, /<Transition name="inline-expand">/)
+  assert.match(toolCallInlineSource, /<svg[\s\S]*class="inline-tool-chevron"[\s\S]*viewBox="0 0 16 16"[\s\S]*width="14"[\s\S]*height="14"/)
   assert.match(toolCallInlineSource, /<svg[\s\S]*class="inline-subagent-chevron"[\s\S]*viewBox="0 0 16 16"/)
   assert.match(toolCallInlineSource, /<path d="M4 6l4 4 4-4" \/>/)
+  assert.match(toolCallInlineSource, /\.inline-tool-chevron\s*\{[\s\S]*width:\s*14px[\s\S]*height:\s*14px[\s\S]*rotate\(-90deg\)/)
+  assert.match(toolCallInlineSource, /\.inline-tool-chevron--open\s*\{[\s\S]*rotate\(0deg\)/)
   assert.match(toolCallInlineSource, /\.inline-subagent-chevron--open\s*\{[\s\S]*rotate\(0deg\)/)
+})
+
+test('PlanBlock uses the shared chevron size and right-closed/down-open direction', () => {
+  const planBlockSource = readFileSync(resolve(import.meta.dirname, '../src/components/chat/PlanBlock.vue'), 'utf8')
+
+  assert.match(planBlockSource, /<svg[\s\S]*class="plan-block-chevron"[\s\S]*viewBox="0 0 16 16"[\s\S]*width="14"[\s\S]*height="14"/)
+  assert.match(planBlockSource, /<path d="M4 6l4 4 4-4" \/>/)
+  assert.match(planBlockSource, /\.plan-block-chevron\s*\{[\s\S]*width:\s*14px[\s\S]*height:\s*14px[\s\S]*rotate\(-90deg\)/)
+  assert.match(planBlockSource, /\.plan-block-chevron--open\s*\{[\s\S]*rotate\(0deg\)/)
 })
 
 test('i18n includes subagent thinking and combined tool-call labels', () => {

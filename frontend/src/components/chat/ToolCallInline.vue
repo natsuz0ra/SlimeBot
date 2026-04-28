@@ -166,8 +166,8 @@ function toggleSubagentTimeline() {
         class="inline-tool-chevron"
         :class="{ 'inline-tool-chevron--open': expanded }"
         viewBox="0 0 16 16"
-        width="12"
-        height="12"
+        width="14"
+        height="14"
         fill="none"
         stroke="currentColor"
         stroke-width="2"
@@ -347,7 +347,7 @@ function toggleSubagentTimeline() {
   gap: 6px;
   width: 100%;
   min-height: 34px;
-  padding: 7px 10px;
+  padding: 8px 12px;
   background: none;
   border: none;
   cursor: pointer;
@@ -433,13 +433,20 @@ function toggleSubagentTimeline() {
 }
 
 .inline-tool-chevron {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
   flex-shrink: 0;
   color: var(--text-muted, #64748b);
-  transition: transform 200ms ease;
+  font-size: 0;
+  transition: transform 150ms ease;
+  transform: rotate(-90deg);
 }
 
 .inline-tool-chevron--open {
-  transform: rotate(180deg);
+  transform: rotate(0deg);
 }
 
 .inline-subagent-summary {

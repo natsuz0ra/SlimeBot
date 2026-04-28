@@ -123,13 +123,20 @@ function toggleExpand() {
 }
 
 .plan-block-chevron {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
   margin-left: 4px;
   color: #d97706;
-  transition: transform 200ms ease;
+  font-size: 0;
+  transition: transform 150ms ease;
+  transform: rotate(-90deg);
 }
 
 .plan-block-chevron--open {
-  transform: rotate(180deg);
+  transform: rotate(0deg);
 }
 
 .plan-block-body {

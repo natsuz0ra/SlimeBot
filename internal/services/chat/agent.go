@@ -164,17 +164,17 @@ func BuildToolDefs() []llmsvc.ToolDef {
 func buildRunSubagentToolDef() llmsvc.ToolDef {
 	return llmsvc.ToolDef{
 		Name:        constants.RunSubagentTool,
-		Description: "[subagent] Delegate a focused sub-task to a nested agent with isolated context (no chat history). Use for self-contained work (research, multi-step tool use). Compress any parent state into `context` when needed.",
+		Description: "[subagent] proactively delegate independent sub-tasks to a nested agent with isolated context (no chat history). Prefer this for multi-step research, codebase exploration, parallel verification, complex task decomposition, and tool-heavy work. The parent agent remains responsible for integrating the result.",
 		Parameters: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
 				"task": map[string]any{
 					"type":        "string",
-					"description": "Concrete task for the sub-agent to complete.",
+					"description": "Concrete self-contained task for the sub-agent, including the expected deliverable and boundaries.",
 				},
 				"context": map[string]any{
 					"type":        "string",
-					"description": "Optional short background from the main assistant.",
+					"description": "Optional compressed background from the main assistant; include only state the isolated sub-agent needs.",
 				},
 				"model_id": map[string]any{
 					"type":        "string",
@@ -569,7 +569,7 @@ func (a *AgentService) RunAgentLoop(
 func isPlanModeAllowedTool(funcName string) bool {
 	// Handle tools without __ separator (e.g. search_memory, plan_start).
 	switch funcName {
-	case "search_memory", "plan_start":
+	case "search_memory", "plan_start", constants.RunSubagentTool:
 		return true
 	}
 	// Handle tools with __ separator (e.g. web_search__search, plan_complete__submit).

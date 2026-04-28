@@ -47,6 +47,9 @@ func TestRunSubagentToolDef_EncouragesProactiveDelegationWithIsolation(t *testin
 	if !ok {
 		t.Fatalf("parameters.properties missing or invalid: %#v", def.Parameters["properties"])
 	}
+	if _, exists := properties["model_id"]; exists {
+		t.Fatalf("run_subagent must not expose model_id to the LLM: %#v", properties["model_id"])
+	}
 
 	task, ok := properties["task"].(map[string]any)
 	if !ok {

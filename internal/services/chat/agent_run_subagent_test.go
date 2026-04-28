@@ -120,6 +120,7 @@ func TestHandleRunSubagentTool_InheritsParentModelForEmptyOrDefaultModelID(t *te
 	}{
 		{name: "empty", params: map[string]string{"task": "Inspect inherited model"}},
 		{name: "default", params: map[string]string{"task": "Inspect inherited model", "model_id": "default"}},
+		{name: "llm-invented-fast", params: map[string]string{"task": "Inspect inherited model", "model_id": "fast"}},
 	}
 
 	for _, tt := range tests {
@@ -168,7 +169,7 @@ func TestHandleRunSubagentTool_InheritsParentModelForEmptyOrDefaultModelID(t *te
 	}
 }
 
-func TestHandleRunSubagentTool_ModelOverrideKeepsParentThinkingLevel(t *testing.T) {
+func TestHandleRunSubagentTool_UserConfiguredModelKeepsParentThinkingLevel(t *testing.T) {
 	provider := &captureToolDefsProvider{}
 	agent := NewAgentService(llmsvc.NewFactory(provider), nil, nil, nil)
 	host := &stubSubagentHost{
@@ -198,8 +199,8 @@ func TestHandleRunSubagentTool_ModelOverrideKeepsParentThinkingLevel(t *testing.
 		AgentLoopOptions{},
 		llmsvc.ToolCallInfo{ID: "call-subagent", Name: constants.RunSubagentTool},
 		resolvedToolInvocation{toolName: constants.RunSubagentTool, command: "run"},
-		map[string]string{"task": "Inspect override", "model_id": "child-config"},
-		"",
+		map[string]string{"task": "Inspect override"},
+		"child-config",
 		"",
 		&messages,
 	)

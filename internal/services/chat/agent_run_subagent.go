@@ -63,32 +63,14 @@ func (a *AgentService) handleRunSubagentTool(
 	}
 
 	parentCtx := strings.TrimSpace(params["context"])
-	modelOverride := strings.TrimSpace(params["model_id"])
 	subModel := parentModel
 
-	// Priority: user UI selection > LLM model_id param > inherit parent model
+	// Priority: user UI/config selection > inherit parent model. Ignore any LLM-supplied
+	// model_id argument so the model cannot invent aliases such as "fast".
 	if userOverride := strings.TrimSpace(userSubagentModelID); userOverride != "" {
 		resolved, err := a.subagentHost.ResolveModelRuntimeConfig(ctx, userOverride)
 		if err != nil {
 			msg := fmt.Sprintf("failed to resolve user subagent model: %s", err.Error())
-			notifyToolResult(callbacks, ToolCallResult{
-				ToolCallID:       tc.ID,
-				ToolName:         invocation.toolName,
-				Command:          invocation.command,
-				RequiresApproval: invocation.requiresApproval,
-				Status:           constants.ToolCallStatusError,
-				Output:           "",
-				Error:            msg,
-			})
-			*messages = appendToolMessage(*messages, tc.ID, msg)
-			return nil
-		}
-		resolved.ThinkingLevel = parentModel.ThinkingLevel
-		subModel = resolved
-	} else if shouldResolveSubagentModelOverride(modelOverride) {
-		resolved, err := a.subagentHost.ResolveModelRuntimeConfig(ctx, modelOverride)
-		if err != nil {
-			msg := fmt.Sprintf("failed to resolve model_id: %s", err.Error())
 			notifyToolResult(callbacks, ToolCallResult{
 				ToolCallID:       tc.ID,
 				ToolName:         invocation.toolName,
@@ -155,13 +137,4 @@ func (a *AgentService) handleRunSubagentTool(
 
 	*messages = appendToolMessage(*messages, tc.ID, buildToolResultContent(execResult))
 	return nil
-}
-
-func shouldResolveSubagentModelOverride(modelID string) bool {
-	switch strings.ToLower(strings.TrimSpace(modelID)) {
-	case "", "default", "current", "parent", "inherit":
-		return false
-	default:
-		return true
-	}
 }

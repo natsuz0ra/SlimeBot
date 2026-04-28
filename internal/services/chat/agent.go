@@ -182,10 +182,6 @@ func buildRunSubagentToolDef() llmsvc.ToolDef {
 					"type":        "string",
 					"description": "Optional compressed background from the main assistant; include only state the isolated sub-agent needs.",
 				},
-				"model_id": map[string]any{
-					"type":        "string",
-					"description": "Optional real LLM config id for the sub-agent. Omit this field to inherit the current model.",
-				},
 			},
 			"required": []string{"task"},
 		},

@@ -6,6 +6,10 @@ import {
   formatToolTextValue,
   formatToolParamEntries,
   parseExecOutputPayload,
+  estimateTokens,
+  formatCompactTokenCount,
+  formatTurnDuration,
+  formatWaitingStatsSuffix,
 } from "./format";
 
 test("wrapText wraps plain text with target width", () => {
@@ -88,4 +92,44 @@ test("parseExecOutputPayload parses valid exec output payload", () => {
 test("parseExecOutputPayload returns null on invalid payload", () => {
   const payload = parseExecOutputPayload('{"stdout":"ok"}');
   assert.equal(payload, null);
+});
+
+test("formatTurnDuration formats seconds, minutes, and hours", () => {
+  assert.equal(formatTurnDuration(5_200), "5s");
+  assert.equal(formatTurnDuration(13 * 60_000 + 27_000), "13m 27s");
+  assert.equal(formatTurnDuration(64 * 60_000 + 12_000), "1h 04m");
+});
+
+test("formatCompactTokenCount formats plain, thousand, and million counts", () => {
+  assert.equal(formatCompactTokenCount(987), "987 tokens");
+  assert.equal(formatCompactTokenCount(23_700), "23.7k tokens");
+  assert.equal(formatCompactTokenCount(1_240_000), "1.2m tokens");
+});
+
+test("estimateTokens is deterministic and nonzero for normal text", () => {
+  const text = "Update the store with streamed thinking and tool output.";
+
+  assert.equal(estimateTokens(text), estimateTokens(text));
+  assert.ok(estimateTokens(text) > 0);
+});
+
+test("formatWaitingStatsSuffix omits thought duration when unavailable", () => {
+  assert.equal(
+    formatWaitingStatsSuffix({
+      elapsedMs: 13 * 60_000 + 27_000,
+      tokenEstimate: 23_700,
+    }),
+    "(13m 27s · ↑ 23.7k tokens)",
+  );
+});
+
+test("formatWaitingStatsSuffix includes thought duration when present", () => {
+  assert.equal(
+    formatWaitingStatsSuffix({
+      elapsedMs: 13 * 60_000 + 27_000,
+      tokenEstimate: 23_700,
+      thoughtDurationMs: 5_000,
+    }),
+    "(13m 27s · ↑ 23.7k tokens · thought for 5s)",
+  );
 });

@@ -149,6 +149,98 @@ test("THINKING_START flushes live assistant text before new thinking block", () 
 	assert.equal(next.liveAssistant, "");
 });
 
+test("STREAM_START initializes current turn stats", () => {
+	const state = reduce(initState(), { type: "STREAM_START", startedAt: 1_000 });
+
+	assert.equal(state.turnStartedAt, 1_000);
+	assert.equal(state.turnElapsedMs, 0);
+	assert.equal(state.turnTokenEstimate, 0);
+	assert.equal(state.turnThoughtDurationMs, undefined);
+});
+
+test("TODO_UPDATE replaces runtime todos and clears on turn/session boundaries", () => {
+	let state = reduce(initState(), {
+		type: "TODO_UPDATE",
+		items: [
+			{ id: "a", content: "Inspect", status: "completed" },
+			{ id: "b", content: "Implement", status: "in_progress" },
+		],
+		note: "working",
+		updatedAt: 1_000,
+	});
+
+	assert.equal(state.runtimeTodosNote, "working");
+	assert.equal(state.runtimeTodosUpdatedAt, 1_000);
+	assert.deepEqual(state.runtimeTodos.map((item) => item.status), ["completed", "in_progress"]);
+
+	state = reduce(state, { type: "STREAM_START", startedAt: 2_000 });
+	assert.deepEqual(state.runtimeTodos, []);
+
+	state = reduce(state, {
+		type: "TODO_UPDATE",
+		items: [{ id: "c", content: "Verify", status: "pending" }],
+	});
+	state = reduce(state, { type: "STREAM_DONE", error: null });
+	assert.deepEqual(state.runtimeTodos, []);
+
+	state = reduce(state, {
+		type: "TODO_UPDATE",
+		items: [{ id: "d", content: "Hidden", status: "pending" }],
+	});
+	state = reduce(state, { type: "RESET_SESSION" });
+	assert.deepEqual(state.runtimeTodos, []);
+});
+
+test("TURN_STATS_TICK updates elapsed while streaming", () => {
+	let state = reduce(initState(), { type: "STREAM_START", startedAt: 1_000 });
+
+	state = reduce(state, { type: "TURN_STATS_TICK", now: 3_750 });
+
+	assert.equal(state.turnElapsedMs, 2_750);
+});
+
+test("STREAM_DONE and RESET_SESSION clear current turn stats", () => {
+	let state = reduce(initState(), { type: "STREAM_START", startedAt: 1_000 });
+	state = reduce(state, { type: "TURN_STATS_TICK", now: 3_000 });
+	state = reduce(state, { type: "STREAM_DONE", error: null });
+
+	assert.equal(state.turnStartedAt, undefined);
+	assert.equal(state.turnElapsedMs, 0);
+	assert.equal(state.turnTokenEstimate, 0);
+	assert.equal(state.turnThoughtDurationMs, undefined);
+
+	state = reduce(initState(), { type: "STREAM_START", startedAt: 1_000 });
+	state = reduce(state, { type: "RESET_SESSION" });
+
+	assert.equal(state.turnStartedAt, undefined);
+	assert.equal(state.turnElapsedMs, 0);
+	assert.equal(state.turnTokenEstimate, 0);
+	assert.equal(state.turnThoughtDurationMs, undefined);
+});
+
+test("THINKING_DONE stores top-level duration for waiting stats", () => {
+	let state: AppState = {
+		...initState(),
+		turnStartedAt: 500,
+		streaming: true,
+		timeline: [
+			{
+				kind: "thinking",
+				content: "reasoning",
+				thinkingDone: false,
+				thinkingStartedAt: 1_000,
+			},
+		],
+	};
+
+	state = reduce(state, {
+		type: "THINKING_DONE",
+		finishedAt: 2_750,
+	});
+
+	assert.equal(state.turnThoughtDurationMs, 1_750);
+});
+
 test("tagged subagent thinking updates parent tool instead of global timeline", () => {
 	let state: AppState = {
 		...initState(),

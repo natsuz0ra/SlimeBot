@@ -91,6 +91,100 @@ func TestWrapSubagentCallbacksTagsThinkingEvents(t *testing.T) {
 	}
 }
 
+func TestRunAgentLoop_HandlesTodoUpdateWithoutRegularToolCallback(t *testing.T) {
+	provider := &todoUpdateProvider{}
+	agent := NewAgentService(llmsvc.NewFactory(provider), nil, nil, nil)
+	var updates []TodoUpdate
+	var toolStarts int
+
+	answer, err := agent.RunAgentLoop(
+		context.Background(),
+		llmsvc.ModelRuntimeConfig{Provider: llmsvc.ProviderOpenAI},
+		"session-1",
+		[]llmsvc.ChatMessage{{Role: "user", Content: "do several things"}},
+		nil,
+		map[string]struct{}{},
+		AgentCallbacks{
+			OnTodoUpdate: func(update TodoUpdate) error {
+				updates = append(updates, update)
+				return nil
+			},
+			OnToolCallStart: func(req ApprovalRequest) error {
+				toolStarts++
+				return nil
+			},
+		},
+		AgentLoopOptions{},
+	)
+	if err != nil {
+		t.Fatalf("RunAgentLoop failed: %v", err)
+	}
+	if answer != "done" {
+		t.Fatalf("unexpected final answer: %q", answer)
+	}
+	if toolStarts != 0 {
+		t.Fatalf("todo_update must not emit regular tool starts, got %d", toolStarts)
+	}
+	if len(updates) != 1 {
+		t.Fatalf("expected one todo update, got %d", len(updates))
+	}
+	if updates[0].Note != "starting" {
+		t.Fatalf("unexpected note: %q", updates[0].Note)
+	}
+	if len(updates[0].Items) != 2 {
+		t.Fatalf("expected two todo items, got %+v", updates[0].Items)
+	}
+	if updates[0].Items[0].Status != "in_progress" || updates[0].Items[1].Status != "pending" {
+		t.Fatalf("unexpected statuses: %+v", updates[0].Items)
+	}
+	if len(provider.seenMessages) < 3 || provider.seenMessages[2].Role != "tool" {
+		t.Fatalf("expected todo tool response in follow-up context, got %+v", provider.seenMessages)
+	}
+}
+
+type todoUpdateProvider struct {
+	calls        int
+	seenMessages []llmsvc.ChatMessage
+}
+
+func (p *todoUpdateProvider) StreamChatWithTools(
+	_ context.Context,
+	_ llmsvc.ModelRuntimeConfig,
+	messages []llmsvc.ChatMessage,
+	toolDefs []llmsvc.ToolDef,
+	callbacks llmsvc.StreamCallbacks,
+) (*llmsvc.StreamResult, error) {
+	p.calls++
+	p.seenMessages = append([]llmsvc.ChatMessage{}, messages...)
+	if !containsToolName(toolDefs, constants.TodoUpdateTool) {
+		return nil, fmt.Errorf("missing %s tool", constants.TodoUpdateTool)
+	}
+	if p.calls == 1 {
+		return &llmsvc.StreamResult{
+			Type: llmsvc.StreamResultToolCalls,
+			ToolCalls: []llmsvc.ToolCallInfo{{
+				ID:        "todo-call-1",
+				Name:      constants.TodoUpdateTool,
+				Arguments: `{"note":"starting","items":[{"id":"1","content":"Inspect","status":"in_progress"},{"id":"2","content":"Implement","status":"pending"}]}`,
+			}},
+			AssistantMessage: llmsvc.ChatMessage{
+				Role: "assistant",
+				ToolCalls: []llmsvc.ToolCallInfo{{
+					ID:        "todo-call-1",
+					Name:      constants.TodoUpdateTool,
+					Arguments: `{"note":"starting","items":[{"id":"1","content":"Inspect","status":"in_progress"},{"id":"2","content":"Implement","status":"pending"}]}`,
+				}},
+			},
+		}, nil
+	}
+	if callbacks.OnChunk != nil {
+		if err := callbacks.OnChunk("done"); err != nil {
+			return nil, err
+		}
+	}
+	return &llmsvc.StreamResult{Type: llmsvc.StreamResultText}, nil
+}
+
 type captureToolDefsProvider struct {
 	toolDefs     []llmsvc.ToolDef
 	modelConfigs []llmsvc.ModelRuntimeConfig

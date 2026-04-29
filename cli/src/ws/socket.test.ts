@@ -94,4 +94,42 @@ test("dispatchWSMessage does not synthesize plan confirmation from plan_body", (
   assert.equal(planBodyCalls, 1);
 });
 
+test("dispatchWSMessage routes todo_update with items, note, and session id", () => {
+  const calls: Array<{
+    sessionId?: string;
+    items: Array<{ id: string; content: string; status: string }>;
+    note?: string;
+  }> = [];
+  const handlers: WSHandlers = {
+    onSession: () => {},
+    onStart: () => {},
+    onChunk: () => {},
+    onDone: () => {},
+    onError: () => {},
+    onTodoUpdate: (data, sessionId) => {
+      calls.push({ sessionId, items: data.items, note: data.note });
+    },
+  };
 
+  dispatchWSMessage(
+    JSON.stringify({
+      type: "todo_update",
+      sessionId: "sid-todo",
+      note: "working",
+      items: [
+        { id: "inspect", content: "Inspect current flow", status: "completed" },
+        { id: "store", content: "Update store", status: "in_progress" },
+      ],
+    }),
+    handlers,
+  );
+
+  assert.deepEqual(calls, [{
+    sessionId: "sid-todo",
+    note: "working",
+    items: [
+      { id: "inspect", content: "Inspect current flow", status: "completed" },
+      { id: "store", content: "Update store", status: "in_progress" },
+    ],
+  }]);
+});

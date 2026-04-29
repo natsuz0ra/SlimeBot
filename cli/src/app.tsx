@@ -20,7 +20,7 @@ import { TextInput } from "./components/TextInput.js";
 import { Timeline } from "./components/Timeline.js";
 import { reducer, createInitialState } from "./reducer.js";
 import { completeCommand, isCommand } from "./utils/commands.js";
-import { formatTimestamp } from "./utils/format.js";
+import { formatTimestamp, formatWaitingStatsSuffix } from "./utils/format.js";
 import { clearScreen, setTerminalTitle } from "./utils/terminal.js";
 import { CLISocket } from "./ws/socket.js";
 import { splitNarrationAndPlan } from "./utils/planUtils.js";
@@ -894,6 +894,7 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
 
     blinkRef.current = setInterval(() => {
       dispatch({ type: "BLINK_TOGGLE" } as AppAction);
+      dispatch({ type: "TURN_STATS_TICK" } as AppAction);
     }, 500);
 
     return () => {
@@ -1051,6 +1052,14 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
           finishedAt: Date.now(),
           parentToolCallId: data.parentToolCallId,
           subagentRunId: data.subagentRunId,
+        } as AppAction);
+      },
+      onTodoUpdate: (data) => {
+        dispatch({
+          type: "TODO_UPDATE",
+          items: data.items,
+          note: data.note,
+          updatedAt: data.updatedAt ? Date.parse(data.updatedAt) : undefined,
         } as AppAction);
       },
       onPlanBody: (content: string) => {
@@ -1375,6 +1384,12 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
             thinkingEntryIndex={state.timeline.filter((e) => e.kind === "thinking").length}
             planGenerating={state.planGenerating}
             planReceived={state.planReceived}
+            waitingStatsSuffix={state.streaming ? formatWaitingStatsSuffix({
+              elapsedMs: state.turnElapsedMs,
+              tokenEstimate: state.turnTokenEstimate,
+              thoughtDurationMs: state.turnThoughtDurationMs,
+            }) : ""}
+            runtimeTodos={state.runtimeTodos}
           />
           <Text> </Text>
         </>

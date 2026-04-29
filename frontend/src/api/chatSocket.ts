@@ -1,7 +1,7 @@
 import { getAuthToken } from '@/utils/authStorage'
 import type { ToolCallStatus } from '@/types/chat'
 
-type Handlers = {
+export type ChatSocketHandlers = {
   onSession: (sessionId: string) => void
   onStart: (sessionId?: string, meta?: { startedAt?: string }) => void
   onChunk: (chunk: string, sessionId?: string) => void
@@ -19,6 +19,7 @@ type Handlers = {
   onPlanStart?: (sessionId?: string) => void
   onPlanChunk?: (chunk: string, sessionId?: string) => void
   onPlanBody?: (content: string, sessionId?: string) => void
+  onTodoUpdate?: (data: TodoUpdateData, sessionId?: string) => void
   onOpen?: () => void
   onClose?: () => void
   onSocketError?: (error: string) => void
@@ -78,6 +79,20 @@ export interface ThinkingEventData {
   subagentRunId?: string
 }
 
+export type RuntimeTodoStatus = 'pending' | 'in_progress' | 'completed'
+
+export interface RuntimeTodoItem {
+  id: string
+  content: string
+  status: RuntimeTodoStatus
+}
+
+export interface TodoUpdateData {
+  items: RuntimeTodoItem[]
+  note?: string
+  updatedAt?: string
+}
+
 type WSIncoming = {
   type: string
   sessionId?: string
@@ -95,6 +110,7 @@ type WSIncoming = {
   output?: string
   startedAt?: string
   finishedAt?: string
+  updatedAt?: string
   durationMs?: number
   isInterrupted?: boolean
   isStopPlaceholder?: boolean
@@ -103,11 +119,120 @@ type WSIncoming = {
   task?: string
   planId?: string
   planBody?: string
+  items?: RuntimeTodoItem[]
+  note?: string
+}
+
+export function dispatchChatSocketMessage(raw: string, handlers: ChatSocketHandlers | null): boolean {
+  let data: WSIncoming
+  try {
+    data = JSON.parse(raw) as WSIncoming
+  } catch {
+    return false
+  }
+
+  if (data.type === 'pong') return true
+
+  if (data.type === 'session' && data.sessionId) handlers?.onSession(data.sessionId)
+  if (data.type === 'start') handlers?.onStart(data.sessionId, { startedAt: data.startedAt })
+  if (data.type === 'chunk') handlers?.onChunk(data.content || '', data.sessionId)
+  if (data.type === 'session_title') handlers?.onSessionTitle(data.title || '', data.sessionId)
+  if (data.type === 'done') {
+    handlers?.onDone(data.sessionId, data.answer, {
+      isInterrupted: data.isInterrupted,
+      isStopPlaceholder: data.isStopPlaceholder,
+      planId: data.planId,
+      planBody: data.planBody,
+      finishedAt: data.finishedAt,
+      durationMs: data.durationMs,
+    })
+  }
+  if (data.type === 'error') handlers?.onError(data.error || 'unknown error', data.sessionId)
+
+  if (data.type === 'tool_call_start') {
+    handlers?.onToolCallStart?.({
+      toolCallId: data.toolCallId || '',
+      toolName: data.toolName || '',
+      command: data.command || '',
+      params: data.params || {},
+      requiresApproval: !!data.requiresApproval,
+      preamble: data.preamble || '',
+      startedAt: data.startedAt,
+      parentToolCallId: data.parentToolCallId,
+      subagentRunId: data.subagentRunId,
+    }, data.sessionId)
+  }
+
+  if (data.type === 'tool_call_result') {
+    handlers?.onToolCallResult?.({
+      toolCallId: data.toolCallId || '',
+      toolName: data.toolName || '',
+      command: data.command || '',
+      requiresApproval: !!data.requiresApproval,
+      status: data.status || 'completed',
+      output: data.output || '',
+      error: data.error || '',
+      finishedAt: data.finishedAt,
+      parentToolCallId: data.parentToolCallId,
+      subagentRunId: data.subagentRunId,
+    }, data.sessionId)
+  }
+
+  if (data.type === 'subagent_start') {
+    handlers?.onSubagentStart?.({
+      parentToolCallId: data.parentToolCallId || '',
+      subagentRunId: data.subagentRunId || '',
+      task: data.task || '',
+    }, data.sessionId)
+  }
+
+  if (data.type === 'subagent_chunk') {
+    handlers?.onSubagentChunk?.({
+      parentToolCallId: data.parentToolCallId || '',
+      subagentRunId: data.subagentRunId || '',
+      content: data.content || '',
+    }, data.sessionId)
+  }
+
+  if (data.type === 'subagent_done') {
+    handlers?.onSubagentDone?.({
+      parentToolCallId: data.parentToolCallId || '',
+      subagentRunId: data.subagentRunId || '',
+      error: data.error,
+    }, data.sessionId)
+  }
+
+  if (data.type === 'thinking_start') handlers?.onThinkingStart?.({
+    startedAt: data.startedAt,
+    parentToolCallId: data.parentToolCallId,
+    subagentRunId: data.subagentRunId,
+  }, data.sessionId)
+  if (data.type === 'thinking_chunk') handlers?.onThinkingChunk?.({
+    content: data.content || '',
+    startedAt: data.startedAt,
+    parentToolCallId: data.parentToolCallId,
+    subagentRunId: data.subagentRunId,
+  }, data.sessionId)
+  if (data.type === 'thinking_done') handlers?.onThinkingDone?.({
+    finishedAt: data.finishedAt,
+    parentToolCallId: data.parentToolCallId,
+    subagentRunId: data.subagentRunId,
+  }, data.sessionId)
+  if (data.type === 'todo_update') handlers?.onTodoUpdate?.({
+    items: Array.isArray(data.items) ? data.items : [],
+    note: data.note,
+    updatedAt: data.updatedAt,
+  }, data.sessionId)
+  if (data.type === 'plan_start') handlers?.onPlanStart?.(data.sessionId)
+  if (data.type === 'plan_chunk') handlers?.onPlanChunk?.(data.content || '', data.sessionId)
+  if (data.type === 'plan_body') handlers?.onPlanBody?.(data.content || '', data.sessionId)
+
+  return true
 }
 
 export class ChatSocket {
   private ws: WebSocket | null = null
-  private handlers: Handlers | null = null
+  private handlers: ChatSocketHandlers | null = null
   private reconnectTimer: number | null = null
   private heartbeatTimer: number | null = null
   private heartbeatTimeoutTimer: number | null = null
@@ -119,7 +244,7 @@ export class ChatSocket {
   private readonly RECONNECT_BASE_DELAY_MS = 1_000
   private readonly RECONNECT_MAX_DELAY_MS = 15_000
 
-  connect(handlers: Handlers) {
+  connect(handlers: ChatSocketHandlers) {
     this.handlers = handlers
     this.manualClose = false
     this.clearReconnectTimer()
@@ -220,107 +345,18 @@ export class ChatSocket {
     }
 
     this.ws.onmessage = (event) => {
-      let data: WSIncoming
       try {
-        data = JSON.parse(event.data) as WSIncoming
+        const heartbeat = JSON.parse(event.data) as WSIncoming
+        if (heartbeat.type === 'pong') {
+          this.clearHeartbeatTimeout()
+          return
+        }
       } catch {
+        // Let the shared dispatcher report malformed payloads below.
+      }
+      if (!dispatchChatSocketMessage(event.data, this.handlers)) {
         this.handlers?.onSocketError?.('invalid websocket payload')
-        return
       }
-
-      if (data.type === 'pong') {
-        this.clearHeartbeatTimeout()
-        return
-      }
-
-      if (data.type === 'session' && data.sessionId) this.handlers?.onSession(data.sessionId)
-      if (data.type === 'start') this.handlers?.onStart(data.sessionId, { startedAt: data.startedAt })
-      if (data.type === 'chunk') this.handlers?.onChunk(data.content || '', data.sessionId)
-      if (data.type === 'session_title') this.handlers?.onSessionTitle(data.title || '', data.sessionId)
-      if (data.type === 'done') {
-        this.handlers?.onDone(data.sessionId, data.answer, {
-          isInterrupted: data.isInterrupted,
-          isStopPlaceholder: data.isStopPlaceholder,
-          planId: data.planId,
-          planBody: data.planBody,
-          finishedAt: data.finishedAt,
-          durationMs: data.durationMs,
-        })
-      }
-      if (data.type === 'error') this.handlers?.onError(data.error || 'unknown error', data.sessionId)
-
-      if (data.type === 'tool_call_start') {
-        this.handlers?.onToolCallStart?.({
-          toolCallId: data.toolCallId || '',
-          toolName: data.toolName || '',
-          command: data.command || '',
-          params: data.params || {},
-          requiresApproval: !!data.requiresApproval,
-          preamble: data.preamble || '',
-          startedAt: data.startedAt,
-          parentToolCallId: data.parentToolCallId,
-          subagentRunId: data.subagentRunId,
-        }, data.sessionId)
-      }
-
-      if (data.type === 'tool_call_result') {
-        this.handlers?.onToolCallResult?.({
-          toolCallId: data.toolCallId || '',
-          toolName: data.toolName || '',
-          command: data.command || '',
-          requiresApproval: !!data.requiresApproval,
-          status: data.status || 'completed',
-          output: data.output || '',
-          error: data.error || '',
-          finishedAt: data.finishedAt,
-          parentToolCallId: data.parentToolCallId,
-          subagentRunId: data.subagentRunId,
-        }, data.sessionId)
-      }
-
-      if (data.type === 'subagent_start') {
-        this.handlers?.onSubagentStart?.({
-          parentToolCallId: data.parentToolCallId || '',
-          subagentRunId: data.subagentRunId || '',
-          task: data.task || '',
-        }, data.sessionId)
-      }
-
-      if (data.type === 'subagent_chunk') {
-        this.handlers?.onSubagentChunk?.({
-          parentToolCallId: data.parentToolCallId || '',
-          subagentRunId: data.subagentRunId || '',
-          content: data.content || '',
-        }, data.sessionId)
-      }
-
-      if (data.type === 'subagent_done') {
-        this.handlers?.onSubagentDone?.({
-          parentToolCallId: data.parentToolCallId || '',
-          subagentRunId: data.subagentRunId || '',
-          error: data.error,
-        }, data.sessionId)
-      }
-
-      if (data.type === 'thinking_start') this.handlers?.onThinkingStart?.({
-        startedAt: data.startedAt,
-        parentToolCallId: data.parentToolCallId,
-        subagentRunId: data.subagentRunId,
-      }, data.sessionId)
-      if (data.type === 'thinking_chunk') this.handlers?.onThinkingChunk?.({
-        content: data.content || '',
-        startedAt: data.startedAt,
-        parentToolCallId: data.parentToolCallId,
-        subagentRunId: data.subagentRunId,
-      }, data.sessionId)
-      if (data.type === 'thinking_done') this.handlers?.onThinkingDone?.({
-        finishedAt: data.finishedAt,
-        parentToolCallId: data.parentToolCallId,
-        subagentRunId: data.subagentRunId,
-      }, data.sessionId)
-      if (data.type === 'plan_start') this.handlers?.onPlanStart?.(data.sessionId)
-      if (data.type === 'plan_chunk') this.handlers?.onPlanChunk?.(data.content || '', data.sessionId)
-      if (data.type === 'plan_body') this.handlers?.onPlanBody?.(data.content || '', data.sessionId)
     }
 
     this.ws.onerror = () => {

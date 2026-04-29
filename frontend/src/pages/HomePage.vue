@@ -7,6 +7,7 @@ import {
 } from '@mdi/js'
 
 import QuestionAnswerDrawer from '@/components/chat/QuestionAnswerDrawer.vue'
+import TodoPanel from '@/components/chat/TodoPanel.vue'
 import MdiIcon from '@/components/ui/MdiIcon.vue'
 import ChatComposer from '@/components/chat/ChatComposer.vue'
 import ChatMessageList from '@/components/chat/ChatMessageList.vue'
@@ -312,6 +313,12 @@ provideChatContext({
           </footer>
           </template>
         </div>
+        <TodoPanel
+          :items="store.runtimeTodos"
+          :note="store.runtimeTodoNote"
+          :open="store.todoPanelOpen"
+          @toggle="store.toggleTodoPanel"
+        />
       </main>
     </div>
 

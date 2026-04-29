@@ -4,7 +4,7 @@
  */
 
 import WebSocket from "ws";
-import type { SubagentChunkData, ToolCallStartData, ToolCallResultData } from "../types.js";
+import type { SubagentChunkData, TodoUpdateData, ToolCallStartData, ToolCallResultData } from "../types.js";
 
 export interface ThinkingEventData {
   content?: string;
@@ -28,6 +28,7 @@ export interface WSHandlers {
   onThinkingStart?: (data: ThinkingEventData) => void;
   onThinkingChunk?: (data: ThinkingEventData) => void;
   onThinkingDone?: (data: ThinkingEventData) => void;
+  onTodoUpdate?: (data: TodoUpdateData, sessionId?: string) => void;
   onPlanBody?: (content: string, sessionId?: string) => void;
   onPlanChunk?: (chunk: string, sessionId?: string) => void;
   onPlanStart?: () => void;
@@ -55,6 +56,9 @@ interface WSIncoming {
   planId?: string;
   planBody?: string;
   narration?: string;
+  items?: TodoUpdateData["items"];
+  note?: string;
+  updatedAt?: string;
 }
 
 export class CLISocket {
@@ -265,6 +269,17 @@ export function dispatchWSMessage(raw: string, handlers: WSHandlers | null): voi
       parentToolCallId: msg.parentToolCallId,
       subagentRunId: msg.subagentRunId,
     });
+  }
+
+  if (msg.type === "todo_update") {
+    handlers?.onTodoUpdate?.(
+      {
+        items: Array.isArray(msg.items) ? msg.items : [],
+        note: msg.note,
+        updatedAt: msg.updatedAt,
+      },
+      msg.sessionId,
+    );
   }
 
   if (msg.type === "plan_body") {

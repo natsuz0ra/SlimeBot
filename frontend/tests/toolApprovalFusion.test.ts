@@ -72,7 +72,7 @@ test('chat socket done event forwards plan metadata while plan_body stays separa
   const chatSocketSource = readFileSync(resolve(import.meta.dirname, '../src/api/chatSocket.ts'), 'utf8')
 
   assert.match(chatSocketSource, /if \(data\.type === 'done'\) \{[\s\S]*planId: data\.planId,[\s\S]*planBody: data\.planBody,/s)
-  assert.match(chatSocketSource, /if \(data\.type === 'plan_body'\) this\.handlers\?\.onPlanBody\?\.\(data\.content \|\| '', data\.sessionId\)/)
+  assert.match(chatSocketSource, /if \(data\.type === 'plan_body'\) handlers\?\.onPlanBody\?\.\(data\.content \|\| '', data\.sessionId\)/)
 })
 
 test('chat socket forwards backend event timestamps for tool and thinking ordering', () => {
@@ -95,7 +95,7 @@ test('chat socket and store forward backend reply timing for live batches', () =
 
   assert.match(chatSocketSource, /onStart: \(sessionId\?: string, meta\?: \{ startedAt\?: string \}\) => void/)
   assert.match(chatSocketSource, /durationMs\?: number/)
-  assert.match(chatSocketSource, /this\.handlers\?\.onStart\(data\.sessionId, \{ startedAt: data\.startedAt \}\)/)
+  assert.match(chatSocketSource, /handlers\?\.onStart\(data\.sessionId, \{ startedAt: data\.startedAt \}\)/)
   assert.match(chatSocketSource, /durationMs: data\.durationMs/)
   assert.match(chatStoreSource, /onStart: \(sessionId, meta\) => \{[\s\S]*startedAt: parseSocketTimestamp\(meta\?\.startedAt\),/s)
   assert.match(chatStoreSource, /finalizeReplyBatchTiming\(batch, parseSocketTimestamp\(meta\?\.finishedAt\), meta\?\.durationMs\)/)
@@ -186,7 +186,7 @@ test('AssistantMessageBody renders the parent reply collapse bar and visible tim
   const assistantBodySource = readFileSync(resolve(import.meta.dirname, '../src/components/chat/AssistantMessageBody.vue'), 'utf8')
 
   assert.match(assistantBodySource, /reply-collapse-bar/)
-  assert.match(assistantBodySource, /<TransitionGroup name="reply-segment" tag="div" class="assistant-reply-timeline">/)
+  assert.match(assistantBodySource, /<TransitionGroup[\s\S]*name="reply-segment"[\s\S]*tag="div"[\s\S]*class="assistant-reply-timeline"/)
   assert.match(assistantBodySource, /getCollapsedReplyTimeline/)
   assert.match(assistantBodySource, /v-for="\((entry, index|entry,\s*index)\) in renderedTimeline"/)
   assert.match(assistantBodySource, /assistant-reply-segment--first-visible/)

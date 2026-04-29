@@ -58,9 +58,7 @@ function attachmentIcon(iconType?: string, category?: string) {
       item.role === 'user' ? 'flex-row-reverse' : 'flex-row',
       item.role === 'user' && ctx.isFailedUserMessage(item.id)
         ? 'items-end'
-        : (item.role === 'assistant' && ctx.isEmptyPlaceholder(item.id) && ctx.waiting
-            ? 'items-center'
-            : 'items-start'),
+        : 'items-start',
     ]"
   >
     <div v-if="item.role === 'assistant'" class="flex-shrink-0 w-10 h-10 flex items-center justify-center">

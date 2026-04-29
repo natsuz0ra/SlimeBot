@@ -409,6 +409,12 @@ func (s *ChatService) executeChatTurn(
 			}
 			return callbacks.OnThinkingDone(meta)
 		},
+		OnTodoUpdate: func(update TodoUpdate) error {
+			if callbacks.OnTodoUpdate == nil {
+				return nil
+			}
+			return callbacks.OnTodoUpdate(update)
+		},
 		OnPlanStart: func() error {
 			accumulator.planStarted = true
 			accumulator.answerBuilder.WriteString(planStartMarker)

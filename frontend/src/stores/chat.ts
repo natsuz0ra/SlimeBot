@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 
-import { ChatSocket, type ConnectionStatus } from '@/api/chatSocket'
+import { ChatSocket, type ConnectionStatus, type RuntimeTodoItem, type TodoUpdateData } from '@/api/chatSocket'
 import { MESSAGE_PLATFORM_SESSION_ID, sessionAPI } from '@/api/chat'
 import type { MessageAttachmentItem, MessageItem, SessionHistoryPayload, SessionHistoryThinkingItem, SessionItem, UploadedAttachmentItem } from '@/api/chat'
 import { i18n } from '@/i18n'
@@ -38,6 +38,10 @@ export const useChatStore = defineStore('chat', () => {
   const planMode = ref(false)
   const planGenerating = ref(false)
   const isSocketReady = computed(() => connectionStatus.value === 'connected')
+  const runtimeTodos = ref<RuntimeTodoItem[]>([])
+  const runtimeTodoNote = ref('')
+  const runtimeTodoUpdatedAt = ref<number>()
+  const todoPanelOpen = ref(false)
 
   const replyBatches = ref<AssistantReplyBatch[]>([])
   const currentBatchId = ref<string>('')
@@ -61,6 +65,26 @@ export const useChatStore = defineStore('chat', () => {
     assistantErrorIds.value.clear()
     failedUserMessageIds.value.clear()
     pendingQuestions.value = null
+    clearRuntimeTodos()
+  }
+
+  function clearRuntimeTodos() {
+    runtimeTodos.value = []
+    runtimeTodoNote.value = ''
+    runtimeTodoUpdatedAt.value = undefined
+    todoPanelOpen.value = false
+  }
+
+  function applyRuntimeTodoUpdate(update: TodoUpdateData, sessionId?: string) {
+    if (!sessionId || sessionId !== currentSessionId.value) return
+    runtimeTodos.value = update.items.map((item) => ({ ...item }))
+    runtimeTodoNote.value = update.note || ''
+    runtimeTodoUpdatedAt.value = parseSocketTimestamp(update.updatedAt)
+    todoPanelOpen.value = runtimeTodos.value.length > 0
+  }
+
+  function toggleTodoPanel() {
+    todoPanelOpen.value = !todoPanelOpen.value
   }
 
   function resetHistoryState() {
@@ -384,6 +408,7 @@ export const useChatStore = defineStore('chat', () => {
         if (!sessionId || sessionId !== currentSessionId.value) return
         waiting.value = true
         streamingStarted.value = false
+        clearRuntimeTodos()
         const assistantMessageId = crypto.randomUUID()
         messages.value.push({
           id: assistantMessageId,
@@ -596,6 +621,7 @@ export const useChatStore = defineStore('chat', () => {
         }
         batch.timeline = markLastThinkingDone(batch.timeline, parseSocketTimestamp(data.finishedAt))
       },
+      onTodoUpdate: applyRuntimeTodoUpdate,
       onPlanStart: (sessionId) => {
         if (!sessionId || sessionId !== currentSessionId.value) return
         const batch = getCurrentBatch()
@@ -620,10 +646,12 @@ export const useChatStore = defineStore('chat', () => {
         waiting.value = false
         streamingStarted.value = false
         connectionError.value = error
+        clearRuntimeTodos()
       },
       onClose: () => {
         waiting.value = false
         streamingStarted.value = false
+        clearRuntimeTodos()
       },
       onStatusChange: (status, error) => {
         connectionStatus.value = status
@@ -748,6 +776,7 @@ export const useChatStore = defineStore('chat', () => {
     }
     waiting.value = false
     streamingStarted.value = false
+    clearRuntimeTodos()
     ws.close()
     currentBatchId.value = ''
   }
@@ -853,5 +882,12 @@ export const useChatStore = defineStore('chat', () => {
     pendingQuestions,
     submitQuestionAnswers,
     cancelQuestionAnswers,
+    runtimeTodos,
+    runtimeTodoNote,
+    runtimeTodoUpdatedAt,
+    todoPanelOpen,
+    applyRuntimeTodoUpdate,
+    clearRuntimeTodos,
+    toggleTodoPanel,
   }
 })

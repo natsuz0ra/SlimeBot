@@ -28,3 +28,15 @@ test('chat text wraps while unwrappable markdown blocks scroll internally', () =
   assert.match(markdownStyles, /\.bubble-markdown pre\s*\{[\s\S]*?max-width:\s*100%;[\s\S]*?overflow-x:\s*auto;/)
   assert.match(markdownStyles, /\.bubble-markdown table\s*\{[\s\S]*?display:\s*block;[\s\S]*?max-width:\s*100%;[\s\S]*?overflow-x:\s*auto;/)
 })
+
+test('assistant waiting placeholder centers typing dots with the avatar', () => {
+  const itemSource = readFileSync(resolve(projectRoot, 'src/components/chat/ChatMessageItem.vue'), 'utf8')
+  const assistantBodySource = readFileSync(resolve(projectRoot, 'src/components/chat/AssistantMessageBody.vue'), 'utf8')
+
+  assert.match(assistantBodySource, /const isTypingPlaceholder = computed\(\(\) => ctx\.isEmptyPlaceholder\(props\.item\.id\) && ctx\.waiting\)/)
+  assert.match(assistantBodySource, /<TransitionGroup[\s\S]*v-if="renderedTimeline\.length > 0"[\s\S]*class="assistant-reply-timeline"/)
+  assert.match(assistantBodySource, /<div v-if="isTypingPlaceholder" class="assistant-typing-placeholder">[\s\S]*<TypingDots \/>[\s\S]*<\/div>/)
+  assert.match(assistantBodySource, /\.assistant-typing-placeholder\s*\{[\s\S]*min-height:\s*40px;[\s\S]*display:\s*flex;[\s\S]*align-items:\s*center;/)
+  assert.doesNotMatch(assistantBodySource, /<TypingDots v-if="ctx\.isEmptyPlaceholder\(item\.id\) && ctx\.waiting" \/>/)
+  assert.doesNotMatch(itemSource, /ctx\.isEmptyPlaceholder\(item\.id\) && ctx\.waiting[\s\S]*\?\s*'items-center'/)
+})

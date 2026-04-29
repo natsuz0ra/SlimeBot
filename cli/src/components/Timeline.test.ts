@@ -1,8 +1,11 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import test from "node:test";
 import type { TimelineEntry } from "../types";
 import {
   PLAN_GOLD,
+  WAITING_STATS_COLOR,
   formatSubagentThinkingLines,
   formatRunSubagentDetailLines,
   formatPlanningIndicatorParts,
@@ -10,6 +13,8 @@ import {
   formatToolOutputLines,
   formatToolParamLines,
   formatPlanFrameLines,
+  formatWaitingPromptText,
+  formatTodoListLines,
   shouldSeparatePlanningAndWaiting,
   shouldShowWaitingPrompt,
 } from "./Timeline";
@@ -295,6 +300,43 @@ test("shouldSeparatePlanningAndWaiting adds a blank line only while both prompts
   assert.equal(shouldSeparatePlanningAndWaiting(true, false), true);
   assert.equal(shouldSeparatePlanningAndWaiting(false, true), false);
   assert.equal(shouldSeparatePlanningAndWaiting(true, true), false);
+});
+
+test("formatWaitingPromptText appends suffix when provided", () => {
+  assert.equal(
+    formatWaitingPromptText("(13m 27s · ↑ 23.7k tokens)"),
+    " Waiting for response... (13m 27s · ↑ 23.7k tokens)",
+  );
+});
+
+test("formatWaitingPromptText keeps original prompt without suffix", () => {
+  assert.equal(formatWaitingPromptText(""), " Waiting for response...");
+});
+
+test("formatTodoListLines renders runtime todo statuses", () => {
+  assert.deepEqual(
+    formatTodoListLines([
+      { id: "a", content: "扩展 AssistantReplyBatch 类型", status: "completed" },
+      { id: "b", content: "更新 chat store 管理新字段", status: "in_progress" },
+      { id: "c", content: "实现折叠栏", status: "pending" },
+    ], 80),
+    [
+      "  ⎿  ✔ 扩展 AssistantReplyBatch 类型",
+      "     ◼ 更新 chat store 管理新字段",
+      "     ◻ 实现折叠栏",
+    ],
+  );
+});
+
+test("Timeline renders todo content with Ink strikethrough only for completed items", () => {
+  const source = readFileSync(resolve(import.meta.dirname, "Timeline.tsx"), "utf8");
+
+  assert.match(source, /<Text\s+strikethrough=\{item\.status === "completed"\}>/);
+  assert.doesNotMatch(source, /strikethrough=\{item\.status !== "pending"\}/);
+});
+
+test("WAITING_STATS_COLOR matches the chat footer hint color", () => {
+  assert.equal(WAITING_STATS_COLOR, "#64748b");
 });
 
 test("formatPlanFrameLines renders only top and bottom borders", () => {

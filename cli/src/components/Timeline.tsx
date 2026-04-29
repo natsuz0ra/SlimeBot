@@ -8,7 +8,7 @@ import { Box, Text } from "ink";
 import { renderMarkdownLines } from "../utils/markdownRenderer.js";
 import { DOT } from "../utils/terminal.js";
 import { stringWidth } from "../utils/stringWidth.js";
-import type { TimelineEntry, ToolCallStatus } from "../types.js";
+import type { RuntimeTodoItem, TimelineEntry, ToolCallStatus } from "../types.js";
 import {
   formatToolInvocation,
   wrapText,
@@ -26,6 +26,7 @@ import { Markdown, StreamingMarkdown } from "./Markdown.js";
 import { Spinner } from "./Spinner.js";
 
 export const PLAN_GOLD = "#f59e0b";
+export const WAITING_STATS_COLOR = "#64748b";
 
 interface TimelineProps {
   entries: TimelineEntry[];
@@ -39,6 +40,8 @@ interface TimelineProps {
   thinkingEntryIndex: number;
   planGenerating: boolean;
   planReceived: boolean;
+  waitingStatsSuffix?: string;
+  runtimeTodos?: RuntimeTodoItem[];
 }
 
 function toolDotState(status: ToolCallStatus): { color: string; blink: boolean } {
@@ -334,6 +337,74 @@ export function shouldShowWaitingPrompt(planGenerating: boolean, planReceived: b
 
 export function shouldSeparatePlanningAndWaiting(planGenerating: boolean, planReceived: boolean): boolean {
   return planGenerating && shouldShowWaitingPrompt(planGenerating, planReceived);
+}
+
+export function formatWaitingPromptText(waitingStatsSuffix?: string): string {
+  const suffix = waitingStatsSuffix?.trim();
+  return suffix ? ` Waiting for response... ${suffix}` : " Waiting for response...";
+}
+
+function WaitingPrompt({ waitingStatsSuffix }: { waitingStatsSuffix?: string }): React.ReactElement {
+  const suffix = waitingStatsSuffix?.trim();
+  return (
+    <Text>
+      <GradientFlowText
+        text=" Waiting for response..."
+        enabled={true}
+      />
+      {suffix ? (
+        <Text color={WAITING_STATS_COLOR}>{` ${suffix}`}</Text>
+      ) : null}
+    </Text>
+  );
+}
+
+function todoStatusSymbol(status: RuntimeTodoItem["status"]): string {
+  switch (status) {
+    case "completed":
+      return "✔";
+    case "in_progress":
+      return "◼";
+    default:
+      return "◻";
+  }
+}
+
+const TODO_FIRST_PREFIX = "  ⎿  ";
+const TODO_NEXT_PREFIX = "     ";
+
+export function formatTodoListLines(items: RuntimeTodoItem[], maxWidth: number): string[] {
+  const result: string[] = [];
+  items.forEach((item, index) => {
+    const prefix = index === 0 ? TODO_FIRST_PREFIX : TODO_NEXT_PREFIX;
+    const marker = `${todoStatusSymbol(item.status)} `;
+    const contentWidth = Math.max(1, maxWidth - prefix.length - marker.length);
+    const wrapped = wrapText(item.content, contentWidth).split("\n");
+    wrapped.forEach((line, lineIndex) => {
+      result.push(`${lineIndex === 0 ? prefix : TODO_NEXT_PREFIX}${lineIndex === 0 ? marker : "  "}${line}`);
+    });
+  });
+  return result;
+}
+
+function TodoList({ items, maxWidth }: { items: RuntimeTodoItem[]; maxWidth: number }): React.ReactElement | null {
+  if (items.length === 0) return null;
+  return (
+    <Box flexDirection="column">
+      {items.flatMap((item, itemIndex) => {
+        const prefix = itemIndex === 0 ? TODO_FIRST_PREFIX : TODO_NEXT_PREFIX;
+        const marker = `${todoStatusSymbol(item.status)} `;
+        const contentWidth = Math.max(1, maxWidth - prefix.length - marker.length);
+        return wrapText(item.content, contentWidth).split("\n").map((line, lineIndex) => (
+          <Text key={`todo-${item.id}-${lineIndex}`}>
+            <Text>{lineIndex === 0 ? prefix : TODO_NEXT_PREFIX}</Text>
+            <Text>{lineIndex === 0 ? marker : "  "}</Text>
+            <Text strikethrough={item.status === "completed"}>{line}</Text>
+          </Text>
+        ));
+      })}
+    </Box>
+  );
 }
 
 function formatPlanBorderLine(maxWidth: number, title?: string): string {
@@ -632,6 +703,8 @@ export function Timeline({
   thinkingEntryIndex,
   planGenerating,
   planReceived,
+  waitingStatsSuffix,
+  runtimeTodos = [],
 }: TimelineProps): React.ReactElement {
   const displayRows = useMemo(() => buildTimelineDisplayRows(entries), [entries]);
   let thinkingCounter = 0;
@@ -699,11 +772,11 @@ export function Timeline({
           {shouldShowWaitingPrompt(planGenerating, planReceived) && (
             <Box key="waiting">
               <Spinner enabled={true} />
-              <GradientFlowText
-                text=" Waiting for response..."
-                enabled={true}
-              />
+              <WaitingPrompt waitingStatsSuffix={waitingStatsSuffix} />
             </Box>
+          )}
+          {runtimeTodos.length > 0 && (
+            <TodoList items={runtimeTodos} maxWidth={maxWidth} />
           )}
         </>
       )}

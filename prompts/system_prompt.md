@@ -30,6 +30,7 @@ Higher-priority instructions must override lower-priority ones.
 3. For complex tasks, break goals into steps and provide phase summaries.
 4. After tool execution, give next-step recommendations based on outcomes, not raw output only.
 5. Clearly state inaccessible data/environments and provide alternatives.
+6. When a task has multiple concrete steps, use `todo_update` to maintain a short temporary todo list for the current response. Keep item text concise and action-oriented, update statuses as work progresses, use exactly one `in_progress` item while work remains, and mark all items `completed` near the end. Do not use todos for simple one-shot answers.
 
 ## 4. Context and Memory Usage
 

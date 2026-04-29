@@ -29,6 +29,7 @@ const renderedTimeline = computed(() => (
     ? fullTimeline.value
     : fullTimeline.value.filter((entry) => collapsedEntryIds.value.has(entry.id))
 ))
+const isTypingPlaceholder = computed(() => ctx.isEmptyPlaceholder(props.item.id) && ctx.waiting)
 const elapsedMs = computed(() => {
   elapsedTick.value
   return ctx.getReplyElapsedMs(props.item.id)
@@ -97,7 +98,12 @@ onUnmounted(() => {
       </svg>
     </button>
 
-    <TransitionGroup name="reply-segment" tag="div" class="assistant-reply-timeline">
+    <TransitionGroup
+      v-if="renderedTimeline.length > 0"
+      name="reply-segment"
+      tag="div"
+      class="assistant-reply-timeline"
+    >
       <div
         v-for="(entry, index) in renderedTimeline"
         :key="entry.id"
@@ -134,7 +140,9 @@ onUnmounted(() => {
       </div>
     </TransitionGroup>
 
-    <TypingDots v-if="ctx.isEmptyPlaceholder(item.id) && ctx.waiting" />
+    <div v-if="isTypingPlaceholder" class="assistant-typing-placeholder">
+      <TypingDots />
+    </div>
   </div>
 </template>
 
@@ -150,6 +158,12 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   min-width: 0;
+}
+
+.assistant-typing-placeholder {
+  min-height: 40px;
+  display: flex;
+  align-items: center;
 }
 
 .assistant-reply-segment {

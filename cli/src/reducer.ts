@@ -11,6 +11,52 @@ import type {
   ViewMode,
   ModelProvider,
 } from "./types.js";
+import { estimateTokens } from "./utils/format.js";
+
+function clearTurnStats() {
+  return {
+    turnStartedAt: undefined,
+    turnElapsedMs: 0,
+    turnTokenEstimate: 0,
+    turnThoughtDurationMs: undefined,
+  };
+}
+
+function clearRuntimeTodos() {
+  return {
+    runtimeTodos: [],
+    runtimeTodosNote: "",
+    runtimeTodosUpdatedAt: undefined,
+  };
+}
+
+function entryTokenText(entry: TimelineEntry): string {
+  return [
+    entry.content,
+    entry.output,
+    entry.error,
+    entry.subagentStream,
+    entry.subagentThinking?.content,
+    entry.toolName,
+    entry.command,
+    ...(entry.params ? Object.values(entry.params) : []),
+  ].filter(Boolean).join("\n");
+}
+
+function estimateTimelineTokens(entries: TimelineEntry[], liveAssistant = ""): number {
+  return estimateTokens([
+    ...entries.map(entryTokenText),
+    liveAssistant,
+  ].filter(Boolean).join("\n"));
+}
+
+function estimateTurnTokens(state: AppState, entries = state.timeline, liveAssistant = state.liveAssistant): number {
+  return estimateTimelineTokens(entries, liveAssistant);
+}
+
+function addTokenEstimate(state: AppState, chunk: string): number {
+  return Math.max(0, state.turnTokenEstimate + estimateTokens(chunk));
+}
 
 export function createInitialState(
   apiURL: string,
@@ -38,6 +84,13 @@ export function createInitialState(
     planMode: false,
     planGenerating: false,
     planReceived: false,
+    turnStartedAt: undefined,
+    turnElapsedMs: 0,
+    turnTokenEstimate: 0,
+    turnThoughtDurationMs: undefined,
+    runtimeTodos: [],
+    runtimeTodosNote: "",
+    runtimeTodosUpdatedAt: undefined,
     thinkingDetailContent: "",
     inputValue: "",
     inputKey: 0,
@@ -132,14 +185,21 @@ export function reducer(state: AppState, action: AppAction): AppState {
         assistantWaiting: true,
         liveAssistant: "",
         planReceived: false,
+        turnStartedAt: action.startedAt ?? Date.now(),
+        turnElapsedMs: 0,
+        turnTokenEstimate: estimateTurnTokens(state, state.timeline, ""),
+        turnThoughtDurationMs: undefined,
+        ...clearRuntimeTodos(),
       };
 
     case "STREAM_CHUNK": {
+      const liveAssistant = state.liveAssistant + action.chunk;
       return {
         ...state,
         streaming: true,
         assistantWaiting: false,
-        liveAssistant: state.liveAssistant + action.chunk,
+        liveAssistant,
+        turnTokenEstimate: addTokenEstimate(state, action.chunk),
       };
     }
 
@@ -167,6 +227,19 @@ export function reducer(state: AppState, action: AppAction): AppState {
         timeline: entries,
         planGenerating: false,
         planReceived: false,
+        ...clearTurnStats(),
+        ...clearRuntimeTodos(),
+      };
+    }
+
+    case "TURN_STATS_TICK": {
+      if (!state.streaming || state.turnStartedAt === undefined) {
+        return state;
+      }
+      const now = action.now ?? Date.now();
+      return {
+        ...state,
+        turnElapsedMs: Math.max(0, now - state.turnStartedAt),
       };
     }
 
@@ -179,7 +252,12 @@ export function reducer(state: AppState, action: AppAction): AppState {
     case "UPSERT_TOOL_ENTRY": {
       const nextEntry: TimelineEntry = { ...action.entry, kind: "tool" };
       if (!nextEntry.toolCallId) {
-        return { ...state, timeline: [...state.timeline, nextEntry] };
+        const timeline = [...state.timeline, nextEntry];
+        return {
+          ...state,
+          timeline,
+          turnTokenEstimate: state.streaming ? estimateTurnTokens(state, timeline) : state.turnTokenEstimate,
+        };
       }
       const entries = [...state.timeline];
       const idx = entries.findIndex(
@@ -196,7 +274,11 @@ export function reducer(state: AppState, action: AppAction): AppState {
           subagentThinking: nextEntry.subagentThinking ?? prev.subagentThinking,
         };
       }
-      return { ...state, timeline: entries };
+      return {
+        ...state,
+        timeline: entries,
+        turnTokenEstimate: state.streaming ? estimateTurnTokens(state, entries) : state.turnTokenEstimate,
+      };
     }
 
     case "APPEND_SUBAGENT_STREAM": {
@@ -212,7 +294,11 @@ export function reducer(state: AppState, action: AppAction): AppState {
         ...prev,
         subagentStream: (prev.subagentStream || "") + action.content,
       };
-      return { ...state, timeline: entries };
+      return {
+        ...state,
+        timeline: entries,
+        turnTokenEstimate: state.streaming ? addTokenEstimate(state, action.content) : state.turnTokenEstimate,
+      };
     }
 
     case "APPEND_ENTRY":
@@ -234,6 +320,8 @@ export function reducer(state: AppState, action: AppAction): AppState {
         planMode: false,
         planGenerating: false,
         planReceived: false,
+        ...clearTurnStats(),
+        ...clearRuntimeTodos(),
         thinkingDetailContent: "",
         view: "chat",
         menuKind: null,
@@ -394,6 +482,7 @@ export function reducer(state: AppState, action: AppAction): AppState {
         streaming: false,
         assistantWaiting: false,
         liveAssistant: "",
+        ...clearRuntimeTodos(),
       };
 
     case "THINKING_START":
@@ -413,7 +502,11 @@ export function reducer(state: AppState, action: AppAction): AppState {
               thinkingStartedAt: action.startedAt ?? Date.now(),
             },
           };
-          return { ...state, timeline: entries };
+          return {
+            ...state,
+            timeline: entries,
+            turnTokenEstimate: state.streaming ? estimateTurnTokens(state, entries) : state.turnTokenEstimate,
+          };
         }
         const entries = [...state.timeline];
         if (state.liveAssistant.trim()) {
@@ -429,6 +522,7 @@ export function reducer(state: AppState, action: AppAction): AppState {
           ...state,
           timeline: entries,
           liveAssistant: "",
+          turnTokenEstimate: state.streaming ? estimateTurnTokens(state, entries, "") : state.turnTokenEstimate,
         };
       }
 
@@ -449,7 +543,11 @@ export function reducer(state: AppState, action: AppAction): AppState {
             thinkingDone: false,
           },
         };
-        return { ...state, timeline: entries };
+        return {
+          ...state,
+          timeline: entries,
+          turnTokenEstimate: state.streaming ? addTokenEstimate(state, action.chunk) : state.turnTokenEstimate,
+        };
       }
       const entries = [...state.timeline];
       for (let i = entries.length - 1; i >= 0; i--) {
@@ -458,7 +556,11 @@ export function reducer(state: AppState, action: AppAction): AppState {
           break;
         }
       }
-      return { ...state, timeline: entries };
+      return {
+        ...state,
+        timeline: entries,
+        turnTokenEstimate: state.streaming ? addTokenEstimate(state, action.chunk) : state.turnTokenEstimate,
+      };
     }
 
     case "THINKING_DONE": {
@@ -481,7 +583,11 @@ export function reducer(state: AppState, action: AppAction): AppState {
               : prev.subagentThinking.thinkingDurationMs,
           },
         };
-        return { ...state, timeline: entries };
+        return {
+          ...state,
+          timeline: entries,
+          turnTokenEstimate: state.streaming ? estimateTurnTokens(state, entries) : state.turnTokenEstimate,
+        };
       }
       const entries = [...state.timeline];
       for (let i = entries.length - 1; i >= 0; i--) {
@@ -491,7 +597,11 @@ export function reducer(state: AppState, action: AppAction): AppState {
             ? Math.max(0, (action.finishedAt ?? Date.now()) - startedAt)
             : entries[i].thinkingDurationMs;
           entries[i] = { ...entries[i], thinkingDone: true, thinkingDurationMs: durationMs };
-          break;
+          return {
+            ...state,
+            timeline: entries,
+            turnThoughtDurationMs: durationMs,
+          };
         }
       }
       return { ...state, timeline: entries };
@@ -541,8 +651,22 @@ export function reducer(state: AppState, action: AppAction): AppState {
       if (state.liveAssistant.trim()) {
         entries.push({ kind: "assistant", content: state.liveAssistant });
       }
-      return { ...state, timeline: entries, liveAssistant: "", planGenerating: true };
+      return {
+        ...state,
+        timeline: entries,
+        liveAssistant: "",
+        planGenerating: true,
+        turnTokenEstimate: state.streaming ? estimateTurnTokens(state, entries, "") : state.turnTokenEstimate,
+      };
     }
+
+    case "TODO_UPDATE":
+      return {
+        ...state,
+        runtimeTodos: action.items.map((item) => ({ ...item })),
+        runtimeTodosNote: action.note || "",
+        runtimeTodosUpdatedAt: action.updatedAt,
+      };
 
     case "PLAN_CHUNK": {
       if (action.chunk === "") {
@@ -558,6 +682,7 @@ export function reducer(state: AppState, action: AppAction): AppState {
         liveAssistant: "",
         planGenerating: true,
         planReceived: false,
+        turnTokenEstimate: state.streaming ? estimateTurnTokens(state, entries, "") : state.turnTokenEstimate,
       };
     }
 
@@ -567,7 +692,14 @@ export function reducer(state: AppState, action: AppAction): AppState {
         entries.push({ kind: "assistant", content: state.liveAssistant });
       }
       entries.push({ kind: "plan", content: action.planBody });
-      return { ...state, timeline: entries, liveAssistant: "", planGenerating: false, planReceived: true };
+      return {
+        ...state,
+        timeline: entries,
+        liveAssistant: "",
+        planGenerating: false,
+        planReceived: true,
+        turnTokenEstimate: state.streaming ? estimateTurnTokens(state, entries, "") : state.turnTokenEstimate,
+      };
     }
 
     case "SET_QA": {
@@ -660,6 +792,7 @@ export function reducer(state: AppState, action: AppAction): AppState {
         assistantWaiting: true,
         liveAssistant: "",
         timeline: entries,
+        turnTokenEstimate: state.streaming ? estimateTurnTokens(state, entries, "") : state.turnTokenEstimate,
       };
     }
 

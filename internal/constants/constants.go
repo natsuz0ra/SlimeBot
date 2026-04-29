@@ -46,6 +46,7 @@ const (
 	AskQuestionsTool               = "ask_questions"
 	AskQuestionsMaxQuestions       = 5
 	AskQuestionsMaxOptionsPerQ     = 5
+	TodoUpdateTool                 = "todo_update"
 	ActivateSkillTool              = "activate_skill"
 	RunSubagentTool                = "run_subagent"
 	SearchMemoryTool               = "search_memory"

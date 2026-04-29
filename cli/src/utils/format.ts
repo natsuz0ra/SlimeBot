@@ -121,6 +121,56 @@ export function parseExecOutputPayload(raw: string): ExecOutputPayload | null {
   };
 }
 
+export function formatTurnDuration(durationMs: number): string {
+  const totalSeconds = Math.max(0, Math.floor(durationMs / 1000));
+  if (totalSeconds < 60) {
+    return `${totalSeconds}s`;
+  }
+  const totalMinutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  if (totalMinutes < 60) {
+    return `${totalMinutes}m ${seconds}s`;
+  }
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  return `${hours}h ${String(minutes).padStart(2, "0")}m`;
+}
+
+export function formatCompactTokenCount(tokens: number): string {
+  const count = Math.max(0, Math.round(tokens));
+  if (count < 1_000) {
+    return `${count} tokens`;
+  }
+  if (count < 1_000_000) {
+    return `${(count / 1_000).toFixed(1)}k tokens`;
+  }
+  return `${(count / 1_000_000).toFixed(1)}m tokens`;
+}
+
+export function estimateTokens(text: string): number {
+  const normalized = (text ?? "").trim();
+  if (!normalized) return 0;
+  const cjkChars = normalized.match(/[\u3400-\u9fff\uf900-\ufaff]/g)?.length ?? 0;
+  const wordLike = normalized.match(/[A-Za-z0-9_]+|[^\sA-Za-z0-9_\u3400-\u9fff\uf900-\ufaff]/g)?.length ?? 0;
+  const charEstimate = Math.ceil(normalized.length / 4);
+  return Math.max(1, Math.ceil(Math.max(charEstimate, cjkChars + wordLike)));
+}
+
+export function formatWaitingStatsSuffix(stats: {
+  elapsedMs: number;
+  tokenEstimate: number;
+  thoughtDurationMs?: number;
+}): string {
+  const parts = [
+    formatTurnDuration(stats.elapsedMs),
+    `↑ ${formatCompactTokenCount(stats.tokenEstimate)}`,
+  ];
+  if (stats.thoughtDurationMs !== undefined) {
+    parts.push(`thought for ${formatTurnDuration(stats.thoughtDurationMs)}`);
+  }
+  return `(${parts.join(" · ")})`;
+}
+
 /** Formats tool output for display. Exec output gets a structured layout when possible. */
 export function formatToolExecutionOutput(toolName: string, command: string, raw: string): string {
   const normalizedTool = toolName.trim().toLowerCase();

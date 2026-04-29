@@ -26,6 +26,7 @@ import { Markdown, StreamingMarkdown } from "./Markdown.js";
 import { Spinner } from "./Spinner.js";
 
 export const PLAN_GOLD = "#f59e0b";
+export const WAITING_STATS_COLOR = "#64748b";
 
 interface TimelineProps {
   entries: TimelineEntry[];
@@ -39,6 +40,7 @@ interface TimelineProps {
   thinkingEntryIndex: number;
   planGenerating: boolean;
   planReceived: boolean;
+  waitingStatsSuffix?: string;
 }
 
 function toolDotState(status: ToolCallStatus): { color: string; blink: boolean } {
@@ -334,6 +336,26 @@ export function shouldShowWaitingPrompt(planGenerating: boolean, planReceived: b
 
 export function shouldSeparatePlanningAndWaiting(planGenerating: boolean, planReceived: boolean): boolean {
   return planGenerating && shouldShowWaitingPrompt(planGenerating, planReceived);
+}
+
+export function formatWaitingPromptText(waitingStatsSuffix?: string): string {
+  const suffix = waitingStatsSuffix?.trim();
+  return suffix ? ` Waiting for response... ${suffix}` : " Waiting for response...";
+}
+
+function WaitingPrompt({ waitingStatsSuffix }: { waitingStatsSuffix?: string }): React.ReactElement {
+  const suffix = waitingStatsSuffix?.trim();
+  return (
+    <Text>
+      <GradientFlowText
+        text=" Waiting for response..."
+        enabled={true}
+      />
+      {suffix ? (
+        <Text color={WAITING_STATS_COLOR}>{` ${suffix}`}</Text>
+      ) : null}
+    </Text>
+  );
 }
 
 function formatPlanBorderLine(maxWidth: number, title?: string): string {
@@ -632,6 +654,7 @@ export function Timeline({
   thinkingEntryIndex,
   planGenerating,
   planReceived,
+  waitingStatsSuffix,
 }: TimelineProps): React.ReactElement {
   const displayRows = useMemo(() => buildTimelineDisplayRows(entries), [entries]);
   let thinkingCounter = 0;
@@ -699,10 +722,7 @@ export function Timeline({
           {shouldShowWaitingPrompt(planGenerating, planReceived) && (
             <Box key="waiting">
               <Spinner enabled={true} />
-              <GradientFlowText
-                text=" Waiting for response..."
-                enabled={true}
-              />
+              <WaitingPrompt waitingStatsSuffix={waitingStatsSuffix} />
             </Box>
           )}
         </>

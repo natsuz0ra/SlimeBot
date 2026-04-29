@@ -266,6 +266,10 @@ export interface AppState {
   planMode: boolean;
   planGenerating: boolean;
   planReceived: boolean;
+  turnStartedAt?: number;
+  turnElapsedMs: number;
+  turnTokenEstimate: number;
+  turnThoughtDurationMs?: number;
 
   // Thinking detail view
   thinkingDetailContent: string;
@@ -339,9 +343,10 @@ export type AppAction =
   | { type: "SET_SESSION_NAME"; sessionName: string }
   | { type: "APPLY_SESSION_TITLE"; sessionId?: string; title: string }
   | { type: "SET_MODEL"; modelId: string; modelName: string }
-  | { type: "STREAM_START" }
+  | { type: "STREAM_START"; startedAt?: number }
   | { type: "STREAM_CHUNK"; chunk: string }
   | { type: "STREAM_DONE"; error: string | null }
+  | { type: "TURN_STATS_TICK"; now?: number }
   | { type: "TOGGLE_COMPACT" }
   | { type: "TOGGLE_TOOL_OUTPUT" }
   | { type: "UPSERT_TOOL_ENTRY"; entry: TimelineEntry }

@@ -8,7 +8,7 @@ import { Box, Text } from "ink";
 import { renderMarkdownLines } from "../utils/markdownRenderer.js";
 import { DOT } from "../utils/terminal.js";
 import { stringWidth } from "../utils/stringWidth.js";
-import type { TimelineEntry, ToolCallStatus } from "../types.js";
+import type { RuntimeTodoItem, TimelineEntry, ToolCallStatus } from "../types.js";
 import {
   formatToolInvocation,
   wrapText,
@@ -41,6 +41,7 @@ interface TimelineProps {
   planGenerating: boolean;
   planReceived: boolean;
   waitingStatsSuffix?: string;
+  runtimeTodos?: RuntimeTodoItem[];
 }
 
 function toolDotState(status: ToolCallStatus): { color: string; blink: boolean } {
@@ -358,6 +359,44 @@ function WaitingPrompt({ waitingStatsSuffix }: { waitingStatsSuffix?: string }):
   );
 }
 
+function todoStatusSymbol(status: RuntimeTodoItem["status"]): string {
+  switch (status) {
+    case "completed":
+      return "✔";
+    case "in_progress":
+      return "◼";
+    default:
+      return "◻";
+  }
+}
+
+export function formatTodoListLines(items: RuntimeTodoItem[], maxWidth: number): string[] {
+  const result: string[] = [];
+  const firstPrefix = "  ⎿  ";
+  const nextPrefix = "     ";
+  items.forEach((item, index) => {
+    const prefix = index === 0 ? firstPrefix : nextPrefix;
+    const marker = `${todoStatusSymbol(item.status)} `;
+    const contentWidth = Math.max(1, maxWidth - prefix.length - marker.length);
+    const wrapped = wrapText(item.content, contentWidth).split("\n");
+    wrapped.forEach((line, lineIndex) => {
+      result.push(`${lineIndex === 0 ? prefix : nextPrefix}${lineIndex === 0 ? marker : "  "}${line}`);
+    });
+  });
+  return result;
+}
+
+function TodoList({ items, maxWidth }: { items: RuntimeTodoItem[]; maxWidth: number }): React.ReactElement | null {
+  if (items.length === 0) return null;
+  return (
+    <Box flexDirection="column">
+      {formatTodoListLines(items, maxWidth).map((line, index) => (
+        <Text key={`todo-${index}`} color={index === 0 ? "gray" : undefined}>{line}</Text>
+      ))}
+    </Box>
+  );
+}
+
 function formatPlanBorderLine(maxWidth: number, title?: string): string {
   const width = Math.max(12, Math.floor(maxWidth));
   if (!title) return "─".repeat(width);
@@ -655,6 +694,7 @@ export function Timeline({
   planGenerating,
   planReceived,
   waitingStatsSuffix,
+  runtimeTodos = [],
 }: TimelineProps): React.ReactElement {
   const displayRows = useMemo(() => buildTimelineDisplayRows(entries), [entries]);
   let thinkingCounter = 0;
@@ -724,6 +764,9 @@ export function Timeline({
               <Spinner enabled={true} />
               <WaitingPrompt waitingStatsSuffix={waitingStatsSuffix} />
             </Box>
+          )}
+          {runtimeTodos.length > 0 && (
+            <TodoList items={runtimeTodos} maxWidth={maxWidth} />
           )}
         </>
       )}

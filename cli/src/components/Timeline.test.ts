@@ -12,6 +12,7 @@ import {
   formatToolParamLines,
   formatPlanFrameLines,
   formatWaitingPromptText,
+  formatTodoListLines,
   shouldSeparatePlanningAndWaiting,
   shouldShowWaitingPrompt,
 } from "./Timeline";
@@ -308,6 +309,21 @@ test("formatWaitingPromptText appends suffix when provided", () => {
 
 test("formatWaitingPromptText keeps original prompt without suffix", () => {
   assert.equal(formatWaitingPromptText(""), " Waiting for response...");
+});
+
+test("formatTodoListLines renders runtime todo statuses", () => {
+  assert.deepEqual(
+    formatTodoListLines([
+      { id: "a", content: "扩展 AssistantReplyBatch 类型", status: "completed" },
+      { id: "b", content: "更新 chat store 管理新字段", status: "in_progress" },
+      { id: "c", content: "实现折叠栏", status: "pending" },
+    ], 80),
+    [
+      "  ⎿  ✔ 扩展 AssistantReplyBatch 类型",
+      "     ◼ 更新 chat store 管理新字段",
+      "     ◻ 实现折叠栏",
+    ],
+  );
 });
 
 test("WAITING_STATS_COLOR matches the chat footer hint color", () => {

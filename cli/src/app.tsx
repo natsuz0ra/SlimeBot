@@ -1054,6 +1054,14 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
           subagentRunId: data.subagentRunId,
         } as AppAction);
       },
+      onTodoUpdate: (data) => {
+        dispatch({
+          type: "TODO_UPDATE",
+          items: data.items,
+          note: data.note,
+          updatedAt: data.updatedAt ? Date.parse(data.updatedAt) : undefined,
+        } as AppAction);
+      },
       onPlanBody: (content: string) => {
         dispatch({ type: "PLAN_BODY", planBody: content } as AppAction);
       },
@@ -1381,6 +1389,7 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
               tokenEstimate: state.turnTokenEstimate,
               thoughtDurationMs: state.turnThoughtDurationMs,
             }) : ""}
+            runtimeTodos={state.runtimeTodos}
           />
           <Text> </Text>
         </>

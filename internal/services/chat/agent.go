@@ -51,6 +51,17 @@ type ToolCallResult struct {
 	SubagentRunID    string `json:"subagentRunId,omitempty"`
 }
 
+type TodoItem struct {
+	ID      string `json:"id"`
+	Content string `json:"content"`
+	Status  string `json:"status"`
+}
+
+type TodoUpdate struct {
+	Items []TodoItem `json:"items"`
+	Note  string     `json:"note,omitempty"`
+}
+
 type ThinkingEventMeta struct {
 	ParentToolCallID string
 	SubagentRunID    string
@@ -68,6 +79,7 @@ type AgentCallbacks struct {
 	OnThinkingStart  func(meta ThinkingEventMeta) error
 	OnThinkingChunk  func(chunk string, meta ThinkingEventMeta) error
 	OnThinkingDone   func(meta ThinkingEventMeta) error
+	OnTodoUpdate     func(update TodoUpdate) error
 	OnPlanStart      func() error                  // plan writing phase has begun
 	OnPlanChunk      func(chunk string) error      // stream plan body chunk to the client (plan mode only)
 	OnPlanBody       func(planBody string) error   // send complete plan body (non-streaming, plan mode only)
@@ -211,6 +223,44 @@ func buildPlanStartToolDef() llmsvc.ToolDef {
 		Parameters: map[string]any{
 			"type":       "object",
 			"properties": map[string]any{},
+		},
+	}
+}
+
+func buildTodoUpdateToolDef() llmsvc.ToolDef {
+	return llmsvc.ToolDef{
+		Name:        constants.TodoUpdateTool,
+		Description: "[progress] Update the temporary todo list for the current response when the task has multiple steps. Keep items short. Use exactly one in_progress item while work remains; mark all completed when finished.",
+		Parameters: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"items": map[string]any{
+					"type": "array",
+					"items": map[string]any{
+						"type": "object",
+						"properties": map[string]any{
+							"id": map[string]any{
+								"type":        "string",
+								"description": "Stable short id for this todo item within the current response.",
+							},
+							"content": map[string]any{
+								"type":        "string",
+								"description": "Short action-oriented todo text.",
+							},
+							"status": map[string]any{
+								"type": "string",
+								"enum": []string{"pending", "in_progress", "completed"},
+							},
+						},
+						"required": []string{"id", "content", "status"},
+					},
+				},
+				"note": map[string]any{
+					"type":        "string",
+					"description": "Optional short note about current progress.",
+				},
+			},
+			"required": []string{"items"},
 		},
 	}
 }
@@ -372,6 +422,7 @@ func (a *AgentService) RunAgentLoop(
 		toolDefs = append(toolDefs, buildPlanStartToolDef())
 		toolDefs = append(toolDefs, buildPlanCompleteToolDef())
 	}
+	toolDefs = append(toolDefs, buildTodoUpdateToolDef())
 	messages := make([]llmsvc.ChatMessage, len(contextMessages))
 	copy(messages, contextMessages)
 
@@ -450,6 +501,21 @@ func (a *AgentService) RunAgentLoop(
 		//preamble := strings.TrimSpace(result.AssistantMessage.Content)
 
 		for _, tc := range result.ToolCalls {
+			if tc.Name == constants.TodoUpdateTool {
+				update, parseErr := parseTodoUpdate(tc.Arguments)
+				if parseErr != nil {
+					messages = appendToolMessage(messages, tc.ID, fmt.Sprintf("failed to update todo list: %s", parseErr.Error()))
+					continue
+				}
+				if callbacks.OnTodoUpdate != nil {
+					if err := callbacks.OnTodoUpdate(update); err != nil {
+						return "", fmt.Errorf("OnTodoUpdate callback failed: %w", err)
+					}
+				}
+				messages = appendToolMessage(messages, tc.ID, fmt.Sprintf("Todo list updated: %d item(s).", len(update.Items)))
+				continue
+			}
+
 			// Handle plan_start: signal transition from research to plan writing.
 			if tc.Name == constants.PlanStartTool {
 				if opts.PlanStarted != nil {
@@ -571,7 +637,7 @@ func (a *AgentService) RunAgentLoop(
 func isPlanModeAllowedTool(funcName string) bool {
 	// Handle tools without __ separator (e.g. search_memory, plan_start).
 	switch funcName {
-	case "search_memory", "plan_start", constants.RunSubagentTool:
+	case "search_memory", "plan_start", constants.RunSubagentTool, constants.TodoUpdateTool:
 		return true
 	}
 	// Handle tools with __ separator (e.g. web_search__search, plan_complete__submit).
@@ -651,6 +717,53 @@ func parseToolCallArgsAny(arguments string) (map[string]any, error) {
 		return nil, fmt.Errorf("failed to parse JSON: %w", err)
 	}
 	return raw, nil
+}
+
+func parseTodoUpdate(arguments string) (TodoUpdate, error) {
+	var update TodoUpdate
+	if strings.TrimSpace(arguments) == "" {
+		return update, fmt.Errorf("arguments are required")
+	}
+	if err := json.Unmarshal([]byte(arguments), &update); err != nil {
+		return update, fmt.Errorf("failed to parse JSON: %w", err)
+	}
+	if len(update.Items) == 0 {
+		return update, fmt.Errorf("items must contain at least one todo")
+	}
+	inProgress := 0
+	allCompleted := true
+	seenIDs := make(map[string]struct{}, len(update.Items))
+	for i, item := range update.Items {
+		item.ID = strings.TrimSpace(item.ID)
+		item.Content = strings.TrimSpace(item.Content)
+		item.Status = strings.TrimSpace(item.Status)
+		if item.ID == "" {
+			return update, fmt.Errorf("items[%d].id is required", i)
+		}
+		if _, exists := seenIDs[item.ID]; exists {
+			return update, fmt.Errorf("duplicate todo id: %s", item.ID)
+		}
+		seenIDs[item.ID] = struct{}{}
+		if item.Content == "" {
+			return update, fmt.Errorf("items[%d].content is required", i)
+		}
+		switch item.Status {
+		case "pending":
+			allCompleted = false
+		case "in_progress":
+			inProgress++
+			allCompleted = false
+		case "completed":
+		default:
+			return update, fmt.Errorf("items[%d].status must be pending, in_progress, or completed", i)
+		}
+		update.Items[i] = item
+	}
+	if !allCompleted && inProgress != 1 {
+		return update, fmt.Errorf("todo updates must have exactly one in_progress item unless all items are completed")
+	}
+	update.Note = strings.TrimSpace(update.Note)
+	return update, nil
 }
 
 // executeToolCall runs a built-in tool command with uniform error handling.

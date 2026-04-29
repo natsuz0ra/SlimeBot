@@ -22,6 +22,14 @@ function clearTurnStats() {
   };
 }
 
+function clearRuntimeTodos() {
+  return {
+    runtimeTodos: [],
+    runtimeTodosNote: "",
+    runtimeTodosUpdatedAt: undefined,
+  };
+}
+
 function entryTokenText(entry: TimelineEntry): string {
   return [
     entry.content,
@@ -80,6 +88,9 @@ export function createInitialState(
     turnElapsedMs: 0,
     turnTokenEstimate: 0,
     turnThoughtDurationMs: undefined,
+    runtimeTodos: [],
+    runtimeTodosNote: "",
+    runtimeTodosUpdatedAt: undefined,
     thinkingDetailContent: "",
     inputValue: "",
     inputKey: 0,
@@ -178,6 +189,7 @@ export function reducer(state: AppState, action: AppAction): AppState {
         turnElapsedMs: 0,
         turnTokenEstimate: estimateTurnTokens(state, state.timeline, ""),
         turnThoughtDurationMs: undefined,
+        ...clearRuntimeTodos(),
       };
 
     case "STREAM_CHUNK": {
@@ -216,6 +228,7 @@ export function reducer(state: AppState, action: AppAction): AppState {
         planGenerating: false,
         planReceived: false,
         ...clearTurnStats(),
+        ...clearRuntimeTodos(),
       };
     }
 
@@ -308,6 +321,7 @@ export function reducer(state: AppState, action: AppAction): AppState {
         planGenerating: false,
         planReceived: false,
         ...clearTurnStats(),
+        ...clearRuntimeTodos(),
         thinkingDetailContent: "",
         view: "chat",
         menuKind: null,
@@ -468,6 +482,7 @@ export function reducer(state: AppState, action: AppAction): AppState {
         streaming: false,
         assistantWaiting: false,
         liveAssistant: "",
+        ...clearRuntimeTodos(),
       };
 
     case "THINKING_START":
@@ -644,6 +659,14 @@ export function reducer(state: AppState, action: AppAction): AppState {
         turnTokenEstimate: state.streaming ? estimateTurnTokens(state, entries, "") : state.turnTokenEstimate,
       };
     }
+
+    case "TODO_UPDATE":
+      return {
+        ...state,
+        runtimeTodos: action.items.map((item) => ({ ...item })),
+        runtimeTodosNote: action.note || "",
+        runtimeTodosUpdatedAt: action.updatedAt,
+      };
 
     case "PLAN_CHUNK": {
       if (action.chunk === "") {

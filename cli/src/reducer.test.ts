@@ -158,6 +158,39 @@ test("STREAM_START initializes current turn stats", () => {
 	assert.equal(state.turnThoughtDurationMs, undefined);
 });
 
+test("TODO_UPDATE replaces runtime todos and clears on turn/session boundaries", () => {
+	let state = reduce(initState(), {
+		type: "TODO_UPDATE",
+		items: [
+			{ id: "a", content: "Inspect", status: "completed" },
+			{ id: "b", content: "Implement", status: "in_progress" },
+		],
+		note: "working",
+		updatedAt: 1_000,
+	});
+
+	assert.equal(state.runtimeTodosNote, "working");
+	assert.equal(state.runtimeTodosUpdatedAt, 1_000);
+	assert.deepEqual(state.runtimeTodos.map((item) => item.status), ["completed", "in_progress"]);
+
+	state = reduce(state, { type: "STREAM_START", startedAt: 2_000 });
+	assert.deepEqual(state.runtimeTodos, []);
+
+	state = reduce(state, {
+		type: "TODO_UPDATE",
+		items: [{ id: "c", content: "Verify", status: "pending" }],
+	});
+	state = reduce(state, { type: "STREAM_DONE", error: null });
+	assert.deepEqual(state.runtimeTodos, []);
+
+	state = reduce(state, {
+		type: "TODO_UPDATE",
+		items: [{ id: "d", content: "Hidden", status: "pending" }],
+	});
+	state = reduce(state, { type: "RESET_SESSION" });
+	assert.deepEqual(state.runtimeTodos, []);
+});
+
 test("TURN_STATS_TICK updates elapsed while streaming", () => {
 	let state = reduce(initState(), { type: "STREAM_START", startedAt: 1_000 });
 

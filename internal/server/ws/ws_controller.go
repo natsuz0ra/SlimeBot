@@ -453,6 +453,19 @@ func buildChatDonePayload(sessionID string, streamResult *chatsvc.ChatStreamResu
 	return payload
 }
 
+func buildTodoUpdatePayload(sessionID string, update chatsvc.TodoUpdate, updatedAt time.Time) map[string]any {
+	payload := map[string]any{
+		"type":      "todo_update",
+		"sessionId": sessionID,
+		"items":     update.Items,
+		"updatedAt": updatedAt.Format(time.RFC3339Nano),
+	}
+	if strings.TrimSpace(update.Note) != "" {
+		payload["note"] = update.Note
+	}
+	return payload
+}
+
 // buildCallbacks builds ChatService callbacks and maps them to WebSocket events.
 func (w *Controller) buildCallbacks(
 	enqueue func(any) bool,
@@ -505,6 +518,12 @@ func (w *Controller) buildCallbacks(
 				payload["subagentRunId"] = meta.SubagentRunID
 			}
 			if !enqueue(payload) {
+				return context.Canceled
+			}
+			return nil
+		},
+		OnTodoUpdate: func(update chatsvc.TodoUpdate) error {
+			if !enqueue(buildTodoUpdatePayload(sessionID, update, time.Now())) {
 				return context.Canceled
 			}
 			return nil

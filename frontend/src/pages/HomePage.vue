@@ -31,6 +31,7 @@ const {
   pendingFiles,
   loading,
   isEmptySession,
+  currentSessionPlanConfirmationVisible,
   showScrollToBottom,
   settingsVisible,
   toolDetailVisible,
@@ -249,7 +250,7 @@ provideChatContext({
                   :pending-files="pendingFiles"
                   :placeholder="t('inputPlaceholder')"
                   :plan-mode="planMode"
-                  :plan-confirmation-visible="!!store.pendingPlanConfirmation"
+                  :plan-confirmation-visible="currentSessionPlanConfirmationVisible"
                   @send="sendMessage"
                   @stop="stopMessage"
                   @files-change="onSelectFiles"
@@ -299,7 +300,7 @@ provideChatContext({
                 :pending-files="pendingFiles"
                 :placeholder="t('inputPlaceholder')"
                 :plan-mode="planMode"
-                :plan-confirmation-visible="!!store.pendingPlanConfirmation"
+                :plan-confirmation-visible="currentSessionPlanConfirmationVisible"
                 @send="sendMessage"
                 @stop="stopMessage"
                 @files-change="onSelectFiles"

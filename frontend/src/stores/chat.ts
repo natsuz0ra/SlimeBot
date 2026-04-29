@@ -48,7 +48,7 @@ export const useChatStore = defineStore('chat', () => {
   const currentBatchId = ref<string>('')
   const assistantErrorIds = ref(new Set<string>())
   const failedUserMessageIds = ref(new Set<string>())
-  const pendingPlanConfirmation = ref<{ planId: string; content: string } | null>(null)
+  const pendingPlanConfirmation = ref<{ sessionId: string; planId: string; content: string } | null>(null)
   const pendingApprovalToolCallIds = computed(() => replyBatches.value.flatMap((batch) => getBatchApprovalToolCallIds(batch.toolCalls)))
 
   interface QuestionItem {
@@ -479,6 +479,7 @@ export const useChatStore = defineStore('chat', () => {
         currentBatchId.value = ''
         if (meta?.planId) {
           pendingPlanConfirmation.value = {
+            sessionId,
             planId: meta.planId,
             content: meta.planBody || (answer ? stripContentMarkers(answer) : ''),
           }
@@ -811,6 +812,7 @@ export const useChatStore = defineStore('chat', () => {
     const { planId } = pendingPlanConfirmation.value
     const sessionId = currentSessionId.value
     if (!sessionId) return
+    if (pendingPlanConfirmation.value.sessionId !== sessionId) return
     planMode.value = false
     const visibleContent = displayContent.trim() || (i18n.global.t('planExecuteUserMessage') as string)
     messages.value.push({
@@ -829,6 +831,7 @@ export const useChatStore = defineStore('chat', () => {
     const { planId } = pendingPlanConfirmation.value
     const sessionId = currentSessionId.value
     if (!sessionId) return
+    if (pendingPlanConfirmation.value.sessionId !== sessionId) return
     ws.sendPlanReject(planId, sessionId)
     pendingPlanConfirmation.value = null
   }
@@ -838,6 +841,7 @@ export const useChatStore = defineStore('chat', () => {
     const { planId } = pendingPlanConfirmation.value
     const sessionId = currentSessionId.value
     if (!sessionId) return
+    if (pendingPlanConfirmation.value.sessionId !== sessionId) return
     ws.sendPlanModify(planId, sessionId, modelId, feedback, thinkingLevel)
     pendingPlanConfirmation.value = null
   }

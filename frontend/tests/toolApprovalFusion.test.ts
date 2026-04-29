@@ -65,7 +65,46 @@ test('chat store only promotes done.planId to pending plan confirmation', () => 
 
   assert.match(chatStoreSource, /if \(meta\?\.planId\) \{/)
   assert.match(chatStoreSource, /pendingPlanConfirmation\.value = \{[\s\S]*planId: meta\.planId/s)
+  assert.match(chatStoreSource, /pendingPlanConfirmation\.value = \{[\s\S]*sessionId,/s)
   assert.match(chatStoreSource, /onPlanBody: \(content, sessionId\) => \{[\s\S]*appendPlanBodyToBatch\(batch, content\)[\s\S]*planGenerating\.value = false/s)
+})
+
+test('plan confirmation is only visible for the owning session', () => {
+  const homePageSource = readFileSync(resolve(import.meta.dirname, '../src/pages/HomePage.vue'), 'utf8')
+  const homeChatPageSource = readFileSync(resolve(import.meta.dirname, '../src/composables/home/useHomeChatPage.ts'), 'utf8')
+
+  assert.doesNotMatch(homePageSource, /:plan-confirmation-visible="!!store\.pendingPlanConfirmation"/)
+  assert.match(homePageSource, /:plan-confirmation-visible="currentSessionPlanConfirmationVisible"/)
+  assert.match(
+    homeChatPageSource,
+    /currentSessionPlanConfirmationVisible[\s\S]*pendingPlanConfirmation[\s\S]*sessionId === store\.currentSessionId/s,
+  )
+})
+
+test('plan approval actions ignore confirmations from another session', () => {
+  const chatStoreSource = readFileSync(resolve(import.meta.dirname, '../src/stores/chat.ts'), 'utf8')
+
+  assert.match(
+    chatStoreSource,
+    /function approvePlan[\s\S]*if \(pendingPlanConfirmation\.value\.sessionId !== sessionId\) return/s,
+  )
+  assert.match(
+    chatStoreSource,
+    /function rejectPlan[\s\S]*if \(pendingPlanConfirmation\.value\.sessionId !== sessionId\) return/s,
+  )
+  assert.match(
+    chatStoreSource,
+    /function modifyPlan[\s\S]*if \(pendingPlanConfirmation\.value\.sessionId !== sessionId\) return/s,
+  )
+})
+
+test('approval prompts force the message list to scroll to bottom', () => {
+  const homeScrollSource = readFileSync(resolve(import.meta.dirname, '../src/composables/home/useHomeScroll.ts'), 'utf8')
+
+  assert.match(homeScrollSource, /store\.pendingApprovalToolCallIds\.join\('\|'\)/)
+  assert.match(homeScrollSource, /store\.pendingQuestions\?\.toolCallId/)
+  assert.match(homeScrollSource, /pendingPlanConfirmation[\s\S]*sessionId === store\.currentSessionId/s)
+  assert.match(homeScrollSource, /queueScrollMessagesToBottom\(true\)/)
 })
 
 test('chat socket done event forwards plan metadata while plan_body stays separate', () => {

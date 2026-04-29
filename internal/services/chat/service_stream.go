@@ -64,17 +64,53 @@ func (s *ChatService) HandleChatStream(
 	attachmentIDs []string,
 	thinkingLevel string,
 	planMode bool,
+	subagentModelID string,
+	callbacks AgentCallbacks,
+) (*ChatStreamResult, error) {
+	return s.handleChatStreamWithReceivedAt(ctx, sessionID, requestID, time.Now(), content, displayContent, modelID, attachmentIDs, thinkingLevel, planMode, subagentModelID, callbacks)
+}
+
+func (s *ChatService) HandleChatStreamWithReceivedAt(
+	ctx context.Context,
+	sessionID string,
+	requestID string,
+	receivedAt time.Time,
+	content string,
+	displayContent string,
+	modelID string,
+	attachmentIDs []string,
+	thinkingLevel string,
+	planMode bool,
+	subagentModelID string,
+	callbacks AgentCallbacks,
+) (*ChatStreamResult, error) {
+	return s.handleChatStreamWithReceivedAt(ctx, sessionID, requestID, receivedAt, content, displayContent, modelID, attachmentIDs, thinkingLevel, planMode, subagentModelID, callbacks)
+}
+
+func (s *ChatService) handleChatStreamWithReceivedAt(
+	ctx context.Context,
+	sessionID string,
+	requestID string,
+	receivedAt time.Time,
+	content string,
+	displayContent string,
+	modelID string,
+	attachmentIDs []string,
+	thinkingLevel string,
+	planMode bool,
+	subagentModelID string,
 	callbacks AgentCallbacks,
 ) (*ChatStreamResult, error) {
 	if strings.TrimSpace(content) == "" && len(attachmentIDs) == 0 {
 		return nil, fmt.Errorf("Message cannot be empty.")
 	}
 
-	state, err := s.prepareChatTurn(ctx, sessionID, content, displayContent, modelID, attachmentIDs, thinkingLevel)
+	state, err := s.prepareChatTurn(ctx, sessionID, receivedAt, content, displayContent, modelID, attachmentIDs, thinkingLevel)
 	if err != nil {
 		return nil, err
 	}
 	defer s.cleanupTurnAttachments(state.attachments)
+	s.maybeGenerateTitleAsync(state.session, state.modelConfig, state.userContent, callbacks.OnTitleGenerated)
 
 	if planMode {
 		state.contextMessages = append(state.contextMessages, llmsvc.ChatMessage{
@@ -83,18 +119,24 @@ func (s *ChatService) HandleChatStream(
 		})
 	}
 
-	result, err := s.executeChatTurn(ctx, sessionID, requestID, state, callbacks, planMode)
+	result, err := s.executeChatTurn(ctx, sessionID, requestID, state, callbacks, planMode, subagentModelID)
 	if err != nil {
 		return nil, err
 	}
 
-	return s.finalizeChatTurn(ctx, sessionID, requestID, state, result, planMode, callbacks)
+	// Use background context for finalization when interrupted so DB operations succeed.
+	finalizeCtx := ctx
+	if result.interrupted {
+		finalizeCtx = context.Background()
+	}
+	return s.finalizeChatTurn(finalizeCtx, sessionID, requestID, state, result, planMode, callbacks)
 }
 
 // prepareChatTurn validates input, resolves model config, saves user message, builds context in parallel.
 func (s *ChatService) prepareChatTurn(
 	ctx context.Context,
 	sessionID string,
+	receivedAt time.Time,
 	content string,
 	displayContent string,
 	modelID string,
@@ -149,6 +191,7 @@ func (s *ChatService) prepareChatTurn(
 		Role:        "user",
 		Content:     userContentForDisplay,
 		Attachments: userMessageAttachments,
+		CreatedAt:   receivedAt,
 	}); err != nil {
 		return nil, err
 	}
@@ -207,6 +250,7 @@ func (s *ChatService) executeChatTurn(
 	state *chatTurnState,
 	callbacks AgentCallbacks,
 	planMode bool,
+	subagentModelID string,
 ) (*chatTurnResult, error) {
 	parser := newTitleStreamParser(true)
 	accumulator := &chatStreamAccumulator{}
@@ -316,27 +360,31 @@ func (s *ChatService) executeChatTurn(
 			}
 			return nil
 		},
-		OnThinkingStart: func() error {
+		OnThinkingStart: func(meta ThinkingEventMeta) error {
 			if err := finishActiveThinking(time.Now()); err != nil {
 				return err
 			}
 			activeThinkingID = uuid.NewString()
 			activeThinkingDone = false
 			if err := s.store.UpsertThinkingStart(ctx, domain.ThinkingStartRecordInput{
-				SessionID:  sessionID,
-				RequestID:  requestID,
-				ThinkingID: activeThinkingID,
-				StartedAt:  time.Now(),
+				SessionID:        sessionID,
+				RequestID:        requestID,
+				ThinkingID:       activeThinkingID,
+				ParentToolCallID: meta.ParentToolCallID,
+				SubagentRunID:    meta.SubagentRunID,
+				StartedAt:        time.Now(),
 			}); err != nil {
 				return err
 			}
-			accumulator.answerBuilder.WriteString(fmt.Sprintf(thinkingMarkerFmt, activeThinkingID))
+			if meta.ParentToolCallID == "" && meta.SubagentRunID == "" {
+				accumulator.answerBuilder.WriteString(fmt.Sprintf(thinkingMarkerFmt, activeThinkingID))
+			}
 			if callbacks.OnThinkingStart == nil {
 				return nil
 			}
-			return callbacks.OnThinkingStart()
+			return callbacks.OnThinkingStart(meta)
 		},
-		OnThinkingChunk: func(chunk string) error {
+		OnThinkingChunk: func(chunk string, meta ThinkingEventMeta) error {
 			if activeThinkingID != "" {
 				if err := s.store.AppendThinkingChunk(ctx, domain.ThinkingChunkRecordInput{
 					SessionID:  sessionID,
@@ -350,16 +398,16 @@ func (s *ChatService) executeChatTurn(
 			if callbacks.OnThinkingChunk == nil {
 				return nil
 			}
-			return callbacks.OnThinkingChunk(chunk)
+			return callbacks.OnThinkingChunk(chunk, meta)
 		},
-		OnThinkingDone: func() error {
+		OnThinkingDone: func(meta ThinkingEventMeta) error {
 			if err := finishActiveThinking(time.Now()); err != nil {
 				return err
 			}
 			if callbacks.OnThinkingDone == nil {
 				return nil
 			}
-			return callbacks.OnThinkingDone()
+			return callbacks.OnThinkingDone(meta)
 		},
 		OnPlanStart: func() error {
 			accumulator.planStarted = true
@@ -380,7 +428,7 @@ func (s *ChatService) executeChatTurn(
 
 	agentStart := time.Now()
 	var planCompleted bool
-	answer, err := s.agent.RunAgentLoop(ctx, state.modelConfig, sessionID, state.contextMessages, state.enabledMCPConfigs, activatedSkills, agentCallbacks, AgentLoopOptions{ApprovalMode: approvalMode, PlanMode: planMode, PlanComplete: &planCompleted})
+	answer, err := s.agent.RunAgentLoop(ctx, state.modelConfig, sessionID, state.contextMessages, state.enabledMCPConfigs, activatedSkills, agentCallbacks, AgentLoopOptions{ApprovalMode: approvalMode, PlanMode: planMode, PlanComplete: &planCompleted, SubagentModelID: subagentModelID})
 	logging.Span("agent_loop", agentStart)
 	s.mergeSessionActivatedSkills(sessionID, activatedSkills)
 	if finishErr := finishActiveThinking(time.Now()); finishErr != nil && err == nil {
@@ -459,7 +507,7 @@ func (s *ChatService) executeChatTurn(
 	}, nil
 }
 
-// finalizeChatTurn persists assistant message, enqueues memory, triggers async title generation, saves plan if applicable.
+// finalizeChatTurn persists assistant message, enqueues memory, and saves plan if applicable.
 func (s *ChatService) finalizeChatTurn(
 	ctx context.Context,
 	sessionID string,
@@ -493,7 +541,6 @@ func (s *ChatService) finalizeChatTurn(
 		Narration:         result.narration,
 		PlanBody:          result.planBody,
 	}
-	s.maybeGenerateTitleAsync(state.session, state.modelConfig, state.userContent, result.answer, callbacks.OnTitleGenerated)
 	if s.memory != nil && strings.TrimSpace(result.memoryPayload) != "" {
 		s.memory.EnqueueTurnMemory(sessionID, assistantMessage.ID, result.memoryPayload)
 		logging.Info("memory_enqueue_triggered", "session", sessionID)
@@ -501,25 +548,29 @@ func (s *ChatService) finalizeChatTurn(
 		logging.Info("memory_enqueue_skipped", "session", sessionID, "reason", "empty_or_unparsed")
 	}
 
-	if planMode && result.planCompleted && s.planService != nil && strings.TrimSpace(result.planBody) != "" {
-		planContent := strings.TrimSpace(result.planBody)
-		title := "Plan"
-		for _, line := range strings.Split(planContent, "\n") {
-			line = strings.TrimSpace(line)
-			if strings.HasPrefix(line, "# ") {
-				title = strings.TrimSpace(strings.TrimPrefix(line, "# "))
-				break
-			}
-		}
-		if plan, saveErr := s.planService.SavePlan(sessionID, title, planContent); saveErr != nil {
-			logging.Info("plan_save_error", "session", sessionID, "error", saveErr.Error())
+	if planMode && !result.interrupted && s.planService != nil && strings.TrimSpace(result.planBody) != "" {
+		if !result.planCompleted {
+			logging.Info("plan_not_submitted", "session", sessionID)
 		} else {
-			logging.Info("plan_saved", "session", sessionID)
-			streamResult.PlanID = plan.ID
+			planContent := strings.TrimSpace(result.planBody)
+			title := "Plan"
+			for _, line := range strings.Split(planContent, "\n") {
+				line = strings.TrimSpace(line)
+				if strings.HasPrefix(line, "# ") {
+					title = strings.TrimSpace(strings.TrimPrefix(line, "# "))
+					break
+				}
+			}
+			if plan, saveErr := s.planService.SavePlan(sessionID, title, planContent); saveErr != nil {
+				logging.Info("plan_save_error", "session", sessionID, "error", saveErr.Error())
+			} else {
+				logging.Info("plan_saved", "session", sessionID)
+				streamResult.PlanID = plan.ID
+			}
 		}
 	}
 
-	if result.pushErr != nil {
+	if result.pushErr != nil && !result.interrupted {
 		streamResult.PushFailed = true
 		streamResult.PushError = result.pushErr.Error()
 	}

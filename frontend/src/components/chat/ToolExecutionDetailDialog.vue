@@ -128,7 +128,7 @@ function closeDialog() {
 
 .tool-summary-label {
   color: var(--tool-summary-text);
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 600;
   line-height: 1;
 }
@@ -187,7 +187,7 @@ function closeDialog() {
   }
 
   .tool-summary-label {
-    font-size: 11px;
+    font-size: 13px;
   }
 
   .tool-detail-list {

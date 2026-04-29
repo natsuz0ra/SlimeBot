@@ -8,6 +8,7 @@ import (
 	llmsvc "slimebot/internal/services/llm"
 
 	"github.com/anthropics/anthropic-sdk-go"
+	"github.com/anthropics/anthropic-sdk-go/packages/param"
 )
 
 // buildAnthropicMessages converts ChatMessage slices to Anthropic system blocks and messages.
@@ -68,6 +69,16 @@ func buildAnthropicMessages(messages []llmsvc.ChatMessage) ([]anthropic.TextBloc
 func buildAssistantBlocks(msg llmsvc.ChatMessage) []anthropic.ContentBlockParamUnion {
 	var blocks []anthropic.ContentBlockParamUnion
 
+	for _, tb := range msg.ThinkingBlocks {
+		if strings.TrimSpace(tb.RedactedData) != "" {
+			blocks = append(blocks, anthropic.NewRedactedThinkingBlock(tb.RedactedData))
+			continue
+		}
+		if strings.TrimSpace(tb.Thinking) != "" {
+			blocks = append(blocks, newThinkingBlock(tb.Signature, tb.Thinking))
+		}
+	}
+
 	if strings.TrimSpace(msg.Content) != "" {
 		blocks = append(blocks, anthropic.NewTextBlock(msg.Content))
 	}
@@ -90,6 +101,17 @@ func buildAssistantBlocks(msg llmsvc.ChatMessage) []anthropic.ContentBlockParamU
 	}
 
 	return blocks
+}
+
+func newThinkingBlock(signature string, thinking string) anthropic.ContentBlockParamUnion {
+	block := anthropic.ThinkingBlockParam{
+		Signature: strings.TrimSpace(signature),
+		Thinking:  thinking,
+	}
+	if block.Signature == "" {
+		block.SetExtraFields(map[string]any{"signature": param.Omit})
+	}
+	return anthropic.ContentBlockParamUnion{OfThinking: &block}
 }
 
 // buildContentParts converts multimodal ContentParts to Anthropic content blocks.
@@ -175,13 +197,48 @@ func buildAnthropicTools(defs []llmsvc.ToolDef) []anthropic.ToolUnionParam {
 			OfTool: &anthropic.ToolParam{
 				Name:        def.Name,
 				Description: anthropic.String(def.Description),
-				InputSchema: anthropic.ToolInputSchemaParam{
-					Type:        "object",
-					Properties:  def.Parameters,
-					ExtraFields: map[string]any{},
-				},
+				InputSchema: buildAnthropicInputSchema(def.Parameters),
 			},
 		})
 	}
 	return tools
+}
+
+func buildAnthropicInputSchema(parameters map[string]any) anthropic.ToolInputSchemaParam {
+	schema := anthropic.ToolInputSchemaParam{
+		Properties:  map[string]any{},
+		ExtraFields: map[string]any{},
+	}
+	for key, value := range parameters {
+		switch key {
+		case "type":
+			continue
+		case "properties":
+			if properties, ok := value.(map[string]any); ok {
+				schema.Properties = properties
+			}
+		case "required":
+			schema.Required = toStringSlice(value)
+		default:
+			schema.ExtraFields[key] = value
+		}
+	}
+	return schema
+}
+
+func toStringSlice(value any) []string {
+	switch items := value.(type) {
+	case []string:
+		return items
+	case []any:
+		result := make([]string, 0, len(items))
+		for _, item := range items {
+			if s, ok := item.(string); ok {
+				result = append(result, s)
+			}
+		}
+		return result
+	default:
+		return nil
+	}
 }

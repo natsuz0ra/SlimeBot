@@ -5,12 +5,14 @@ import { useI18n } from 'vue-i18n'
 
 const MODEL_STORAGE_KEY = 'slimebot:selectedModelId'
 const THINKING_STORAGE_KEY = 'slimebot:thinkingLevel'
+const SUBAGENT_MODEL_STORAGE_KEY = 'slimebot:subagentModelId'
 
 export function useHomeModelSelector() {
   const { t } = useI18n()
   const modelOptions = ref<LLMConfig[]>([])
   const selectedModelId = ref('')
   const thinkingLevel = ref(localStorage.getItem(THINKING_STORAGE_KEY) || 'off')
+  const subagentModelId = ref(localStorage.getItem(SUBAGENT_MODEL_STORAGE_KEY) || '')
 
   const modelSelectOptions = computed(() => modelOptions.value.map((m) => ({ value: m.id, label: m.name })))
   const hasModel = computed(() => modelOptions.value.length > 0)
@@ -68,6 +70,20 @@ export function useHomeModelSelector() {
     localStorage.setItem(THINKING_STORAGE_KEY, level)
   }
 
+  const subagentModelSelectOptions = computed(() => [
+    { value: '', label: t('subagentModelFollow') as string },
+    ...modelOptions.value.map((m) => ({ value: m.id, label: m.name })),
+  ])
+
+  function onSubagentModelChange(modelId: string) {
+    subagentModelId.value = modelId
+    if (!modelId) {
+      localStorage.removeItem(SUBAGENT_MODEL_STORAGE_KEY)
+    } else {
+      localStorage.setItem(SUBAGENT_MODEL_STORAGE_KEY, modelId)
+    }
+  }
+
   return {
     modelOptions,
     selectedModelId,
@@ -78,5 +94,8 @@ export function useHomeModelSelector() {
     thinkingLevel,
     thinkingSelectOptions,
     onThinkingLevelChange,
+    subagentModelId,
+    subagentModelSelectOptions,
+    onSubagentModelChange,
   }
 }

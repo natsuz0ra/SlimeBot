@@ -1,5 +1,4 @@
 import { marked, type Token, type Tokens } from "marked";
-import { wrapText } from "./format.js";
 import { configureMarked, formatToken } from "./markdown.js";
 import { stringWidth } from "./stringWidth.js";
 import { stripAnsi } from "./terminal.js";
@@ -10,8 +9,44 @@ const MIN_COLUMN_WIDTH = 3;
 const MAX_ROW_LINES = 4;
 const ANSI_BOLD_START = "\x1b[1m";
 const ANSI_BOLD_END = "\x1b[22m";
+const TOKEN_CACHE_MAX = 250;
+const MD_SYNTAX_RE = /[#*`|[>\-_~]|\n\n|^\d+\. |\n\d+\. /;
 
 type Align = "left" | "center" | "right" | null | undefined;
+
+const tokenCache = new Map<string, Token[]>();
+
+function hasMarkdownSyntax(content: string): boolean {
+  return MD_SYNTAX_RE.test(content.length > 500 ? content.slice(0, 500) : content);
+}
+
+function cachedLexer(content: string): Token[] {
+  if (!hasMarkdownSyntax(content)) {
+    return [
+      {
+        type: "paragraph",
+        raw: content,
+        text: content,
+        tokens: [{ type: "text", raw: content, text: content }],
+      } as Token,
+    ];
+  }
+
+  const cached = tokenCache.get(content);
+  if (cached) {
+    tokenCache.delete(content);
+    tokenCache.set(content, cached);
+    return cached;
+  }
+
+  const tokens = marked.lexer(content);
+  if (tokenCache.size >= TOKEN_CACHE_MAX) {
+    const first = tokenCache.keys().next().value;
+    if (first !== undefined) tokenCache.delete(first);
+  }
+  tokenCache.set(content, tokens);
+  return tokens;
+}
 
 function wrapCellText(text: string, width: number, hard = false): string[] {
   if (width <= 0) return [text];
@@ -35,6 +70,35 @@ function padAligned(content: string, targetWidth: number, align: Align): string 
     return `${" ".repeat(padding)}${content}`;
   }
   return `${content}${" ".repeat(padding)}`;
+}
+
+function getContinuationIndent(line: string): string {
+  const plain = stripAnsi(line);
+  const match = plain.match(/^(\s*(?:[-*+]\s+|\d+\.\s+|│\s?))/);
+  if (!match) return "";
+  return " ".repeat(stringWidth(match[1]!));
+}
+
+function wrapDisplayLine(line: string, width: number): string[] {
+  const continuationIndent = getContinuationIndent(line);
+  const wrapped = wrapAnsi(line, width, {
+    hard: true,
+    trim: false,
+    wordWrap: true,
+  }).split("\n");
+  if (continuationIndent === "" || wrapped.length <= 1) return wrapped;
+  return wrapped.map((wrappedLine, index) =>
+    index === 0 ? wrappedLine : `${continuationIndent}${wrappedLine}`
+  );
+}
+
+function wrapDisplayText(text: string, width: number): string[] {
+  const sourceLines = text.split("\n");
+  const out: string[] = [];
+  for (const line of sourceLines) {
+    out.push(...wrapDisplayLine(line, width));
+  }
+  return out;
 }
 
 function formatCellTokens(tokens: Token[] | undefined, compact: boolean): string {
@@ -241,14 +305,14 @@ export function renderMarkdownLines(
   configureMarked();
 
   const terminalWidth = Math.max(1, Math.floor(maxWidth));
-  const tokens = marked.lexer(content ?? "");
+  const tokens = cachedLexer(content ?? "");
   const lines: string[] = [];
   let buffer = "";
 
   function flushBuffer(): void {
     if (!buffer) return;
-    const wrapped = wrapText(buffer.trimEnd(), terminalWidth);
-    lines.push(...wrapped.split("\n"));
+    const text = compact ? buffer.trimEnd() : buffer;
+    lines.push(...wrapDisplayText(text, terminalWidth));
     buffer = "";
   }
 

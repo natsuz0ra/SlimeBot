@@ -28,6 +28,81 @@ export function finishOpenThinkingEntries(batch: AssistantReplyBatch, finishedAt
   }
 }
 
+export function finalizeReplyBatchTiming(batch: AssistantReplyBatch, finishedAt = Date.now(), durationMs?: number) {
+  batch.finishedAt = finishedAt
+  batch.durationMs = typeof durationMs === 'number' && Number.isFinite(durationMs)
+    ? Math.max(0, durationMs)
+    : (typeof batch.startedAt === 'number' ? Math.max(0, finishedAt - batch.startedAt) : batch.durationMs)
+  batch.collapsed = true
+}
+
+function findToolCall(batch: AssistantReplyBatch, toolCallId: string) {
+  return batch.toolCalls.find((item) => item.toolCallId === toolCallId)
+}
+
+export function startSubagentThinking(batch: AssistantReplyBatch, parentToolCallId: string, startedAt = Date.now()) {
+  const toolCall = findToolCall(batch, parentToolCallId)
+  if (!toolCall) return
+  const entries = toolCall.subagentThinkings ?? (toolCall.subagentThinking ? [toolCall.subagentThinking] : [])
+  const nextEntry = {
+    content: '',
+    done: false,
+    startedAt,
+    durationMs: undefined,
+  }
+  toolCall.subagentThinkings = [...entries, nextEntry]
+  toolCall.subagentThinking = nextEntry
+}
+
+export function appendSubagentThinkingChunk(batch: AssistantReplyBatch, parentToolCallId: string, chunk: string, startedAt = Date.now()) {
+  if (chunk === '') return
+  const toolCall = findToolCall(batch, parentToolCallId)
+  if (!toolCall) return
+  const entries = toolCall.subagentThinkings ?? (toolCall.subagentThinking ? [toolCall.subagentThinking] : [])
+  let targetIndex = -1
+  for (let i = entries.length - 1; i >= 0; i--) {
+    if (!entries[i]!.done) {
+      targetIndex = i
+      break
+    }
+  }
+  if (targetIndex === -1) {
+    entries.push({ content: '', done: false, startedAt })
+    targetIndex = entries.length - 1
+  }
+  const target = entries[targetIndex]!
+  entries[targetIndex] = {
+    ...target,
+    content: target.content + chunk,
+    done: false,
+  }
+  toolCall.subagentThinkings = [...entries]
+  toolCall.subagentThinking = toolCall.subagentThinkings[toolCall.subagentThinkings.length - 1]
+}
+
+export function finishSubagentThinking(batch: AssistantReplyBatch, parentToolCallId: string, finishedAt = Date.now()) {
+  const toolCall = findToolCall(batch, parentToolCallId)
+  if (!toolCall) return
+  const entries = toolCall.subagentThinkings ?? (toolCall.subagentThinking ? [toolCall.subagentThinking] : [])
+  let targetIndex = -1
+  for (let i = entries.length - 1; i >= 0; i--) {
+    if (!entries[i]!.done) {
+      targetIndex = i
+      break
+    }
+  }
+  if (targetIndex === -1) return
+  const target = entries[targetIndex]!
+  const startedAt = target.startedAt
+  entries[targetIndex] = {
+    ...target,
+    done: true,
+    durationMs: startedAt ? Math.max(0, finishedAt - startedAt) : target.durationMs,
+  }
+  toolCall.subagentThinkings = [...entries]
+  toolCall.subagentThinking = toolCall.subagentThinkings[toolCall.subagentThinkings.length - 1]
+}
+
 export function appendTextChunkToBatch(batch: AssistantReplyBatch, chunk: string) {
   if (chunk === '') return
   finishOpenThinkingEntries(batch)
@@ -104,6 +179,9 @@ export function getLiveReplyContentSignature(batch: AssistantReplyBatch | undefi
       item.output?.length ?? 0,
       item.error?.length ?? 0,
       item.subagentStream?.length ?? 0,
+      item.subagentThinkings?.map((thinking) => `${thinking.content.length}:${thinking.done ? 1 : 0}`).join(',') ?? '',
+      item.subagentThinking?.content.length ?? 0,
+      item.subagentThinking?.done ? 1 : 0,
     ].join(':'))
   }
 

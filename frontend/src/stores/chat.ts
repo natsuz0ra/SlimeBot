@@ -14,7 +14,7 @@ import {
   type AssistantReplyTimelineItem,
 } from '@/utils/replyBatchBuilder'
 import { hasContentMarkers, parseContentMarkers, stripContentMarkers } from '@/utils/contentMarkers'
-import { appendPlanBodyToBatch, appendPlanChunkToBatch, appendTextChunkToBatch, finishOpenThinkingEntries, markLastThinkingDone } from '@/utils/liveReplyTimeline'
+import { appendPlanBodyToBatch, appendPlanChunkToBatch, appendSubagentThinkingChunk, appendTextChunkToBatch, finalizeReplyBatchTiming, finishOpenThinkingEntries, finishSubagentThinking, markLastThinkingDone, startSubagentThinking } from '@/utils/liveReplyTimeline'
 
 const HISTORY_PAGE_SIZE = 10
 const MAX_SESSION_PAGE_SIZE = 100
@@ -43,14 +43,15 @@ export const useChatStore = defineStore('chat', () => {
   const currentBatchId = ref<string>('')
   const assistantErrorIds = ref(new Set<string>())
   const failedUserMessageIds = ref(new Set<string>())
-  const pendingApproval = ref<{
-    toolCallId: string
-    toolName: string
-    command: string
-    params: Record<string, string>
-  } | null>(null)
-
   const pendingPlanConfirmation = ref<{ planId: string; content: string } | null>(null)
+
+  interface QuestionItem {
+    id: string
+    question: string
+    options: string[]
+    option_descriptions?: string[]
+  }
+  const pendingQuestions = ref<{ toolCallId: string; questions: QuestionItem[] } | null>(null)
 
   const ws = new ChatSocket()
 
@@ -59,6 +60,7 @@ export const useChatStore = defineStore('chat', () => {
     currentBatchId.value = ''
     assistantErrorIds.value.clear()
     failedUserMessageIds.value.clear()
+    pendingQuestions.value = null
   }
 
   function resetHistoryState() {
@@ -99,6 +101,12 @@ export const useChatStore = defineStore('chat', () => {
   function getCurrentBatch() {
     if (!currentBatchId.value) return undefined
     return replyBatches.value.find((item) => item.id === currentBatchId.value)
+  }
+
+  function parseSocketTimestamp(value: string | undefined, fallback = Date.now()) {
+    if (!value) return fallback
+    const parsed = Date.parse(value)
+    return Number.isFinite(parsed) ? parsed : fallback
   }
 
   function isStreamingMessage(messageId: string): boolean {
@@ -195,7 +203,7 @@ export const useChatStore = defineStore('chat', () => {
         rebuiltTimeline.push(textEntry)
       }
       batch.timeline = rebuiltTimeline
-      batch.collapsed = true
+      finalizeReplyBatchTiming(batch)
       currentBatchId.value = ''
       return
     }
@@ -372,7 +380,7 @@ export const useChatStore = defineStore('chat', () => {
           currentSessionId.value = id
         }
       },
-      onStart: (sessionId) => {
+      onStart: (sessionId, meta) => {
         if (!sessionId || sessionId !== currentSessionId.value) return
         waiting.value = true
         streamingStarted.value = false
@@ -394,6 +402,7 @@ export const useChatStore = defineStore('chat', () => {
           toolCalls: [],
           timeline: [],
           collapsed: false,
+          startedAt: parseSocketTimestamp(meta?.startedAt),
         })
       },
       onChunk: (chunk, sessionId) => {
@@ -438,7 +447,7 @@ export const useChatStore = defineStore('chat', () => {
               ? buildInterleavedTimeline(batch.toolCalls, finalAnswer, liveThinking)
               : buildLegacyTimeline(batch.toolCalls, stripContentMarkers(finalAnswer))
           }
-          batch.collapsed = true
+          finalizeReplyBatchTiming(batch, parseSocketTimestamp(meta?.finishedAt), meta?.durationMs)
         }
         currentBatchId.value = ''
         if (meta?.planId) {
@@ -461,6 +470,15 @@ export const useChatStore = defineStore('chat', () => {
         const batch = getCurrentBatch()
         if (!batch) return
         finishOpenThinkingEntries(batch)
+        // Handle ask_questions tool: parse questions and show Q&A drawer.
+        if (data.toolName === 'ask_questions' && data.params?.questions) {
+          try {
+            const questions = JSON.parse(data.params.questions) as QuestionItem[]
+            if (Array.isArray(questions) && questions.length > 0) {
+              pendingQuestions.value = { toolCallId: data.toolCallId, questions }
+            }
+          } catch { /* ignore parse errors, tool will timeout */ }
+        }
         batch.toolCalls.push({
           toolCallId: data.toolCallId,
           toolName: data.toolName,
@@ -469,17 +487,10 @@ export const useChatStore = defineStore('chat', () => {
           preamble: data.preamble,
           requiresApproval: data.requiresApproval,
           status: data.requiresApproval ? 'pending' : 'executing',
+          startedAt: parseSocketTimestamp(data.startedAt),
           parentToolCallId: data.parentToolCallId,
           subagentRunId: data.subagentRunId,
         })
-        if (data.requiresApproval) {
-          pendingApproval.value = {
-            toolCallId: data.toolCallId,
-            toolName: data.toolName,
-            command: data.command,
-            params: data.params,
-          }
-        }
         if (!data.parentToolCallId) {
           batch.timeline.push({
             id: crypto.randomUUID(),
@@ -498,8 +509,13 @@ export const useChatStore = defineStore('chat', () => {
           item.output = data.output
           item.error = data.error
           item.requiresApproval = data.requiresApproval
+          item.finishedAt = parseSocketTimestamp(data.finishedAt)
           if (data.parentToolCallId) item.parentToolCallId = data.parentToolCallId
           if (data.subagentRunId) item.subagentRunId = data.subagentRunId
+          // Auto-close ask_questions drawer when tool times out or is rejected
+          if (item.toolName === 'ask_questions' && (item.status === 'error' || item.status === 'rejected')) {
+            pendingQuestions.value = null
+          }
         }
         if (!data.parentToolCallId) {
           batch.timeline.push({
@@ -534,39 +550,51 @@ export const useChatStore = defineStore('chat', () => {
         if (!sessionId || sessionId !== currentSessionId.value) return
         // Final text also arrives via tool_call_result; no state change required here.
       },
-      onThinkingStart: (sessionId) => {
+      onThinkingStart: (data, sessionId) => {
         if (!sessionId || sessionId !== currentSessionId.value) return
         const batch = getCurrentBatch()
         if (!batch) return
+        if (data.parentToolCallId && data.subagentRunId) {
+          startSubagentThinking(batch, data.parentToolCallId, parseSocketTimestamp(data.startedAt))
+          return
+        }
         batch.timeline.push({
           id: crypto.randomUUID(),
           kind: 'thinking',
           content: '',
           done: false,
-          startedAt: Date.now(),
+          startedAt: parseSocketTimestamp(data.startedAt),
         })
       },
-      onThinkingChunk: (chunk, sessionId) => {
+      onThinkingChunk: (data, sessionId) => {
         if (!sessionId || sessionId !== currentSessionId.value) return
         const batch = getCurrentBatch()
         if (!batch) return
+        if (data.parentToolCallId && data.subagentRunId) {
+          appendSubagentThinkingChunk(batch, data.parentToolCallId, data.content || '', parseSocketTimestamp(data.startedAt))
+          return
+        }
         const entries = [...batch.timeline]
         for (let i = entries.length - 1; i >= 0; i--) {
           const e = entries[i]
           // @ts-ignore
           if (e.kind === 'thinking' && !e.done) {
             // @ts-ignore
-            entries[i] = { ...e, content: (e.content || '') + chunk }
+            entries[i] = { ...e, content: (e.content || '') + (data.content || '') }
             batch.timeline = entries
             break
           }
         }
       },
-      onThinkingDone: (sessionId) => {
+      onThinkingDone: (data, sessionId) => {
         if (!sessionId || sessionId !== currentSessionId.value) return
         const batch = getCurrentBatch()
         if (!batch) return
-        batch.timeline = markLastThinkingDone(batch.timeline)
+        if (data.parentToolCallId && data.subagentRunId) {
+          finishSubagentThinking(batch, data.parentToolCallId, parseSocketTimestamp(data.finishedAt))
+          return
+        }
+        batch.timeline = markLastThinkingDone(batch.timeline, parseSocketTimestamp(data.finishedAt))
       },
       onPlanStart: (sessionId) => {
         if (!sessionId || sessionId !== currentSessionId.value) return
@@ -634,7 +662,7 @@ export const useChatStore = defineStore('chat', () => {
     return response.items || []
   }
 
-  async function sendMessage(content: string, modelId: string, files: File[] = [], thinkingLevel: string = 'off') {
+  async function sendMessage(content: string, modelId: string, files: File[] = [], thinkingLevel: string = 'off', subagentModelId: string = '') {
     const trimmed = content.trim()
     if (!trimmed && files.length === 0) {
       return false
@@ -657,7 +685,7 @@ export const useChatStore = defineStore('chat', () => {
     if (files.length > 0) {
       uploaded = await uploadAttachmentsForCurrentSession(files)
     }
-    const sent = ws.send(trimmed, currentSessionId.value, modelId, uploaded.map((item) => item.id), thinkingLevel, planMode.value)
+    const sent = ws.send(trimmed, currentSessionId.value, modelId, uploaded.map((item) => item.id), thinkingLevel, planMode.value, subagentModelId)
     if (!sent) {
       const error = 'socket is not connected'
       connectionError.value = error
@@ -687,12 +715,31 @@ export const useChatStore = defineStore('chat', () => {
     if (item) {
       item.status = approved ? 'executing' : 'rejected'
     }
-    pendingApproval.value = null
     ws.sendToolApproval(toolCallId, approved)
   }
 
-  function dismissApproval() {
-    pendingApproval.value = null
+  function submitQuestionAnswers(toolCallId: string, answers: string) {
+    const batch = replyBatches.value.find((group) => group.toolCalls.some((tc) => tc.toolCallId === toolCallId))
+    const item = batch?.toolCalls.find((tc) => tc.toolCallId === toolCallId)
+    if (item) {
+      item.status = 'executing'
+    }
+    ws.sendToolApproval(toolCallId, true, answers)
+    pendingQuestions.value = null
+  }
+
+  function cancelQuestionAnswers(toolCallId: string) {
+    const batch = replyBatches.value.find((group) => group.toolCalls.some((tc) => tc.toolCallId === toolCallId))
+    const item = batch?.toolCalls.find((tc) => tc.toolCallId === toolCallId)
+    if (item) {
+      item.status = 'executing'
+    }
+    const questions = pendingQuestions.value?.questions ?? []
+    const nullAnswers = JSON.stringify(
+      questions.map((q) => ({ questionId: q.id, selectedOption: -2, customAnswer: '' })),
+    )
+    ws.sendToolApproval(toolCallId, true, nullAnswers)
+    pendingQuestions.value = null
   }
 
   function disconnectSocket(options?: { silentConnectionNotice?: boolean }) {
@@ -792,8 +839,6 @@ export const useChatStore = defineStore('chat', () => {
     sendMessage,
     stopCurrentResponse,
     approveToolCall,
-    pendingApproval,
-    dismissApproval,
     disconnectSocket,
     consumeSuppressNextConnectionNotice,
     planMode,
@@ -804,5 +849,9 @@ export const useChatStore = defineStore('chat', () => {
     rejectPlan,
     modifyPlan,
     dismissPlanConfirmation,
+
+    pendingQuestions,
+    submitQuestionAnswers,
+    cancelQuestionAnswers,
   }
 })

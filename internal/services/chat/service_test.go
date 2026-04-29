@@ -148,7 +148,7 @@ func TestHandleChatStream_PersistsThinkingHistory(t *testing.T) {
 	provider := &fakeThinkingProvider{}
 	svc := NewChatService(repo, nil, llmsvc.NewFactory(provider), nil, nil, nil)
 
-	result, err := svc.HandleChatStream(ctx, session.ID, "request-1", "hello", "", model.ID, nil, "high", false, AgentCallbacks{
+	result, err := svc.HandleChatStream(ctx, session.ID, "request-1", "hello", "", model.ID, nil, "high", false, "", AgentCallbacks{
 		OnChunk: func(string) error { return nil },
 	})
 	if err != nil {
@@ -207,16 +207,16 @@ func TestHandleChatStream_FinishesThinkingBeforeAnswerChunk(t *testing.T) {
 	svc := NewChatService(repo, nil, llmsvc.NewFactory(provider), nil, nil, nil)
 
 	var events []string
-	_, err = svc.HandleChatStream(ctx, session.ID, "request-1", "hello", "", model.ID, nil, "high", false, AgentCallbacks{
-		OnThinkingStart: func() error {
+	_, err = svc.HandleChatStream(ctx, session.ID, "request-1", "hello", "", model.ID, nil, "high", false, "", AgentCallbacks{
+		OnThinkingStart: func(ThinkingEventMeta) error {
 			events = append(events, "thinking_start")
 			return nil
 		},
-		OnThinkingChunk: func(string) error {
+		OnThinkingChunk: func(string, ThinkingEventMeta) error {
 			events = append(events, "thinking_chunk")
 			return nil
 		},
-		OnThinkingDone: func() error {
+		OnThinkingDone: func(ThinkingEventMeta) error {
 			events = append(events, "thinking_done")
 			return nil
 		},
@@ -257,7 +257,7 @@ func TestHandleChatStream_UsesDisplayContentForStoredUserMessage(t *testing.T) {
 
 	internalPrompt := "Execute the following approved plan:\n\n# Plan"
 	displayContent := "Execute this plan"
-	_, err = svc.HandleChatStream(ctx, session.ID, "request-1", internalPrompt, displayContent, model.ID, nil, "off", false, AgentCallbacks{
+	_, err = svc.HandleChatStream(ctx, session.ID, "request-1", internalPrompt, displayContent, model.ID, nil, "off", false, "", AgentCallbacks{
 		OnChunk: func(string) error { return nil },
 	})
 	if err != nil {
@@ -316,11 +316,11 @@ func TestHandleChatStream_PlanModeSavesOnlyPlanBody(t *testing.T) {
 	svc := NewChatService(repo, nil, llmsvc.NewFactory(provider), nil, nil, nil)
 	svc.SetPlanService(planService)
 
-	result, err := svc.HandleChatStream(ctx, session.ID, "request-1", "make a plan", "", model.ID, nil, "high", true, AgentCallbacks{
+	result, err := svc.HandleChatStream(ctx, session.ID, "request-1", "make a plan", "", model.ID, nil, "high", true, "", AgentCallbacks{
 		OnChunk:         func(string) error { return nil },
-		OnThinkingStart: func() error { return nil },
-		OnThinkingChunk: func(string) error { return nil },
-		OnThinkingDone:  func() error { return nil },
+		OnThinkingStart: func(ThinkingEventMeta) error { return nil },
+		OnThinkingChunk: func(string, ThinkingEventMeta) error { return nil },
+		OnThinkingDone:  func(ThinkingEventMeta) error { return nil },
 		OnPlanStart:     func() error { return nil },
 		OnPlanChunk:     func(string) error { return nil },
 		OnPlanBody:      func(string) error { return nil },
@@ -349,6 +349,156 @@ func TestHandleChatStream_PlanModeSavesOnlyPlanBody(t *testing.T) {
 	}
 	if !strings.Contains(result.Answer, "<!-- THINKING:") || !strings.Contains(result.Answer, "<!-- PLAN_START -->") {
 		t.Fatalf("assistant answer should retain history markers, got %q", result.Answer)
+	}
+}
+
+func TestHandleChatStream_PlanModeDoesNotSavePlanBodyWithoutSubmitTool(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+
+	repo := newTestRepo(t)
+	ctx := context.Background()
+	session, err := repo.CreateSession(ctx, "s")
+	if err != nil {
+		t.Fatalf("create session failed: %v", err)
+	}
+	model, err := repo.CreateLLMConfig(domain.LLMConfig{
+		Name:     "fake",
+		Provider: llmsvc.ProviderOpenAI,
+		BaseURL:  "http://fake",
+		APIKey:   "key",
+		Model:    "fake-model",
+	})
+	if err != nil {
+		t.Fatalf("create model failed: %v", err)
+	}
+	planService, err := plansvc.NewPlanService()
+	if err != nil {
+		t.Fatalf("create plan service failed: %v", err)
+	}
+	provider := &fakePlanTextProvider{}
+	svc := NewChatService(repo, nil, llmsvc.NewFactory(provider), nil, nil, nil)
+	svc.SetPlanService(planService)
+
+	result, err := svc.HandleChatStream(ctx, session.ID, "request-1", "make a plan", "", model.ID, nil, "high", true, "", AgentCallbacks{
+		OnChunk:     func(string) error { return nil },
+		OnPlanStart: func() error { return nil },
+		OnPlanChunk: func(string) error { return nil },
+		OnPlanBody:  func(string) error { return nil },
+	})
+	if err != nil {
+		t.Fatalf("HandleChatStream failed: %v", err)
+	}
+	if result.PlanID != "" {
+		t.Fatalf("expected no plan id when submit tool is missing, got %q", result.PlanID)
+	}
+	if result.PlanBody != "# Plan\n\nDo it." {
+		t.Fatalf("plan body = %q", result.PlanBody)
+	}
+
+	plans, err := planService.GetPlansBySession(session.ID)
+	if err != nil {
+		t.Fatalf("list plans failed: %v", err)
+	}
+	if len(plans) != 0 {
+		t.Fatalf("expected 0 saved plans, got %d", len(plans))
+	}
+}
+
+func TestHandleChatStream_StartsTitleGenerationBeforeAssistantChunk(t *testing.T) {
+	repo := newTestRepo(t)
+	ctx := context.Background()
+	session, err := repo.CreateSession(ctx, "New Chat")
+	if err != nil {
+		t.Fatalf("create session failed: %v", err)
+	}
+	model, err := repo.CreateLLMConfig(domain.LLMConfig{
+		Name:     "fake",
+		Provider: llmsvc.ProviderOpenAI,
+		BaseURL:  "http://fake",
+		APIKey:   "key",
+		Model:    "fake-model",
+	})
+	if err != nil {
+		t.Fatalf("create model failed: %v", err)
+	}
+
+	provider := &earlyTitleProvider{titleStarted: make(chan struct{})}
+	svc := NewChatService(repo, nil, llmsvc.NewFactory(provider), nil, nil, nil)
+
+	_, err = svc.HandleChatStream(ctx, session.ID, "request-1", "用户消息", "", model.ID, nil, "off", false, "", AgentCallbacks{
+		OnChunk: func(string) error { return nil },
+	})
+	if err != nil {
+		t.Fatalf("HandleChatStream failed: %v", err)
+	}
+
+	provider.mu.Lock()
+	got := strings.Join(provider.events, ",")
+	provider.mu.Unlock()
+	if got != "title_call,chunk" {
+		t.Fatalf("events = %q, want title_call,chunk", got)
+	}
+}
+
+func TestRunAgentLoopPreservesThinkingBlocksAcrossToolIterations(t *testing.T) {
+	provider := &thinkingToolIterationProvider{}
+	agent := NewAgentService(llmsvc.NewFactory(provider), nil, nil, nil)
+
+	answer, err := agent.RunAgentLoop(
+		context.Background(),
+		llmsvc.ModelRuntimeConfig{Provider: llmsvc.ProviderOpenAI},
+		"session-1",
+		[]llmsvc.ChatMessage{{Role: "user", Content: "inspect"}},
+		nil,
+		map[string]struct{}{},
+		AgentCallbacks{},
+		AgentLoopOptions{},
+	)
+	if err != nil {
+		t.Fatalf("RunAgentLoop failed: %v", err)
+	}
+	if answer != "done" {
+		t.Fatalf("answer = %q, want done", answer)
+	}
+	if provider.secondCallAssistant == nil {
+		t.Fatal("expected second model call to include prior assistant message")
+	}
+	blocks := provider.secondCallAssistant.ThinkingBlocks
+	if len(blocks) != 1 {
+		t.Fatalf("expected one thinking block, got %d: %+v", len(blocks), blocks)
+	}
+	if blocks[0].Thinking != "Need a tool." || blocks[0].Signature != "sig-1" {
+		t.Fatalf("thinking block was not preserved: %+v", blocks[0])
+	}
+}
+
+func TestRunAgentLoopPreservesReasoningContentAcrossToolIterations(t *testing.T) {
+	provider := &reasoningToolIterationProvider{}
+	agent := NewAgentService(llmsvc.NewFactory(provider), nil, nil, nil)
+
+	answer, err := agent.RunAgentLoop(
+		context.Background(),
+		llmsvc.ModelRuntimeConfig{Provider: llmsvc.ProviderOpenAI},
+		"session-1",
+		[]llmsvc.ChatMessage{{Role: "user", Content: "inspect"}},
+		nil,
+		map[string]struct{}{},
+		AgentCallbacks{},
+		AgentLoopOptions{},
+	)
+	if err != nil {
+		t.Fatalf("RunAgentLoop failed: %v", err)
+	}
+	if answer != "done" {
+		t.Fatalf("answer = %q, want done", answer)
+	}
+	if provider.secondCallAssistant == nil {
+		t.Fatal("expected second model call to include prior assistant message")
+	}
+	if got := provider.secondCallAssistant.ReasoningContent; got != "Need a tool." {
+		t.Fatalf("reasoning content was not preserved: %q", got)
 	}
 }
 
@@ -392,6 +542,107 @@ func (p *fakeThinkingProvider) StreamChatWithTools(
 		}
 	}
 	return &llmsvc.StreamResult{Type: llmsvc.StreamResultText}, nil
+}
+
+type thinkingToolIterationProvider struct {
+	call                int
+	secondCallAssistant *llmsvc.ChatMessage
+}
+
+type reasoningToolIterationProvider struct {
+	call                int
+	secondCallAssistant *llmsvc.ChatMessage
+}
+
+func (p *reasoningToolIterationProvider) StreamChatWithTools(
+	_ context.Context,
+	_ llmsvc.ModelRuntimeConfig,
+	messages []llmsvc.ChatMessage,
+	_ []llmsvc.ToolDef,
+	callbacks llmsvc.StreamCallbacks,
+) (*llmsvc.StreamResult, error) {
+	p.call++
+	switch p.call {
+	case 1:
+		return &llmsvc.StreamResult{
+			Type: llmsvc.StreamResultToolCalls,
+			ToolCalls: []llmsvc.ToolCallInfo{{
+				ID:        "plan-start-call",
+				Name:      constants.PlanStartTool,
+				Arguments: "{}",
+			}},
+			AssistantMessage: llmsvc.ChatMessage{
+				Role:             "assistant",
+				ReasoningContent: "Need a tool.",
+				ToolCalls: []llmsvc.ToolCallInfo{{
+					ID:        "plan-start-call",
+					Name:      constants.PlanStartTool,
+					Arguments: "{}",
+				}},
+			},
+		}, nil
+	default:
+		for i := len(messages) - 1; i >= 0; i-- {
+			if messages[i].Role == "assistant" {
+				msg := messages[i]
+				p.secondCallAssistant = &msg
+				break
+			}
+		}
+		if callbacks.OnChunk != nil {
+			if err := callbacks.OnChunk("done"); err != nil {
+				return nil, err
+			}
+		}
+		return &llmsvc.StreamResult{Type: llmsvc.StreamResultText}, nil
+	}
+}
+
+func (p *thinkingToolIterationProvider) StreamChatWithTools(
+	_ context.Context,
+	_ llmsvc.ModelRuntimeConfig,
+	messages []llmsvc.ChatMessage,
+	_ []llmsvc.ToolDef,
+	callbacks llmsvc.StreamCallbacks,
+) (*llmsvc.StreamResult, error) {
+	p.call++
+	switch p.call {
+	case 1:
+		return &llmsvc.StreamResult{
+			Type: llmsvc.StreamResultToolCalls,
+			ToolCalls: []llmsvc.ToolCallInfo{{
+				ID:        "plan-start-call",
+				Name:      constants.PlanStartTool,
+				Arguments: "{}",
+			}},
+			AssistantMessage: llmsvc.ChatMessage{
+				Role: "assistant",
+				ThinkingBlocks: []llmsvc.ThinkingBlockInfo{{
+					Thinking:  "Need a tool.",
+					Signature: "sig-1",
+				}},
+				ToolCalls: []llmsvc.ToolCallInfo{{
+					ID:        "plan-start-call",
+					Name:      constants.PlanStartTool,
+					Arguments: "{}",
+				}},
+			},
+		}, nil
+	default:
+		for i := len(messages) - 1; i >= 0; i-- {
+			if messages[i].Role == "assistant" {
+				msg := messages[i]
+				p.secondCallAssistant = &msg
+				break
+			}
+		}
+		if callbacks.OnChunk != nil {
+			if err := callbacks.OnChunk("done"); err != nil {
+				return nil, err
+			}
+		}
+		return &llmsvc.StreamResult{Type: llmsvc.StreamResultText}, nil
+	}
 }
 
 type fakePlanModeProvider struct {
@@ -464,6 +715,94 @@ func (p *fakePlanModeProvider) StreamChatWithTools(
 			},
 		}, nil
 	}
+}
+
+type fakePlanTextProvider struct{}
+
+func (p *fakePlanTextProvider) StreamChatWithTools(
+	_ context.Context,
+	_ llmsvc.ModelRuntimeConfig,
+	messages []llmsvc.ChatMessage,
+	_ []llmsvc.ToolDef,
+	callbacks llmsvc.StreamCallbacks,
+) (*llmsvc.StreamResult, error) {
+	if callbacks.OnChunk == nil {
+		return &llmsvc.StreamResult{Type: llmsvc.StreamResultText}, nil
+	}
+	if len(messages) == 0 || !strings.Contains(messages[len(messages)-1].Content, "Plan writing phase started.") {
+		if err := callbacks.OnChunk("Narration before plan."); err != nil {
+			return nil, err
+		}
+		return &llmsvc.StreamResult{
+			Type: llmsvc.StreamResultToolCalls,
+			ToolCalls: []llmsvc.ToolCallInfo{{
+				ID:        "plan-start-call",
+				Name:      constants.PlanStartTool,
+				Arguments: "{}",
+			}},
+			AssistantMessage: llmsvc.ChatMessage{
+				Role:    "assistant",
+				Content: "Narration before plan.",
+				ToolCalls: []llmsvc.ToolCallInfo{{
+					ID:        "plan-start-call",
+					Name:      constants.PlanStartTool,
+					Arguments: "{}",
+				}},
+			},
+		}, nil
+	}
+	if err := callbacks.OnChunk("# Plan\n\nDo it."); err != nil {
+		return nil, err
+	}
+	return &llmsvc.StreamResult{Type: llmsvc.StreamResultText}, nil
+}
+
+type earlyTitleProvider struct {
+	titleStarted chan struct{}
+
+	mu     sync.Mutex
+	events []string
+}
+
+func (p *earlyTitleProvider) record(event string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.events = append(p.events, event)
+}
+
+func (p *earlyTitleProvider) StreamChatWithTools(
+	_ context.Context,
+	_ llmsvc.ModelRuntimeConfig,
+	messages []llmsvc.ChatMessage,
+	_ []llmsvc.ToolDef,
+	callbacks llmsvc.StreamCallbacks,
+) (*llmsvc.StreamResult, error) {
+	if len(messages) > 0 && messages[0].Content == titleSystemPrompt {
+		p.record("title_call")
+		select {
+		case <-p.titleStarted:
+		default:
+			close(p.titleStarted)
+		}
+		if callbacks.OnChunk != nil {
+			if err := callbacks.OnChunk(`{"title":"自动标题"}`); err != nil {
+				return nil, err
+			}
+		}
+		return &llmsvc.StreamResult{Type: llmsvc.StreamResultText}, nil
+	}
+
+	select {
+	case <-p.titleStarted:
+	case <-time.After(200 * time.Millisecond):
+	}
+	p.record("chunk")
+	if callbacks.OnChunk != nil {
+		if err := callbacks.OnChunk("answer"); err != nil {
+			return nil, err
+		}
+	}
+	return &llmsvc.StreamResult{Type: llmsvc.StreamResultText}, nil
 }
 
 type stubTitleUpdateStore struct {
@@ -588,7 +927,7 @@ func TestMaybeGenerateTitleAsync_TriggersForInitialSessionName(t *testing.T) {
 	svc := &ChatService{titleGen: gen}
 
 	resultCh := make(chan string, 1)
-	svc.maybeGenerateTitleAsync(&domain.Session{ID: "sid-1", Name: " New Chat "}, llmsvc.ModelRuntimeConfig{Provider: llmsvc.ProviderOpenAI}, "用户消息", "助手回复", func(sessionID, title string) {
+	svc.maybeGenerateTitleAsync(&domain.Session{ID: "sid-1", Name: " New Chat "}, llmsvc.ModelRuntimeConfig{Provider: llmsvc.ProviderOpenAI}, "用户消息", func(sessionID, title string) {
 		resultCh <- sessionID + ":" + title
 	})
 
@@ -668,7 +1007,7 @@ func TestMaybeGenerateTitleAsync_SkipsWhenPreconditionsFail(t *testing.T) {
 			}
 
 			called := make(chan struct{}, 1)
-			svc.maybeGenerateTitleAsync(tt.session, llmsvc.ModelRuntimeConfig{Provider: llmsvc.ProviderOpenAI}, tt.userContent, "助手回复", func(string, string) {
+			svc.maybeGenerateTitleAsync(tt.session, llmsvc.ModelRuntimeConfig{Provider: llmsvc.ProviderOpenAI}, tt.userContent, func(string, string) {
 				called <- struct{}{}
 			})
 
@@ -696,7 +1035,7 @@ func TestMaybeGenerateTitleAsync_DoesNotCallbackWhenPersistReturnsFalse(t *testi
 	svc := &ChatService{titleGen: newTitleGenerator(llmsvc.NewFactory(&fakeTitleProvider{title: `{"title":"自动标题"}`}), store)}
 	called := make(chan struct{}, 1)
 
-	svc.maybeGenerateTitleAsync(&domain.Session{ID: "sid-6", Name: "New Chat"}, llmsvc.ModelRuntimeConfig{Provider: llmsvc.ProviderOpenAI}, "用户消息", "助手回复", func(string, string) {
+	svc.maybeGenerateTitleAsync(&domain.Session{ID: "sid-6", Name: "New Chat"}, llmsvc.ModelRuntimeConfig{Provider: llmsvc.ProviderOpenAI}, "用户消息", func(string, string) {
 		called <- struct{}{}
 	})
 
@@ -713,17 +1052,23 @@ func TestMaybeGenerateTitleAsync_DoesNotCallbackWhenPersistReturnsFalse(t *testi
 }
 
 type fakeTitleProvider struct {
-	title string
-	err   error
+	title          string
+	err            error
+	capturedPrompt string
+	calls          int
 }
 
 func (p *fakeTitleProvider) StreamChatWithTools(
 	_ context.Context,
 	_ llmsvc.ModelRuntimeConfig,
-	_ []llmsvc.ChatMessage,
+	messages []llmsvc.ChatMessage,
 	_ []llmsvc.ToolDef,
 	callbacks llmsvc.StreamCallbacks,
 ) (*llmsvc.StreamResult, error) {
+	p.calls++
+	if len(messages) > 1 {
+		p.capturedPrompt = messages[1].Content
+	}
 	if p.err != nil {
 		return nil, p.err
 	}
@@ -740,7 +1085,7 @@ func TestMaybeGenerateTitleAsync_IgnoresGenerationError(t *testing.T) {
 	svc := &ChatService{titleGen: newTitleGenerator(llmsvc.NewFactory(&fakeTitleProvider{err: fmt.Errorf("boom")}), store)}
 	called := make(chan struct{}, 1)
 
-	svc.maybeGenerateTitleAsync(&domain.Session{ID: "sid-7", Name: "New Chat"}, llmsvc.ModelRuntimeConfig{Provider: llmsvc.ProviderOpenAI}, "用户消息", "助手回复", func(string, string) {
+	svc.maybeGenerateTitleAsync(&domain.Session{ID: "sid-7", Name: "New Chat"}, llmsvc.ModelRuntimeConfig{Provider: llmsvc.ProviderOpenAI}, "用户消息", func(string, string) {
 		called <- struct{}{}
 	})
 
@@ -761,7 +1106,7 @@ func TestMaybeGenerateTitleAsync_IgnoresPersistError(t *testing.T) {
 	svc := &ChatService{titleGen: newTitleGenerator(llmsvc.NewFactory(&fakeTitleProvider{title: `{"title":"自动标题"}`}), store)}
 	called := make(chan struct{}, 1)
 
-	svc.maybeGenerateTitleAsync(&domain.Session{ID: "sid-8", Name: "New Chat"}, llmsvc.ModelRuntimeConfig{Provider: llmsvc.ProviderOpenAI}, "用户消息", "助手回复", func(string, string) {
+	svc.maybeGenerateTitleAsync(&domain.Session{ID: "sid-8", Name: "New Chat"}, llmsvc.ModelRuntimeConfig{Provider: llmsvc.ProviderOpenAI}, "用户消息", func(string, string) {
 		called <- struct{}{}
 	})
 
@@ -774,5 +1119,49 @@ func TestMaybeGenerateTitleAsync_IgnoresPersistError(t *testing.T) {
 	case <-called:
 		t.Fatal("callback should not be called on persist error")
 	default:
+	}
+}
+
+func TestMaybeGenerateTitleAsync_UsesOnlyUserMessageForInitialTitle(t *testing.T) {
+	store := &stubTitleUpdateStore{updated: true, done: make(chan struct{})}
+	provider := &fakeTitleProvider{title: `{"title":"自动标题"}`}
+	svc := &ChatService{titleGen: newTitleGenerator(llmsvc.NewFactory(provider), store)}
+
+	svc.maybeGenerateTitleAsync(&domain.Session{ID: "sid-9", Name: "New Chat"}, llmsvc.ModelRuntimeConfig{Provider: llmsvc.ProviderOpenAI}, "用户开场", func(string, string) {})
+
+	select {
+	case <-store.done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for title persistence")
+	}
+	if strings.Contains(provider.capturedPrompt, "Assistant:") || strings.Contains(provider.capturedPrompt, "助手回复不应参与标题") {
+		t.Fatalf("title prompt should not include assistant answer, got %q", provider.capturedPrompt)
+	}
+}
+
+func TestMaybeGenerateTitleAsync_RetriesAfterGenerationError(t *testing.T) {
+	store := &stubTitleUpdateStore{updated: true, done: make(chan struct{})}
+	provider := &fakeTitleProvider{err: fmt.Errorf("boom")}
+	svc := &ChatService{titleGen: newTitleGenerator(llmsvc.NewFactory(provider), store)}
+	session := &domain.Session{ID: "sid-10", Name: "New Chat"}
+
+	svc.maybeGenerateTitleAsync(session, llmsvc.ModelRuntimeConfig{Provider: llmsvc.ProviderOpenAI}, "用户消息", func(string, string) {})
+	time.Sleep(150 * time.Millisecond)
+
+	provider.err = nil
+	provider.title = `{"title":"重试标题"}`
+	svc.maybeGenerateTitleAsync(session, llmsvc.ModelRuntimeConfig{Provider: llmsvc.ProviderOpenAI}, "用户消息", func(string, string) {})
+
+	select {
+	case <-store.done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for retry title persistence")
+	}
+	if provider.calls < 2 {
+		t.Fatalf("expected retry after generation error, got %d call(s)", provider.calls)
+	}
+	_, _, name := store.snapshot()
+	if name != "重试标题" {
+		t.Fatalf("persisted title = %q, want 重试标题", name)
 	}
 }

@@ -17,9 +17,7 @@ const (
 	ToolCallStatusRejected             = "rejected"
 	AgentMaxIterations                 = 50
 	// MaxSubagentDepth is max nesting: 0 = main only; 1 = one child level (child cannot run_subagent).
-	MaxSubagentDepth = 1
-	// SubagentMaxIterations caps inner agent loop iterations per subagent run.
-	SubagentMaxIterations          = 30
+	MaxSubagentDepth               = 1
 	AgentApprovalTimeout           = 120 * time.Second
 	MaxToolNameLen                 = 64
 	MemoryToolDefaultTopK          = 10
@@ -45,6 +43,9 @@ const (
 	ExecMaxTimeoutMs               = 600_000
 	ExecMaxOutputBytes             = 64 * 1024
 	ExecToolName                   = "exec"
+	AskQuestionsTool               = "ask_questions"
+	AskQuestionsMaxQuestions       = 5
+	AskQuestionsMaxOptionsPerQ     = 5
 	ActivateSkillTool              = "activate_skill"
 	RunSubagentTool                = "run_subagent"
 	SearchMemoryTool               = "search_memory"

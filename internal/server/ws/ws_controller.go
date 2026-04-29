@@ -28,17 +28,19 @@ type Controller struct {
 
 // chatIncoming is the client WebSocket message shape.
 type chatIncoming struct {
-	Type           string   `json:"type"`           // Message type: chat, ping, tool_approve, etc.
-	SessionID      string   `json:"sessionId"`      // Session ID
-	Content        string   `json:"content"`        // User input text
-	DisplayContent string   `json:"displayContent"` // Optional user-visible text when content is an internal prompt
-	ModelID        string   `json:"modelId"`        // LLM config ID
-	AttachmentIDs  []string `json:"attachmentIds"`  // Attachment IDs
-	ToolCallID     string   `json:"toolCallId"`     // Tool call ID (for approval flow)
-	Approved       *bool    `json:"approved"`       // Approval outcome
-	ThinkingLevel  string   `json:"thinkingLevel"`  // Thinking level: off, low, medium, high
-	PlanMode       bool     `json:"planMode"`       // Plan mode: LLM generates plan instead of executing
-	PlanID         string   `json:"planId"`         // Plan ID (for approve/reject)
+	Type            string   `json:"type"`            // Message type: chat, ping, tool_approve, etc.
+	SessionID       string   `json:"sessionId"`       // Session ID
+	Content         string   `json:"content"`         // User input text
+	DisplayContent  string   `json:"displayContent"`  // Optional user-visible text when content is an internal prompt
+	ModelID         string   `json:"modelId"`         // LLM config ID
+	AttachmentIDs   []string `json:"attachmentIds"`   // Attachment IDs
+	ToolCallID      string   `json:"toolCallId"`      // Tool call ID (for approval flow)
+	Approved        *bool    `json:"approved"`        // Approval outcome
+	Answers         string   `json:"answers"`         // JSON-encoded answers for ask_questions tool
+	ThinkingLevel   string   `json:"thinkingLevel"`   // Thinking level: off, low, medium, high
+	PlanMode        bool     `json:"planMode"`        // Plan mode: LLM generates plan instead of executing
+	PlanID          string   `json:"planId"`          // Plan ID (for approve/reject)
+	SubagentModelID string   `json:"subagentModelId"` // User-selected subagent model override (empty = inherit)
 }
 
 type wsOutChunk struct {
@@ -227,6 +229,7 @@ func (w *Controller) startReadLoop(
 					broker.Resolve(incoming.ToolCallID, chatsvc.ApprovalResponse{
 						ToolCallID: incoming.ToolCallID,
 						Approved:   *incoming.Approved,
+						Answers:    incoming.Answers,
 					})
 				}
 			case "stop":
@@ -348,7 +351,7 @@ func (w *Controller) handleChatIncoming(
 	if !enqueue(map[string]any{"type": "session", "sessionId": session.ID}) {
 		return false
 	}
-	if !enqueue(map[string]any{"type": "start", "sessionId": session.ID}) {
+	if !enqueue(buildChatStartPayload(session.ID, receivedAt)) {
 		return false
 	}
 
@@ -359,16 +362,18 @@ func (w *Controller) handleChatIncoming(
 	activeCancel.Set(cancel)
 	defer activeCancel.Clear(cancel)
 	callbacks := w.buildCallbacks(enqueue, broker, session.ID, &firstChunkSentAt)
-	streamResult, err := w.chatService.HandleChatStream(
+	streamResult, err := w.chatService.HandleChatStreamWithReceivedAt(
 		chatCtx,
 		session.ID,
 		requestID,
+		receivedAt,
 		incoming.Content,
 		incoming.DisplayContent,
 		incoming.ModelID,
 		incoming.AttachmentIDs,
 		incoming.ThinkingLevel,
 		incoming.PlanMode,
+		incoming.SubagentModelID,
 		callbacks,
 	)
 	cancel()
@@ -389,15 +394,10 @@ func (w *Controller) handleChatIncoming(
 			return false
 		}
 	}
-	donePayload := map[string]any{"type": "done", "sessionId": session.ID}
+	doneSentAt := time.Now()
+	donePayload := buildChatDonePayload(session.ID, streamResult, receivedAt, doneSentAt)
 	if streamResult != nil {
-		donePayload["answer"] = streamResult.Answer
-		// Client uses flags for copy and rendering (e.g. i18n for "output stopped").
-		donePayload["isInterrupted"] = streamResult.IsInterrupted
-		donePayload["isStopPlaceholder"] = streamResult.IsStopPlaceholder
 		if streamResult.PlanID != "" {
-			donePayload["planId"] = streamResult.PlanID
-			donePayload["planBody"] = streamResult.PlanBody
 			donePayload["narration"] = streamResult.Narration
 		}
 	}
@@ -405,7 +405,6 @@ func (w *Controller) handleChatIncoming(
 		return false
 	}
 
-	doneSentAt := time.Now()
 	startToFirstChunkMs := int64(-1)
 	firstChunkToDoneMs := int64(-1)
 	if !firstChunkSentAt.IsZero() {
@@ -420,6 +419,38 @@ func (w *Controller) handleChatIncoming(
 		"total_ms", doneSentAt.Sub(receivedAt).Milliseconds(),
 	)
 	return true
+}
+
+func buildChatStartPayload(sessionID string, startedAt time.Time) map[string]any {
+	return map[string]any{
+		"type":      "start",
+		"sessionId": sessionID,
+		"startedAt": startedAt.Format(time.RFC3339Nano),
+	}
+}
+
+func buildChatDonePayload(sessionID string, streamResult *chatsvc.ChatStreamResult, receivedAt time.Time, doneSentAt time.Time) map[string]any {
+	durationMs := doneSentAt.Sub(receivedAt).Milliseconds()
+	if durationMs < 0 {
+		durationMs = 0
+	}
+	payload := map[string]any{
+		"type":       "done",
+		"sessionId":  sessionID,
+		"finishedAt": doneSentAt.Format(time.RFC3339Nano),
+		"durationMs": durationMs,
+	}
+	if streamResult == nil {
+		return payload
+	}
+	payload["answer"] = streamResult.Answer
+	payload["isInterrupted"] = streamResult.IsInterrupted
+	payload["isStopPlaceholder"] = streamResult.IsStopPlaceholder
+	if streamResult.PlanID != "" {
+		payload["planId"] = streamResult.PlanID
+		payload["planBody"] = streamResult.PlanBody
+	}
+	return payload
 }
 
 // buildCallbacks builds ChatService callbacks and maps them to WebSocket events.
@@ -439,20 +470,41 @@ func (w *Controller) buildCallbacks(
 			}
 			return nil
 		},
-		OnThinkingStart: func() error {
-			if !enqueue(map[string]any{"type": "thinking_start", "sessionId": sessionID}) {
+		OnThinkingStart: func(meta chatsvc.ThinkingEventMeta) error {
+			payload := map[string]any{"type": "thinking_start", "sessionId": sessionID, "startedAt": time.Now().Format(time.RFC3339Nano)}
+			if meta.ParentToolCallID != "" {
+				payload["parentToolCallId"] = meta.ParentToolCallID
+			}
+			if meta.SubagentRunID != "" {
+				payload["subagentRunId"] = meta.SubagentRunID
+			}
+			if !enqueue(payload) {
 				return context.Canceled
 			}
 			return nil
 		},
-		OnThinkingChunk: func(chunk string) error {
-			if !enqueue(map[string]any{"type": "thinking_chunk", "sessionId": sessionID, "content": chunk}) {
+		OnThinkingChunk: func(chunk string, meta chatsvc.ThinkingEventMeta) error {
+			payload := map[string]any{"type": "thinking_chunk", "sessionId": sessionID, "content": chunk, "startedAt": time.Now().Format(time.RFC3339Nano)}
+			if meta.ParentToolCallID != "" {
+				payload["parentToolCallId"] = meta.ParentToolCallID
+			}
+			if meta.SubagentRunID != "" {
+				payload["subagentRunId"] = meta.SubagentRunID
+			}
+			if !enqueue(payload) {
 				return context.Canceled
 			}
 			return nil
 		},
-		OnThinkingDone: func() error {
-			if !enqueue(map[string]any{"type": "thinking_done", "sessionId": sessionID}) {
+		OnThinkingDone: func(meta chatsvc.ThinkingEventMeta) error {
+			payload := map[string]any{"type": "thinking_done", "sessionId": sessionID, "finishedAt": time.Now().Format(time.RFC3339Nano)}
+			if meta.ParentToolCallID != "" {
+				payload["parentToolCallId"] = meta.ParentToolCallID
+			}
+			if meta.SubagentRunID != "" {
+				payload["subagentRunId"] = meta.SubagentRunID
+			}
+			if !enqueue(payload) {
 				return context.Canceled
 			}
 			return nil
@@ -467,6 +519,7 @@ func (w *Controller) buildCallbacks(
 				"params":           req.Params,
 				"requiresApproval": req.RequiresApproval,
 				"preamble":         req.Preamble,
+				"startedAt":        time.Now().Format(time.RFC3339Nano),
 			}
 			if req.ParentToolCallID != "" {
 				payload["parentToolCallId"] = req.ParentToolCallID
@@ -500,6 +553,7 @@ func (w *Controller) buildCallbacks(
 				"status":           result.Status,
 				"output":           result.Output,
 				"error":            result.Error,
+				"finishedAt":       time.Now().Format(time.RFC3339Nano),
 			}
 			if result.ParentToolCallID != "" {
 				payload["parentToolCallId"] = result.ParentToolCallID

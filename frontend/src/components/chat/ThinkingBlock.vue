@@ -1,12 +1,16 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { getThinkingPreviewLine, getThinkingPreviewLineIndex } from '@/utils/thinkingPreview'
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   content: string
   done: boolean
   durationMs?: number
-}>()
+  variant?: 'default' | 'subagent'
+}>(), {
+  variant: 'default',
+})
 
 const { t } = useI18n()
 const expanded = ref(false)
@@ -16,11 +20,22 @@ const durationText = computed(() => {
   return (props.durationMs / 1000).toFixed(1) + 's'
 })
 
+const hasVisibleContent = computed(() => props.content.trim() !== '')
+const previewLine = computed(() => getThinkingPreviewLine(props.content))
+const previewLineKey = computed(() => getThinkingPreviewLineIndex(props.content))
+
 const summaryText = computed(() => {
+  if (props.variant === 'subagent') {
+    if (!props.done) return t('subagentThinkingLabel')
+    if (durationText.value) return t('subagentThoughtFor', { duration: durationText.value })
+    return t('subagentThoughtLabel')
+  }
   if (!props.done) return t('thinkingLabel')
   if (durationText.value) return t('thoughtFor', { duration: durationText.value })
   return t('thinkingLabel')
 })
+
+const canToggle = computed(() => props.done && hasVisibleContent.value)
 </script>
 
 <template>
@@ -28,8 +43,8 @@ const summaryText = computed(() => {
     <button
       type="button"
       class="thinking-summary"
-      :aria-expanded="done && expanded"
-      @click="done && (expanded = !expanded)"
+      :aria-expanded="canToggle ? expanded : undefined"
+      @click="canToggle && (expanded = !expanded)"
     >
       <svg
         class="thinking-dot"
@@ -44,8 +59,14 @@ const summaryText = computed(() => {
 
       <span class="thinking-summary-text">{{ summaryText }}</span>
 
+      <span v-if="!done && previewLine" class="thinking-preview" aria-live="polite">
+        <Transition name="thinking-preview-slide" mode="out-in">
+          <span :key="previewLineKey" class="thinking-preview-line">{{ previewLine }}</span>
+        </Transition>
+      </span>
+
       <svg
-        v-if="done"
+        v-if="canToggle"
         class="thinking-chevron"
         :class="{ 'thinking-chevron--open': expanded }"
         viewBox="0 0 16 16"
@@ -63,7 +84,7 @@ const summaryText = computed(() => {
     </button>
 
     <Transition name="thinking-expand">
-      <div v-if="done && expanded" class="thinking-content">
+      <div v-if="hasVisibleContent && done && expanded" class="thinking-content">
         <pre class="thinking-content-text sb-scrollbar">{{ content }}</pre>
       </div>
     </Transition>
@@ -99,7 +120,7 @@ const summaryText = computed(() => {
   border: none;
   cursor: default;
   color: var(--text-secondary, #4c4980);
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 500;
   line-height: 1;
   text-align: left;
@@ -141,19 +162,50 @@ const summaryText = computed(() => {
 }
 
 .thinking-summary-text {
-  flex: 1 1 auto;
+  flex: 0 0 auto;
   color: #0284c7;
   font-weight: 650;
+  white-space: nowrap;
+}
+
+.thinking-preview {
+  position: relative;
+  flex: 1 1 auto;
+  min-width: 0;
+  max-width: clamp(120px, 42vw, 320px);
+  height: 1.2em;
+  overflow: hidden;
+  margin-left: 4px;
+  margin-right: 8px;
+  color: var(--text-muted, #94a3b8);
+  font-size: 12px;
+  font-weight: 450;
+  line-height: 1.2;
+}
+
+.thinking-preview-line {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .thinking-chevron {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  font-size: 0;
   flex-shrink: 0;
+  margin-left: auto;
   color: var(--text-muted, #9ca3af);
-  transition: transform 200ms ease;
+  transition: transform 150ms ease;
+  transform: rotate(-90deg);
 }
 
 .thinking-chevron--open {
-  transform: rotate(180deg);
+  transform: rotate(0deg);
 }
 
 .thinking-content {
@@ -167,7 +219,7 @@ const summaryText = computed(() => {
 .thinking-content-text {
   margin: 0;
   color: var(--text-secondary, #4c4980);
-  font-size: 12px;
+  font-size: 14px;
   line-height: 1.55;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
@@ -197,11 +249,11 @@ const summaryText = computed(() => {
 }
 
 .thinking-expand-enter-active {
-  transition: opacity 200ms ease, max-height 300ms ease;
+  transition: opacity 180ms ease, max-height 250ms ease;
 }
 
 .thinking-expand-leave-active {
-  transition: opacity 150ms ease, max-height 200ms ease;
+  transition: opacity 120ms ease, max-height 180ms ease;
 }
 
 .thinking-expand-enter-from,
@@ -213,16 +265,35 @@ const summaryText = computed(() => {
 .thinking-expand-enter-to,
 .thinking-expand-leave-from {
   opacity: 1;
-  max-height: 280px;
+  max-height: 500px;
+}
+
+.thinking-preview-slide-enter-active,
+.thinking-preview-slide-leave-active {
+  transition: opacity 160ms ease, transform 160ms ease;
+}
+
+.thinking-preview-slide-enter-from {
+  opacity: 0;
+  transform: translateY(0.65em);
+}
+
+.thinking-preview-slide-leave-to {
+  opacity: 0;
+  transform: translateY(-0.65em);
 }
 
 @media (prefers-reduced-motion: reduce) {
   .thinking-dot--pulsing {
     animation: none;
   }
+
   .thinking-chevron {
     transition: none;
   }
+
+  .thinking-preview-slide-enter-active,
+  .thinking-preview-slide-leave-active,
   .thinking-expand-enter-active,
   .thinking-expand-leave-active {
     transition: none;

@@ -1,10 +1,13 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { mdiConsoleLine, mdiWeb } from '@mdi/js'
+import { mdiBrain, mdiConsoleLine, mdiHelpCircleOutline, mdiSourceBranch, mdiWeb } from '@mdi/js'
 import MdiIcon from '@/components/ui/MdiIcon.vue'
+import ThinkingBlock from '@/components/chat/ThinkingBlock.vue'
 import type { ToolCallItem } from '@/api/chat'
-import { buildToolResultDisplay, formatDisplayText, formatToolParams } from '@/utils/toolDisplay'
+import { buildSubagentTimeline } from '@/utils/subagentTimeline'
+import { buildToolResultDisplay, formatDisplayText, formatToolParams, parseAskQuestionsReadableAnswers } from '@/utils/toolDisplay'
+import { shouldAutoExpandToolCall } from '@/utils/toolApprovalExpansion'
 
 const props = withDefaults(defineProps<{
   item: ToolCallItem
@@ -20,11 +23,15 @@ const emit = defineEmits<{
 
 const { t } = useI18n()
 const expanded = ref(false)
+const subagentTimelineExpanded = ref(false)
 
 const toolIcon = computed(() => {
   if (props.item.toolName === 'exec') return mdiConsoleLine
   if (props.item.toolName === 'http_request') return mdiWeb
   if (props.item.toolName === 'web_search') return mdiWeb
+  if (props.item.toolName === 'search_memory') return mdiBrain
+  if (props.item.toolName === 'ask_questions') return mdiHelpCircleOutline
+  if (props.item.toolName === 'run_subagent') return mdiSourceBranch
   return mdiConsoleLine
 })
 
@@ -34,6 +41,7 @@ const toolLabel = computed(() => {
   if (props.item.toolName === 'web_search') return t('toolWebSearch')
   if (props.item.toolName === 'run_subagent') return t('toolRunSubagent')
   if (props.item.toolName === 'search_memory') return t('toolSearchMemory')
+  if (props.item.toolName === 'ask_questions') return t('toolAskQuestions')
   return props.item.toolName
 })
 
@@ -60,7 +68,12 @@ const statusIcon = computed(() => {
 
 const showPendingLabel = computed(() => props.item.status === 'pending')
 
-const paramsDisplay = computed(() => formatToolParams(props.item.params))
+const isRunSubagent = computed(() => props.item.toolName === 'run_subagent')
+const paramsDisplay = computed(() => {
+  if (!isRunSubagent.value) return formatToolParams(props.item.params)
+  const { context: _context, task: _task, ...rest } = props.item.params || {}
+  return formatToolParams(rest)
+})
 
 const showResult = computed(() =>
   props.item.status === 'completed' || props.item.status === 'error',
@@ -77,7 +90,50 @@ const errorDisplay = computed(() =>
 const showPreamble = computed(() => !!props.item.preamble && props.item.preamble.trim() !== '')
 
 const showActions = computed(() => props.item.status === 'pending')
-const showNested = computed(() => props.nestedTools.length > 0)
+const subagentThinkingItems = computed(() => {
+  if (props.item.toolName !== 'run_subagent') return []
+  return props.item.subagentThinkings ?? (props.item.subagentThinking ? [props.item.subagentThinking] : [])
+})
+const subagentTimelineItems = computed(() => buildSubagentTimeline(subagentThinkingItems.value, props.nestedTools))
+const showSubagentToolCallsThinking = computed(() => subagentTimelineItems.value.length > 0)
+const subagentContextSummary = computed(() => {
+  if (!isRunSubagent.value) return ''
+  return formatDisplayText(String(props.item.params?.context ?? '')).trim()
+})
+const subagentTaskSummary = computed(() => {
+  if (!isRunSubagent.value) return ''
+  return formatDisplayText(String(props.item.subagentTask || props.item.params?.task || '')).trim()
+})
+const showSubagentContext = computed(() => subagentContextSummary.value !== '')
+const showSubagentTask = computed(() => subagentTaskSummary.value !== '')
+const shouldAutoExpand = computed(() => shouldAutoExpandToolCall(props.item, props.nestedTools))
+const isAskQuestions = computed(() => props.item.toolName === 'ask_questions')
+
+const askQuestionsData = computed(() => {
+  if (!isAskQuestions.value) return null
+  const readableAnswers = parseAskQuestionsReadableAnswers(props.item.output ?? '')
+  if (readableAnswers) {
+    return readableAnswers.map((a) => ({ question: a.question, answer: a.answer }))
+  }
+  return null
+})
+
+watch(
+  shouldAutoExpand,
+  (value) => {
+    if (value) expanded.value = true
+  },
+  { immediate: true },
+)
+
+function toggleExpanded() {
+  expanded.value = shouldAutoExpand.value ? true : !expanded.value
+  if (!expanded.value) subagentTimelineExpanded.value = false
+}
+
+function toggleSubagentTimeline() {
+  subagentTimelineExpanded.value = !subagentTimelineExpanded.value
+}
 </script>
 
 <template>
@@ -88,12 +144,12 @@ const showNested = computed(() => props.nestedTools.length > 0)
         type="button"
         class="inline-tool-row"
         :aria-expanded="expanded"
-        @click="expanded = !expanded"
+        @click="toggleExpanded"
       >
         <MdiIcon :path="toolIcon" :size="14" class="inline-tool-icon" />
 
         <span class="inline-tool-name">{{ toolLabel }}</span>
-      <code v-if="commandDisplay" class="inline-tool-cmd">{{ commandDisplay }}</code>
+      <code v-if="commandDisplay && !isAskQuestions" class="inline-tool-cmd">{{ commandDisplay }}</code>
 
       <span v-if="showPendingLabel" class="inline-tool-pending-label">
         {{ t('toolWaitingApproval') }}
@@ -112,8 +168,8 @@ const showNested = computed(() => props.nestedTools.length > 0)
         class="inline-tool-chevron"
         :class="{ 'inline-tool-chevron--open': expanded }"
         viewBox="0 0 16 16"
-        width="12"
-        height="12"
+        width="14"
+        height="14"
         fill="none"
         stroke="currentColor"
         stroke-width="2"
@@ -127,7 +183,17 @@ const showNested = computed(() => props.nestedTools.length > 0)
 
     <Transition name="inline-expand">
       <div v-if="expanded" class="inline-tool-detail">
-        <section v-if="paramsDisplay.length > 0" class="inline-section">
+        <section v-if="showSubagentContext" class="inline-section">
+          <p class="inline-section-title">{{ t('subagentContextLabel') }}</p>
+          <pre class="inline-output-text">{{ subagentContextSummary }}</pre>
+        </section>
+
+        <section v-if="showSubagentTask" class="inline-section">
+          <p class="inline-section-title">{{ t('subagentTaskLabel') }}</p>
+          <pre class="inline-output-text">{{ subagentTaskSummary }}</pre>
+        </section>
+
+        <section v-if="!isAskQuestions && paramsDisplay.length > 0" class="inline-section">
           <p class="inline-section-title">{{ t('toolCallParams') }}</p>
           <div class="inline-kv-list sb-scrollbar">
             <div v-for="row in paramsDisplay" :key="row.key" class="inline-kv-row">
@@ -137,59 +203,106 @@ const showNested = computed(() => props.nestedTools.length > 0)
           </div>
         </section>
 
-        <section v-if="showResult" class="inline-section">
-          <p class="inline-section-title">{{ t('toolCallResult') }}</p>
-          <div v-if="item.output" class="inline-output sb-scrollbar">
-            <template v-if="resultDisplay.mode === 'exec' && resultDisplay.exec">
-              <div class="inline-kv-grid">
-                <div :class="['inline-kv-pill', resultDisplay.exec.exit_code === 0 ? 'inline-kv-pill--ok' : 'inline-kv-pill--err']">
-                  exit_code: {{ resultDisplay.exec.exit_code }}
-                </div>
-                <div class="inline-kv-pill">duration_ms: {{ resultDisplay.exec.duration_ms }}</div>
-              </div>
-              <pre v-if="resultDisplay.exec.stdout.trim()" class="inline-exec-pre">{{ formatDisplayText(resultDisplay.exec.stdout) }}</pre>
-              <pre v-if="resultDisplay.exec.stderr.trim()" class="inline-exec-pre inline-exec-pre--stderr">{{ formatDisplayText(resultDisplay.exec.stderr) }}</pre>
-            </template>
-            <template v-else-if="resultDisplay.mode === 'web_search' && resultDisplay.webSearch">
-              <div class="inline-kv-grid">
-                <div class="inline-kv-pill">query: {{ resultDisplay.webSearch.query }}</div>
-                <div class="inline-kv-pill">results: {{ resultDisplay.webSearch.results.length }}</div>
-              </div>
-              <div v-if="resultDisplay.webSearch.results.length > 0" class="inline-web-list">
-                <article
-                  v-for="(result, idx) in resultDisplay.webSearch.results"
-                  :key="`${result.url}-${idx}`"
-                  class="inline-web-card"
-                >
-                  <a
-                    :href="result.url"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    class="inline-web-title"
-                  >
-                    {{ result.title || result.url }}
-                  </a>
-                  <p v-if="result.content.trim()" class="inline-web-content">{{ result.content }}</p>
-                </article>
-              </div>
-              <div v-else class="inline-exec-empty">(No results)</div>
-            </template>
-            <pre v-else class="inline-output-text">{{ resultDisplay.outputText }}</pre>
-          </div>
-          <div v-if="item.error" class="inline-error">{{ errorDisplay }}</div>
+        <section
+          v-if="showSubagentToolCallsThinking"
+          class="inline-section inline-subagent-tool-calls-thinking"
+        >
+          <button
+            type="button"
+            class="inline-subagent-summary"
+            :aria-expanded="subagentTimelineExpanded ? 'true' : 'false'"
+            @click="toggleSubagentTimeline"
+          >
+            <span class="inline-section-title">{{ t('subagentToolCallsThinkingTitle') }}</span>
+            <span class="inline-subagent-count">{{ subagentTimelineItems.length }}</span>
+            <svg
+              class="inline-subagent-chevron"
+              :class="{ 'inline-subagent-chevron--open': subagentTimelineExpanded }"
+              viewBox="0 0 16 16"
+              width="14"
+              height="14"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              aria-hidden="true"
+            >
+              <path d="M4 6l4 4 4-4" />
+            </svg>
+          </button>
+          <Transition name="inline-expand">
+            <div v-if="subagentTimelineExpanded" class="inline-subagent-timeline-list">
+              <template v-for="timelineItem in subagentTimelineItems" :key="timelineItem.id">
+                <ThinkingBlock
+                  v-if="timelineItem.kind === 'thinking'"
+                  :content="timelineItem.thinking.content"
+                  :done="timelineItem.thinking.done"
+                  :duration-ms="timelineItem.thinking.durationMs"
+                  variant="subagent"
+                />
+                <ToolCallInline
+                  v-else
+                  :item="timelineItem.tool"
+                  @approve="emit('approve', $event)"
+                  @reject="emit('reject', $event)"
+                />
+              </template>
+            </div>
+          </Transition>
         </section>
 
-        <section v-if="showNested" class="inline-section">
-          <p class="inline-section-title">{{ t('subagentNestedTitle') }}</p>
-          <div class="inline-nested-list">
-            <ToolCallInline
-              v-for="nested in nestedTools"
-              :key="nested.toolCallId"
-              :item="nested"
-              @approve="emit('approve', $event)"
-              @reject="emit('reject', $event)"
-            />
-          </div>
+        <section v-if="showResult" class="inline-section">
+          <template v-if="isAskQuestions && askQuestionsData && askQuestionsData.length > 0">
+            <div class="inline-qa-list">
+              <div v-for="(qa, idx) in askQuestionsData" :key="idx" class="inline-qa-pair">
+                <div class="inline-qa-q">{{ idx + 1 }}. {{ qa.question }}</div>
+                <div v-if="qa.answer" class="inline-qa-a">{{ qa.answer }}</div>
+                <div v-else class="inline-qa-a inline-qa-a--empty">{{ t('qaNotSelected') }}</div>
+              </div>
+            </div>
+          </template>
+          <template v-else>
+            <p class="inline-section-title">{{ isRunSubagent ? t('subagentResultLabel') : t('toolCallResult') }}</p>
+            <div v-if="item.output" class="inline-output sb-scrollbar">
+              <template v-if="resultDisplay.mode === 'exec' && resultDisplay.exec">
+                <div class="inline-kv-grid">
+                  <div :class="['inline-kv-pill', resultDisplay.exec.exit_code === 0 ? 'inline-kv-pill--ok' : 'inline-kv-pill--err']">
+                    exit_code: {{ resultDisplay.exec.exit_code }}
+                  </div>
+                  <div class="inline-kv-pill">duration_ms: {{ resultDisplay.exec.duration_ms }}</div>
+                </div>
+                <pre v-if="resultDisplay.exec.stdout.trim()" class="inline-exec-pre">{{ formatDisplayText(resultDisplay.exec.stdout) }}</pre>
+                <pre v-if="resultDisplay.exec.stderr.trim()" class="inline-exec-pre inline-exec-pre--stderr">{{ formatDisplayText(resultDisplay.exec.stderr) }}</pre>
+              </template>
+              <template v-else-if="resultDisplay.mode === 'web_search' && resultDisplay.webSearch">
+                <div class="inline-kv-grid">
+                  <div class="inline-kv-pill">query: {{ resultDisplay.webSearch.query }}</div>
+                  <div class="inline-kv-pill">results: {{ resultDisplay.webSearch.results.length }}</div>
+                </div>
+                <div v-if="resultDisplay.webSearch.results.length > 0" class="inline-web-list">
+                  <article
+                    v-for="(result, idx) in resultDisplay.webSearch.results"
+                    :key="`${result.url}-${idx}`"
+                    class="inline-web-card"
+                  >
+                    <a
+                      :href="result.url"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      class="inline-web-title"
+                    >
+                      {{ result.title || result.url }}
+                    </a>
+                    <p v-if="result.content.trim()" class="inline-web-content">{{ result.content }}</p>
+                  </article>
+                </div>
+                <div v-else class="inline-exec-empty">(No results)</div>
+              </template>
+              <pre v-else class="inline-output-text">{{ resultDisplay.outputText }}</pre>
+            </div>
+          </template>
+          <div v-if="item.error" class="inline-error">{{ errorDisplay }}</div>
         </section>
 
         <div v-if="showActions" class="inline-actions">
@@ -236,12 +349,12 @@ const showNested = computed(() => props.nestedTools.length > 0)
   gap: 6px;
   width: 100%;
   min-height: 34px;
-  padding: 7px 10px;
+  padding: 8px 12px;
   background: none;
   border: none;
   cursor: pointer;
   color: var(--tool-content-text, #64748b);
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 500;
   line-height: 1;
   text-align: left;
@@ -266,7 +379,7 @@ const showNested = computed(() => props.nestedTools.length > 0)
 .inline-tool-preamble {
   margin-bottom: 4px;
   color: var(--text-muted, #94a3b8);
-  font-size: 12px;
+  font-size: 13px;
   line-height: 1.4;
   font-style: italic;
 }
@@ -285,7 +398,7 @@ const showNested = computed(() => props.nestedTools.length > 0)
   border: 1px solid var(--tool-command-border, rgba(100, 116, 139, 0.2));
   border-radius: 5px;
   padding: 1px 5px;
-  font-size: 11px;
+  font-size: 13px;
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
   white-space: nowrap;
   overflow: hidden;
@@ -294,14 +407,14 @@ const showNested = computed(() => props.nestedTools.length > 0)
 
 .inline-tool-pending-label {
   color: var(--tool-pending-text, #facc15);
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 600;
   white-space: nowrap;
 }
 
 .inline-tool-status {
   margin-left: auto;
-  font-size: 13px;
+  font-size: 14px;
   flex-shrink: 0;
   line-height: 1;
 }
@@ -322,13 +435,75 @@ const showNested = computed(() => props.nestedTools.length > 0)
 }
 
 .inline-tool-chevron {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
   flex-shrink: 0;
   color: var(--text-muted, #64748b);
-  transition: transform 200ms ease;
+  font-size: 0;
+  transition: transform 150ms ease;
+  transform: rotate(-90deg);
 }
 
 .inline-tool-chevron--open {
-  transform: rotate(180deg);
+  transform: rotate(0deg);
+}
+
+.inline-subagent-summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  list-style: none;
+  cursor: pointer;
+  padding: 0;
+  border: none;
+  background: none;
+  text-align: left;
+}
+
+.inline-subagent-summary::-webkit-details-marker {
+  display: none;
+}
+
+.inline-subagent-summary .inline-section-title {
+  margin-bottom: 0;
+}
+
+.inline-subagent-count {
+  color: var(--tool-summary-text, #94a3b8);
+  background: var(--tool-summary-bg, rgba(100, 116, 139, 0.06));
+  border: 1px solid var(--tool-section-border, rgba(100, 116, 139, 0.15));
+  border-radius: 999px;
+  padding: 1px 7px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.inline-subagent-chevron {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  margin-left: auto;
+  color: var(--tool-summary-text, #94a3b8);
+  font-size: 0;
+  transition: transform 150ms ease;
+  transform: rotate(-90deg);
+}
+
+.inline-subagent-chevron--open {
+  transform: rotate(0deg);
+}
+
+.inline-subagent-timeline-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
 }
 
 /* --- Expanded detail --- */
@@ -349,7 +524,7 @@ const showNested = computed(() => props.nestedTools.length > 0)
 
 .inline-section-title {
   margin: 0 0 4px 0;
-  font-size: 10px;
+  font-size: 13px;
   font-weight: 700;
   letter-spacing: 0.03em;
   text-transform: uppercase;
@@ -376,7 +551,7 @@ const showNested = computed(() => props.nestedTools.length > 0)
 }
 
 .inline-kv-key {
-  font-size: 10px;
+  font-size: 13px;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.02em;
@@ -385,7 +560,7 @@ const showNested = computed(() => props.nestedTools.length > 0)
 
 .inline-kv-value {
   margin: 0;
-  font-size: 11px;
+  font-size: 14px;
   color: var(--tool-detail-body-text, #e2e8f0);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
@@ -400,7 +575,7 @@ const showNested = computed(() => props.nestedTools.length > 0)
 
 .inline-output-text {
   margin: 0;
-  font-size: 11px;
+  font-size: 14px;
   color: var(--tool-detail-body-text, #e2e8f0);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
@@ -420,7 +595,7 @@ const showNested = computed(() => props.nestedTools.length > 0)
   border: 1px solid var(--tool-section-border, rgba(100, 116, 139, 0.15));
   border-radius: 999px;
   padding: 1px 6px;
-  font-size: 10px;
+  font-size: 13px;
 }
 
 .inline-kv-pill--ok { border-color: rgba(16, 185, 129, 0.3); }
@@ -432,7 +607,7 @@ const showNested = computed(() => props.nestedTools.length > 0)
   background: var(--tool-section-bg, rgba(0, 0, 0, 0.2));
   border: 1px solid var(--tool-section-border, rgba(100, 116, 139, 0.1));
   border-radius: 5px;
-  font-size: 11px;
+  font-size: 14px;
   color: var(--tool-detail-body-text, #e2e8f0);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
@@ -447,7 +622,7 @@ const showNested = computed(() => props.nestedTools.length > 0)
 .inline-exec-empty {
   margin-top: 4px;
   color: var(--tool-detail-body-text, #e2e8f0);
-  font-size: 11px;
+  font-size: 14px;
   line-height: 1.4;
 }
 
@@ -467,7 +642,7 @@ const showNested = computed(() => props.nestedTools.length > 0)
 
 .inline-web-title {
   color: var(--tool-command-text, #4f46e5);
-  font-size: 11px;
+  font-size: 14px;
   font-weight: 600;
   line-height: 1.4;
   text-decoration: none;
@@ -481,7 +656,7 @@ const showNested = computed(() => props.nestedTools.length > 0)
 .inline-web-content {
   margin: 3px 0 0;
   color: var(--tool-content-text, #2e2a64);
-  font-size: 11px;
+  font-size: 14px;
   line-height: 1.4;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
@@ -490,19 +665,48 @@ const showNested = computed(() => props.nestedTools.length > 0)
 .inline-error {
   margin-top: 4px;
   color: var(--tool-error-text, #ef4444);
-  font-size: 11px;
+  font-size: 14px;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   line-height: 1.4;
 }
 
-.inline-nested-list {
+.inline-qa-list {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 6px;
 }
 
-.inline-nested-list :deep(.inline-tool) {
+.inline-qa-pair {
+  padding: 4px 0;
+  border-bottom: 1px solid var(--tool-section-border, rgba(100, 116, 139, 0.1));
+}
+
+.inline-qa-pair:last-child {
+  border-bottom: none;
+}
+
+.inline-qa-q {
+  font-size: 14px;
+  color: var(--tool-summary-text, #94a3b8);
+  line-height: 1.4;
+  margin-bottom: 2px;
+}
+
+.inline-qa-a {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--tool-detail-body-text, #e2e8f0);
+  line-height: 1.4;
+}
+
+.inline-qa-a--empty {
+  color: var(--text-muted, #94a3b8);
+  font-weight: 400;
+  font-style: italic;
+}
+
+.inline-subagent-timeline-list :deep(.inline-tool) {
   border-color: var(--tool-section-border, rgba(100, 116, 139, 0.12));
 }
 
@@ -522,7 +726,7 @@ const showNested = computed(() => props.nestedTools.length > 0)
   min-height: 24px;
   padding: 3px 10px;
   border-radius: 6px;
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 600;
   cursor: pointer;
   transition: background-color 150ms ease, box-shadow 150ms ease;
@@ -579,7 +783,8 @@ const showNested = computed(() => props.nestedTools.length > 0)
   .inline-spinner {
     animation: none;
   }
-  .inline-tool-chevron {
+  .inline-tool-chevron,
+  .inline-subagent-chevron {
     transition: none;
   }
   .inline-expand-enter-active,

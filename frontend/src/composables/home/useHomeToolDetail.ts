@@ -2,6 +2,7 @@ import { computed, ref } from 'vue'
 import type { ToolCallItem } from '@/api/chat'
 import { useChatStore } from '@/stores/chat'
 import type { ToolTimelineEntry } from '@/types/chat'
+import { getCollapsedReplyTimeline, hasCollapsibleReplyContent } from '@/utils/replyBatchBuilder'
 
 export function useHomeToolDetail(options: {
   t: (key: string, params?: Record<string, unknown>) => string
@@ -84,6 +85,12 @@ export function useHomeToolDetail(options: {
     return findReplyBatchByMessageId(messageId)?.timeline || []
   }
 
+  function getVisibleReplyTimeline(messageId: string) {
+    const batch = findReplyBatchByMessageId(messageId)
+    if (!batch) return []
+    return batch.collapsed ? getCollapsedReplyTimeline(batch.timeline) : batch.timeline
+  }
+
   function getReplyToolItem(messageId: string, toolCallId: string) {
     return getReplyToolCalls(messageId).find((item) => item.toolCallId === toolCallId)
   }
@@ -104,6 +111,27 @@ export function useHomeToolDetail(options: {
 
   function isReplyToolCollapsed(messageId: string) {
     return findReplyBatchByMessageId(messageId)?.collapsed ?? false
+  }
+
+  function toggleReplyCollapsed(messageId: string) {
+    const batch = findReplyBatchByMessageId(messageId)
+    if (!batch || store.isStreamingMessage(messageId)) return
+    batch.collapsed = !batch.collapsed
+  }
+
+  function getReplyElapsedMs(messageId: string) {
+    const batch = findReplyBatchByMessageId(messageId)
+    if (!batch) return undefined
+    if (typeof batch.durationMs === 'number') return batch.durationMs
+    if (typeof batch.startedAt !== 'number') return undefined
+    const end = typeof batch.finishedAt === 'number' ? batch.finishedAt : Date.now()
+    return Math.max(0, end - batch.startedAt)
+  }
+
+  function shouldShowReplyCollapseBar(messageId: string) {
+    const batch = findReplyBatchByMessageId(messageId)
+    if (!batch) return false
+    return hasCollapsibleReplyContent(batch.timeline, batch.toolCalls)
   }
 
   function isEmptyPlaceholder(messageId: string) {
@@ -137,10 +165,14 @@ export function useHomeToolDetail(options: {
     getReplyToolCount,
     getReplyToolSummary,
     getReplyTimeline,
+    getVisibleReplyTimeline,
     getReplyToolItem,
     getSubagentChildTools,
     shouldShowInlineToolCall,
     isReplyToolCollapsed,
+    toggleReplyCollapsed,
+    getReplyElapsedMs,
+    shouldShowReplyCollapseBar,
     isEmptyPlaceholder,
     openToolDetail,
     toolDetailItems,

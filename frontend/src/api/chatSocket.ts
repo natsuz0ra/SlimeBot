@@ -3,19 +3,19 @@ import type { ToolCallStatus } from '@/types/chat'
 
 type Handlers = {
   onSession: (sessionId: string) => void
-  onStart: (sessionId?: string) => void
+  onStart: (sessionId?: string, meta?: { startedAt?: string }) => void
   onChunk: (chunk: string, sessionId?: string) => void
   onSessionTitle: (title: string, sessionId?: string) => void
-  onDone: (sessionId?: string, answer?: string, meta?: { isInterrupted?: boolean; isStopPlaceholder?: boolean; planId?: string; planBody?: string }) => void
+  onDone: (sessionId?: string, answer?: string, meta?: { isInterrupted?: boolean; isStopPlaceholder?: boolean; planId?: string; planBody?: string; finishedAt?: string; durationMs?: number }) => void
   onError: (error: string, sessionId?: string) => void
   onToolCallStart?: (data: ToolCallStartData, sessionId?: string) => void
   onToolCallResult?: (data: ToolCallResultData, sessionId?: string) => void
   onSubagentStart?: (data: SubagentStartData, sessionId?: string) => void
   onSubagentChunk?: (data: SubagentChunkData, sessionId?: string) => void
   onSubagentDone?: (data: SubagentDoneData, sessionId?: string) => void
-  onThinkingStart?: (sessionId?: string) => void
-  onThinkingChunk?: (chunk: string, sessionId?: string) => void
-  onThinkingDone?: (sessionId?: string) => void
+  onThinkingStart?: (data: ThinkingEventData, sessionId?: string) => void
+  onThinkingChunk?: (data: ThinkingEventData, sessionId?: string) => void
+  onThinkingDone?: (data: ThinkingEventData, sessionId?: string) => void
   onPlanStart?: (sessionId?: string) => void
   onPlanChunk?: (chunk: string, sessionId?: string) => void
   onPlanBody?: (content: string, sessionId?: string) => void
@@ -34,6 +34,7 @@ export interface ToolCallStartData {
   params: Record<string, string>
   requiresApproval: boolean
   preamble?: string
+  startedAt?: string
   parentToolCallId?: string
   subagentRunId?: string
 }
@@ -46,6 +47,7 @@ export interface ToolCallResultData {
   status: ToolCallStatus
   output: string
   error: string
+  finishedAt?: string
   parentToolCallId?: string
   subagentRunId?: string
 }
@@ -68,6 +70,14 @@ export interface SubagentDoneData {
   error?: string
 }
 
+export interface ThinkingEventData {
+  content?: string
+  startedAt?: string
+  finishedAt?: string
+  parentToolCallId?: string
+  subagentRunId?: string
+}
+
 type WSIncoming = {
   type: string
   sessionId?: string
@@ -83,6 +93,9 @@ type WSIncoming = {
   status?: ToolCallStatus
   preamble?: string
   output?: string
+  startedAt?: string
+  finishedAt?: string
+  durationMs?: number
   isInterrupted?: boolean
   isStopPlaceholder?: boolean
   parentToolCallId?: string
@@ -117,12 +130,12 @@ export class ChatSocket {
     this.openSocket()
   }
 
-  send(content: string, sessionId: string, modelId: string, attachmentIds?: string[], thinkingLevel?: string, planMode?: boolean) {
+  send(content: string, sessionId: string, modelId: string, attachmentIds?: string[], thinkingLevel?: string, planMode?: boolean, subagentModelId?: string) {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
       this.handlers?.onSocketError?.('socket is not connected')
       return false
     }
-    this.ws.send(JSON.stringify({ type: 'chat', content, sessionId, modelId, attachmentIds: attachmentIds || [], thinkingLevel: thinkingLevel || 'off', planMode: !!planMode }))
+    this.ws.send(JSON.stringify({ type: 'chat', content, sessionId, modelId, attachmentIds: attachmentIds || [], thinkingLevel: thinkingLevel || 'off', planMode: !!planMode, subagentModelId: subagentModelId || '' }))
     return true
   }
 
@@ -135,12 +148,14 @@ export class ChatSocket {
     return true
   }
 
-  sendToolApproval(toolCallId: string, approved: boolean) {
+  sendToolApproval(toolCallId: string, approved: boolean, answers?: string) {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
       this.handlers?.onSocketError?.('socket is not connected')
       return false
     }
-    this.ws.send(JSON.stringify({ type: 'tool_approve', toolCallId, approved }))
+    const payload: Record<string, unknown> = { type: 'tool_approve', toolCallId, approved }
+    if (answers) payload.answers = answers
+    this.ws.send(JSON.stringify(payload))
     return true
   }
 
@@ -219,7 +234,7 @@ export class ChatSocket {
       }
 
       if (data.type === 'session' && data.sessionId) this.handlers?.onSession(data.sessionId)
-      if (data.type === 'start') this.handlers?.onStart(data.sessionId)
+      if (data.type === 'start') this.handlers?.onStart(data.sessionId, { startedAt: data.startedAt })
       if (data.type === 'chunk') this.handlers?.onChunk(data.content || '', data.sessionId)
       if (data.type === 'session_title') this.handlers?.onSessionTitle(data.title || '', data.sessionId)
       if (data.type === 'done') {
@@ -228,6 +243,8 @@ export class ChatSocket {
           isStopPlaceholder: data.isStopPlaceholder,
           planId: data.planId,
           planBody: data.planBody,
+          finishedAt: data.finishedAt,
+          durationMs: data.durationMs,
         })
       }
       if (data.type === 'error') this.handlers?.onError(data.error || 'unknown error', data.sessionId)
@@ -240,6 +257,7 @@ export class ChatSocket {
           params: data.params || {},
           requiresApproval: !!data.requiresApproval,
           preamble: data.preamble || '',
+          startedAt: data.startedAt,
           parentToolCallId: data.parentToolCallId,
           subagentRunId: data.subagentRunId,
         }, data.sessionId)
@@ -254,6 +272,7 @@ export class ChatSocket {
           status: data.status || 'completed',
           output: data.output || '',
           error: data.error || '',
+          finishedAt: data.finishedAt,
           parentToolCallId: data.parentToolCallId,
           subagentRunId: data.subagentRunId,
         }, data.sessionId)
@@ -283,9 +302,22 @@ export class ChatSocket {
         }, data.sessionId)
       }
 
-      if (data.type === 'thinking_start') this.handlers?.onThinkingStart?.(data.sessionId)
-      if (data.type === 'thinking_chunk') this.handlers?.onThinkingChunk?.(data.content || '', data.sessionId)
-      if (data.type === 'thinking_done') this.handlers?.onThinkingDone?.(data.sessionId)
+      if (data.type === 'thinking_start') this.handlers?.onThinkingStart?.({
+        startedAt: data.startedAt,
+        parentToolCallId: data.parentToolCallId,
+        subagentRunId: data.subagentRunId,
+      }, data.sessionId)
+      if (data.type === 'thinking_chunk') this.handlers?.onThinkingChunk?.({
+        content: data.content || '',
+        startedAt: data.startedAt,
+        parentToolCallId: data.parentToolCallId,
+        subagentRunId: data.subagentRunId,
+      }, data.sessionId)
+      if (data.type === 'thinking_done') this.handlers?.onThinkingDone?.({
+        finishedAt: data.finishedAt,
+        parentToolCallId: data.parentToolCallId,
+        subagentRunId: data.subagentRunId,
+      }, data.sessionId)
       if (data.type === 'plan_start') this.handlers?.onPlanStart?.(data.sessionId)
       if (data.type === 'plan_chunk') this.handlers?.onPlanChunk?.(data.content || '', data.sessionId)
       if (data.type === 'plan_body') this.handlers?.onPlanBody?.(data.content || '', data.sessionId)

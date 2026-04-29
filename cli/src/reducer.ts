@@ -24,6 +24,8 @@ export function createInitialState(
     sessionName: "",
     modelId: "",
     modelName: "(none)",
+    subagentModelId: "",
+    subagentModelName: "(follow main)",
     thinkingLevel: "off",
     approvalMode: "standard",
     timeline: [],
@@ -67,6 +69,16 @@ export function createInitialState(
     planConfirmCursor: 0,
     planModifyInput: "",
     planModifyInputKey: 0,
+
+    qaToolCallId: "",
+    qaQuestions: [],
+    qaCurrentIndex: 0,
+    qaAnswers: [],
+    qaStep: "questions",
+    qaCursor: 0,
+    qaCustomInput: "",
+    qaCustomInputKey: 0,
+
     apiURL,
     cliToken,
     version,
@@ -103,6 +115,12 @@ export function reducer(state: AppState, action: AppAction): AppState {
 
     case "SET_SESSION_NAME":
       return { ...state, sessionName: action.sessionName };
+
+    case "APPLY_SESSION_TITLE":
+      if (!action.sessionId || action.sessionId !== state.sessionId || !action.title.trim()) {
+        return state;
+      }
+      return { ...state, sessionName: action.title };
 
     case "SET_MODEL":
       return { ...state, modelId: action.modelId, modelName: action.modelName };
@@ -175,6 +193,7 @@ export function reducer(state: AppState, action: AppAction): AppState {
           ...prev,
           ...nextEntry,
           subagentStream: nextEntry.subagentStream ?? prev.subagentStream,
+          subagentThinking: nextEntry.subagentThinking ?? prev.subagentThinking,
         };
       }
       return { ...state, timeline: entries };
@@ -365,6 +384,9 @@ export function reducer(state: AppState, action: AppAction): AppState {
     case "SET_THINKING_LEVEL":
       return { ...state, thinkingLevel: action.level };
 
+    case "SET_SUBAGENT_MODEL":
+      return { ...state, subagentModelId: action.modelId, subagentModelName: action.modelName };
+
     case "LOAD_HISTORY":
       return {
         ...state,
@@ -376,6 +398,23 @@ export function reducer(state: AppState, action: AppAction): AppState {
 
     case "THINKING_START":
       {
+        if (action.parentToolCallId && action.subagentRunId) {
+          const entries = [...state.timeline];
+          const idx = entries.findIndex(
+            (entry) => entry.kind === "tool" && entry.toolCallId === action.parentToolCallId,
+          );
+          if (idx === -1) return state;
+          const prev = entries[idx];
+          entries[idx] = {
+            ...prev,
+            subagentThinking: {
+              content: prev.subagentThinking?.content || "",
+              thinkingDone: false,
+              thinkingStartedAt: action.startedAt ?? Date.now(),
+            },
+          };
+          return { ...state, timeline: entries };
+        }
         const entries = [...state.timeline];
         if (state.liveAssistant.trim()) {
           entries.push({ kind: "assistant", content: state.liveAssistant });
@@ -394,6 +433,24 @@ export function reducer(state: AppState, action: AppAction): AppState {
       }
 
     case "THINKING_CHUNK": {
+      if (action.parentToolCallId && action.subagentRunId) {
+        const entries = [...state.timeline];
+        const idx = entries.findIndex(
+          (entry) => entry.kind === "tool" && entry.toolCallId === action.parentToolCallId,
+        );
+        if (idx === -1) return state;
+        const prev = entries[idx];
+        const thinking = prev.subagentThinking ?? { content: "", thinkingDone: false, thinkingStartedAt: Date.now() };
+        entries[idx] = {
+          ...prev,
+          subagentThinking: {
+            ...thinking,
+            content: thinking.content + action.chunk,
+            thinkingDone: false,
+          },
+        };
+        return { ...state, timeline: entries };
+      }
       const entries = [...state.timeline];
       for (let i = entries.length - 1; i >= 0; i--) {
         if (entries[i].kind === "thinking" && !entries[i].thinkingDone) {
@@ -405,6 +462,27 @@ export function reducer(state: AppState, action: AppAction): AppState {
     }
 
     case "THINKING_DONE": {
+      if (action.parentToolCallId && action.subagentRunId) {
+        const entries = [...state.timeline];
+        const idx = entries.findIndex(
+          (entry) => entry.kind === "tool" && entry.toolCallId === action.parentToolCallId,
+        );
+        if (idx === -1 || !entries[idx].subagentThinking) return state;
+        const prev = entries[idx];
+        const startedAt = prev.subagentThinking?.thinkingStartedAt;
+        entries[idx] = {
+          ...prev,
+          subagentThinking: {
+            ...prev.subagentThinking,
+            content: prev.subagentThinking.content,
+            thinkingDone: true,
+            thinkingDurationMs: startedAt !== undefined
+              ? Math.max(0, (action.finishedAt ?? Date.now()) - startedAt)
+              : prev.subagentThinking.thinkingDurationMs,
+          },
+        };
+        return { ...state, timeline: entries };
+      }
       const entries = [...state.timeline];
       for (let i = entries.length - 1; i >= 0; i--) {
         if (entries[i].kind === "thinking" && !entries[i].thinkingDone) {
@@ -466,6 +544,23 @@ export function reducer(state: AppState, action: AppAction): AppState {
       return { ...state, timeline: entries, liveAssistant: "", planGenerating: true };
     }
 
+    case "PLAN_CHUNK": {
+      if (action.chunk === "") {
+        return state;
+      }
+      const entries = [...state.timeline];
+      if (!state.planGenerating && state.liveAssistant.trim()) {
+        entries.push({ kind: "assistant", content: state.liveAssistant });
+      }
+      return {
+        ...state,
+        timeline: entries,
+        liveAssistant: "",
+        planGenerating: true,
+        planReceived: false,
+      };
+    }
+
     case "PLAN_BODY": {
       const entries = [...state.timeline];
       if (state.liveAssistant.trim()) {
@@ -474,6 +569,83 @@ export function reducer(state: AppState, action: AppAction): AppState {
       entries.push({ kind: "plan", content: action.planBody });
       return { ...state, timeline: entries, liveAssistant: "", planGenerating: false, planReceived: true };
     }
+
+    case "SET_QA": {
+      const answers = action.questions.map((q) => ({
+        questionId: q.id,
+        selectedOption: -1,
+        customAnswer: "",
+      }));
+      return {
+        ...state,
+        view: "question-answer",
+        qaToolCallId: action.toolCallId,
+        qaQuestions: action.questions,
+        qaCurrentIndex: 0,
+        qaAnswers: answers,
+        qaStep: "questions",
+        qaCursor: 0,
+        qaCustomInput: "",
+        qaCustomInputKey: 0,
+      };
+    }
+
+    case "QA_NAV": {
+      const q = state.qaQuestions[state.qaCurrentIndex];
+      const maxIdx = q ? q.options.length : 0; // options + custom
+      return {
+        ...state,
+        qaCursor: Math.max(0, Math.min(state.qaCursor + action.delta, maxIdx)),
+      };
+    }
+
+    case "QA_SELECT": {
+      const answers = [...state.qaAnswers];
+      answers[state.qaCurrentIndex] = {
+        ...answers[state.qaCurrentIndex],
+        selectedOption: action.optionIndex,
+        customAnswer: "",
+      };
+      return { ...state, qaAnswers: answers, qaCustomInput: "" };
+    }
+
+    case "QA_SET_CUSTOM_INPUT":
+      return { ...state, qaCustomInput: action.value };
+
+    case "QA_NEXT_QUESTION": {
+      const nextIdx = state.qaCurrentIndex + 1;
+      if (nextIdx >= state.qaQuestions.length) {
+        return { ...state, qaStep: "confirm", qaCursor: 0 };
+      }
+      return { ...state, qaCurrentIndex: nextIdx, qaCursor: 0, qaCustomInput: "" };
+    }
+
+    case "QA_PREV_QUESTION": {
+      if (state.qaCurrentIndex <= 0) return state;
+      return { ...state, qaCurrentIndex: state.qaCurrentIndex - 1, qaCursor: 0, qaCustomInput: "" };
+    }
+
+    case "QA_STEP_CONFIRM":
+      return { ...state, qaStep: "confirm", qaCursor: 0 };
+
+    case "QA_STEP_BACK":
+      return { ...state, qaStep: "questions", qaCursor: 0 };
+
+    case "QA_CONFIRM_NAV":
+      return { ...state, qaCursor: Math.max(0, Math.min(state.qaCursor + action.delta, 1)) };
+
+    case "CLEAR_QA":
+      return {
+        ...state,
+        view: "chat",
+        qaToolCallId: "",
+        qaQuestions: [],
+        qaCurrentIndex: 0,
+        qaAnswers: [],
+        qaStep: "questions",
+        qaCursor: 0,
+        qaCustomInput: "",
+      };
 
     case "FLUSH_AND_WAIT": {
       const entries = [...state.timeline];

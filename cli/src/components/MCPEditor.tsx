@@ -82,7 +82,7 @@ export function MCPEditor({
       </Box>
 
       <Text color="gray">
-        Tab switch focus | Ctrl+E enable/disable | Ctrl+S save | Esc return
+        Tab to switch focus | Ctrl+E to enable/disable | Ctrl+S to save | Esc to return
       </Text>
     </Box>
   );

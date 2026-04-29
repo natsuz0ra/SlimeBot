@@ -19,8 +19,6 @@ import (
 	"slimebot/internal/tools"
 )
 
-const balancedTemperature = 1.0
-
 // ApprovalRequest is sent to the client for tool-call approval.
 type ApprovalRequest struct {
 	ToolCallID       string            `json:"toolCallId"`
@@ -37,6 +35,7 @@ type ApprovalRequest struct {
 type ApprovalResponse struct {
 	ToolCallID string `json:"toolCallId"`
 	Approved   bool   `json:"approved"`
+	Answers    string `json:"answers,omitempty"` // JSON-encoded answers for ask_questions tool
 }
 
 // ToolCallResult is pushed to the client after tool execution.
@@ -52,6 +51,11 @@ type ToolCallResult struct {
 	SubagentRunID    string `json:"subagentRunId,omitempty"`
 }
 
+type ThinkingEventMeta struct {
+	ParentToolCallID string
+	SubagentRunID    string
+}
+
 // AgentCallbacks wires the agent loop to the outside world (streaming, approval, results).
 type AgentCallbacks struct {
 	OnChunk          func(chunk string) error                                                // stream text chunks to the client
@@ -61,9 +65,9 @@ type AgentCallbacks struct {
 	OnSubagentStart  func(parentToolCallID, runID, task string) error
 	OnSubagentChunk  func(parentToolCallID, runID, chunk string) error
 	OnSubagentDone   func(parentToolCallID, runID string, runErr error) error
-	OnThinkingStart  func() error
-	OnThinkingChunk  func(chunk string) error
-	OnThinkingDone   func() error
+	OnThinkingStart  func(meta ThinkingEventMeta) error
+	OnThinkingChunk  func(chunk string, meta ThinkingEventMeta) error
+	OnThinkingDone   func(meta ThinkingEventMeta) error
 	OnPlanStart      func() error                  // plan writing phase has begun
 	OnPlanChunk      func(chunk string) error      // stream plan body chunk to the client (plan mode only)
 	OnPlanBody       func(planBody string) error   // send complete plan body (non-streaming, plan mode only)
@@ -72,11 +76,12 @@ type AgentCallbacks struct {
 
 // AgentLoopOptions configures nested agent execution.
 type AgentLoopOptions struct {
-	Depth        int
-	ApprovalMode string
-	PlanMode     bool
-	PlanStarted  *bool // set to true when plan_start tool is called
-	PlanComplete *bool // set to true when plan_complete tool is called
+	Depth           int
+	ApprovalMode    string
+	PlanMode        bool
+	PlanStarted     *bool  // set to true when plan_start tool is called
+	PlanComplete    *bool  // set to true when plan_complete tool is called
+	SubagentModelID string // user-selected subagent model override (empty = inherit)
 }
 
 // AgentService runs the LLM loop with tools, approvals, and MCP/skill loading.
@@ -165,21 +170,17 @@ func BuildToolDefs() []llmsvc.ToolDef {
 func buildRunSubagentToolDef() llmsvc.ToolDef {
 	return llmsvc.ToolDef{
 		Name:        constants.RunSubagentTool,
-		Description: "[subagent] Delegate a focused sub-task to a nested agent with isolated context (no chat history). Use for self-contained work (research, multi-step tool use). Compress any parent state into `context` when needed.",
+		Description: "[subagent] Delegate bounded, concise, independent sub-tasks to a nested agent with isolated context (no chat history). Prefer this only when separate focused research, codebase inspection, validation, or summarization has a clear stopping point. The parent agent remains responsible for integrating the result.",
 		Parameters: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
 				"task": map[string]any{
 					"type":        "string",
-					"description": "Concrete task for the sub-agent to complete.",
+					"description": "Concrete self-contained task for the sub-agent, including the expected deliverable and boundaries.",
 				},
 				"context": map[string]any{
 					"type":        "string",
-					"description": "Optional short background from the main assistant.",
-				},
-				"model_id": map[string]any{
-					"type":        "string",
-					"description": "Optional LLM config id for the sub-agent; omit to inherit the current model.",
+					"description": "Optional compressed background from the main assistant; include only state the isolated sub-agent needs.",
 				},
 			},
 			"required": []string{"task"},
@@ -359,8 +360,6 @@ func (a *AgentService) RunAgentLoop(
 	callbacks AgentCallbacks,
 	opts AgentLoopOptions,
 ) (string, error) {
-	modelConfig.Temperature = balancedTemperature
-
 	toolDefs, mcpToolMeta, err := a.buildRuntimeToolDefs(ctx, mcpConfigs, opts.Depth)
 	if err != nil {
 		return "", fmt.Errorf("failed to load MCP tools: %w", err)
@@ -381,23 +380,23 @@ func (a *AgentService) RunAgentLoop(
 
 	provider := a.providerFactory.GetProvider(modelConfig.Provider)
 
-	maxIter := constants.AgentMaxIterations
-	if opts.Depth > 0 {
-		maxIter = constants.SubagentMaxIterations
-	}
+	for i := 0; ; i++ {
+		if opts.Depth == 0 && i >= constants.AgentMaxIterations {
+			return finalAnswer.String(), fmt.Errorf("agent loop reached max iterations (%d)", constants.AgentMaxIterations)
+		}
 
-	for i := 0; i < maxIter; i++ {
 		logging.Info("agent_iteration", "iteration", i+1, "messages", len(messages), "agent_depth", opts.Depth)
 
 		var chunkBuf strings.Builder
 		var thinkingStarted bool
 		var thinkingDone bool
+		thinkingMeta := ThinkingEventMeta{}
 		finishThinking := func() error {
 			if !thinkingStarted || thinkingDone || callbacks.OnThinkingDone == nil {
 				thinkingDone = thinkingStarted
 				return nil
 			}
-			if err := callbacks.OnThinkingDone(); err != nil {
+			if err := callbacks.OnThinkingDone(thinkingMeta); err != nil {
 				return err
 			}
 			thinkingDone = true
@@ -420,7 +419,7 @@ func (a *AgentService) RunAgentLoop(
 				if !thinkingStarted {
 					thinkingStarted = true
 					if callbacks.OnThinkingStart != nil {
-						if err := callbacks.OnThinkingStart(); err != nil {
+						if err := callbacks.OnThinkingStart(thinkingMeta); err != nil {
 							return err
 						}
 					}
@@ -428,7 +427,7 @@ func (a *AgentService) RunAgentLoop(
 				if callbacks.OnThinkingChunk == nil {
 					return nil
 				}
-				return callbacks.OnThinkingChunk(thinkingChunk)
+				return callbacks.OnThinkingChunk(thinkingChunk, thinkingMeta)
 			},
 		})
 		if err != nil {
@@ -504,7 +503,7 @@ func (a *AgentService) RunAgentLoop(
 			}
 
 			if tc.Name == constants.RunSubagentTool {
-				if err := a.handleRunSubagentTool(ctx, modelConfig, sessionID, mcpConfigs, activatedSkills, callbacks, opts, tc, invocation, params, "", &messages); err != nil {
+				if err := a.handleRunSubagentTool(ctx, modelConfig, sessionID, mcpConfigs, activatedSkills, callbacks, opts, tc, invocation, params, opts.SubagentModelID, "", &messages); err != nil {
 					return "", err
 				}
 				continue
@@ -522,9 +521,24 @@ func (a *AgentService) RunAgentLoop(
 				}
 			}
 
-			approved, rejectionMessage := waitApprovalIfNeeded(ctx, callbacks, tc, invocation, params, "")
+			approved, rejectionMessage, answers := waitApprovalIfNeeded(ctx, callbacks, tc, invocation, params, "")
 			if !approved {
 				messages = appendToolMessage(messages, tc.ID, rejectionMessage)
+				continue
+			}
+
+			// ask_questions tool: use answers from approval directly, skip executeInvocation.
+			if invocation.toolName == constants.AskQuestionsTool {
+				formattedAnswers := formatAskQuestionsAnswers(params["questions"], answers)
+				notifyToolResult(callbacks, ToolCallResult{
+					ToolCallID:       tc.ID,
+					ToolName:         invocation.toolName,
+					Command:          invocation.command,
+					RequiresApproval: invocation.requiresApproval,
+					Status:           constants.ToolCallStatusCompleted,
+					Output:           formattedAnswers,
+				})
+				messages = appendToolMessage(messages, tc.ID, "User answers:\n"+formattedAnswers)
 				continue
 			}
 
@@ -550,14 +564,14 @@ func (a *AgentService) RunAgentLoop(
 		}
 	}
 
-	return finalAnswer.String(), fmt.Errorf("agent loop reached max iterations (%d)", maxIter)
+	return finalAnswer.String(), nil
 }
 
 // isPlanModeAllowedTool returns true if the tool function name is allowed in plan mode.
 func isPlanModeAllowedTool(funcName string) bool {
 	// Handle tools without __ separator (e.g. search_memory, plan_start).
 	switch funcName {
-	case "search_memory", "plan_start":
+	case "search_memory", "plan_start", constants.RunSubagentTool:
 		return true
 	}
 	// Handle tools with __ separator (e.g. web_search__search, plan_complete__submit).
@@ -652,9 +666,12 @@ func executeToolCall(ctx context.Context, toolName, command string, params map[s
 	return result
 }
 
-// requiresToolApproval defines which tools need user approval (currently exec only).
-// When approvalMode is "auto", all tools skip approval.
+// requiresToolApproval defines which tools need user approval.
+// When approvalMode is "auto", all tools skip approval except ask_questions (which always needs user interaction).
 func requiresToolApproval(toolName string, isMCP bool, approvalMode string) bool {
+	if toolName == constants.AskQuestionsTool {
+		return true
+	}
 	if approvalMode == constants.ApprovalModeAuto {
 		return false
 	}
@@ -670,4 +687,56 @@ func appendToolMessage(messages []llmsvc.ChatMessage, toolCallID string, content
 		ToolCallID: toolCallID,
 		Content:    content,
 	})
+}
+
+func formatAskQuestionsAnswers(questionsJSON string, answersJSON string) string {
+	type qItem struct {
+		ID       string   `json:"id"`
+		Question string   `json:"question"`
+		Options  []string `json:"options"`
+	}
+	type answer struct {
+		QuestionID     string `json:"questionId"`
+		SelectedOption int    `json:"selectedOption"`
+		CustomAnswer   string `json:"customAnswer"`
+	}
+	type readableAnswer struct {
+		ID       string `json:"id"`
+		Question string `json:"question"`
+		Answer   string `json:"answer"`
+	}
+
+	var questions []qItem
+	if err := json.Unmarshal([]byte(questionsJSON), &questions); err != nil {
+		return answersJSON
+	}
+	var answers []answer
+	if err := json.Unmarshal([]byte(answersJSON), &answers); err != nil {
+		return answersJSON
+	}
+
+	qMap := make(map[string]qItem, len(questions))
+	for _, q := range questions {
+		qMap[q.ID] = q
+	}
+
+	result := make([]readableAnswer, 0, len(answers))
+	for _, a := range answers {
+		q, ok := qMap[a.QuestionID]
+		if !ok {
+			result = append(result, readableAnswer{ID: a.QuestionID, Question: "(unknown)", Answer: a.CustomAnswer})
+			continue
+		}
+		ansText := a.CustomAnswer
+		if a.SelectedOption >= 0 && a.SelectedOption < len(q.Options) {
+			ansText = q.Options[a.SelectedOption]
+		}
+		result = append(result, readableAnswer{ID: q.ID, Question: q.Question, Answer: ansText})
+	}
+
+	b, err := json.Marshal(result)
+	if err != nil {
+		return answersJSON
+	}
+	return string(b)
 }

@@ -6,10 +6,17 @@
 import WebSocket from "ws";
 import type { SubagentChunkData, ToolCallStartData, ToolCallResultData } from "../types.js";
 
+export interface ThinkingEventData {
+  content?: string;
+  parentToolCallId?: string;
+  subagentRunId?: string;
+}
+
 export interface WSHandlers {
   onSession: (sessionId: string) => void;
   onStart: (sessionId?: string) => void;
   onChunk: (chunk: string, sessionId?: string) => void;
+  onSessionTitle?: (title: string, sessionId?: string) => void;
   onDone: (
     sessionId?: string,
     meta?: { isInterrupted?: boolean; isStopPlaceholder?: boolean; planId?: string; planBody?: string; narration?: string },
@@ -18,10 +25,11 @@ export interface WSHandlers {
   onToolCallStart?: (data: ToolCallStartData, sessionId?: string) => void;
   onToolCallResult?: (data: ToolCallResultData, sessionId?: string) => void;
   onSubagentChunk?: (data: SubagentChunkData, sessionId?: string) => void;
-  onThinkingStart?: () => void;
-  onThinkingChunk?: (chunk: string) => void;
-  onThinkingDone?: () => void;
+  onThinkingStart?: (data: ThinkingEventData) => void;
+  onThinkingChunk?: (data: ThinkingEventData) => void;
+  onThinkingDone?: (data: ThinkingEventData) => void;
   onPlanBody?: (content: string, sessionId?: string) => void;
+  onPlanChunk?: (chunk: string, sessionId?: string) => void;
   onPlanStart?: () => void;
 }
 
@@ -73,95 +81,7 @@ export class CLISocket {
     });
 
     this.ws.on("message", (data: WebSocket.Data) => {
-      let msg: WSIncoming;
-      try {
-        msg = JSON.parse(data.toString()) as WSIncoming;
-      } catch {
-        return;
-      }
-
-      if (msg.type === "pong") return;
-
-      if (msg.type === "session" && msg.sessionId)
-        this.handlers?.onSession(msg.sessionId);
-      if (msg.type === "start") this.handlers?.onStart(msg.sessionId);
-      if (msg.type === "chunk")
-        this.handlers?.onChunk(msg.content || "", msg.sessionId);
-      if (msg.type === "session_title") {
-        // Title update - no action needed for CLI
-      }
-      if (msg.type === "done") {
-        this.handlers?.onDone(msg.sessionId, {
-          isInterrupted: msg.isInterrupted,
-          isStopPlaceholder: msg.isStopPlaceholder,
-          planId: msg.planId,
-          planBody: msg.planBody,
-          narration: msg.narration,
-        });
-      }
-      if (msg.type === "error")
-        this.handlers?.onError(msg.error || "unknown error", msg.sessionId);
-
-      if (msg.type === "tool_call_start") {
-        this.handlers?.onToolCallStart?.(
-          {
-            toolCallId: msg.toolCallId || "",
-            toolName: msg.toolName || "",
-            command: msg.command || "",
-            params: msg.params || {},
-            requiresApproval: !!msg.requiresApproval,
-            preamble: msg.preamble || "",
-            parentToolCallId: msg.parentToolCallId,
-            subagentRunId: msg.subagentRunId,
-          },
-          msg.sessionId,
-        );
-      }
-
-      if (msg.type === "tool_call_result") {
-        this.handlers?.onToolCallResult?.(
-          {
-            toolCallId: msg.toolCallId || "",
-            toolName: msg.toolName || "",
-            command: msg.command || "",
-            requiresApproval: !!msg.requiresApproval,
-            status: (msg.status as ToolCallResultData["status"]) || "completed",
-            output: msg.output || "",
-            error: msg.error || "",
-            parentToolCallId: msg.parentToolCallId,
-            subagentRunId: msg.subagentRunId,
-          },
-          msg.sessionId,
-        );
-      }
-
-      if (msg.type === "subagent_chunk") {
-        this.handlers?.onSubagentChunk?.(
-          {
-            parentToolCallId: msg.parentToolCallId || "",
-            subagentRunId: msg.subagentRunId || "",
-            content: msg.content || "",
-          },
-          msg.sessionId,
-        );
-      }
-
-      if (msg.type === "thinking_start") {
-        this.handlers?.onThinkingStart?.();
-      }
-      if (msg.type === "thinking_chunk") {
-        this.handlers?.onThinkingChunk?.(msg.content || "");
-      }
-      if (msg.type === "thinking_done") {
-        this.handlers?.onThinkingDone?.();
-      }
-
-      if (msg.type === "plan_body") {
-        this.handlers?.onPlanBody?.(msg.content || "", msg.sessionId);
-      }
-      if (msg.type === "plan_start") {
-        this.handlers?.onPlanStart?.();
-      }
+      dispatchWSMessage(data.toString(), this.handlers);
     });
 
     this.ws.on("error", () => {
@@ -173,7 +93,7 @@ export class CLISocket {
     });
   }
 
-  send(content: string, sessionId: string, modelId: string, thinkingLevel: string = "off", planMode: boolean = false): boolean {
+  send(content: string, sessionId: string, modelId: string, thinkingLevel: string = "off", planMode: boolean = false, subagentModelId: string = ""): boolean {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return false;
     this.ws.send(
       JSON.stringify({
@@ -184,6 +104,7 @@ export class CLISocket {
         attachmentIds: [],
         thinkingLevel,
         planMode,
+        subagentModelId,
       }),
     );
     return true;
@@ -195,11 +116,11 @@ export class CLISocket {
     return true;
   }
 
-  sendToolApproval(toolCallId: string, approved: boolean): boolean {
+  sendToolApproval(toolCallId: string, approved: boolean, answers?: string): boolean {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return false;
-    this.ws.send(
-      JSON.stringify({ type: "tool_approve", toolCallId, approved }),
-    );
+    const payload: Record<string, unknown> = { type: "tool_approve", toolCallId, approved };
+    if (answers) payload.answers = answers;
+    this.ws.send(JSON.stringify(payload));
     return true;
   }
 
@@ -249,5 +170,110 @@ export class CLISocket {
       clearInterval(this.heartbeatTimer);
       this.heartbeatTimer = null;
     }
+  }
+}
+
+export function dispatchWSMessage(raw: string, handlers: WSHandlers | null): void {
+  let msg: WSIncoming;
+  try {
+    msg = JSON.parse(raw) as WSIncoming;
+  } catch {
+    return;
+  }
+
+  if (msg.type === "pong") return;
+
+  if (msg.type === "session" && msg.sessionId)
+    handlers?.onSession(msg.sessionId);
+  if (msg.type === "start") handlers?.onStart(msg.sessionId);
+  if (msg.type === "chunk")
+    handlers?.onChunk(msg.content || "", msg.sessionId);
+  if (msg.type === "session_title") {
+    handlers?.onSessionTitle?.(msg.title || "", msg.sessionId);
+  }
+  if (msg.type === "done") {
+    handlers?.onDone(msg.sessionId, {
+      isInterrupted: msg.isInterrupted,
+      isStopPlaceholder: msg.isStopPlaceholder,
+      planId: msg.planId,
+      planBody: msg.planBody,
+      narration: msg.narration,
+    });
+  }
+  if (msg.type === "error")
+    handlers?.onError(msg.error || "unknown error", msg.sessionId);
+
+  if (msg.type === "tool_call_start") {
+    handlers?.onToolCallStart?.(
+      {
+        toolCallId: msg.toolCallId || "",
+        toolName: msg.toolName || "",
+        command: msg.command || "",
+        params: msg.params || {},
+        requiresApproval: !!msg.requiresApproval,
+        preamble: msg.preamble || "",
+        parentToolCallId: msg.parentToolCallId,
+        subagentRunId: msg.subagentRunId,
+      },
+      msg.sessionId,
+    );
+  }
+
+  if (msg.type === "tool_call_result") {
+    handlers?.onToolCallResult?.(
+      {
+        toolCallId: msg.toolCallId || "",
+        toolName: msg.toolName || "",
+        command: msg.command || "",
+        requiresApproval: !!msg.requiresApproval,
+        status: (msg.status as ToolCallResultData["status"]) || "completed",
+        output: msg.output || "",
+        error: msg.error || "",
+        parentToolCallId: msg.parentToolCallId,
+        subagentRunId: msg.subagentRunId,
+      },
+      msg.sessionId,
+    );
+  }
+
+  if (msg.type === "subagent_chunk") {
+    handlers?.onSubagentChunk?.(
+      {
+        parentToolCallId: msg.parentToolCallId || "",
+        subagentRunId: msg.subagentRunId || "",
+        content: msg.content || "",
+      },
+      msg.sessionId,
+    );
+  }
+
+  if (msg.type === "thinking_start") {
+    handlers?.onThinkingStart?.({
+      parentToolCallId: msg.parentToolCallId,
+      subagentRunId: msg.subagentRunId,
+    });
+  }
+  if (msg.type === "thinking_chunk") {
+    handlers?.onThinkingChunk?.({
+      content: msg.content || "",
+      parentToolCallId: msg.parentToolCallId,
+      subagentRunId: msg.subagentRunId,
+    });
+  }
+  if (msg.type === "thinking_done") {
+    handlers?.onThinkingDone?.({
+      parentToolCallId: msg.parentToolCallId,
+      subagentRunId: msg.subagentRunId,
+    });
+  }
+
+  if (msg.type === "plan_body") {
+    handlers?.onPlanBody?.(msg.content || "", msg.sessionId);
+  }
+  if (msg.type === "plan_chunk") {
+    handlers?.onPlanChunk?.(msg.content || "", msg.sessionId);
+  }
+  if (msg.type === "plan_start") {
+    handlers?.onPlanStart?.();
   }
 }

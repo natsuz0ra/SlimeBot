@@ -118,6 +118,9 @@ func (r *Repository) AddMessageWithInput(ctx context.Context, input domain.AddMe
 		AttachmentsJSON:   encodeMessageAttachments(input.Attachments),
 		Attachments:       input.Attachments,
 	}
+	if !input.CreatedAt.IsZero() {
+		message.CreatedAt = input.CreatedAt
+	}
 	err := r.dbWithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		var last domain.Message
 		if err := tx.Model(&domain.Message{}).

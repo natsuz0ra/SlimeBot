@@ -9,10 +9,14 @@ export interface ChatMessageContext {
   getReplyToolCount: (messageId: string) => number
   getReplyToolSummary: (messageId: string) => string
   getReplyTimeline: (messageId: string) => ReplyTimelineEntry[]
+  getVisibleReplyTimeline: (messageId: string) => ReplyTimelineEntry[]
   getReplyToolItem: (messageId: string, toolCallId: string) => ToolCallItem | undefined
   getSubagentChildTools: (messageId: string, parentToolCallId: string) => ToolCallItem[]
   shouldShowInlineToolCall: (messageId: string, toolCallId: string) => boolean
   isReplyToolCollapsed: (messageId: string) => boolean
+  toggleReplyCollapsed: (messageId: string) => void
+  getReplyElapsedMs: (messageId: string) => number | undefined
+  shouldShowReplyCollapseBar: (messageId: string) => boolean
   isEmptyPlaceholder: (messageId: string) => boolean
   openToolDetail: (messageId: string) => void
   approveToolCall: (toolCallId: string, approved: boolean) => void

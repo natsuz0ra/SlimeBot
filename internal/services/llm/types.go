@@ -30,6 +30,19 @@ type ChatMessage struct {
 	ToolCallID   string                   `json:"toolCallId,omitempty"`
 	// ToolCalls is set when role=assistant and the model requested tools.
 	ToolCalls []ToolCallInfo `json:"toolCalls,omitempty"`
+	// ThinkingBlocks carries Anthropic thinking blocks that must be passed back
+	// when a thinking-enabled assistant turn requests tools.
+	ThinkingBlocks []ThinkingBlockInfo `json:"thinkingBlocks,omitempty"`
+	// ReasoningContent carries thinking/reasoning output from providers like DeepSeek.
+	// Must be passed back in multi-turn agent loops to avoid API errors.
+	ReasoningContent string `json:"reasoningContent,omitempty"`
+}
+
+// ThinkingBlockInfo describes one Anthropic thinking content block.
+type ThinkingBlockInfo struct {
+	Thinking     string `json:"thinking,omitempty"`
+	Signature    string `json:"signature,omitempty"`
+	RedactedData string `json:"redactedData,omitempty"`
 }
 
 // ChatMessageContentPartType enumerates multimodal part kinds.

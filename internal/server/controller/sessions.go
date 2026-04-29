@@ -16,10 +16,11 @@ import (
 )
 
 type sessionMessagesResponse struct {
-	Messages                      []domain.Message                    `json:"messages"`
-	ToolCallsByAssistantMessageID map[string][]sessionToolCallHistory `json:"toolCallsByAssistantMessageId"`
-	ThinkingByAssistantMessageID  map[string][]sessionThinkingHistory `json:"thinkingByAssistantMessageId"`
-	HasMore                       bool                                `json:"hasMore"`
+	Messages                        []domain.Message                    `json:"messages"`
+	ToolCallsByAssistantMessageID   map[string][]sessionToolCallHistory `json:"toolCallsByAssistantMessageId"`
+	ThinkingByAssistantMessageID    map[string][]sessionThinkingHistory `json:"thinkingByAssistantMessageId"`
+	ReplyTimingByAssistantMessageID map[string]sessionReplyTiming       `json:"replyTimingByAssistantMessageId"`
+	HasMore                         bool                                `json:"hasMore"`
 }
 
 type sessionToolCallHistory struct {
@@ -38,12 +39,24 @@ type sessionToolCallHistory struct {
 }
 
 type sessionThinkingHistory struct {
-	ThinkingID string `json:"thinkingId"`
-	Content    string `json:"content"`
-	Status     string `json:"status"`
+	ThinkingID       string `json:"thinkingId"`
+	ParentToolCallID string `json:"parentToolCallId,omitempty"`
+	SubagentRunID    string `json:"subagentRunId,omitempty"`
+	Content          string `json:"content"`
+	Status           string `json:"status"`
+	StartedAt        string `json:"startedAt"`
+	FinishedAt       string `json:"finishedAt,omitempty"`
+	DurationMs       int64  `json:"durationMs"`
+}
+
+type sessionReplyTiming struct {
 	StartedAt  string `json:"startedAt"`
-	FinishedAt string `json:"finishedAt,omitempty"`
+	FinishedAt string `json:"finishedAt"`
 	DurationMs int64  `json:"durationMs"`
+}
+
+func formatSessionHistoryTime(value time.Time) string {
+	return value.Format("2006-01-02T15:04:05.000Z07:00")
 }
 
 // parseToolCallParams parses tool_call params JSON; on error returns empty map to avoid client crashes.
@@ -277,22 +290,48 @@ func (h *HTTPController) ListMessages(c WebContext) {
 			continue
 		}
 		item := sessionThinkingHistory{
-			ThinkingID: record.ThinkingID,
-			Content:    record.Content,
-			Status:     record.Status,
-			StartedAt:  record.StartedAt.Format("2006-01-02T15:04:05.000Z07:00"),
-			DurationMs: record.DurationMs,
+			ThinkingID:       record.ThinkingID,
+			ParentToolCallID: record.ParentToolCallID,
+			SubagentRunID:    record.SubagentRunID,
+			Content:          record.Content,
+			Status:           record.Status,
+			StartedAt:        record.StartedAt.Format("2006-01-02T15:04:05.000Z07:00"),
+			DurationMs:       record.DurationMs,
 		}
 		if record.FinishedAt != nil {
 			item.FinishedAt = record.FinishedAt.Format("2006-01-02T15:04:05.000Z07:00")
 		}
 		thinkingByAssistantMessageID[key] = append(thinkingByAssistantMessageID[key], item)
 	}
+	replyTimingByAssistantMessageID := make(map[string]sessionReplyTiming)
+	var previousUser *domain.Message
+	for idx := range messages {
+		message := messages[idx]
+		switch message.Role {
+		case "user":
+			previousUser = &messages[idx]
+		case "assistant":
+			if previousUser == nil {
+				continue
+			}
+			durationMs := message.CreatedAt.Sub(previousUser.CreatedAt).Milliseconds()
+			if durationMs < 0 {
+				durationMs = 0
+			}
+			replyTimingByAssistantMessageID[message.ID] = sessionReplyTiming{
+				StartedAt:  formatSessionHistoryTime(previousUser.CreatedAt),
+				FinishedAt: formatSessionHistoryTime(message.CreatedAt),
+				DurationMs: durationMs,
+			}
+			previousUser = nil
+		}
+	}
 	c.JSON(http.StatusOK, sessionMessagesResponse{
-		Messages:                      messages,
-		ToolCallsByAssistantMessageID: toolCallsByAssistantMessageID,
-		ThinkingByAssistantMessageID:  thinkingByAssistantMessageID,
-		HasMore:                       hasMore,
+		Messages:                        messages,
+		ToolCallsByAssistantMessageID:   toolCallsByAssistantMessageID,
+		ThinkingByAssistantMessageID:    thinkingByAssistantMessageID,
+		ReplyTimingByAssistantMessageID: replyTimingByAssistantMessageID,
+		HasMore:                         hasMore,
 	})
 	logging.Span("http_list_messages", listStart)
 }

@@ -12,6 +12,7 @@ type AddMessageInput struct {
 	IsInterrupted     bool
 	IsStopPlaceholder bool
 	Attachments       []MessageAttachment
+	CreatedAt         time.Time
 }
 
 type ToolCallStartRecordInput struct {
@@ -39,10 +40,12 @@ type ToolCallResultRecordInput struct {
 }
 
 type ThinkingStartRecordInput struct {
-	SessionID  string
-	RequestID  string
-	ThinkingID string
-	StartedAt  time.Time
+	SessionID        string
+	RequestID        string
+	ThinkingID       string
+	ParentToolCallID string
+	SubagentRunID    string
+	StartedAt        time.Time
 }
 
 type ThinkingChunkRecordInput struct {

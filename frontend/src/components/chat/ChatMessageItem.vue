@@ -52,7 +52,7 @@ function attachmentIcon(iconType?: string, category?: string) {
 
 <template>
   <div
-    class="flex message-animate"
+    class="flex min-w-0 message-animate"
     :class="[
       item.role === 'assistant' ? 'gap-2' : 'gap-3',
       item.role === 'user' ? 'flex-row-reverse' : 'flex-row',
@@ -81,7 +81,7 @@ function attachmentIcon(iconType?: string, category?: string) {
     </div>
 
     <div
-      class="text-sm leading-relaxed"
+      class="min-w-0 text-sm leading-relaxed"
       :class="[
         item.role === 'user'
           ? [
@@ -120,7 +120,7 @@ function attachmentIcon(iconType?: string, category?: string) {
             </div>
           </div>
         </div>
-        <div v-if="item.content !== ''">{{ item.content }}</div>
+        <div v-if="item.content !== ''" class="user-message-content">{{ item.content }}</div>
       </template>
     </div>
   </div>

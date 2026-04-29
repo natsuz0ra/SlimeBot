@@ -24,6 +24,7 @@ func (a *AgentService) handleRunSubagentTool(
 	tc llmsvc.ToolCallInfo,
 	invocation resolvedToolInvocation,
 	params map[string]string,
+	userSubagentModelID string,
 	preamble string,
 	messages *[]llmsvc.ChatMessage,
 ) error {
@@ -55,19 +56,21 @@ func (a *AgentService) handleRunSubagentTool(
 		}
 	}
 
-	approved, rejectionMessage := waitApprovalIfNeeded(ctx, callbacks, tc, invocation, params, preamble)
+	approved, rejectionMessage, _ := waitApprovalIfNeeded(ctx, callbacks, tc, invocation, params, preamble)
 	if !approved {
 		*messages = appendToolMessage(*messages, tc.ID, rejectionMessage)
 		return nil
 	}
 
 	parentCtx := strings.TrimSpace(params["context"])
-	modelOverride := strings.TrimSpace(params["model_id"])
 	subModel := parentModel
-	if modelOverride != "" {
-		resolved, err := a.subagentHost.ResolveModelRuntimeConfig(ctx, modelOverride)
+
+	// Priority: user UI/config selection > inherit parent model. Ignore any LLM-supplied
+	// model_id argument so the model cannot invent aliases such as "fast".
+	if userOverride := strings.TrimSpace(userSubagentModelID); userOverride != "" {
+		resolved, err := a.subagentHost.ResolveModelRuntimeConfig(ctx, userOverride)
 		if err != nil {
-			msg := fmt.Sprintf("failed to resolve model_id: %s", err.Error())
+			msg := fmt.Sprintf("failed to resolve user subagent model: %s", err.Error())
 			notifyToolResult(callbacks, ToolCallResult{
 				ToolCallID:       tc.ID,
 				ToolName:         invocation.toolName,
@@ -80,6 +83,7 @@ func (a *AgentService) handleRunSubagentTool(
 			*messages = appendToolMessage(*messages, tc.ID, msg)
 			return nil
 		}
+		resolved.ThinkingLevel = parentModel.ThinkingLevel
 		subModel = resolved
 	}
 
@@ -105,7 +109,7 @@ func (a *AgentService) handleRunSubagentTool(
 	}
 
 	subCb := wrapSubagentCallbacks(callbacks, tc.ID, runID)
-	childOpts := AgentLoopOptions{Depth: opts.Depth + 1, ApprovalMode: opts.ApprovalMode}
+	childOpts := AgentLoopOptions{Depth: opts.Depth + 1, ApprovalMode: opts.ApprovalMode, PlanMode: opts.PlanMode}
 
 	answer, runErr := a.RunAgentLoop(ctx, subModel, sessionID, subMsgs, mcpConfigs, activatedSkills, subCb, childOpts)
 

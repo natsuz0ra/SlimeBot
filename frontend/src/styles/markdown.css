@@ -1,3 +1,10 @@
+.bubble-markdown {
+  max-width: 100%;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
 .bubble-markdown p { margin: 0 0 8px; }
 .bubble-markdown p:last-child { margin-bottom: 0; }
 .bubble-markdown ul, .bubble-markdown ol { margin: 0 0 8px; padding-left: 22px; }
@@ -11,6 +18,7 @@
   color: var(--text-secondary);
 }
 .bubble-markdown pre {
+  max-width: 100%;
   margin: 8px 0;
   padding: 14px 16px;
   border-radius: 10px;
@@ -18,7 +26,7 @@
   color: #c4b5fd;
   overflow-x: auto;
   white-space: pre;
-  font-size: 13px;
+  font-size: 14px;
   border: 1px solid var(--primary-alpha-20);
   scrollbar-width: thin;
   scrollbar-color: var(--scrollbar-thumb) transparent;
@@ -45,9 +53,11 @@
 .bubble-markdown pre > code { display: block; }
 .bubble-markdown code {
   font-family: var(--font-mono);
-  font-size: 0.875em;
+  font-size: 1em;
 }
 .bubble-markdown :not(pre) > code {
+  overflow-wrap: anywhere;
+  word-break: break-word;
   padding: 2px 6px;
   border-radius: 5px;
   background: var(--primary-alpha-10);
@@ -79,8 +89,23 @@
 .bubble-markdown table {
   border-collapse: collapse;
   margin: 8px 0;
-  width: 100%;
-  font-size: 13px;
+  display: block;
+  width: max-content;
+  max-width: 100%;
+  overflow-x: auto;
+  font-size: 14px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar-thumb) transparent;
+}
+.bubble-markdown table::-webkit-scrollbar {
+  height: 4px;
+}
+.bubble-markdown table::-webkit-scrollbar-track {
+  background: transparent;
+}
+.bubble-markdown table::-webkit-scrollbar-thumb {
+  background: var(--scrollbar-thumb);
+  border-radius: 4px;
 }
 .bubble-markdown th, .bubble-markdown td {
   border: 1px solid var(--primary-alpha-15);

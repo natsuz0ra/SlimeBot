@@ -6,6 +6,7 @@ import {
   mdiPencilOutline,
 } from '@mdi/js'
 
+import QuestionAnswerDrawer from '@/components/chat/QuestionAnswerDrawer.vue'
 import MdiIcon from '@/components/ui/MdiIcon.vue'
 import ChatComposer from '@/components/chat/ChatComposer.vue'
 import ChatMessageList from '@/components/chat/ChatMessageList.vue'
@@ -13,7 +14,6 @@ import HomeDialogs from '@/components/home/HomeDialogs.vue'
 import HomeHeaderBar from '@/components/home/HomeHeaderBar.vue'
 import HomeSidebar from '@/components/home/HomeSidebar.vue'
 import AppLogo from '@/components/ui/AppLogo.vue'
-import ApprovalDrawer from '@/components/chat/ApprovalDrawer.vue'
 import { provideChatContext } from '@/composables/chat/useChatContext'
 import { useHomeChatPage } from '@/composables/home/useHomeChatPage'
 import { useHomeTransitions } from '@/composables/home/useHomeTransitions'
@@ -50,10 +50,14 @@ const {
   getReplyToolCount,
   getReplyToolSummary,
   getReplyTimeline,
+  getVisibleReplyTimeline,
   getReplyToolItem,
   getSubagentChildTools,
   shouldShowInlineToolCall,
   isReplyToolCollapsed,
+  toggleReplyCollapsed,
+  getReplyElapsedMs,
+  shouldShowReplyCollapseBar,
   isEmptyPlaceholder,
   openToolDetail,
   toolDetailItems,
@@ -79,6 +83,9 @@ const {
   thinkingLevel,
   thinkingSelectOptions,
   onThinkingLevelChange,
+  subagentModelId,
+  subagentModelSelectOptions,
+  onSubagentModelChange,
   planMode,
   onPlanToggle,
 } = useHomeChatPage()
@@ -112,10 +119,14 @@ provideChatContext({
   getReplyToolCount,
   getReplyToolSummary,
   getReplyTimeline,
+  getVisibleReplyTimeline,
   getReplyToolItem,
   getSubagentChildTools,
   shouldShowInlineToolCall,
   isReplyToolCollapsed,
+  toggleReplyCollapsed,
+  getReplyElapsedMs,
+  shouldShowReplyCollapseBar,
   isEmptyPlaceholder,
   openToolDetail,
   approveToolCall: store.approveToolCall,
@@ -226,6 +237,8 @@ provideChatContext({
                   :model-select-options="modelSelectOptions"
                   :selected-thinking-level="thinkingLevel"
                   :thinking-select-options="thinkingSelectOptions"
+                  :selected-subagent-model-id="subagentModelId"
+                  :subagent-model-select-options="subagentModelSelectOptions"
                   :model-options-count="modelOptions.length"
                   :send-disabled="sendDisabled"
                   :stop-disabled="stopDisabled"
@@ -240,6 +253,7 @@ provideChatContext({
                   @remove-file="removePendingFile"
                   @model-change="onModelChange"
                 @thinking-change="onThinkingLevelChange"
+                @subagent-model-change="onSubagentModelChange"
                 @plan-toggle="onPlanToggle"
                 @plan-execute="store.approvePlan(selectedModelId, t('planExecuteUserMessage'))"
                 @plan-cancel="store.rejectPlan()"
@@ -273,6 +287,8 @@ provideChatContext({
                 :model-select-options="modelSelectOptions"
                 :selected-thinking-level="thinkingLevel"
                 :thinking-select-options="thinkingSelectOptions"
+                :selected-subagent-model-id="subagentModelId"
+                :subagent-model-select-options="subagentModelSelectOptions"
                 :model-options-count="modelOptions.length"
                 :send-disabled="sendDisabled"
                 :stop-disabled="stopDisabled"
@@ -287,6 +303,7 @@ provideChatContext({
                 @remove-file="removePendingFile"
                 @model-change="onModelChange"
               @thinking-change="onThinkingLevelChange"
+              @subagent-model-change="onSubagentModelChange"
               @plan-toggle="onPlanToggle"
               @plan-execute="store.approvePlan(selectedModelId, t('planExecuteUserMessage'))"
               @plan-cancel="store.rejectPlan()"
@@ -325,6 +342,14 @@ provideChatContext({
       </div>
     </Transition>
 
+    <QuestionAnswerDrawer
+      :visible="!!store.pendingQuestions"
+      :questions="store.pendingQuestions?.questions ?? []"
+      :tool-call-id="store.pendingQuestions?.toolCallId ?? ''"
+      @submit="store.submitQuestionAnswers"
+      @cancel="store.cancelQuestionAnswers"
+    />
+
     <HomeDialogs
       v-model:rename-visible="renameVisible"
       v-model:rename-value="renameValue"
@@ -343,15 +368,6 @@ provideChatContext({
       @account-updated="onAccountUpdated"
     />
 
-    <ApprovalDrawer
-      v-if="store.pendingApproval"
-      :visible="!!store.pendingApproval"
-      :tool-name="store.pendingApproval.toolName"
-      :command="store.pendingApproval.command"
-      :params="store.pendingApproval.params"
-      @approve="store.approveToolCall(store.pendingApproval!.toolCallId, true)"
-      @reject="store.approveToolCall(store.pendingApproval!.toolCallId, false)"
-    />
   </div>
 </template>
 

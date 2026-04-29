@@ -189,3 +189,26 @@ func TestAddMessageWithInput_AssignsIncreasingSeq(t *testing.T) {
 		t.Fatalf("unexpected seq values: first=%d second=%d", first.Seq, second.Seq)
 	}
 }
+
+func TestAddMessageWithInput_UsesProvidedCreatedAt(t *testing.T) {
+	repo := New(NewSQLiteDBTest(t, "repo_messages_created_at_test"))
+	session, err := repo.CreateSession(context.Background(), "s")
+	if err != nil {
+		t.Fatalf("create session failed: %v", err)
+	}
+	createdAt := time.Date(2026, 4, 29, 1, 2, 3, 456000000, time.UTC)
+
+	message, err := repo.AddMessageWithInput(context.Background(), domain.AddMessageInput{
+		SessionID: session.ID,
+		Role:      "user",
+		Content:   "hello",
+		CreatedAt: createdAt,
+	})
+	if err != nil {
+		t.Fatalf("add message failed: %v", err)
+	}
+
+	if !message.CreatedAt.Equal(createdAt) {
+		t.Fatalf("expected createdAt %s, got %s", createdAt, message.CreatedAt)
+	}
+}

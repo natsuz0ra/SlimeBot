@@ -82,3 +82,47 @@ func TestBuildRequestMessages_UserContentParts(t *testing.T) {
 		t.Fatalf("expected file content part in payload, got: %s", got)
 	}
 }
+
+func TestBuildAssistantMessageParamPreservesReasoningContentWithToolCalls(t *testing.T) {
+	msgs := buildRequestMessages([]llmsvc.ChatMessage{{
+		Role:             "assistant",
+		Content:          "I need a tool.",
+		ReasoningContent: "Need to inspect before answering.",
+		ToolCalls: []llmsvc.ToolCallInfo{{
+			ID:        "call-1",
+			Name:      "exec__run",
+			Arguments: `{"command":"pwd"}`,
+		}},
+	}}, true)
+
+	raw, err := json.Marshal(msgs)
+	if err != nil {
+		t.Fatalf("marshal messages failed: %v", err)
+	}
+	got := string(raw)
+	if !strings.Contains(got, `"reasoning_content":"Need to inspect before answering."`) {
+		t.Fatalf("expected reasoning_content extra field in tool-call assistant message, got: %s", got)
+	}
+	if !strings.Contains(got, `"tool_calls"`) {
+		t.Fatalf("expected tool_calls to be preserved, got: %s", got)
+	}
+}
+
+func TestBuildAssistantMessageParamPreservesReasoningOnlyAssistantMessage(t *testing.T) {
+	msgs := buildRequestMessages([]llmsvc.ChatMessage{{
+		Role:             "assistant",
+		ReasoningContent: "Reasoning-only compatible response.",
+	}}, true)
+
+	raw, err := json.Marshal(msgs)
+	if err != nil {
+		t.Fatalf("marshal messages failed: %v", err)
+	}
+	got := string(raw)
+	if !strings.Contains(got, `"role":"assistant"`) {
+		t.Fatalf("expected assistant message to be retained, got: %s", got)
+	}
+	if !strings.Contains(got, `"reasoning_content":"Reasoning-only compatible response."`) {
+		t.Fatalf("expected reasoning_content extra field, got: %s", got)
+	}
+}

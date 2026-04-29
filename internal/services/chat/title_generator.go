@@ -15,7 +15,6 @@ import (
 
 const (
 	titleMaxUserRunes   = 500
-	titleMaxAnswerRunes = 800
 	titleMaxOutputRunes = 20
 	titleTimeout        = 30 * time.Second
 )
@@ -28,7 +27,7 @@ var initialSessionNames = map[string]struct{}{
 	"未命名会话":       {},
 }
 
-var titleSystemPrompt = `You are a concise title generator. Given a user's message and the assistant's reply, generate a short title that summarizes the conversation topic.
+var titleSystemPrompt = `You are a concise title generator. Given the user's opening message, generate a short title that summarizes the conversation topic.
 
 Return ONLY a JSON object: {"title":"..."}
 
@@ -56,23 +55,30 @@ type titleGenerator struct {
 	store   sessionTitleUpdater
 
 	mu        sync.Mutex
-	attempted map[string]struct{} // session IDs that have already had a title generation attempt
+	attempted map[string]titleAttemptStatus // session IDs with in-flight or completed title generation
 }
+
+type titleAttemptStatus int
+
+const (
+	titleAttemptInFlight titleAttemptStatus = iota + 1
+	titleAttemptCompleted
+)
 
 // newTitleGenerator creates a title generator with the given dependencies.
 func newTitleGenerator(factory *llmsvc.Factory, store sessionTitleUpdater) *titleGenerator {
 	return &titleGenerator{
 		factory:   factory,
 		store:     store,
-		attempted: make(map[string]struct{}),
+		attempted: make(map[string]titleAttemptStatus),
 	}
 }
 
 // generate makes one LLM call to produce a session title.
-func (g *titleGenerator) generate(ctx context.Context, modelConfig llmsvc.ModelRuntimeConfig, userMsg, assistantMsg string) (string, error) {
+func (g *titleGenerator) generate(ctx context.Context, modelConfig llmsvc.ModelRuntimeConfig, userMsg string) (string, error) {
 	messages := []llmsvc.ChatMessage{
 		{Role: "system", Content: titleSystemPrompt},
-		{Role: "user", Content: buildTitleUserPrompt(userMsg, assistantMsg)},
+		{Role: "user", Content: buildTitleUserPrompt(userMsg)},
 	}
 
 	provider := g.factory.GetProvider(modelConfig.Provider)
@@ -95,11 +101,11 @@ func (g *titleGenerator) generate(ctx context.Context, modelConfig llmsvc.ModelR
 	return parseTitleFromJSON(buf.String()), nil
 }
 
-// markAttempted records that a title generation attempt was made for this session.
+// markAttempted records that title generation completed for this session.
 func (g *titleGenerator) markAttempted(sessionID string) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
-	g.attempted[sessionID] = struct{}{}
+	g.attempted[sessionID] = titleAttemptCompleted
 	if len(g.attempted) > 4096 {
 		// Evict half to prevent unbounded growth.
 		i := 0
@@ -113,12 +119,38 @@ func (g *titleGenerator) markAttempted(sessionID string) {
 	}
 }
 
-// hasBeenAttempted returns true if a title generation attempt was already made for this session.
+// hasBeenAttempted returns true if title generation is already running or completed for this session.
 func (g *titleGenerator) hasBeenAttempted(sessionID string) bool {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	_, ok := g.attempted[sessionID]
 	return ok
+}
+
+// beginAttempt marks title generation as in-flight. It returns false if another
+// attempt is already running or a title has already been completed.
+func (g *titleGenerator) beginAttempt(sessionID string) bool {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if _, ok := g.attempted[sessionID]; ok {
+		return false
+	}
+	g.attempted[sessionID] = titleAttemptInFlight
+	return true
+}
+
+// finishAttempt records the final attempt state. Failed attempts are released so
+// a later turn can retry; successful attempts remain completed.
+func (g *titleGenerator) finishAttempt(sessionID string, completed bool) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if completed {
+		g.attempted[sessionID] = titleAttemptCompleted
+		return
+	}
+	if g.attempted[sessionID] == titleAttemptInFlight {
+		delete(g.attempted, sessionID)
+	}
 }
 
 // maybeGenerateTitleAsync launches a background goroutine to generate a title
@@ -127,7 +159,6 @@ func (s *ChatService) maybeGenerateTitleAsync(
 	session *domain.Session,
 	modelConfig llmsvc.ModelRuntimeConfig,
 	userContent string,
-	answer string,
 	onTitleGenerated func(sessionID, title string),
 ) {
 	if session == nil {
@@ -152,7 +183,6 @@ func (s *ChatService) maybeGenerateTitleAsync(
 	}
 
 	userMsg := truncateForTitleContext(userContent, titleMaxUserRunes)
-	assistantMsg := truncateForTitleContext(answer, titleMaxAnswerRunes)
 	if strings.TrimSpace(userMsg) == "" {
 		logging.Info("title_generation_skipped", "session", session.ID, "reason", "empty_user_message")
 		return
@@ -160,32 +190,37 @@ func (s *ChatService) maybeGenerateTitleAsync(
 
 	gen := s.titleGen
 	sid := session.ID
-	gen.markAttempted(sid)
+	if !gen.beginAttempt(sid) {
+		logging.Info("title_generation_skipped", "session", sid, "reason", "already_attempted")
+		return
+	}
 
-	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), titleTimeout)
-		defer cancel()
+	ctx, cancel := context.WithTimeout(context.Background(), titleTimeout)
+	defer cancel()
 
-		title, err := gen.generate(ctx, modelConfig, userMsg, assistantMsg)
-		if err != nil {
-			logging.Info("title_generation_failed", "session", sid, "error", err.Error())
-			return
-		}
-		if title == "" {
-			logging.Info("title_generation_skipped", "session", sid, "reason", "empty_generated_title")
-			return
-		}
+	title, err := gen.generate(ctx, modelConfig, userMsg)
+	if err != nil {
+		gen.finishAttempt(sid, false)
+		logging.Info("title_generation_failed", "session", sid, "error", err.Error())
+		return
+	}
+	if title == "" {
+		gen.finishAttempt(sid, false)
+		logging.Info("title_generation_skipped", "session", sid, "reason", "empty_generated_title")
+		return
+	}
 
-		updated, err := gen.store.UpdateSessionTitle(ctx, sid, title)
-		if err != nil {
-			logging.Info("title_persist_failed", "session", sid, "error", err.Error())
-			return
-		}
-		logging.Info("title_generation_persisted", "session", sid, "updated", updated, "title", title)
-		if updated && onTitleGenerated != nil {
-			onTitleGenerated(sid, title)
-		}
-	}()
+	updated, err := gen.store.UpdateSessionTitle(ctx, sid, title)
+	if err != nil {
+		gen.finishAttempt(sid, false)
+		logging.Info("title_persist_failed", "session", sid, "error", err.Error())
+		return
+	}
+	gen.finishAttempt(sid, updated)
+	logging.Info("title_generation_persisted", "session", sid, "updated", updated, "title", title)
+	if updated && onTitleGenerated != nil {
+		onTitleGenerated(sid, title)
+	}
 }
 
 // isInitialSessionName returns true if the name looks like a default/untitled session.
@@ -197,14 +232,10 @@ func isInitialSessionName(name string) bool {
 }
 
 // buildTitleUserPrompt constructs the user prompt for title generation.
-func buildTitleUserPrompt(userMsg, assistantMsg string) string {
+func buildTitleUserPrompt(userMsg string) string {
 	var b strings.Builder
 	b.WriteString("User: ")
 	b.WriteString(userMsg)
-	if assistantMsg != "" {
-		b.WriteString("\n\nAssistant: ")
-		b.WriteString(assistantMsg)
-	}
 	return b.String()
 }
 

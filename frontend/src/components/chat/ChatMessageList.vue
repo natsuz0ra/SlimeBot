@@ -15,8 +15,8 @@ const emit = defineEmits<{
 </script>
 
 <template>
-  <section :ref="setMessagesRef" class="messages-section scroll-area flex-1 overflow-y-auto px-4 py-6">
-    <div class="flex flex-col gap-5 max-w-[720px] mx-auto">
+  <section :ref="setMessagesRef" class="messages-section scroll-area min-w-0 flex-1 overflow-y-auto overflow-x-hidden px-4 py-6">
+    <div class="flex min-w-0 flex-col gap-5 max-w-[720px] mx-auto">
       <div
         v-if="loadingOlderHistory"
         class="flex justify-center py-2"

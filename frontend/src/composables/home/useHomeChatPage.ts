@@ -53,6 +53,7 @@ export function useHomeChatPage() {
     modelState: {
       selectedModelId: modelState.selectedModelId,
       thinkingLevel: modelState.thinkingLevel,
+      subagentModelId: modelState.subagentModelId,
       refreshModelOptions: modelState.refreshModelOptions,
     },
     scrollState: {
@@ -111,10 +112,14 @@ export function useHomeChatPage() {
     getReplyToolCount: toolDetailState.getReplyToolCount,
     getReplyToolSummary: toolDetailState.getReplyToolSummary,
     getReplyTimeline: toolDetailState.getReplyTimeline,
+    getVisibleReplyTimeline: toolDetailState.getVisibleReplyTimeline,
     getReplyToolItem: toolDetailState.getReplyToolItem,
     getSubagentChildTools: toolDetailState.getSubagentChildTools,
     shouldShowInlineToolCall: toolDetailState.shouldShowInlineToolCall,
     isReplyToolCollapsed: toolDetailState.isReplyToolCollapsed,
+    toggleReplyCollapsed: toolDetailState.toggleReplyCollapsed,
+    getReplyElapsedMs: toolDetailState.getReplyElapsedMs,
+    shouldShowReplyCollapseBar: toolDetailState.shouldShowReplyCollapseBar,
     isEmptyPlaceholder: toolDetailState.isEmptyPlaceholder,
     openToolDetail: toolDetailState.openToolDetail,
     toolDetailItems: toolDetailState.toolDetailItems,
@@ -139,6 +144,9 @@ export function useHomeChatPage() {
     renameFromFloatingMenu: sessionActions.renameFromFloatingMenu,
     deleteFromFloatingMenu: sessionActions.deleteFromFloatingMenu,
     onModelChange: modelState.onModelChange,
+    subagentModelId: modelState.subagentModelId,
+    subagentModelSelectOptions: modelState.subagentModelSelectOptions,
+    onSubagentModelChange: modelState.onSubagentModelChange,
     planMode: computed(() => store.planMode),
     onPlanToggle: store.togglePlanMode,
   }

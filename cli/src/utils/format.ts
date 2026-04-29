@@ -214,3 +214,72 @@ export function formatTimestamp(iso: string): string {
   if (Number.isNaN(date.getTime())) return iso;
   return date.toLocaleString();
 }
+
+/** Parsed ask_questions readable answer item. */
+export interface AskQuestionsReadableAnswer {
+  id: string;
+  question: string;
+  answer: string;
+}
+
+/**
+ * Parses the output of a completed ask_questions tool call.
+ * Backend formats output as: [{"id":"...","question":"...","answer":"..."}]
+ * Returns null if the output cannot be parsed.
+ */
+export function parseAskQuestionsReadableAnswers(raw: string): AskQuestionsReadableAnswer[] | null {
+  const parsed = tryParseJSON(raw);
+  if (!Array.isArray(parsed)) return null;
+  const answers: AskQuestionsReadableAnswer[] = [];
+  for (const item of parsed) {
+    if (typeof item !== "object" || item === null || Array.isArray(item)) return null;
+    const { id, question, answer } = item as Record<string, unknown>;
+    if (typeof id !== "string" || typeof question !== "string" || typeof answer !== "string") return null;
+    answers.push({ id, question, answer });
+  }
+  return answers.length > 0 ? answers : null;
+}
+
+/**
+ * Formats ask_questions output into human-readable tree lines for the CLI timeline.
+ * Uses ├─/└─ tree connectors with "question → answer" per line.
+ * Returns null if parsing fails (caller should fall back to raw output).
+ */
+export function formatAskQuestionsDisplay(raw: string): string[] | null {
+  const answers = parseAskQuestionsReadableAnswers(raw);
+  if (!answers) return null;
+  const lines: string[] = [];
+  for (let i = 0; i < answers.length; i++) {
+    const a = answers[i];
+    const connector = i < answers.length - 1 ? "├─" : "└─";
+    const answer = a.answer || "(Not selected)";
+    lines.push(`${connector} ${a.question} → ${answer}`);
+  }
+  return lines;
+}
+
+/**
+ * Formats ask_questions pending state into tree lines showing questions and their options.
+ * Input is the raw JSON from params["questions"].
+ * Returns null if parsing fails.
+ */
+export function formatAskQuestionsPending(raw: string): string[] | null {
+  const parsed = tryParseJSON(raw);
+  if (!Array.isArray(parsed) || parsed.length === 0) return null;
+  const lines: string[] = [];
+  for (let i = 0; i < parsed.length; i++) {
+    const item = parsed[i];
+    if (typeof item !== "object" || item === null) return null;
+    const { question, options } = item as Record<string, unknown>;
+    if (typeof question !== "string" || !Array.isArray(options)) return null;
+    const connector = i < parsed.length - 1 ? "├─" : "└─";
+    lines.push(`${connector} ${question}`);
+    for (let j = 0; j < options.length; j++) {
+      const isLastOption = j === options.length - 1;
+      const optConnector = isLastOption ? "└─" : "├─";
+      const indent = i < parsed.length - 1 ? "│  " : "   ";
+      lines.push(`${indent}${optConnector} ${options[j]}`);
+    }
+  }
+  return lines;
+}

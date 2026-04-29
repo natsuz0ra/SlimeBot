@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { Key } from "ink";
-import { handleChatShortcut, mapHistoryMessages } from "./app";
+import { getChatFooterHint, handleChatShortcut, mapHistoryMessages } from "./app";
 import type { Message, ThinkingHistoryItem, ToolCallHistoryItem } from "./types";
 
 test("mapHistoryMessages inserts tool calls after assistant messages in timeline order", () => {
@@ -66,6 +66,27 @@ test("mapHistoryMessages inserts tool calls after assistant messages in timeline
     },
     { kind: "assistant", content: "running tool" },
   ]);
+});
+
+test("getChatFooterHint returns toggle hint in plan mode", () => {
+  assert.equal(
+    getChatFooterHint(true, "manual"),
+    "/ for commands | Shift+Tab to toggle | Esc to cancel",
+  );
+});
+
+test("getChatFooterHint returns toggle hint in auto mode", () => {
+  assert.equal(
+    getChatFooterHint(false, "auto"),
+    "/ for commands | Shift+Tab to toggle | Esc to cancel",
+  );
+});
+
+test("getChatFooterHint returns default hint in standard mode", () => {
+  assert.equal(
+    getChatFooterHint(false, "manual"),
+    "/ for commands | Shift+Tab plan mode | Esc to cancel",
+  );
 });
 
 test("mapHistoryMessages preserves parentToolCallId for nested tool calls", () => {

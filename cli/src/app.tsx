@@ -1,4 +1,4 @@
-/**
+﻿/**
  * App — Ink CLI root component.
  * Centralizes state, WebSocket events, menu behavior, and keyboard input dispatch.
  */
@@ -9,6 +9,7 @@ import type { Key } from "ink";
 import { APIClient } from "./api/client.js";
 import { ApprovalView } from "./components/ApprovalView.js";
 import { PlanConfirmView } from "./components/PlanConfirmView.js";
+import QuestionAnswerView from "./components/QuestionAnswerView.js";
 import { Banner } from "./components/Banner.js";
 import { CommandHints } from "./components/CommandHints.js";
 import { MCPEditor } from "./components/MCPEditor.js";
@@ -73,6 +74,11 @@ function formatModelLine(model?: Pick<LLMConfig, "name" | "model">, fallback = "
   return name || actualModel || fallback;
 }
 
+export function getChatFooterHint(planMode: boolean, approvalMode: AppState["approvalMode"]): string {
+  return planMode || approvalMode === "auto"
+    ? "/ for commands | Shift+Tab to toggle | Esc to cancel"
+    : "/ for commands | Shift+Tab plan mode | Esc to cancel";
+}
 interface AppProps {
   apiURL: string;
   cliToken: string;
@@ -105,7 +111,12 @@ export function mapHistoryMessages(
       if (hasContentMarkers(msg.content)) {
         // New messages with markers: split into separate timeline blocks
         const toolCallMap = new Map(toolCalls.map(tc => [tc.toolCallId, tc]));
-        const thinkingMap = new Map(thinkingRecords.map(item => [item.thinkingId, item]));
+        const thinkingMap = new Map(thinkingRecords
+          .filter(item => !item.parentToolCallId && !item.subagentRunId)
+          .map(item => [item.thinkingId, item]));
+        const subagentThinkingByParent = new Map(thinkingRecords
+          .filter(item => item.parentToolCallId || item.subagentRunId)
+          .map(item => [item.parentToolCallId || "", item]));
         const segments = parseContentMarkers(msg.content);
         const markerIds = new Set<string>();
         const thinkingMarkerIds = new Set<string>();
@@ -133,6 +144,7 @@ export function mapHistoryMessages(
           markerIds.add(toolCallId);
           const tc = toolCallMap.get(toolCallId);
           if (tc) {
+            const subagentThinking = subagentThinkingByParent.get(tc.toolCallId);
             entries.push({
               kind: "tool",
               content: tc.output || tc.error || "",
@@ -145,6 +157,14 @@ export function mapHistoryMessages(
               error: tc.error,
               ...(tc.parentToolCallId ? { parentToolCallId: tc.parentToolCallId } : {}),
               ...(tc.subagentRunId ? { subagentRunId: tc.subagentRunId } : {}),
+              ...(subagentThinking ? {
+                subagentThinking: {
+                  content: subagentThinking.content || "",
+                  thinkingDone: subagentThinking.status !== "streaming",
+                  thinkingDurationMs: subagentThinking.durationMs,
+                  thinkingStartedAt: subagentThinking.startedAt ? new Date(subagentThinking.startedAt).getTime() : undefined,
+                },
+              } : {}),
             });
           }
         };
@@ -181,6 +201,7 @@ export function mapHistoryMessages(
         // Handle unclosed plan
         if (inPlan) flushPlan();
         for (const thinking of thinkingRecords) {
+          if (thinking.parentToolCallId || thinking.subagentRunId) continue;
           if (!thinkingMarkerIds.has(thinking.thinkingId)) {
             entries.push({
               kind: "thinking",
@@ -193,6 +214,7 @@ export function mapHistoryMessages(
         // Fallback: append orphan tool (markers missing)
         for (const tc of toolCalls) {
           if (!markerIds.has(tc.toolCallId)) {
+            const subagentThinking = subagentThinkingByParent.get(tc.toolCallId);
             entries.push({
               kind: "tool",
               content: tc.output || tc.error || "",
@@ -205,12 +227,21 @@ export function mapHistoryMessages(
               error: tc.error,
               ...(tc.parentToolCallId ? { parentToolCallId: tc.parentToolCallId } : {}),
               ...(tc.subagentRunId ? { subagentRunId: tc.subagentRunId } : {}),
+              ...(subagentThinking ? {
+                subagentThinking: {
+                  content: subagentThinking.content || "",
+                  thinkingDone: subagentThinking.status !== "streaming",
+                  thinkingDurationMs: subagentThinking.durationMs,
+                  thinkingStartedAt: subagentThinking.startedAt ? new Date(subagentThinking.startedAt).getTime() : undefined,
+                },
+              } : {}),
             });
           }
         }
       } else {
         // Legacy: all tools first, then text
         for (const thinking of thinkingRecords) {
+          if (thinking.parentToolCallId || thinking.subagentRunId) continue;
           entries.push({
             kind: "thinking",
             content: thinking.content || "",
@@ -219,6 +250,7 @@ export function mapHistoryMessages(
           });
         }
         for (const tc of toolCalls) {
+          const subagentThinking = thinkingRecords.find((item) => item.parentToolCallId === tc.toolCallId);
           entries.push({
             kind: "tool",
             content: tc.output || tc.error || "",
@@ -231,6 +263,14 @@ export function mapHistoryMessages(
             error: tc.error,
             ...(tc.parentToolCallId ? { parentToolCallId: tc.parentToolCallId } : {}),
             ...(tc.subagentRunId ? { subagentRunId: tc.subagentRunId } : {}),
+            ...(subagentThinking ? {
+              subagentThinking: {
+                content: subagentThinking.content || "",
+                thinkingDone: subagentThinking.status !== "streaming",
+                thinkingDurationMs: subagentThinking.durationMs,
+                thinkingStartedAt: subagentThinking.startedAt ? new Date(subagentThinking.startedAt).getTime() : undefined,
+              },
+            } : {}),
           });
         }
         const { narration, planBody } = splitNarrationAndPlan(msg.content);
@@ -382,7 +422,7 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
       kind: "effort",
       title: "Thinking Level",
       items,
-      hint: "Arrow keys to navigate, Enter to select, Esc to cancel",
+      hint: "Arrow keys to navigate | Enter to select | Esc to cancel",
     } as AppAction);
   }, [state.thinkingLevel]);
 
@@ -416,7 +456,7 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
         kind: "session",
         title: "Session Menu",
         items,
-        hint: "Arrow keys to navigate, Enter to switch, d to delete, Esc to close",
+        hint: "Arrow keys to navigate | Enter to switch | D to delete | Esc to close",
       } as AppAction);
     } catch (error) {
       appendSystem(`Failed to load sessions: ${(error as Error).message}`);
@@ -436,10 +476,33 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
         kind: "model",
         title: "Model Menu",
         items,
-        hint: "Arrow keys to navigate, Enter to set default, a to add, d to delete, Esc to close",
+        hint: "Arrow keys to navigate | Enter to set default | A to add | D to delete | Esc to close",
       } as AppAction);
     } catch (error) {
       appendSystem(`Failed to load models: ${(error as Error).message}`);
+    }
+  }, [appendSystem]);
+
+  const loadSubagentModels = useCallback(async () => {
+    try {
+      const configs = await apiRef.current.listLLMConfigs();
+      const items: MenuItem[] = [
+        { title: "Follow Main Agent", desc: "Inherit parent model", data: { id: "", name: "Follow Main Agent" } },
+        ...configs.map((c) => ({
+          title: c.name,
+          desc: c.model,
+          data: c,
+        })),
+      ];
+      dispatch({
+        type: "SET_MENU",
+        kind: "subagent_model",
+        title: "Sub-agent Model",
+        items,
+        hint: "Arrow keys to navigate | Enter to select | Esc to close",
+      } as AppAction);
+    } catch (error) {
+      appendSystem(`Failed to load subagent models: ${(error as Error).message}`);
     }
   }, [appendSystem]);
 
@@ -456,7 +519,7 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
         kind: "skills",
         title: "Skills Menu",
         items,
-        hint: "Arrow keys to navigate, d to delete, Esc to close",
+        hint: "Arrow keys to navigate | D to delete | Esc to close",
       } as AppAction);
     } catch (error) {
       appendSystem(`Failed to load skills: ${(error as Error).message}`);
@@ -476,7 +539,7 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
         kind: "mcp",
         title: "MCP Menu",
         items,
-        hint: "Arrow keys, Enter/e edit, a add, Space toggle, d delete, Esc close",
+        hint: "Arrow keys to navigate | Enter or E to edit | A to add | Space to toggle | D to delete | Esc to close",
       } as AppAction);
     } catch (error) {
       appendSystem(`Failed to load MCP configs: ${(error as Error).message}`);
@@ -488,7 +551,7 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
       { title: "/new", desc: "Create a new chat (lazy session creation)", data: null },
       { title: "/session", desc: "Browse, switch, or delete sessions", data: null },
       { title: "/model", desc: "Switch default model", data: null },
-      { title: "/mode", desc: "Toggle approval mode (standard/auto)", data: null },
+      { title: "/approval", desc: "Toggle approval mode (standard/auto)", data: null },
       { title: "/effort", desc: "Toggle thinking level (off/low/medium/high)", data: null },
       { title: "/skills", desc: "Browse and delete installed skills", data: null },
       { title: "/mcp", desc: "Manage MCP configs", data: null },
@@ -541,6 +604,17 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
         } as AppAction);
         dispatch({ type: "CLOSE_MENU" } as AppAction);
         appendSystem(`Model switched to ${model.name}.`);
+        return;
+      }
+      if (state.menuKind === "subagent_model") {
+        const model = item.data as { id: string; name: string };
+        dispatch({
+          type: "SET_SUBAGENT_MODEL",
+          modelId: model.id,
+          modelName: model.id ? model.name : "Follow Main Agent",
+        } as AppAction);
+        dispatch({ type: "CLOSE_MENU" } as AppAction);
+        appendSystem(model.id ? `Sub-agent model set to ${model.name}.` : `Sub-agent model set to follow main agent.`);
         return;
       }
       if (state.menuKind === "effort") {
@@ -712,7 +786,7 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
     dispatch({ type: "STREAM_START" } as AppAction);
 
     const sendToSocket = (sid: string): boolean => {
-      return socketRef.current?.send(content, sid, state.modelId, state.thinkingLevel, state.planMode) || false;
+      return socketRef.current?.send(content, sid, state.modelId, state.thinkingLevel, state.planMode, state.subagentModelId) || false;
     };
 
     if (!state.sessionId) {
@@ -753,7 +827,11 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
       await loadModels();
       return;
     }
-    if (cmd === "/mode") {
+    if (cmd === "/subagent_model") {
+      await loadSubagentModels();
+      return;
+    }
+    if (cmd === "/approval") {
       await toggleApprovalMode();
       return;
     }
@@ -845,6 +923,13 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
       onChunk: (chunk) => {
         dispatch({ type: "STREAM_CHUNK", chunk } as AppAction);
       },
+      onSessionTitle: (title, sessionId) => {
+        const trimmed = title.trim();
+        if (!trimmed || !sessionId || sessionId !== sessionRef.current.id) return;
+        sessionRef.current = { ...sessionRef.current, name: trimmed };
+        dispatch({ type: "APPLY_SESSION_TITLE", sessionId, title: trimmed } as AppAction);
+        applyTerminalTitle(trimmed);
+      },
       onDone: (_sid, meta) => {
         dispatch({
           type: "STREAM_DONE",
@@ -896,14 +981,28 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
         } as AppAction);
 
         if (data.requiresApproval) {
-          dispatch({
-            type: "SET_APPROVAL",
-            toolCallId: data.toolCallId,
-            toolName: data.toolName,
-            command: data.command,
-            params: data.params,
-            replyCh: () => {},
-          } as AppAction);
+          // ask_questions: show Q&A view instead of simple approval.
+          if (data.toolName === "ask_questions" && data.params?.questions) {
+            try {
+              const questions = JSON.parse(data.params.questions);
+              if (Array.isArray(questions) && questions.length > 0) {
+                dispatch({
+                  type: "SET_QA",
+                  toolCallId: data.toolCallId,
+                  questions,
+                } as AppAction);
+              }
+            } catch { /* ignore */ }
+          } else {
+            dispatch({
+              type: "SET_APPROVAL",
+              toolCallId: data.toolCallId,
+              toolName: data.toolName,
+              command: data.command,
+              params: data.params,
+              replyCh: () => {},
+            } as AppAction);
+          }
         }
       },
       onToolCallResult: (data: ToolCallResultData) => {
@@ -931,17 +1030,34 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
           content: data.content,
         } as AppAction);
       },
-      onThinkingStart: () => {
-        dispatch({ type: "THINKING_START" } as AppAction);
+      onThinkingStart: (data) => {
+        dispatch({
+          type: "THINKING_START",
+          parentToolCallId: data.parentToolCallId,
+          subagentRunId: data.subagentRunId,
+        } as AppAction);
       },
-      onThinkingChunk: (chunk) => {
-        dispatch({ type: "THINKING_CHUNK", chunk } as AppAction);
+      onThinkingChunk: (data) => {
+        dispatch({
+          type: "THINKING_CHUNK",
+          chunk: data.content || "",
+          parentToolCallId: data.parentToolCallId,
+          subagentRunId: data.subagentRunId,
+        } as AppAction);
       },
-      onThinkingDone: () => {
-        dispatch({ type: "THINKING_DONE", finishedAt: Date.now() } as AppAction);
+      onThinkingDone: (data) => {
+        dispatch({
+          type: "THINKING_DONE",
+          finishedAt: Date.now(),
+          parentToolCallId: data.parentToolCallId,
+          subagentRunId: data.subagentRunId,
+        } as AppAction);
       },
       onPlanBody: (content: string) => {
         dispatch({ type: "PLAN_BODY", planBody: content } as AppAction);
+      },
+      onPlanChunk: (chunk: string) => {
+        dispatch({ type: "PLAN_CHUNK", chunk } as AppAction);
       },
       onPlanStart: () => {
         planStartedRef.current = true;
@@ -1041,6 +1157,73 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
           state.pendingPlanId, state.sessionId,
         );
         dispatch({ type: "CLEAR_PLAN_CONFIRMATION" } as AppAction);
+      }
+      return;
+    }
+
+        if (state.view === "question-answer") {
+      if (state.qaStep === "questions") {
+        if (key.upArrow) {
+          dispatch({ type: "QA_NAV", delta: -1 } as AppAction);
+          return;
+        }
+        if (key.downArrow) {
+          dispatch({ type: "QA_NAV", delta: 1 } as AppAction);
+          return;
+        }
+        if (key.return) {
+          const q = state.qaQuestions[state.qaCurrentIndex];
+          if (!q) return;
+          const maxIdx = q.options.length; // last = custom
+          if (state.qaCursor < maxIdx) {
+            dispatch({ type: "QA_SELECT", optionIndex: state.qaCursor } as AppAction);
+          } else {
+            // Custom option selected
+            dispatch({ type: "QA_SELECT", optionIndex: -1 } as AppAction);
+          }
+          // Auto-advance after selecting preset, stay for custom input
+          if (state.qaCursor < maxIdx) {
+            if (state.qaCurrentIndex < state.qaQuestions.length - 1) {
+              dispatch({ type: "QA_NEXT_QUESTION" } as AppAction);
+            } else {
+              dispatch({ type: "QA_STEP_CONFIRM" } as AppAction);
+            }
+          }
+          return;
+        }
+        if (key.tab) {
+          // Tab to go to next question or confirm
+          if (state.qaCurrentIndex < state.qaQuestions.length - 1) {
+            dispatch({ type: "QA_NEXT_QUESTION" } as AppAction);
+          } else {
+            dispatch({ type: "QA_STEP_CONFIRM" } as AppAction);
+          }
+          return;
+        }
+      } else {
+        // Confirm step
+        if (key.upArrow || key.downArrow) {
+          dispatch({ type: "QA_CONFIRM_NAV", delta: key.upArrow ? -1 : 1 } as AppAction);
+          return;
+        }
+        if (key.return && state.qaCursor === 0) {
+          // Submit answers
+          const answersJSON = JSON.stringify(state.qaAnswers);
+          socketRef.current?.sendToolApproval(state.qaToolCallId, true, answersJSON);
+          dispatch({ type: "CLEAR_QA" } as AppAction);
+          return;
+        }
+        if (key.return && state.qaCursor === 1) {
+          dispatch({ type: "QA_STEP_BACK" } as AppAction);
+          return;
+        }
+      }
+      if (key.escape) {
+        const cancelAnswers = JSON.stringify(
+          state.qaQuestions.map((q: { id: string }) => ({ questionId: q.id, selectedOption: -2, customAnswer: "" })),
+        );
+        socketRef.current?.sendToolApproval(state.qaToolCallId, true, cancelAnswers);
+        dispatch({ type: "CLEAR_QA" } as AppAction);
       }
       return;
     }
@@ -1302,6 +1485,30 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
         />
       )}
 
+            {state.view === "question-answer" && (
+        <QuestionAnswerView
+          questions={state.qaQuestions}
+          currentIndex={state.qaCurrentIndex}
+          answers={state.qaAnswers}
+          step={state.qaStep}
+          cursor={state.qaCursor}
+          customInput={state.qaCustomInput}
+          onCustomInputChange={(value) => dispatch({ type: "QA_SET_CUSTOM_INPUT", value } as AppAction)}
+          onCustomInputSubmit={(value) => {
+            dispatch({ type: "QA_SELECT", optionIndex: -1 } as AppAction);
+            dispatch({ type: "QA_SET_CUSTOM_INPUT", value } as AppAction);
+          }}
+          onEscape={() => {
+            const cancelAnswers = JSON.stringify(
+              state.qaQuestions.map((q: { id: string }) => ({ questionId: q.id, selectedOption: -2, customAnswer: "" })),
+            );
+            socketRef.current?.sendToolApproval(state.qaToolCallId, true, cancelAnswers);
+            dispatch({ type: "CLEAR_QA" } as AppAction);
+          }}
+          columns={width}
+        />
+      )}
+
       {state.view === "thinking-detail" && (
         <Box flexDirection="column">
           <Text bold color="magenta">{"Thinking Detail"}</Text>
@@ -1364,7 +1571,7 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
 
       {state.view === "chat" && state.streaming && (
         <Text color="gray" dimColor>
-          Generating response... Esc to cancel.
+          Generating response | Esc to cancel
         </Text>
       )}
 
@@ -1372,21 +1579,20 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
         <Box flexDirection="column">
           <CommandHints input={state.inputValue} />
           <Text color="gray" dimColor>
-            Tab autocomplete | Enter run | Esc clear
+            Tab to autocomplete | Enter to run | Esc to clear
           </Text>
         </Box>
       )}
 
       {state.view === "chat" && !state.streaming && !state.inputValue.startsWith("/") && (
-        <Box>
-          {state.planMode && <Text color="#22d3ee" bold>◆ Plan </Text>}
-          {state.approvalMode === "auto" && <Text color="#eab308" bold>◆ Auto </Text>}
-          <Text color="gray" dimColor>
-            {state.planMode || state.approvalMode === "auto"
-              ? "/ commands | Shift+Tab toggle | Esc to cancel"
-              : "/ for commands | Tab autocomplete | Shift+Tab plan mode | Esc to cancel"
-            }
+        <Box justifyContent="space-between">
+          <Text color="#64748b">
+            {getChatFooterHint(state.planMode, state.approvalMode)}
           </Text>
+          <Box>
+            {state.planMode && <Text color="#22d3ee" bold>◆ Plan </Text>}
+            {state.approvalMode === "auto" && <Text color="#eab308" bold>◆ Auto </Text>}
+          </Box>
         </Box>
       )}
 
@@ -1404,7 +1610,7 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
 
       {state.view === "mcp-editor" && (
         <Text color="gray" dimColor>
-          Tab switch field | Ctrl+S save | Ctrl+E toggle | Esc back
+          Tab to switch field | Ctrl+S to save | Ctrl+E to toggle | Esc to go back
         </Text>
       )}
 
@@ -1416,9 +1622,10 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
 
       {state.view === "model-editor" && (
         <Text color="gray" dimColor>
-          Tab next field | Ctrl+S save | Esc back{state.modelEditorFocusIndex === 1 ? " | Enter change provider" : ""}
+          Tab to switch field | Ctrl+S to save | Esc to go back{state.modelEditorFocusIndex === 1 ? " | Enter to change provider" : ""}
         </Text>
       )}
     </Box>
   );
 }
+

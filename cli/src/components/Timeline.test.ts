@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import test from "node:test";
 import type { TimelineEntry } from "../types";
 import {
@@ -324,6 +326,13 @@ test("formatTodoListLines renders runtime todo statuses", () => {
       "     ◻ 实现折叠栏",
     ],
   );
+});
+
+test("Timeline renders todo content with Ink strikethrough only for completed items", () => {
+  const source = readFileSync(resolve(import.meta.dirname, "Timeline.tsx"), "utf8");
+
+  assert.match(source, /<Text\s+strikethrough=\{item\.status === "completed"\}>/);
+  assert.doesNotMatch(source, /strikethrough=\{item\.status !== "pending"\}/);
 });
 
 test("WAITING_STATS_COLOR matches the chat footer hint color", () => {

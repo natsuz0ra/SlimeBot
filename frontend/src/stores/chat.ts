@@ -451,7 +451,6 @@ export const useChatStore = defineStore('chat', () => {
         waiting.value = false
         streamingStarted.value = false
         planGenerating.value = false
-        clearRuntimeTodos()
         const batch = getCurrentBatch()
         if (batch) {
           const assistant = messages.value.find((msg) => msg.id === batch.assistantMessageId)
@@ -489,7 +488,6 @@ export const useChatStore = defineStore('chat', () => {
         waiting.value = false
         streamingStarted.value = false
         connectionError.value = error
-        clearRuntimeTodos()
         finalizeAssistantError(error, sessionId)
       },
       onToolCallStart: (data, sessionId) => {

@@ -370,17 +370,18 @@ function todoStatusSymbol(status: RuntimeTodoItem["status"]): string {
   }
 }
 
+const TODO_FIRST_PREFIX = "  ⎿  ";
+const TODO_NEXT_PREFIX = "     ";
+
 export function formatTodoListLines(items: RuntimeTodoItem[], maxWidth: number): string[] {
   const result: string[] = [];
-  const firstPrefix = "  ⎿  ";
-  const nextPrefix = "     ";
   items.forEach((item, index) => {
-    const prefix = index === 0 ? firstPrefix : nextPrefix;
+    const prefix = index === 0 ? TODO_FIRST_PREFIX : TODO_NEXT_PREFIX;
     const marker = `${todoStatusSymbol(item.status)} `;
     const contentWidth = Math.max(1, maxWidth - prefix.length - marker.length);
     const wrapped = wrapText(item.content, contentWidth).split("\n");
     wrapped.forEach((line, lineIndex) => {
-      result.push(`${lineIndex === 0 ? prefix : nextPrefix}${lineIndex === 0 ? marker : "  "}${line}`);
+      result.push(`${lineIndex === 0 ? prefix : TODO_NEXT_PREFIX}${lineIndex === 0 ? marker : "  "}${line}`);
     });
   });
   return result;
@@ -390,9 +391,18 @@ function TodoList({ items, maxWidth }: { items: RuntimeTodoItem[]; maxWidth: num
   if (items.length === 0) return null;
   return (
     <Box flexDirection="column">
-      {formatTodoListLines(items, maxWidth).map((line, index) => (
-        <Text key={`todo-${index}`} color={index === 0 ? "gray" : undefined}>{line}</Text>
-      ))}
+      {items.flatMap((item, itemIndex) => {
+        const prefix = itemIndex === 0 ? TODO_FIRST_PREFIX : TODO_NEXT_PREFIX;
+        const marker = `${todoStatusSymbol(item.status)} `;
+        const contentWidth = Math.max(1, maxWidth - prefix.length - marker.length);
+        return wrapText(item.content, contentWidth).split("\n").map((line, lineIndex) => (
+          <Text key={`todo-${item.id}-${lineIndex}`}>
+            <Text>{lineIndex === 0 ? prefix : TODO_NEXT_PREFIX}</Text>
+            <Text>{lineIndex === 0 ? marker : "  "}</Text>
+            <Text strikethrough={item.status === "completed"}>{line}</Text>
+          </Text>
+        ));
+      })}
     </Box>
   );
 }

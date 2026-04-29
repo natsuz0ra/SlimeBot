@@ -69,9 +69,9 @@ function symbolFor(status: RuntimeTodoItem['status']) {
   position: absolute;
   top: 72px;
   right: 0;
-  bottom: 112px;
   z-index: 35;
   width: min(320px, calc(100vw - 32px));
+  max-height: calc(100% - 184px);
   transform: translateX(calc(100% - 42px));
   transition: transform 180ms ease;
   pointer-events: none;
@@ -101,7 +101,7 @@ function symbolFor(status: RuntimeTodoItem['status']) {
 }
 
 .todo-panel-body {
-  height: 100%;
+  max-height: 100%;
   margin-left: 42px;
   padding: 14px 14px 16px;
   border: 1px solid var(--card-border);
@@ -163,6 +163,7 @@ function symbolFor(status: RuntimeTodoItem['status']) {
 
 .todo-panel-item--completed .todo-panel-text {
   color: var(--text-muted);
+  text-decoration: line-through;
 }
 
 .todo-panel-text {

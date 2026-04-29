@@ -194,7 +194,7 @@ function runSubagentExtraParams(params: Record<string, string> | undefined): Rec
   const filtered: Record<string, string> = {};
   for (const [key, value] of Object.entries(params)) {
     const normalized = key.trim().toLowerCase();
-    if (normalized === "context" || normalized === "task") continue;
+    if (normalized === "context" || normalized === "task" || normalized === "title") continue;
     filtered[key] = value;
   }
   return Object.keys(filtered).length > 0 ? filtered : undefined;
@@ -282,7 +282,7 @@ export function formatRunSubagentDetailLines(
   expanded: boolean,
 ): string[] {
   const context = displayParamValue(entry.params, "context");
-  const task = displayParamValue(entry.params, "task");
+  const task = displayParamValue(entry.params, "task") || (entry.subagentTask || "");
   const lines: string[] = [];
 
   lines.push(...formatSubagentSectionLines("Context", context, maxWidth, expanded));
@@ -636,7 +636,10 @@ function TimelineBlock({
   const invocation =
     nestPrefix +
     (entry.toolName || "tool").trim();
-  const summaryTag = formatToolSummaryTag(formatToolCallSummary(entry.toolName || "", entry.command || "", entry.params));
+  const summaryParams = entry.subagentTitle
+    ? { ...(entry.params || {}), title: entry.subagentTitle }
+    : entry.params;
+  const summaryTag = formatToolSummaryTag(formatToolCallSummary(entry.toolName || "", entry.command || "", summaryParams));
   const statusPart = formatToolStatusPart(status);
   const isAskQuestions = (entry.toolName || "").trim().toLowerCase() === "ask_questions";
   const isRunSubagent = isRunSubagentEntry(entry);

@@ -479,6 +479,29 @@ func buildTodoUpdatePayload(sessionID string, update chatsvc.TodoUpdate, updated
 	return payload
 }
 
+func truncateWSString(value string, maxRunes int) string {
+	trimmed := strings.TrimSpace(value)
+	runes := []rune(trimmed)
+	if maxRunes <= 0 || len(runes) <= maxRunes {
+		return trimmed
+	}
+	if maxRunes <= 3 {
+		return string(runes[:maxRunes])
+	}
+	return string(runes[:maxRunes-3]) + "..."
+}
+
+func buildSubagentStartPayload(sessionID, parentToolCallID, runID, title, task string) map[string]any {
+	return map[string]any{
+		"type":             "subagent_start",
+		"sessionId":        sessionID,
+		"parentToolCallId": parentToolCallID,
+		"subagentRunId":    runID,
+		"title":            truncateWSString(title, 80),
+		"task":             truncateWSString(task, 512),
+	}
+}
+
 // buildCallbacks builds ChatService callbacks and maps them to WebSocket events.
 func (w *Controller) buildCallbacks(
 	enqueue func(any) bool,
@@ -598,18 +621,8 @@ func (w *Controller) buildCallbacks(
 			}
 			return nil
 		},
-		OnSubagentStart: func(parentToolCallID, runID, task string) error {
-			t := task
-			if len(t) > 512 {
-				t = t[:512] + "…"
-			}
-			if !enqueue(map[string]any{
-				"type":             "subagent_start",
-				"sessionId":        sessionID,
-				"parentToolCallId": parentToolCallID,
-				"subagentRunId":    runID,
-				"task":             t,
-			}) {
+		OnSubagentStart: func(parentToolCallID, runID, title, task string) error {
+			if !enqueue(buildSubagentStartPayload(sessionID, parentToolCallID, runID, title, task)) {
 				return context.Canceled
 			}
 			return nil

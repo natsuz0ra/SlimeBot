@@ -57,6 +57,27 @@ func TestRunSubagentToolDef_EncouragesBoundedDelegationWithIsolation(t *testing.
 		t.Fatalf("run_subagent must not expose model_id to the LLM: %#v", properties["model_id"])
 	}
 
+	required, ok := def.Parameters["required"].([]string)
+	if !ok {
+		t.Fatalf("required missing or invalid: %#v", def.Parameters["required"])
+	}
+	for _, want := range []string{"title", "task"} {
+		if !containsString(required, want) {
+			t.Fatalf("run_subagent required missing %q: %#v", want, required)
+		}
+	}
+
+	title, ok := properties["title"].(map[string]any)
+	if !ok {
+		t.Fatalf("title property missing or invalid: %#v", properties["title"])
+	}
+	titleDesc, _ := title["description"].(string)
+	for _, want := range []string{"Short", "title"} {
+		if !containsText(titleDesc, want) {
+			t.Fatalf("title description missing %q: %q", want, titleDesc)
+		}
+	}
+
 	task, ok := properties["task"].(map[string]any)
 	if !ok {
 		t.Fatalf("task property missing or invalid: %#v", properties["task"])
@@ -114,6 +135,15 @@ func TestFilterPlanModeToolDefs_KeepsRunSubagentAndReadOnlyTools(t *testing.T) {
 func containsToolName(defs []llmsvc.ToolDef, name string) bool {
 	for _, d := range defs {
 		if d.Name == name {
+			return true
+		}
+	}
+	return false
+}
+
+func containsString(items []string, want string) bool {
+	for _, item := range items {
+		if item == want {
 			return true
 		}
 	}

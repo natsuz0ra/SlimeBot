@@ -91,6 +91,88 @@ func TestWrapSubagentCallbacksTagsThinkingEvents(t *testing.T) {
 	}
 }
 
+func TestHandleRunSubagentTool_EmitsNormalizedSubagentTitle(t *testing.T) {
+	provider := &captureToolDefsProvider{}
+	agent := NewAgentService(llmsvc.NewFactory(provider), nil, nil, nil)
+	agent.SetSubagentHost(&stubSubagentHost{})
+
+	var gotTitle string
+	var gotTask string
+	messages := []llmsvc.ChatMessage{{Role: "user", Content: "delegate"}}
+	err := agent.handleRunSubagentTool(
+		context.Background(),
+		llmsvc.ModelRuntimeConfig{Provider: llmsvc.ProviderOpenAI},
+		"session-1",
+		nil,
+		map[string]struct{}{},
+		AgentCallbacks{
+			OnSubagentStart: func(_ string, _ string, title string, task string) error {
+				gotTitle = title
+				gotTask = task
+				return nil
+			},
+		},
+		AgentLoopOptions{},
+		llmsvc.ToolCallInfo{ID: "call-subagent", Name: constants.RunSubagentTool},
+		resolvedToolInvocation{toolName: constants.RunSubagentTool, command: "run"},
+		map[string]string{
+			"title": "  Inspect\nprompt   flow  ",
+			"task":  "Inspect prompt flow and report risks",
+		},
+		"",
+		"",
+		&messages,
+	)
+	if err != nil {
+		t.Fatalf("handleRunSubagentTool failed: %v", err)
+	}
+	if gotTitle != "Inspect prompt flow" {
+		t.Fatalf("unexpected title: %q", gotTitle)
+	}
+	if gotTask != "Inspect prompt flow and report risks" {
+		t.Fatalf("unexpected task: %q", gotTask)
+	}
+}
+
+func TestHandleRunSubagentTool_FallsBackTitleToTask(t *testing.T) {
+	provider := &captureToolDefsProvider{}
+	agent := NewAgentService(llmsvc.NewFactory(provider), nil, nil, nil)
+	agent.SetSubagentHost(&stubSubagentHost{})
+
+	var gotTitle string
+	longTask := strings.Repeat("a", 90) + "\nmore detail"
+	messages := []llmsvc.ChatMessage{{Role: "user", Content: "delegate"}}
+	err := agent.handleRunSubagentTool(
+		context.Background(),
+		llmsvc.ModelRuntimeConfig{Provider: llmsvc.ProviderOpenAI},
+		"session-1",
+		nil,
+		map[string]struct{}{},
+		AgentCallbacks{
+			OnSubagentStart: func(_ string, _ string, title string, _ string) error {
+				gotTitle = title
+				return nil
+			},
+		},
+		AgentLoopOptions{},
+		llmsvc.ToolCallInfo{ID: "call-subagent", Name: constants.RunSubagentTool},
+		resolvedToolInvocation{toolName: constants.RunSubagentTool, command: "run"},
+		map[string]string{"task": longTask},
+		"",
+		"",
+		&messages,
+	)
+	if err != nil {
+		t.Fatalf("handleRunSubagentTool failed: %v", err)
+	}
+	if len([]rune(gotTitle)) > 80 {
+		t.Fatalf("fallback title should be capped to 80 runes, got %d: %q", len([]rune(gotTitle)), gotTitle)
+	}
+	if !strings.HasSuffix(gotTitle, "...") {
+		t.Fatalf("fallback title should show truncation suffix: %q", gotTitle)
+	}
+}
+
 func TestRunAgentLoop_HandlesTodoUpdateWithoutRegularToolCallback(t *testing.T) {
 	provider := &todoUpdateProvider{}
 	agent := NewAgentService(llmsvc.NewFactory(provider), nil, nil, nil)

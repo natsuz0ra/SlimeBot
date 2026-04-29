@@ -262,6 +262,8 @@ export function buildReplyBatchesFromHistory(sessionId: string, history: Session
       finishedAt: parseTimestamp(item.finishedAt),
       parentToolCallId: item.parentToolCallId,
       subagentRunId: item.subagentRunId,
+      subagentTitle: item.toolName === 'run_subagent' ? String(item.params?.title ?? '').trim() || undefined : undefined,
+      subagentTask: item.toolName === 'run_subagent' ? String(item.params?.task ?? '').trim() || undefined : undefined,
     }))
 
     const subagentThinkingRecords = historyThinking

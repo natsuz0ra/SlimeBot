@@ -560,6 +560,7 @@ export const useChatStore = defineStore('chat', () => {
         const parent = batch.toolCalls.find((tc) => tc.toolCallId === data.parentToolCallId)
         if (parent) {
           parent.subagentRunId = data.subagentRunId
+          parent.subagentTitle = data.title
           parent.subagentTask = data.task
           if (parent.subagentStream === undefined) parent.subagentStream = ''
         }

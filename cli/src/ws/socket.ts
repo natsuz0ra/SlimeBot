@@ -4,7 +4,7 @@
  */
 
 import WebSocket from "ws";
-import type { SubagentChunkData, TodoUpdateData, ToolCallStartData, ToolCallResultData } from "../types.js";
+import type { SubagentChunkData, SubagentStartData, TodoUpdateData, ToolCallStartData, ToolCallResultData } from "../types.js";
 
 export interface ThinkingEventData {
   content?: string;
@@ -24,6 +24,7 @@ export interface WSHandlers {
   onError: (error: string, sessionId?: string) => void;
   onToolCallStart?: (data: ToolCallStartData, sessionId?: string) => void;
   onToolCallResult?: (data: ToolCallResultData, sessionId?: string) => void;
+  onSubagentStart?: (data: SubagentStartData, sessionId?: string) => void;
   onSubagentChunk?: (data: SubagentChunkData, sessionId?: string) => void;
   onThinkingStart?: (data: ThinkingEventData) => void;
   onThinkingChunk?: (data: ThinkingEventData) => void;
@@ -53,6 +54,8 @@ interface WSIncoming {
   isStopPlaceholder?: boolean;
   parentToolCallId?: string;
   subagentRunId?: string;
+  title?: string;
+  task?: string;
   planId?: string;
   planBody?: string;
   narration?: string;
@@ -269,6 +272,18 @@ export function dispatchWSMessage(raw: string, handlers: WSHandlers | null): voi
       parentToolCallId: msg.parentToolCallId,
       subagentRunId: msg.subagentRunId,
     });
+  }
+
+  if (msg.type === "subagent_start") {
+    handlers?.onSubagentStart?.(
+      {
+        parentToolCallId: msg.parentToolCallId || "",
+        subagentRunId: msg.subagentRunId || "",
+        title: msg.title || "",
+        task: msg.task || "",
+      },
+      msg.sessionId,
+    );
   }
 
   if (msg.type === "todo_update") {

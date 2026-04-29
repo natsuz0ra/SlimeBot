@@ -38,7 +38,9 @@ export function useHomeToolDetail(options: {
     }
 
     if (toolCall.toolName === 'run_subagent') {
-      const task = String(params.task ?? '').trim()
+      const title = String(toolCall.subagentTitle || params.title || '').trim()
+      if (title !== '') return title
+      const task = String(toolCall.subagentTask || params.task || '').trim()
       if (task !== '') {
         const short = task.length > 100 ? `${task.slice(0, 100)}…` : task
         return `task: ${short}`

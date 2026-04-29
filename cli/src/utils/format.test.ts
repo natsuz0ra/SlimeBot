@@ -89,6 +89,17 @@ test("formatToolCallSummary uses core tool parameters", () => {
     formatToolCallSummary("http_request", "request", { method: "post", url: "https://example.test/api" }),
     "POST https://example.test/api",
   );
+  assert.equal(
+    formatToolCallSummary("run_subagent", "delegate", {
+      title: "Inspect UI cards",
+      task: "Inspect UI cards and report exact files",
+    }),
+    "Inspect UI cards",
+  );
+  assert.equal(
+    formatToolCallSummary("run_subagent", "delegate", { task: "Inspect UI cards and report exact files" }),
+    "task: Inspect UI cards and report exact files",
+  );
 });
 
 test("formatToolCallSummary hides missing legacy exec description", () => {
@@ -103,6 +114,15 @@ test("filterToolParamsForDetail removes params already shown in summary", () => 
   assert.deepEqual(
     filterToolParamsForDetail("web_search", "search", { query: "SlimeBot latest" }),
     {},
+  );
+  assert.deepEqual(
+    filterToolParamsForDetail("run_subagent", "delegate", {
+      title: "Inspect UI cards",
+      task: "Inspect UI cards and report exact files",
+      context: "repo state",
+      priority: "high",
+    }),
+    { context: "repo state", priority: "high" },
   );
 });
 

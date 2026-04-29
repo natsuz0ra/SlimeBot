@@ -35,6 +35,34 @@ test('buildToolCallSummary uses query and http request fields', () => {
   )
 })
 
+test('buildToolCallSummary uses run_subagent title before task', () => {
+  assert.equal(
+    buildToolCallSummary(tool({
+      toolName: 'run_subagent',
+      command: 'delegate',
+      params: { title: 'Inspect UI cards', task: 'Inspect UI cards and report exact files' },
+    })),
+    'Inspect UI cards',
+  )
+  assert.equal(
+    buildToolCallSummary(tool({
+      toolName: 'run_subagent',
+      command: 'delegate',
+      params: { task: 'Inspect UI cards and report exact files' },
+      subagentTitle: 'Inspect UI cards',
+    })),
+    'Inspect UI cards',
+  )
+  assert.equal(
+    buildToolCallSummary(tool({
+      toolName: 'run_subagent',
+      command: 'delegate',
+      params: { task: 'Inspect UI cards and report exact files' },
+    })),
+    'task: Inspect UI cards and report exact files',
+  )
+})
+
 test('buildToolCallSummary hides missing legacy exec description', () => {
   assert.equal(buildToolCallSummary(tool({ params: { command: 'go test ./...' } })), '')
 })
@@ -47,5 +75,13 @@ test('filterToolParamsForDetail removes params already shown in summary', () => 
   assert.deepEqual(
     filterToolParamsForDetail(tool({ toolName: 'web_search', command: 'search', params: { query: 'SlimeBot latest' } })),
     {},
+  )
+  assert.deepEqual(
+    filterToolParamsForDetail(tool({
+      toolName: 'run_subagent',
+      command: 'delegate',
+      params: { title: 'Inspect UI cards', task: 'Inspect UI cards and report exact files', context: 'repo state', priority: 'high' },
+    })),
+    { context: 'repo state', priority: 'high' },
   )
 })

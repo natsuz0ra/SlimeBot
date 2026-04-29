@@ -342,9 +342,9 @@ func (s *ChatService) executeChatTurn(
 			}
 			return callbacks.OnToolCallResult(result)
 		},
-		OnSubagentStart: func(parentToolCallID, runID, task string) error {
+		OnSubagentStart: func(parentToolCallID, runID, title, task string) error {
 			if callbacks.OnSubagentStart != nil {
-				return callbacks.OnSubagentStart(parentToolCallID, runID, task)
+				return callbacks.OnSubagentStart(parentToolCallID, runID, title, task)
 			}
 			return nil
 		},

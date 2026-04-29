@@ -35,8 +35,11 @@ export function getToolSummaryParamKeys(
   if ((tool === "web_search" || tool === "search_memory") && normalizedParam(params, "query") !== "") {
     return ["query"];
   }
-  if (tool === "run_subagent" && normalizedParam(params, "task") !== "") {
-    return ["task"];
+  if (tool === "run_subagent") {
+    const keys: string[] = [];
+    if (normalizedParam(params, "title") !== "") keys.push("title");
+    if (normalizedParam(params, "task") !== "") keys.push("task");
+    if (keys.length > 0) return keys;
   }
   if (tool === "http_request" && cmd === "request") {
     const keys: string[] = [];
@@ -65,6 +68,8 @@ export function formatToolCallSummary(
     return query ? `query: ${query}` : "";
   }
   if (tool === "run_subagent") {
+    const title = normalizedParam(params, "title");
+    if (title) return title;
     const task = normalizedParam(params, "task");
     return task ? `task: ${task}` : "";
   }

@@ -13,6 +13,23 @@ import (
 	"github.com/google/uuid"
 )
 
+const maxSubagentTitleRunes = 80
+
+func normalizeSubagentTitle(title, task string) string {
+	normalized := strings.Join(strings.Fields(strings.TrimSpace(title)), " ")
+	if normalized == "" {
+		normalized = strings.Join(strings.Fields(strings.TrimSpace(task)), " ")
+	}
+	runes := []rune(normalized)
+	if len(runes) <= maxSubagentTitleRunes {
+		return normalized
+	}
+	if maxSubagentTitleRunes <= 3 {
+		return string(runes[:maxSubagentTitleRunes])
+	}
+	return string(runes[:maxSubagentTitleRunes-3]) + "..."
+}
+
 func (a *AgentService) handleRunSubagentTool(
 	ctx context.Context,
 	parentModel llmsvc.ModelRuntimeConfig,
@@ -105,7 +122,7 @@ func (a *AgentService) handleRunSubagentTool(
 
 	runID := uuid.NewString()
 	if callbacks.OnSubagentStart != nil {
-		_ = callbacks.OnSubagentStart(tc.ID, runID, task)
+		_ = callbacks.OnSubagentStart(tc.ID, runID, normalizeSubagentTitle(params["title"], task), task)
 	}
 
 	subCb := wrapSubagentCallbacks(callbacks, tc.ID, runID)

@@ -133,6 +133,40 @@ test("mapHistoryMessages preserves parentToolCallId for nested tool calls", () =
   assert.equal(child.subagentRunId, "run-1");
 });
 
+test("mapHistoryMessages restores run_subagent title from history params", () => {
+  const messages: Message[] = [
+    {
+      id: "a1",
+      sessionId: "s1",
+      role: "assistant",
+      content: "done",
+      seq: 1,
+      createdAt: "2026-01-01T00:00:01Z",
+    },
+  ];
+  const toolCallsByMsgId: Record<string, ToolCallHistoryItem[]> = {
+    a1: [
+      {
+        toolCallId: "parent",
+        toolName: "run_subagent",
+        command: "delegate",
+        params: { title: "Inspect UI cards", task: "Inspect UI cards and report exact files" },
+        status: "completed",
+        requiresApproval: false,
+        output: "ok",
+        startedAt: "2026-01-01T00:00:00Z",
+      },
+    ],
+  };
+
+  const entries = mapHistoryMessages(messages, toolCallsByMsgId);
+  const parent = entries.find((e) => e.kind === "tool" && e.toolCallId === "parent");
+
+  assert.ok(parent && parent.kind === "tool");
+  assert.equal(parent.subagentTitle, "Inspect UI cards");
+  assert.equal(parent.subagentTask, "Inspect UI cards and report exact files");
+});
+
 test("mapHistoryMessages restores thinking entries from history markers", () => {
   const messages: Message[] = [
     {

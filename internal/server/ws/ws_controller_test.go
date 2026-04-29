@@ -75,3 +75,26 @@ func TestBuildTodoUpdatePayloadIncludesSessionScopedItems(t *testing.T) {
 		t.Fatalf("unexpected items: %+v", payload["items"])
 	}
 }
+
+func TestBuildSubagentStartPayloadIncludesTitleAndTask(t *testing.T) {
+	payload := buildSubagentStartPayload("session-1", "parent-call", "run-1", "Inspect UI cards", "Inspect UI cards and report exact files")
+
+	if payload["type"] != "subagent_start" {
+		t.Fatalf("unexpected type: %+v", payload)
+	}
+	if payload["sessionId"] != "session-1" {
+		t.Fatalf("unexpected session id: %+v", payload)
+	}
+	if payload["parentToolCallId"] != "parent-call" {
+		t.Fatalf("unexpected parent id: %+v", payload)
+	}
+	if payload["subagentRunId"] != "run-1" {
+		t.Fatalf("unexpected run id: %+v", payload)
+	}
+	if payload["title"] != "Inspect UI cards" {
+		t.Fatalf("unexpected title: %+v", payload)
+	}
+	if payload["task"] != "Inspect UI cards and report exact files" {
+		t.Fatalf("unexpected task: %+v", payload)
+	}
+}

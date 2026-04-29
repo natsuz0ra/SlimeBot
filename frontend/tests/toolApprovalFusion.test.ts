@@ -114,6 +114,15 @@ test('chat socket done event forwards plan metadata while plan_body stays separa
   assert.match(chatSocketSource, /if \(data\.type === 'plan_body'\) handlers\?\.onPlanBody\?\.\(data\.content \|\| '', data\.sessionId\)/)
 })
 
+test('chat socket and store forward subagent title from start event', () => {
+  const chatSocketSource = readFileSync(resolve(import.meta.dirname, '../src/api/chatSocket.ts'), 'utf8')
+  const chatStoreSource = readFileSync(resolve(import.meta.dirname, '../src/stores/chat.ts'), 'utf8')
+
+  assert.match(chatSocketSource, /interface SubagentStartData[\s\S]*title: string/s)
+  assert.match(chatSocketSource, /title: data\.title \|\| ''/)
+  assert.match(chatStoreSource, /parent\.subagentTitle = data\.title/)
+})
+
 test('chat socket forwards backend event timestamps for tool and thinking ordering', () => {
   const chatSocketSource = readFileSync(resolve(import.meta.dirname, '../src/api/chatSocket.ts'), 'utf8')
   const chatStoreSource = readFileSync(resolve(import.meta.dirname, '../src/stores/chat.ts'), 'utf8')

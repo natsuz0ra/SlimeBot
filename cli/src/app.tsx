@@ -79,6 +79,17 @@ export function getChatFooterHint(planMode: boolean, approvalMode: AppState["app
     ? "/ for commands | Shift+Tab to toggle | Esc to cancel"
     : "/ for commands | Shift+Tab plan mode | Esc to cancel";
 }
+
+function subagentHistoryFields(tc: ToolCallHistoryItem): Partial<TimelineEntry> {
+  if ((tc.toolName || "").trim().toLowerCase() !== "run_subagent") return {};
+  const title = String(tc.subagentTitle ?? tc.params?.title ?? "").trim();
+  const task = String(tc.subagentTask ?? tc.params?.task ?? "").trim();
+  return {
+    ...(title ? { subagentTitle: title } : {}),
+    ...(task ? { subagentTask: task } : {}),
+  };
+}
+
 interface AppProps {
   apiURL: string;
   cliToken: string;
@@ -157,6 +168,7 @@ export function mapHistoryMessages(
               error: tc.error,
               ...(tc.parentToolCallId ? { parentToolCallId: tc.parentToolCallId } : {}),
               ...(tc.subagentRunId ? { subagentRunId: tc.subagentRunId } : {}),
+              ...subagentHistoryFields(tc),
               ...(subagentThinking ? {
                 subagentThinking: {
                   content: subagentThinking.content || "",
@@ -227,6 +239,7 @@ export function mapHistoryMessages(
               error: tc.error,
               ...(tc.parentToolCallId ? { parentToolCallId: tc.parentToolCallId } : {}),
               ...(tc.subagentRunId ? { subagentRunId: tc.subagentRunId } : {}),
+              ...subagentHistoryFields(tc),
               ...(subagentThinking ? {
                 subagentThinking: {
                   content: subagentThinking.content || "",
@@ -263,6 +276,7 @@ export function mapHistoryMessages(
             error: tc.error,
             ...(tc.parentToolCallId ? { parentToolCallId: tc.parentToolCallId } : {}),
             ...(tc.subagentRunId ? { subagentRunId: tc.subagentRunId } : {}),
+            ...subagentHistoryFields(tc),
             ...(subagentThinking ? {
               subagentThinking: {
                 content: subagentThinking.content || "",
@@ -1024,6 +1038,23 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
           },
         } as AppAction);
         dispatch({ type: "REMOVE_PENDING_APPROVAL", toolCallId: data.toolCallId } as AppAction);
+      },
+      onSubagentStart: (data) => {
+        if (!data.parentToolCallId) return;
+        dispatch({
+          type: "UPSERT_TOOL_ENTRY",
+          entry: {
+            kind: "tool",
+            toolCallId: data.parentToolCallId,
+            toolName: "run_subagent",
+            command: "delegate",
+            status: "executing",
+            content: "",
+            subagentRunId: data.subagentRunId,
+            subagentTitle: data.title,
+            subagentTask: data.task,
+          },
+        } as AppAction);
       },
       onSubagentChunk: (data) => {
         if (!data.parentToolCallId || !data.content) return;

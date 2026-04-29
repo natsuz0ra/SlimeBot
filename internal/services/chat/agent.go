@@ -73,7 +73,7 @@ type AgentCallbacks struct {
 	OnToolCallStart  func(req ApprovalRequest) error                                         // notify client that a tool awaits approval
 	WaitApproval     func(ctx context.Context, toolCallID string) (*ApprovalResponse, error) // block until approval
 	OnToolCallResult func(result ToolCallResult) error                                       // notify client of tool outcome
-	OnSubagentStart  func(parentToolCallID, runID, task string) error
+	OnSubagentStart  func(parentToolCallID, runID, title, task string) error
 	OnSubagentChunk  func(parentToolCallID, runID, chunk string) error
 	OnSubagentDone   func(parentToolCallID, runID string, runErr error) error
 	OnThinkingStart  func(meta ThinkingEventMeta) error
@@ -190,12 +190,16 @@ func buildRunSubagentToolDef() llmsvc.ToolDef {
 					"type":        "string",
 					"description": "Concrete self-contained task for the sub-agent, including the expected deliverable and boundaries.",
 				},
+				"title": map[string]any{
+					"type":        "string",
+					"description": "Short one-line title for the sub-agent task, about 80 characters or less.",
+				},
 				"context": map[string]any{
 					"type":        "string",
 					"description": "Optional compressed background from the main assistant; include only state the isolated sub-agent needs.",
 				},
 			},
-			"required": []string{"task"},
+			"required": []string{"title", "task"},
 		},
 	}
 }

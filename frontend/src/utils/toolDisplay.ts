@@ -50,6 +50,7 @@ export interface ToolCallSummaryInput {
   toolName: string
   command: string
   params?: Record<string, string>
+  subagentTitle?: string
   subagentTask?: string
 }
 
@@ -237,8 +238,11 @@ export function getToolSummaryParamKeys(toolCall: ToolCallSummaryInput): string[
   if ((toolName === 'web_search' || toolName === 'search_memory') && normalizedParam(params, 'query') !== '') {
     return ['query']
   }
-  if (toolName === 'run_subagent' && normalizedParam(params, 'task') !== '') {
-    return ['task']
+  if (toolName === 'run_subagent') {
+    const keys: string[] = []
+    if (normalizedParam(params, 'title') !== '') keys.push('title')
+    if (normalizedParam(params, 'task') !== '') keys.push('task')
+    if (keys.length > 0) return keys
   }
   if (toolName === 'http_request' && command === 'request') {
     const keys: string[] = []
@@ -264,6 +268,8 @@ export function buildToolCallSummary(toolCall: ToolCallSummaryInput): string {
     return query ? `query: ${query}` : ''
   }
   if (toolName === 'run_subagent') {
+    const title = String(toolCall.subagentTitle ?? '').trim() || normalizedParam(params, 'title')
+    if (title) return title
     const task = normalizedParam(params, 'task') || String(toolCall.subagentTask ?? '').trim()
     return task ? `task: ${task}` : ''
   }

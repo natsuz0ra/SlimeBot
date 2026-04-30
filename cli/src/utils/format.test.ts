@@ -13,6 +13,12 @@ import {
   formatTurnDuration,
   formatWaitingStatsSuffix,
 } from "./format";
+import {
+  buildFileToolDisplay,
+  buildLineDiff,
+  formatFileReadSummary,
+  parseFileReadOutput,
+} from "./fileToolDisplay";
 
 test("wrapText wraps plain text with target width", () => {
   const wrapped = wrapText("1234567890", 4);
@@ -100,6 +106,18 @@ test("formatToolCallSummary uses core tool parameters", () => {
     formatToolCallSummary("run_subagent", "delegate", { task: "Inspect UI cards and report exact files" }),
     "task: Inspect UI cards and report exact files",
   );
+  assert.equal(
+    formatToolCallSummary("file_read", "read", { file_path: "frontend/src/App.vue" }),
+    "Read frontend/src/App.vue",
+  );
+  assert.equal(
+    formatToolCallSummary("file_edit", "edit", { file_path: "cli/src/utils/format.ts", old_string: "a", new_string: "b" }),
+    "Update cli/src/utils/format.ts",
+  );
+  assert.equal(
+    formatToolCallSummary("file_write", "write", { file_path: "cli/src/utils/fileToolDisplay.ts", content: "x" }),
+    "Write cli/src/utils/fileToolDisplay.ts",
+  );
 });
 
 test("formatToolCallSummary hides missing legacy exec description", () => {
@@ -124,6 +142,58 @@ test("filterToolParamsForDetail removes params already shown in summary", () => 
     }),
     { context: "repo state", priority: "high" },
   );
+  assert.deepEqual(
+    filterToolParamsForDetail("file_edit", "edit", {
+      file_path: "cli/src/utils/format.ts",
+      old_string: "old",
+      new_string: "new",
+      replace_all: "false",
+    }),
+    { old_string: "old", new_string: "new", replace_all: "false" },
+  );
+});
+
+test("parseFileReadOutput extracts read summary without keeping file content", () => {
+  const parsed = parseFileReadOutput([
+    "File: /repo/cli/src/utils/timelineFormat.ts",
+    "Total lines: 462",
+    "Showing lines 120-159:",
+    "   120\tconst x = 1",
+    "... [truncated; use offset/limit to read another range] ...",
+  ].join("\n"));
+
+  assert.deepEqual(parsed, {
+    filePath: "/repo/cli/src/utils/timelineFormat.ts",
+    totalLines: 462,
+    startLine: 120,
+    endLine: 159,
+    truncated: true,
+  });
+  assert.equal(formatFileReadSummary(parsed!), "Read 40 of 462 lines, showing 120-159");
+});
+
+test("buildLineDiff emits concrete removed and added lines", () => {
+  assert.deepEqual(buildLineDiff("a\nb\nc\n", "a\nx\nc\n"), [
+    { kind: "context", oldLine: 1, newLine: 1, text: "a" },
+    { kind: "removed", oldLine: 2, text: "b" },
+    { kind: "added", newLine: 2, text: "x" },
+    { kind: "context", oldLine: 3, newLine: 3, text: "c" },
+  ]);
+});
+
+test("buildFileToolDisplay formats file_write as concrete added lines", () => {
+  const display = buildFileToolDisplay({
+    toolName: "file_write",
+    params: {
+      file_path: "frontend/src/utils/fileToolDisplay.ts",
+      content: "export const ok = true\n",
+    },
+  });
+
+  assert.equal(display?.summary, "Wrote 1 line to frontend/src/utils/fileToolDisplay.ts");
+  assert.deepEqual(display?.diffLines, [
+    { kind: "added", newLine: 1, text: "export const ok = true" },
+  ]);
 });
 
 test("parseExecOutputPayload parses valid exec output payload", () => {

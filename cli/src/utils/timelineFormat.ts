@@ -14,6 +14,11 @@ import {
   filterToolParamsForDetail,
   truncateText,
 } from "./format.js";
+import {
+  buildFileToolDisplay,
+  type FileDiffLine,
+  isFileToolEntry as isFileToolTimelineEntry,
+} from "./fileToolDisplay.js";
 
 export const PLAN_GOLD = "#f59e0b";
 export const WAITING_STATS_COLOR = "#64748b";
@@ -97,6 +102,59 @@ export function formatToolParamLines(entry: TimelineEntry, maxWidth: number): st
     filterToolParamsForDetail(entry.toolName || "", entry.command || "", entry.params),
     maxWidth,
   );
+}
+
+export function isFileToolEntry(entry: TimelineEntry): boolean {
+  return isFileToolTimelineEntry(entry);
+}
+
+function fileDiffLineText(line: FileDiffLine): string {
+  const marker = line.kind === "added" ? "+" : line.kind === "removed" ? "-" : " ";
+  const lineNo = line.kind === "added" ? line.newLine : line.oldLine ?? line.newLine;
+  const paddedLineNo = lineNo === undefined ? "   " : String(lineNo).padStart(3, " ");
+  return `${marker} ${paddedLineNo}  ${line.text}`;
+}
+
+function treeWrapLine(prefix: string, text: string, maxWidth: number): string[] {
+  const contentWidth = Math.max(1, maxWidth - prefix.length);
+  const wrapped = wrapText(text, contentWidth).split("\n");
+  return wrapped.map((line, index) => `${index === 0 ? prefix : " ".repeat(prefix.length)}${line}`);
+}
+
+export function formatFileToolTimelineLines(entry: TimelineEntry, maxWidth: number, expanded: boolean): string[] {
+  const display = buildFileToolDisplay(entry);
+  if (!display) return [];
+
+  if (entry.status === "error" || entry.status === "rejected") {
+    const message = entry.error || entry.content || "File tool failed";
+    return treeWrapLine("   └─ ", message, maxWidth);
+  }
+
+  if (entry.status !== "completed") {
+    return [];
+  }
+
+  const lines: string[] = [];
+  lines.push(...treeWrapLine("   └─ ", display.summary, maxWidth));
+  if (display.toolName === "file_read" || display.diffLines.length === 0) {
+    return lines;
+  }
+
+  const maxPreviewLines = 8;
+  const diffLines = expanded ? display.diffLines : display.diffLines.slice(0, maxPreviewLines);
+  const remaining = display.diffLines.length - diffLines.length;
+  const rows = diffLines.map(fileDiffLineText);
+  if (remaining > 0) {
+    rows.push(`... +${remaining} more changed lines (ctrl+o to expand)`);
+  } else if (expanded && display.diffLines.length > maxPreviewLines) {
+    rows.push("... (ctrl+o to collapse)");
+  }
+
+  rows.forEach((row, index) => {
+    const connector = index === rows.length - 1 ? "└─ " : "├─ ";
+    lines.push(...treeWrapLine(`      ${connector}`, row, maxWidth));
+  });
+  return lines;
 }
 
 function formatToolParamLinesForParams(params: Record<string, string> | undefined, maxWidth: number): string[] {

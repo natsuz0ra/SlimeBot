@@ -27,11 +27,13 @@ import {
   formatSubagentStreamLines,
   formatSubagentThinkingLines,
   formatThinkingLabel,
+  formatFileToolTimelineLines,
   formatToolOutputLines,
   formatToolParamLines,
   formatToolStatusPart,
   formatToolSummaryTag,
   getRunSubagentDetailLineColor,
+  isFileToolEntry,
   isRunSubagentEntry,
   shouldSeparatePlanningAndWaiting,
   shouldShowWaitingPrompt,
@@ -239,8 +241,11 @@ function TimelineBlock({
     const questionsRaw = entry.params?.questions;
     if (questionsRaw) qaDisplayLines = formatAskQuestionsPending(questionsRaw);
   }
-  const paramLines = qaDisplayLines || isRunSubagent ? [] : formatToolParamLines(entry, maxWidth);
-  const resultLines = qaDisplayLines ? [] : (status === "completed" || status === "error" || status === "rejected")
+  const isFileTool = isFileToolEntry(entry);
+  const paramLines = qaDisplayLines || isRunSubagent || isFileTool ? [] : formatToolParamLines(entry, maxWidth);
+  const resultLines = qaDisplayLines ? [] : isFileTool
+    ? formatFileToolTimelineLines(entry, maxWidth, toolOutputExpanded)
+    : (status === "completed" || status === "error" || status === "rejected")
     ? formatToolOutputLines(entry, maxWidth, toolOutputExpanded)
     : [];
   const subStreamLines =

@@ -5,10 +5,12 @@ import { useI18n } from 'vue-i18n'
 import MdiIcon from '@/components/ui/MdiIcon.vue'
 import ThinkingBlock from '@/components/chat/ThinkingBlock.vue'
 import ToolCallHeader from '@/components/chat/ToolCallHeader.vue'
+import FileToolDisplay from '@/components/chat/FileToolDisplay.vue'
 import type { ToolCallItem } from '@/api/chat'
 import { useToolCallDisplay } from '@/composables/chat/useToolCallDisplay'
 import { buildSubagentTimeline } from '@/utils/subagentTimeline'
 import { buildToolResultDisplay, filterToolParamsForDetail, formatDisplayText, formatToolParams, parseAskQuestionsReadableAnswers } from '@/utils/toolDisplay'
+import { isFileTool } from '@/utils/fileToolDisplay'
 
 const props = withDefaults(defineProps<{
   item: ToolCallItem & { preamble?: string }
@@ -69,6 +71,8 @@ const showResult = computed(() => props.item.status === 'completed' || props.ite
 const resultDisplay = computed(() => buildToolResultDisplay(props.item.toolName, props.item.command, props.item.output))
 const errorDisplay = computed(() => (props.item.error ? formatDisplayText(props.item.error) : ''))
 const isRunSubagent = computed(() => props.item.toolName === 'run_subagent')
+const isFileToolCall = computed(() => isFileTool(props.item))
+const showFileToolDisplay = computed(() => isFileToolCall.value && !isAskQuestions.value && !isRunSubagent.value)
 const showRunSubagentResult = computed(() => isRunSubagent.value && (showResult.value || showSubagentStream.value))
 const execExitOk = computed(() => resultDisplay.value.mode === 'exec' && resultDisplay.value.exec && resultDisplay.value.exec.exit_code === 0)
 const shouldShowPreamble = computed(() => !!props.showPreamble && !!props.item.preamble && !isRunSubagent.value)
@@ -141,7 +145,9 @@ function toggleSubagentTimeline() {
     </section>
 
     <!-- non-ask_questions params section -->
-    <section v-if="!isAskQuestions && runSubagentParamsDisplay.length > 0" class="tool-section mt-2">
+    <FileToolDisplay v-if="showFileToolDisplay" class="mt-2" :item="item" />
+
+    <section v-if="!isAskQuestions && !isFileToolCall && runSubagentParamsDisplay.length > 0" class="tool-section mt-2">
       <p class="tool-section-title">{{ t('toolCallParams') }}</p>
       <div class="tool-kv-list sb-scrollbar">
         <div v-for="row in runSubagentParamsDisplay" :key="row.key" class="tool-kv-row">
@@ -151,7 +157,7 @@ function toggleSubagentTimeline() {
       </div>
     </section>
 
-    <section v-if="!isRunSubagent && !isAskQuestions && showResult" class="tool-section mt-2">
+    <section v-if="!isRunSubagent && !isAskQuestions && !isFileToolCall && showResult" class="tool-section mt-2">
       <details v-if="item.output" class="tool-output-details text-sm" @toggle="onOutputToggle">
         <summary
           class="tool-result-summary"

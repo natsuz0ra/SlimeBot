@@ -1,4 +1,5 @@
 import wrapAnsi from "wrap-ansi";
+import { fileToolSummaryFromParams, isFileToolName } from "./fileToolDisplay.js";
 
 /** Formats tool invocation text shown in timeline rows. */
 export function formatToolInvocation(toolName: string, command: string): string {
@@ -28,6 +29,12 @@ export function getToolSummaryParamKeys(
   const tool = toolName.trim().toLowerCase();
   const cmd = command.trim().toLowerCase();
   if (tool === "") return [];
+
+  if (isFileToolName(tool)) {
+    const keys: string[] = [];
+    if (normalizedParam(params, "file_path") !== "") keys.push("file_path");
+    return keys;
+  }
 
   if (tool === "exec" && cmd === "run" && normalizedParam(params, "description") !== "") {
     return ["description"];
@@ -59,6 +66,10 @@ export function formatToolCallSummary(
 ): string {
   const tool = toolName.trim().toLowerCase();
   const cmd = command.trim().toLowerCase();
+
+  if (isFileToolName(tool)) {
+    return fileToolSummaryFromParams(tool, params);
+  }
 
   if (tool === "exec" && cmd === "run") {
     return normalizedParam(params, "description");

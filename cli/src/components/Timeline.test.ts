@@ -12,6 +12,7 @@ import {
   formatRunSubagentDetailLines,
   getRunSubagentDetailLineColor,
   formatPlanningIndicatorParts,
+  formatFileToolTimelineLines,
   formatThinkingLabel,
   formatToolOutputLines,
   formatToolParamLines,
@@ -105,6 +106,72 @@ test("formatToolOutputLines shows exec output in structured layout", () => {
   assert.ok(lines.some((line) => line.includes("exit_code: 0")));
   assert.ok(lines.some((line) => line.includes("stdout:")));
   assert.ok(lines.some((line) => line.includes("hello")));
+});
+
+test("formatFileToolTimelineLines shows only file_read summary", () => {
+  const entry: TimelineEntry = {
+    kind: "tool",
+    content: "",
+    toolName: "file_read",
+    command: "read",
+    status: "completed",
+    params: { file_path: "cli/src/utils/timelineFormat.ts" },
+    output: [
+      "File: cli/src/utils/timelineFormat.ts",
+      "Total lines: 462",
+      "Showing lines 120-159:",
+      "   120\tconst hidden = true",
+    ].join("\n"),
+  };
+
+  const lines = formatFileToolTimelineLines(entry, 120, false);
+
+  assert.deepEqual(lines, ["   └─ Read 40 of 462 lines, showing 120-159"]);
+  assert.ok(lines.every((line) => !line.includes("hidden")));
+});
+
+test("formatFileToolTimelineLines shows tree-headed concrete edit diff", () => {
+  const entry: TimelineEntry = {
+    kind: "tool",
+    content: "",
+    toolName: "file_edit",
+    command: "edit",
+    status: "completed",
+    params: {
+      file_path: "frontend/src/utils/toolDisplay.ts",
+      old_string: "return mdiConsoleLine\n",
+      new_string: "if (toolName === 'file_read') return mdiFileDocumentOutline\nreturn mdiConsoleLine\n",
+    },
+    output: "File updated successfully: frontend/src/utils/toolDisplay.ts\nReplacements: 1",
+  };
+
+  const lines = formatFileToolTimelineLines(entry, 120, false);
+
+  assert.equal(lines[0], "   └─ Updated frontend/src/utils/toolDisplay.ts");
+  assert.ok(lines.some((line) => line.includes("├─ +") && line.includes("file_read")));
+  assert.ok(lines.some((line) => line.includes("└─") || line.includes("├─")));
+});
+
+test("formatFileToolTimelineLines collapses long file changes with concrete rows", () => {
+  const content = Array.from({ length: 12 }, (_, i) => `line ${i + 1}`).join("\n");
+  const entry: TimelineEntry = {
+    kind: "tool",
+    content: "",
+    toolName: "file_write",
+    command: "write",
+    status: "completed",
+    params: {
+      file_path: "frontend/src/utils/fileToolDisplay.ts",
+      content,
+    },
+    output: "File created successfully: frontend/src/utils/fileToolDisplay.ts\nBytes written: 86",
+  };
+
+  const lines = formatFileToolTimelineLines(entry, 120, false);
+
+  assert.ok(lines.some((line) => line.includes("├─ +") && line.includes("line 1")));
+  assert.ok(lines.at(-1)?.includes("more changed lines"));
+  assert.ok(lines.at(-1)?.includes("ctrl+o to expand"));
 });
 
 test("formatToolParamLines pretty prints JSON params", () => {

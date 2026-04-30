@@ -1,3 +1,5 @@
+import { fileToolSummaryFromParams, isFileToolName } from './fileToolDisplay'
+
 export interface ExecOutputPayload {
   stdout: string
   stderr: string
@@ -232,6 +234,12 @@ export function getToolSummaryParamKeys(toolCall: ToolCallSummaryInput): string[
   const command = toolCall.command.trim().toLowerCase()
   const params = toolCall.params || {}
 
+  if (isFileToolName(toolName)) {
+    const keys: string[] = []
+    if (normalizedParam(params, 'file_path') !== '') keys.push('file_path')
+    return keys
+  }
+
   if (toolName === 'exec' && command === 'run' && normalizedParam(params, 'description') !== '') {
     return ['description']
   }
@@ -259,6 +267,10 @@ export function buildToolCallSummary(toolCall: ToolCallSummaryInput): string {
   const toolName = toolCall.toolName.trim().toLowerCase()
   const command = toolCall.command.trim().toLowerCase()
   const params = toolCall.params || {}
+
+  if (isFileToolName(toolName)) {
+    return fileToolSummaryFromParams(toolName, params)
+  }
 
   if (toolName === 'exec' && command === 'run') {
     return normalizedParam(params, 'description')

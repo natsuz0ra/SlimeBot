@@ -172,7 +172,6 @@ const canToggle = computed(() => props.done && hasVisibleContent.value)
   position: relative;
   flex: 1 1 auto;
   min-width: 0;
-  max-width: clamp(120px, 42vw, 320px);
   height: 1.2em;
   overflow: hidden;
   margin-left: 4px;

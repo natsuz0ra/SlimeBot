@@ -479,12 +479,11 @@ function toggleSubagentTimeline() {
   gap: 5px;
   min-width: 0;
   flex: 1 1 auto;
-  max-width: calc(100% - 110px);
 }
 
 .tool-summary {
-  display: inline-block;
-  max-width: min(62%, 420px);
+  display: block;
+  flex: 1 1 auto;
   color: var(--tool-command-text);
   background: var(--tool-command-bg);
   border: 1px solid var(--tool-command-border);
@@ -501,6 +500,7 @@ function toggleSubagentTimeline() {
   display: inline-flex;
   align-items: center;
   gap: 5px;
+  flex: 0 0 auto;
   white-space: nowrap;
 }
 
@@ -1032,11 +1032,11 @@ details[open] > .tool-result-summary .tool-result-arrow {
   }
 
   .tool-meta {
-    max-width: calc(100% - 80px);
+    flex: 1 1 auto;
   }
 
   .tool-summary {
-    max-width: 42%;
+    flex: 1 1 auto;
   }
 
   .tool-actions {

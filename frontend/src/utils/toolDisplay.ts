@@ -265,7 +265,7 @@ export function buildToolCallSummary(toolCall: ToolCallSummaryInput): string {
   }
   if (toolName === 'web_search' || toolName === 'search_memory') {
     const query = normalizedParam(params, 'query')
-    return query ? `query: ${query}` : ''
+    return query
   }
   if (toolName === 'run_subagent') {
     const title = String(toolCall.subagentTitle ?? '').trim() || normalizedParam(params, 'title')

@@ -27,7 +27,7 @@ test('buildToolCallSummary uses exec description', () => {
 test('buildToolCallSummary uses query and http request fields', () => {
   assert.equal(
     buildToolCallSummary(tool({ toolName: 'web_search', command: 'search', params: { query: 'SlimeBot latest' } })),
-    'query: SlimeBot latest',
+    'SlimeBot latest',
   )
   assert.equal(
     buildToolCallSummary(tool({ toolName: 'http_request', command: 'request', params: { method: 'post', url: 'https://example.test/api' } })),

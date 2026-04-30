@@ -27,8 +27,8 @@ func (r *Repository) SetSetting(ctx context.Context, key, value string) error {
 		FirstOrCreate(&setting).Error
 }
 
-func (r *Repository) GetSettingBool(key string, fallback bool) (bool, error) {
-	raw, err := r.GetSetting(context.Background(), key)
+func (r *Repository) GetSettingBool(ctx context.Context, key string, fallback bool) (bool, error) {
+	raw, err := r.GetSetting(ctx, key)
 	if err != nil {
 		return fallback, err
 	}

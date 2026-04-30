@@ -1,6 +1,7 @@
 package repositories
 
 import (
+	"context"
 	"slimebot/internal/domain"
 	"testing"
 )
@@ -8,7 +9,7 @@ import (
 func TestMessagePlatformConfigCRUD(t *testing.T) {
 	repo := New(NewSQLiteDBTest(t, "platform_repo"))
 
-	created, err := repo.CreateMessagePlatformConfig(domain.MessagePlatformConfig{
+	created, err := repo.CreateMessagePlatformConfig(context.Background(), domain.MessagePlatformConfig{
 		Platform:       "telegram",
 		DisplayName:    "Telegram",
 		AuthConfigJSON: `{"botToken":"test-token"}`,
@@ -21,7 +22,7 @@ func TestMessagePlatformConfigCRUD(t *testing.T) {
 		t.Fatal("expected non-empty config id")
 	}
 
-	got, err := repo.GetMessagePlatformConfigByPlatform("telegram")
+	got, err := repo.GetMessagePlatformConfigByPlatform(context.Background(), "telegram")
 	if err != nil {
 		t.Fatalf("get by platform failed: %v", err)
 	}
@@ -29,7 +30,7 @@ func TestMessagePlatformConfigCRUD(t *testing.T) {
 		t.Fatalf("unexpected config: %+v", got)
 	}
 
-	err = repo.UpdateMessagePlatformConfig(created.ID, domain.MessagePlatformConfig{
+	err = repo.UpdateMessagePlatformConfig(context.Background(), created.ID, domain.MessagePlatformConfig{
 		DisplayName:    "Telegram Bot",
 		AuthConfigJSON: `{"botToken":"new-token"}`,
 		IsEnabled:      false,
@@ -37,7 +38,7 @@ func TestMessagePlatformConfigCRUD(t *testing.T) {
 	if err != nil {
 		t.Fatalf("update config failed: %v", err)
 	}
-	got, err = repo.GetMessagePlatformConfigByPlatform("telegram")
+	got, err = repo.GetMessagePlatformConfigByPlatform(context.Background(), "telegram")
 	if err != nil {
 		t.Fatalf("reload by platform failed: %v", err)
 	}
@@ -45,10 +46,10 @@ func TestMessagePlatformConfigCRUD(t *testing.T) {
 		t.Fatalf("unexpected updated config: %+v", got)
 	}
 
-	if err := repo.DeleteMessagePlatformConfig(created.ID); err != nil {
+	if err := repo.DeleteMessagePlatformConfig(context.Background(), created.ID); err != nil {
 		t.Fatalf("delete config failed: %v", err)
 	}
-	got, err = repo.GetMessagePlatformConfigByPlatform("telegram")
+	got, err = repo.GetMessagePlatformConfigByPlatform(context.Background(), "telegram")
 	if err != nil {
 		t.Fatalf("get after delete failed: %v", err)
 	}

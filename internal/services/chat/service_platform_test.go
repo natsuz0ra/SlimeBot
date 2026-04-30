@@ -34,7 +34,7 @@ func TestResolvePlatformModel_FallbackAndPersist(t *testing.T) {
 	repo := repositories.New(repositories.NewSQLiteDBTest(t, "platform_model"))
 	service := &ChatService{store: repo}
 
-	first, err := repo.CreateLLMConfig(domain.LLMConfig{
+	first, err := repo.CreateLLMConfig(context.Background(), domain.LLMConfig{
 		Name:    "model-a",
 		BaseURL: "http://localhost:9999",
 		APIKey:  "k1",
@@ -43,7 +43,7 @@ func TestResolvePlatformModel_FallbackAndPersist(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create first model failed: %v", err)
 	}
-	second, err := repo.CreateLLMConfig(domain.LLMConfig{
+	second, err := repo.CreateLLMConfig(context.Background(), domain.LLMConfig{
 		Name:    "model-b",
 		BaseURL: "http://localhost:9998",
 		APIKey:  "k2",
@@ -83,7 +83,7 @@ func TestResolvePlatformModel_FallbackAndPersist(t *testing.T) {
 		t.Fatalf("clear global default failed: %v", err)
 	}
 	// After deleting "second", fall back to first available model (name asc: model-a).
-	if err := repo.DeleteLLMConfig(second.ID); err != nil {
+	if err := repo.DeleteLLMConfig(context.Background(), second.ID); err != nil {
 		t.Fatalf("delete second model failed: %v", err)
 	}
 

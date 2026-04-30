@@ -1,3 +1,7 @@
+import type { ApprovalMode, QAAnswer, QAQuestion } from "./types/uiTypes.js";
+
+export type { ApprovalMode, QAAnswer, QAQuestion } from "./types/uiTypes.js";
+
 // ===== Domain types =====
 
 export interface Session {
@@ -292,8 +296,8 @@ export interface AppState {
   modelName: string;
   subagentModelId: string;
   subagentModelName: string;
-  thinkingLevel: string;
-  approvalMode: string;
+  thinkingLevel: ThinkingLevel;
+  approvalMode: ApprovalMode;
   timeline: TimelineEntry[];
   streaming: boolean;
   assistantWaiting: boolean;
@@ -363,9 +367,9 @@ export interface AppState {
 
   // Question-answer
   qaToolCallId: string;
-  qaQuestions: { id: string; question: string; options: string[]; option_descriptions?: string[] }[];
+  qaQuestions: QAQuestion[];
   qaCurrentIndex: number;
-  qaAnswers: { questionId: string; selectedOption: number; customAnswer: string }[];
+  qaAnswers: QAAnswer[];
   qaStep: "questions" | "confirm";
   qaCursor: number;
   qaCustomInput: string;
@@ -424,8 +428,8 @@ export type AppAction =
   | { type: "REMOVE_PENDING_APPROVAL"; toolCallId: string }
   | { type: "CLEAR_PENDING_APPROVALS" }
   | { type: "APPROVAL_NAV"; delta: number }
-  | { type: "SET_APPROVAL_MODE"; mode: string }
-  | { type: "SET_THINKING_LEVEL"; level: string }
+  | { type: "SET_APPROVAL_MODE"; mode: ApprovalMode }
+  | { type: "SET_THINKING_LEVEL"; level: ThinkingLevel }
   | { type: "SET_SUBAGENT_MODEL"; modelId: string; modelName: string }
   | { type: "LOAD_HISTORY"; entries: TimelineEntry[] }
   | { type: "THINKING_START"; parentToolCallId?: string; subagentRunId?: string; startedAt?: number }
@@ -441,7 +445,7 @@ export type AppAction =
   | { type: "PLAN_START" }
   | { type: "TODO_UPDATE"; items: RuntimeTodoItem[]; note?: string; updatedAt?: number }
   | { type: "VIEW_THINKING_DETAIL"; content: string }
-  | { type: "SET_QA"; toolCallId: string; questions: { id: string; question: string; options: string[]; option_descriptions?: string[] }[] }
+  | { type: "SET_QA"; toolCallId: string; questions: QAQuestion[] }
   | { type: "QA_NAV"; delta: number }
   | { type: "QA_SELECT"; optionIndex: number }
   | { type: "QA_SET_CUSTOM_INPUT"; value: string }

@@ -1,9 +1,12 @@
+export type ApprovalMode = 'standard' | 'auto'
+export type SettingsTabKey = 'basic' | 'llm' | 'mcp' | 'skills' | 'platform' | 'about'
+
 export interface AppSettings {
   language: 'zh-CN' | 'en-US'
   defaultModel?: string
   messagePlatformDefaultModel?: string
   webSearchKey?: string
-  approvalMode?: 'standard' | 'auto'
+  approvalMode?: ApprovalMode
 }
 
 export interface LLMConfig {

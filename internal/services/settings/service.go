@@ -38,19 +38,19 @@ func NewSettingsService(store domain.SettingsStore) *SettingsService {
 }
 
 // Get loads settings and fills defaults for a stable API surface.
-func (s *SettingsService) Get() (*AppSettings, error) {
-	language, err := s.store.GetSetting(context.Background(), constants.SettingLanguage)
+func (s *SettingsService) Get(ctx context.Context) (*AppSettings, error) {
+	language, err := s.store.GetSetting(ctx, constants.SettingLanguage)
 	if err != nil {
 		return nil, err
 	}
 	if strings.TrimSpace(language) == "" {
 		language = "zh-CN"
 	}
-	defaultModel, err := s.store.GetSetting(context.Background(), constants.SettingDefaultModel)
+	defaultModel, err := s.store.GetSetting(ctx, constants.SettingDefaultModel)
 	if err != nil {
 		return nil, err
 	}
-	messagePlatformDefaultModel, err := s.store.GetSetting(context.Background(), constants.SettingMessagePlatformDefaultModel)
+	messagePlatformDefaultModel, err := s.store.GetSetting(ctx, constants.SettingMessagePlatformDefaultModel)
 	if err != nil {
 		return nil, err
 	}
@@ -58,14 +58,14 @@ func (s *SettingsService) Get() (*AppSettings, error) {
 	if err != nil {
 		return nil, err
 	}
-	approvalMode, err := s.store.GetSetting(context.Background(), constants.SettingApprovalMode)
+	approvalMode, err := s.store.GetSetting(ctx, constants.SettingApprovalMode)
 	if err != nil {
 		return nil, err
 	}
 	if strings.TrimSpace(approvalMode) == "" {
 		approvalMode = constants.ApprovalModeStandard
 	}
-	thinkingLevel, err := s.store.GetSetting(context.Background(), constants.SettingThinkingLevel)
+	thinkingLevel, err := s.store.GetSetting(ctx, constants.SettingThinkingLevel)
 	if err != nil {
 		return nil, err
 	}
@@ -80,19 +80,19 @@ func (s *SettingsService) Get() (*AppSettings, error) {
 }
 
 // Update applies only fields that are explicitly set in the request.
-func (s *SettingsService) Update(input UpdateSettingsInput) error {
+func (s *SettingsService) Update(ctx context.Context, input UpdateSettingsInput) error {
 	if strings.TrimSpace(input.Language) != "" {
-		if err := s.store.SetSetting(context.Background(), constants.SettingLanguage, input.Language); err != nil {
+		if err := s.store.SetSetting(ctx, constants.SettingLanguage, input.Language); err != nil {
 			return err
 		}
 	}
 	if strings.TrimSpace(input.DefaultModel) != "" {
-		if err := s.store.SetSetting(context.Background(), constants.SettingDefaultModel, input.DefaultModel); err != nil {
+		if err := s.store.SetSetting(ctx, constants.SettingDefaultModel, input.DefaultModel); err != nil {
 			return err
 		}
 	}
 	if strings.TrimSpace(input.MessagePlatformDefaultModel) != "" {
-		if err := s.store.SetSetting(context.Background(), constants.SettingMessagePlatformDefaultModel, input.MessagePlatformDefaultModel); err != nil {
+		if err := s.store.SetSetting(ctx, constants.SettingMessagePlatformDefaultModel, input.MessagePlatformDefaultModel); err != nil {
 			return err
 		}
 	}
@@ -105,12 +105,12 @@ func (s *SettingsService) Update(input UpdateSettingsInput) error {
 		}
 	}
 	if strings.TrimSpace(input.ApprovalMode) != "" {
-		if err := s.store.SetSetting(context.Background(), constants.SettingApprovalMode, input.ApprovalMode); err != nil {
+		if err := s.store.SetSetting(ctx, constants.SettingApprovalMode, input.ApprovalMode); err != nil {
 			return err
 		}
 	}
 	if strings.TrimSpace(input.ThinkingLevel) != "" {
-		if err := s.store.SetSetting(context.Background(), constants.SettingThinkingLevel, input.ThinkingLevel); err != nil {
+		if err := s.store.SetSetting(ctx, constants.SettingThinkingLevel, input.ThinkingLevel); err != nil {
 			return err
 		}
 	}

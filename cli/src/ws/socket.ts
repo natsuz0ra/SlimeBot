@@ -55,7 +55,6 @@ interface WSIncoming {
   isStopPlaceholder?: boolean;
   parentToolCallId?: string;
   subagentRunId?: string;
-  title?: string;
   task?: string;
   planId?: string;
   planBody?: string;

@@ -8,7 +8,7 @@ import (
 
 // ListMCPConfigs returns all saved MCP server configs.
 func (h *HTTPController) ListMCPConfigs(c WebContext) {
-	items, err := h.mcpConfigs.List()
+	items, err := h.mcpConfigs.List(c.Request().Context())
 	if err != nil {
 		jsonInternalError(c, err)
 		return
@@ -35,7 +35,7 @@ func (h *HTTPController) CreateMCPConfig(c WebContext) {
 		jsonError(c, http.StatusBadRequest, err.Error())
 		return
 	}
-	item, err := h.mcpConfigs.Create(configsvc.MCPConfigInput{
+	item, err := h.mcpConfigs.Create(c.Request().Context(), configsvc.MCPConfigInput{
 		Name:      req.Name,
 		Config:    req.Config,
 		IsEnabled: req.IsEnabled,
@@ -67,7 +67,7 @@ func (h *HTTPController) UpdateMCPConfig(c WebContext) {
 		jsonError(c, http.StatusBadRequest, err.Error())
 		return
 	}
-	if err := h.mcpConfigs.Update(id, configsvc.MCPConfigInput{
+	if err := h.mcpConfigs.Update(c.Request().Context(), id, configsvc.MCPConfigInput{
 		Name:      req.Name,
 		Config:    req.Config,
 		IsEnabled: req.IsEnabled,
@@ -81,7 +81,7 @@ func (h *HTTPController) UpdateMCPConfig(c WebContext) {
 // DeleteMCPConfig removes an MCP config by id.
 func (h *HTTPController) DeleteMCPConfig(c WebContext) {
 	id := c.Param("id")
-	if err := h.mcpConfigs.Delete(id); err != nil {
+	if err := h.mcpConfigs.Delete(c.Request().Context(), id); err != nil {
 		jsonInternalError(c, err)
 		return
 	}

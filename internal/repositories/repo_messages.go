@@ -40,13 +40,13 @@ func normalizeMessages(items []domain.Message) {
 	}
 }
 
-func (r *Repository) ListSessionMessagesPage(sessionID string, limit int, before *time.Time, beforeSeq *int64, after *time.Time, afterSeq *int64) ([]domain.Message, bool, error) {
+func (r *Repository) ListSessionMessagesPage(ctx context.Context, sessionID string, limit int, before *time.Time, beforeSeq *int64, after *time.Time, afterSeq *int64) ([]domain.Message, bool, error) {
 	if limit <= 0 {
 		limit = 10
 	}
 	fetchLimit := limit + 1
 
-	base := r.db.Where("session_id = ?", sessionID)
+	base := r.dbWithContext(ctx).Where("session_id = ?", sessionID)
 	var messages []domain.Message
 	var hasMore bool
 

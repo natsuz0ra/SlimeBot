@@ -637,7 +637,7 @@ func TestHandleChatStream_ParallelSubagentThinkingRecordsKeepSeparateScopes(t *t
 	if err != nil {
 		t.Fatalf("create session failed: %v", err)
 	}
-	model, err := repo.CreateLLMConfig(domain.LLMConfig{
+	model, err := repo.CreateLLMConfig(context.Background(), domain.LLMConfig{
 		Name:     "fake",
 		Provider: llmsvc.ProviderOpenAI,
 		BaseURL:  "http://fake",
@@ -681,7 +681,7 @@ func TestHandleChatStream_ParallelSubagentThinkingRecordsKeepSeparateScopes(t *t
 		t.Fatal("chat stream did not finish after releasing subagents")
 	}
 
-	messages, _, err := repo.ListSessionMessagesPage(session.ID, 10, nil, nil, nil, nil)
+	messages, _, err := repo.ListSessionMessagesPage(context.Background(), session.ID, 10, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("list messages failed: %v", err)
 	}
@@ -695,7 +695,7 @@ func TestHandleChatStream_ParallelSubagentThinkingRecordsKeepSeparateScopes(t *t
 	if assistantID == "" {
 		t.Fatal("expected assistant message")
 	}
-	records, err := repo.ListSessionThinkingRecordsByAssistantMessageIDs(session.ID, []string{assistantID})
+	records, err := repo.ListSessionThinkingRecordsByAssistantMessageIDs(context.Background(), session.ID, []string{assistantID})
 	if err != nil {
 		t.Fatalf("list thinking records failed: %v", err)
 	}

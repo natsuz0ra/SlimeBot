@@ -22,7 +22,7 @@ import {
   formatTodoListLines,
   shouldSeparatePlanningAndWaiting,
   shouldShowWaitingPrompt,
-} from "./Timeline";
+} from "../utils/timelineFormat";
 import { stringWidth } from "../utils/stringWidth";
 import { stripAnsi } from "../utils/terminal";
 

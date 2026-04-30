@@ -74,7 +74,7 @@ test('plan confirmation is only visible for the owning session', () => {
   const homeChatPageSource = readFileSync(resolve(import.meta.dirname, '../src/composables/home/useHomeChatPage.ts'), 'utf8')
 
   assert.doesNotMatch(homePageSource, /:plan-confirmation-visible="!!store\.pendingPlanConfirmation"/)
-  assert.match(homePageSource, /:plan-confirmation-visible="currentSessionPlanConfirmationVisible"/)
+  assert.match(homePageSource, /:plan-confirmation-visible="composer\.currentSessionPlanConfirmationVisible"/)
   assert.match(
     homeChatPageSource,
     /currentSessionPlanConfirmationVisible[\s\S]*pendingPlanConfirmation[\s\S]*sessionId === store\.currentSessionId/s,
@@ -170,6 +170,7 @@ test('ThinkingBlock supports live subagent reasoning content before completion',
 
 test('ToolCallCard renders subagent thinking entries with the shared ThinkingBlock', () => {
   const toolCallCardSource = readFileSync(resolve(import.meta.dirname, '../src/components/chat/ToolCallCard.vue'), 'utf8')
+  const toolCallHeaderSource = readFileSync(resolve(import.meta.dirname, '../src/components/chat/ToolCallHeader.vue'), 'utf8')
 
   assert.match(toolCallCardSource, /subagentThinkingItems/)
   assert.match(toolCallCardSource, /subagentTimelineItems/)
@@ -180,7 +181,7 @@ test('ToolCallCard renders subagent thinking entries with the shared ThinkingBlo
   assert.match(toolCallCardSource, /variant="subagent"/)
   assert.match(toolCallCardSource, /tool-result-summary--button/)
   assert.match(toolCallCardSource, /<Transition name="tool-subagent-expand">/)
-  assert.match(toolCallCardSource, /<svg[\s\S]*class="tool-collapse-arrow"[\s\S]*viewBox="0 0 16 16"/)
+  assert.match(toolCallHeaderSource, /<svg[\s\S]*class="tool-collapse-arrow"[\s\S]*viewBox="0 0 16 16"/)
   assert.match(toolCallCardSource, /<svg[\s\S]*class="tool-result-arrow"[\s\S]*viewBox="0 0 16 16"/)
   assert.match(toolCallCardSource, /<path d="M4 6l4 4 4-4" \/>/)
   assert.match(toolCallCardSource, /\.tool-collapse-arrow\s*\{[\s\S]*width:\s*14px[\s\S]*height:\s*14px[\s\S]*rotate\(-90deg\)/)

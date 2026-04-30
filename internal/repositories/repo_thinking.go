@@ -138,7 +138,7 @@ func (r *Repository) BindThinkingRecordsToAssistantMessage(ctx context.Context, 
 		Error
 }
 
-func (r *Repository) ListSessionThinkingRecordsByAssistantMessageIDs(sessionID string, messageIDs []string) ([]domain.ThinkingRecord, error) {
+func (r *Repository) ListSessionThinkingRecordsByAssistantMessageIDs(ctx context.Context, sessionID string, messageIDs []string) ([]domain.ThinkingRecord, error) {
 	if len(messageIDs) == 0 {
 		return []domain.ThinkingRecord{}, nil
 	}
@@ -153,7 +153,7 @@ func (r *Repository) ListSessionThinkingRecordsByAssistantMessageIDs(sessionID s
 		return []domain.ThinkingRecord{}, nil
 	}
 	var records []domain.ThinkingRecord
-	err := r.db.
+	err := r.dbWithContext(ctx).
 		Where("session_id = ?", sessionID).
 		Where("assistant_message_id IN ?", filtered).
 		Order("started_at asc").

@@ -3,6 +3,7 @@ import { json } from '@codemirror/lang-json'
 import { oneDark } from '@codemirror/theme-one-dark'
 import { lineNumbers } from '@codemirror/view'
 import { mcpAPI } from '@/api/mcp'
+import type { MCPConfig } from '@/types/settings'
 
 type ToastLike = {
   error(message: string): void
@@ -10,11 +11,10 @@ type ToastLike = {
 
 type Translate = (key: string, params?: Record<string, unknown>) => string
 
-type MCPItem = any
 type MCPTransport = 'stdio' | 'sse' | 'streamable_http'
 
 export function useSettingsMCP(options: {
-  mcpList: Ref<MCPItem[]>
+  mcpList: Ref<MCPConfig[]>
   mcpDialogVisible: Ref<boolean>
   mcpSubmitting: Ref<boolean>
   toast: ToastLike
@@ -55,7 +55,7 @@ export function useSettingsMCP(options: {
     mcpDialogVisible.value = true
   }
 
-  function openMCPEditDialog(item: MCPItem) {
+  function openMCPEditDialog(item: MCPConfig) {
     mcpEditingID.value = item.id
     mcpForm.value = { name: item.name, config: item.config, isEnabled: item.isEnabled }
     mcpDialogVisible.value = true
@@ -66,14 +66,14 @@ export function useSettingsMCP(options: {
       toast.error(t('mcpFormIncomplete'))
       return
     }
-    let parsed: any
+    let parsed: unknown
     try {
       parsed = JSON.parse(mcpForm.value.config)
     } catch {
       toast.error(t('mcpJsonInvalid'))
       return
     }
-    if (parsed?.mcpServers) {
+    if (typeof parsed === 'object' && parsed !== null && 'mcpServers' in parsed) {
       toast.error(t('mcpWrapperNotSupported'))
       return
     }
@@ -98,7 +98,7 @@ export function useSettingsMCP(options: {
     }
   }
 
-  async function updateMCP(item: MCPItem) {
+  async function updateMCP(item: MCPConfig) {
     await mcpAPI.update(item.id, { name: item.name, config: item.config, isEnabled: item.isEnabled })
   }
 
@@ -107,10 +107,10 @@ export function useSettingsMCP(options: {
     await refreshMCP()
   }
 
-  function mcpPreview(item: MCPItem) {
+  function mcpPreview(item: MCPConfig) {
     try {
-      const cfg = JSON.parse(item.config || '{}')
-      const transport = cfg.transport || 'stdio'
+      const cfg = JSON.parse(item.config || '{}') as Record<string, unknown>
+      const transport = String(cfg.transport || 'stdio')
       if (transport === 'stdio')
         return t('mcpStdioPreview', { transport, command: cfg.command || '-' })
       return `${transport} | ${cfg.url || '-'}`

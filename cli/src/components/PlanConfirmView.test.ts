@@ -10,12 +10,12 @@ import {
 	PlanConfirmView,
 } from "./PlanConfirmView";
 
-function visibleChildren(element: React.ReactElement): React.ReactElement[] {
+function visibleChildren(element: React.ReactElement<{ children?: React.ReactNode }>): React.ReactElement<{ children?: React.ReactNode }>[] {
 	return (Array.isArray(element.props.children)
 		? element.props.children
 		: [element.props.children]
 	).filter(
-		(child): child is React.ReactElement =>
+		(child): child is React.ReactElement<{ children?: React.ReactNode }> =>
 			typeof child === "object" && child !== null,
 	);
 }
@@ -31,7 +31,7 @@ function textContent(node: React.ReactNode): string {
 		return node.map(textContent).join("");
 	}
 	if ("props" in node) {
-		return textContent((node as React.ReactElement).props.children);
+		return textContent((node as React.ReactElement<{ children?: React.ReactNode }>).props.children);
 	}
 	return "";
 }
@@ -57,7 +57,7 @@ test("plan confirmation renders a title gap and no option gap", () => {
 		columns: 80,
 	});
 
-	const lines = visibleChildren(view).map((child) =>
+	const lines = visibleChildren(view as React.ReactElement<{ children?: React.ReactNode }>).map((child) =>
 		textContent(child.props.children),
 	);
 

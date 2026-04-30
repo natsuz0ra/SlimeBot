@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { Key } from "ink";
-import { getChatFooterHint, handleChatShortcut, mapHistoryMessages } from "./app";
+import { getChatFooterHint, handleChatShortcut } from "./app";
+import { mapHistoryMessages } from "./utils/history";
 import type { Message, ThinkingHistoryItem, ToolCallHistoryItem } from "./types";
 
 test("mapHistoryMessages inserts tool calls after assistant messages in timeline order", () => {
@@ -70,7 +71,7 @@ test("mapHistoryMessages inserts tool calls after assistant messages in timeline
 
 test("getChatFooterHint returns toggle hint in plan mode", () => {
   assert.equal(
-    getChatFooterHint(true, "manual"),
+    getChatFooterHint(true, "standard"),
     "/ for commands | Shift+Tab to toggle | Esc to cancel",
   );
 });
@@ -84,7 +85,7 @@ test("getChatFooterHint returns toggle hint in auto mode", () => {
 
 test("getChatFooterHint returns default hint in standard mode", () => {
   assert.equal(
-    getChatFooterHint(false, "manual"),
+    getChatFooterHint(false, "standard"),
     "/ for commands | Shift+Tab plan mode | Esc to cancel",
   );
 });

@@ -1,6 +1,7 @@
 import { computed, ref, type MaybeRefOrGetter, toValue, type Ref } from 'vue'
 import { settingAPI } from '@/api/settings'
 import { messagePlatformAPI } from '@/api/messagePlatform'
+import type { LLMConfig, MessagePlatformConfig } from '@/types/settings'
 
 type ToastLike = {
   error(message: string): void
@@ -8,15 +9,12 @@ type ToastLike = {
 
 type Translate = (key: string) => string
 
-type PlatformItem = any
-type LLMItem = any
-
 export function useSettingsMessagePlatform(options: {
-  messagePlatformList: Ref<PlatformItem[]>
+  messagePlatformList: Ref<MessagePlatformConfig[]>
   messagePlatformDialogVisible: Ref<boolean>
   messagePlatformSubmitting: Ref<boolean>
   messagePlatformDefaultModel: Ref<string>
-  llmRows: MaybeRefOrGetter<LLMItem[]>
+  llmRows: MaybeRefOrGetter<LLMConfig[]>
   toast: ToastLike
   t: Translate
 }) {
@@ -38,9 +36,9 @@ export function useSettingsMessagePlatform(options: {
     isEnabled: true,
   })
 
-  const telegramConfig = computed(() => messagePlatformList.value.find((item: PlatformItem) => item.platform === 'telegram'))
+  const telegramConfig = computed(() => messagePlatformList.value.find((item) => item.platform === 'telegram'))
   const messagePlatformModelOptions = computed(() => {
-    const base = (toValue(llmRows) || []).map((item: LLMItem) => ({ value: item.id, label: item.name }))
+    const base = (toValue(llmRows) || []).map((item) => ({ value: item.id, label: item.name }))
     return [{ value: '', label: t('messagePlatformModelUnset') }, ...base]
   })
 
@@ -123,7 +121,7 @@ export function useSettingsMessagePlatform(options: {
   async function saveMessagePlatformDefaultModel(modelId: string) {
     messagePlatformDefaultModel.value = modelId
     if (!modelId) return
-    await settingAPI.update({ messagePlatformDefaultModel: modelId } as any)
+    await settingAPI.update({ messagePlatformDefaultModel: modelId })
   }
 
   return {

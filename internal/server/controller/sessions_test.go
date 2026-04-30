@@ -5,7 +5,9 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"slimebot/internal/constants"
 	"slimebot/internal/domain"
+	sessionsvc "slimebot/internal/services/session"
 	"testing"
 	"time"
 
@@ -32,32 +34,126 @@ type sessionServiceStub struct {
 	thinkingRecords []domain.ThinkingRecord
 }
 
-func (s sessionServiceStub) List(limit int, offset int, query string) ([]domain.Session, error) {
+func (s sessionServiceStub) List(ctx context.Context, limit int, offset int, query string) (sessionsvc.ListResult, error) {
+	return sessionsvc.ListResult{}, nil
+}
+
+func (s sessionServiceStub) Create(ctx context.Context, name string) (*domain.Session, error) {
 	return nil, nil
 }
 
-func (s sessionServiceStub) Create(name string) (*domain.Session, error) {
-	return nil, nil
-}
-
-func (s sessionServiceStub) RenameByUser(id, name string) error {
+func (s sessionServiceStub) RenameByUser(ctx context.Context, id, name string) error {
 	return nil
 }
 
-func (s sessionServiceStub) Delete(id string) error {
+func (s sessionServiceStub) Delete(ctx context.Context, id string) error {
 	return nil
 }
 
-func (s sessionServiceStub) ListMessagesPage(sessionID string, limit int, before *time.Time, beforeSeq *int64, after *time.Time, afterSeq *int64) ([]domain.Message, bool, error) {
-	return s.messages, false, nil
+func (s sessionServiceStub) GetMessageHistory(ctx context.Context, sessionID string, limit int, before *time.Time, beforeSeq *int64, after *time.Time, afterSeq *int64) (sessionsvc.MessageHistoryPage, error) {
+	messageIDSet := make(map[string]struct{}, len(s.messages))
+	interruptedAssistantIDs := make(map[string]struct{}, len(s.messages))
+	for _, message := range s.messages {
+		messageIDSet[message.ID] = struct{}{}
+		if message.Role == "assistant" && message.IsInterrupted {
+			interruptedAssistantIDs[message.ID] = struct{}{}
+		}
+	}
+	return sessionsvc.MessageHistoryPage{
+		Messages:                        s.messages,
+		ToolCallsByAssistantMessageID:   testBuildToolCallHistory(s.toolRecords, messageIDSet, interruptedAssistantIDs),
+		ThinkingByAssistantMessageID:    testBuildThinkingHistory(s.thinkingRecords, messageIDSet, interruptedAssistantIDs),
+		ReplyTimingByAssistantMessageID: testBuildReplyTiming(s.messages),
+	}, nil
 }
 
-func (s sessionServiceStub) ListToolCallRecordsByAssistantMessageIDs(sessionID string, messageIDs []string) ([]domain.ToolCallRecord, error) {
-	return s.toolRecords, nil
+func testFormatHistoryTime(value time.Time) string {
+	return value.Format("2006-01-02T15:04:05.000Z07:00")
 }
 
-func (s sessionServiceStub) ListThinkingRecordsByAssistantMessageIDs(sessionID string, messageIDs []string) ([]domain.ThinkingRecord, error) {
-	return s.thinkingRecords, nil
+func testBuildToolCallHistory(records []domain.ToolCallRecord, messageIDSet, interruptedAssistantIDs map[string]struct{}) map[string][]sessionsvc.ToolCallHistory {
+	byAssistantID := make(map[string][]sessionsvc.ToolCallHistory)
+	for _, record := range records {
+		if record.AssistantMessageID == nil {
+			continue
+		}
+		key := *record.AssistantMessageID
+		if _, ok := messageIDSet[key]; !ok {
+			continue
+		}
+		status := record.Status
+		errText := record.Error
+		if _, interrupted := interruptedAssistantIDs[key]; interrupted && (status == constants.ToolCallStatusPending || status == constants.ToolCallStatusExecuting) {
+			status = constants.ToolCallStatusError
+			if errText == "" {
+				errText = "Execution cancelled."
+			}
+		}
+		byAssistantID[key] = append(byAssistantID[key], sessionsvc.ToolCallHistory{
+			ToolCallID:       record.ToolCallID,
+			ToolName:         record.ToolName,
+			Command:          record.Command,
+			Params:           map[string]string{},
+			Status:           status,
+			RequiresApproval: record.RequiresApproval,
+			ParentToolCallID: record.ParentToolCallID,
+			SubagentRunID:    record.SubagentRunID,
+			Output:           record.Output,
+			Error:            errText,
+			StartedAt:        testFormatHistoryTime(record.StartedAt),
+		})
+	}
+	return byAssistantID
+}
+
+func testBuildThinkingHistory(records []domain.ThinkingRecord, messageIDSet, interruptedAssistantIDs map[string]struct{}) map[string][]sessionsvc.ThinkingHistory {
+	byAssistantID := make(map[string][]sessionsvc.ThinkingHistory)
+	for _, record := range records {
+		if record.AssistantMessageID == nil {
+			continue
+		}
+		key := *record.AssistantMessageID
+		if _, ok := messageIDSet[key]; !ok {
+			continue
+		}
+		status := record.Status
+		if _, interrupted := interruptedAssistantIDs[key]; interrupted && status == "streaming" {
+			status = "completed"
+		}
+		byAssistantID[key] = append(byAssistantID[key], sessionsvc.ThinkingHistory{
+			ThinkingID:       record.ThinkingID,
+			ParentToolCallID: record.ParentToolCallID,
+			SubagentRunID:    record.SubagentRunID,
+			Content:          record.Content,
+			Status:           status,
+			StartedAt:        testFormatHistoryTime(record.StartedAt),
+			DurationMs:       record.DurationMs,
+		})
+	}
+	return byAssistantID
+}
+
+func testBuildReplyTiming(messages []domain.Message) map[string]sessionsvc.ReplyTiming {
+	byAssistantID := make(map[string]sessionsvc.ReplyTiming)
+	var previousUser *domain.Message
+	for idx := range messages {
+		message := messages[idx]
+		switch message.Role {
+		case "user":
+			previousUser = &messages[idx]
+		case "assistant":
+			if previousUser == nil {
+				continue
+			}
+			byAssistantID[message.ID] = sessionsvc.ReplyTiming{
+				StartedAt:  testFormatHistoryTime(previousUser.CreatedAt),
+				FinishedAt: testFormatHistoryTime(message.CreatedAt),
+				DurationMs: message.CreatedAt.Sub(previousUser.CreatedAt).Milliseconds(),
+			}
+			previousUser = nil
+		}
+	}
+	return byAssistantID
 }
 
 func TestListMessages_ReturnsReplyTimingForAssistantMessages(t *testing.T) {

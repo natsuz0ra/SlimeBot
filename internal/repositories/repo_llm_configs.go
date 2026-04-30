@@ -26,14 +26,14 @@ func (r *Repository) GetLLMConfigByID(ctx context.Context, id string) (*domain.L
 	return &item, err
 }
 
-func (r *Repository) CreateLLMConfig(item domain.LLMConfig) (*domain.LLMConfig, error) {
+func (r *Repository) CreateLLMConfig(ctx context.Context, item domain.LLMConfig) (*domain.LLMConfig, error) {
 	item.ID = uuid.NewString()
-	if err := r.db.Create(&item).Error; err != nil {
+	if err := r.dbWithContext(ctx).Create(&item).Error; err != nil {
 		return nil, err
 	}
 	return &item, nil
 }
 
-func (r *Repository) DeleteLLMConfig(id string) error {
-	return r.db.Where("id = ?", id).Delete(&domain.LLMConfig{}).Error
+func (r *Repository) DeleteLLMConfig(ctx context.Context, id string) error {
+	return r.dbWithContext(ctx).Where("id = ?", id).Delete(&domain.LLMConfig{}).Error
 }

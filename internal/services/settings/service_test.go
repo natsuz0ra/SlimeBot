@@ -37,7 +37,7 @@ func TestSettingsService_GetIncludesWebSearchAPIKey(t *testing.T) {
 	store := &memorySettingsStore{values: map[string]string{"language": "en-US", "defaultModel": "gpt", "messagePlatformDefaultModel": "mp"}}
 	svc := NewSettingsService(store)
 
-	got, err := svc.Get()
+	got, err := svc.Get(context.Background())
 	if err != nil {
 		t.Fatalf("Get failed: %v", err)
 	}
@@ -50,7 +50,7 @@ func TestSettingsService_UpdatePreservesOtherSettingsStoreWrites(t *testing.T) {
 	store := &memorySettingsStore{values: map[string]string{}}
 	svc := NewSettingsService(store)
 
-	if err := svc.Update(UpdateSettingsInput{Language: "en-US", DefaultModel: "gpt-4.1", MessagePlatformDefaultModel: "gpt-4.1-mini"}); err != nil {
+	if err := svc.Update(context.Background(), UpdateSettingsInput{Language: "en-US", DefaultModel: "gpt-4.1", MessagePlatformDefaultModel: "gpt-4.1-mini"}); err != nil {
 		t.Fatalf("Update failed: %v", err)
 	}
 
@@ -67,7 +67,7 @@ func TestSettingsService_GetReturnsEnvErrors(t *testing.T) {
 	store := &memorySettingsStore{values: map[string]string{}}
 	svc := NewSettingsService(store)
 
-	_, err := svc.Get()
+	_, err := svc.Get(context.Background())
 	if !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("expected os.ErrNotExist, got %v", err)
 	}

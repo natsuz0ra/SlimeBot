@@ -1,6 +1,7 @@
 package repositories
 
 import (
+	"context"
 	"errors"
 	"slimebot/internal/domain"
 	"time"
@@ -9,15 +10,15 @@ import (
 	"gorm.io/gorm"
 )
 
-func (r *Repository) ListMessagePlatformConfigs() ([]domain.MessagePlatformConfig, error) {
+func (r *Repository) ListMessagePlatformConfigs(ctx context.Context) ([]domain.MessagePlatformConfig, error) {
 	var items []domain.MessagePlatformConfig
-	err := r.db.Order("created_at asc").Find(&items).Error
+	err := r.dbWithContext(ctx).Order("created_at asc").Find(&items).Error
 	return items, err
 }
 
-func (r *Repository) GetMessagePlatformConfigByPlatform(platform string) (*domain.MessagePlatformConfig, error) {
+func (r *Repository) GetMessagePlatformConfigByPlatform(ctx context.Context, platform string) (*domain.MessagePlatformConfig, error) {
 	var item domain.MessagePlatformConfig
-	err := r.db.First(&item, "platform = ?", platform).Error
+	err := r.dbWithContext(ctx).First(&item, "platform = ?", platform).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, nil
@@ -27,16 +28,16 @@ func (r *Repository) GetMessagePlatformConfigByPlatform(platform string) (*domai
 	return &item, nil
 }
 
-func (r *Repository) CreateMessagePlatformConfig(item domain.MessagePlatformConfig) (*domain.MessagePlatformConfig, error) {
+func (r *Repository) CreateMessagePlatformConfig(ctx context.Context, item domain.MessagePlatformConfig) (*domain.MessagePlatformConfig, error) {
 	item.ID = uuid.NewString()
-	if err := r.db.Create(&item).Error; err != nil {
+	if err := r.dbWithContext(ctx).Create(&item).Error; err != nil {
 		return nil, err
 	}
 	return &item, nil
 }
 
-func (r *Repository) UpdateMessagePlatformConfig(id string, item domain.MessagePlatformConfig) error {
-	return r.db.Model(&domain.MessagePlatformConfig{}).
+func (r *Repository) UpdateMessagePlatformConfig(ctx context.Context, id string, item domain.MessagePlatformConfig) error {
+	return r.dbWithContext(ctx).Model(&domain.MessagePlatformConfig{}).
 		Where("id = ?", id).
 		Updates(map[string]any{
 			"display_name":     item.DisplayName,
@@ -46,6 +47,6 @@ func (r *Repository) UpdateMessagePlatformConfig(id string, item domain.MessageP
 		}).Error
 }
 
-func (r *Repository) DeleteMessagePlatformConfig(id string) error {
-	return r.db.Where("id = ?", id).Delete(&domain.MessagePlatformConfig{}).Error
+func (r *Repository) DeleteMessagePlatformConfig(ctx context.Context, id string) error {
+	return r.dbWithContext(ctx).Where("id = ?", id).Delete(&domain.MessagePlatformConfig{}).Error
 }

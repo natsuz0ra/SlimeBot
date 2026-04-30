@@ -8,7 +8,7 @@ import (
 
 // GetSettings returns global settings with service-layer defaults.
 func (h *HTTPController) GetSettings(c WebContext) {
-	settings, err := h.settings.Get()
+	settings, err := h.settings.Get(c.Request().Context())
 	if err != nil {
 		jsonInternalError(c, err)
 		return
@@ -36,7 +36,7 @@ func (h *HTTPController) UpdateSettings(c WebContext) {
 	if !bindJSONOrBadRequest(c, &req, "Invalid request payload format.") {
 		return
 	}
-	err := h.settings.Update(settingssvc.UpdateSettingsInput{
+	err := h.settings.Update(c.Request().Context(), settingssvc.UpdateSettingsInput{
 		Language:                    req.Language,
 		DefaultModel:                req.DefaultModel,
 		MessagePlatformDefaultModel: req.MessagePlatformDefaultModel,

@@ -4,8 +4,7 @@
  */
 
 import React, { useCallback, useEffect, useReducer, useRef } from "react";
-import { Box, Text, useApp, useInput, useStdout } from "ink";
-import type { Key } from "ink";
+import { Box, Text, useApp, useStdout } from "ink";
 import { APIClient } from "./api/client.js";
 import { ApprovalView } from "./components/ApprovalView.js";
 import { PlanConfirmView } from "./components/PlanConfirmView.js";
@@ -17,33 +16,30 @@ import { MCPTemplatePicker } from "./components/MCPTemplatePicker.js";
 import { MenuView } from "./components/MenuView.js";
 import { ModelEditor } from "./components/ModelEditor.js";
 import { TextInput } from "./components/TextInput.js";
-import { SHOW_CLI_THINKING, Timeline } from "./components/Timeline.js";
+import { Timeline } from "./components/Timeline.js";
+import { getChatFooterHint, handleChatShortcut, runCliCommand } from "./controllers/commands.js";
+import { useCliKeyboard } from "./hooks/useCliKeyboard.js";
+import { useCliSocket } from "./hooks/useCliSocket.js";
 import { reducer, createInitialState } from "./reducer.js";
 import { completeCommand, isCommand } from "./utils/commands.js";
 import { formatTimestamp, formatWaitingStatsSuffix } from "./utils/format.js";
+import { mapHistoryMessages } from "./utils/history.js";
 import { clearScreen, setTerminalTitle } from "./utils/terminal.js";
+import { SHOW_CLI_THINKING } from "./utils/timelineFormat.js";
 import { CLISocket } from "./ws/socket.js";
-import { splitNarrationAndPlan } from "./utils/planUtils.js";
-import { hasContentMarkers, parseContentMarkers } from "./utils/contentMarkers.js";
 import type {
   AppAction,
-  AppState,
   LLMConfig,
   MCPConfig,
   MCPTemplate,
   MenuItem,
-  Message,
   ModelProvider,
   Session,
   Skill,
-  ThinkingHistoryItem,
-  TimelineEntry,
-  ToolCallHistoryItem,
-  ToolCallResultData,
-  ToolCallStartData,
-  ToolCallStatus,
 } from "./types.js";
-import { MCP_TEMPLATES, THINKING_LEVELS } from "./types.js";
+import { THINKING_LEVELS } from "./types.js";
+
+export { getChatFooterHint, handleChatShortcut } from "./controllers/commands.js";
 
 const MODEL_PROVIDER_ORDER: ModelProvider[] = ["openai", "anthropic", "deepseek"];
 
@@ -54,27 +50,6 @@ function moveModelProvider(current: ModelProvider, delta: number): ModelProvider
   return MODEL_PROVIDER_ORDER[next];
 }
 
-/** Detects ctrl+letter keypresses, with a fallback for terminals/OS
- *  combos where Ink's `key.ctrl` flag is not set (e.g. Windows).
- *  Ctrl+A–Z produce raw char codes 1–26. */
-function isCtrlKey(input: string, key: Key, letter: string): boolean {
-  if (key.ctrl && input === letter) return true;
-  const expected = letter.charCodeAt(0) - 96; // 'a'→1, 'b'→2, … 'z'→26
-  return input.charCodeAt(0) === expected;
-}
-
-export function handleChatShortcut(input: string, key: Key, dispatch: React.Dispatch<AppAction>): boolean {
-  if (isCtrlKey(input, key, "k")) {
-    dispatch({ type: "TOGGLE_COMPACT" } as AppAction);
-    return true;
-  }
-  if (isCtrlKey(input, key, "o")) {
-    dispatch({ type: "TOGGLE_TOOL_OUTPUT" } as AppAction);
-    return true;
-  }
-  return false;
-}
-
 function formatModelLine(model?: Pick<LLMConfig, "name" | "model">, fallback = "(none)"): string {
   if (!model) return fallback;
   const name = model.name?.trim() || "";
@@ -83,258 +58,10 @@ function formatModelLine(model?: Pick<LLMConfig, "name" | "model">, fallback = "
   return name || actualModel || fallback;
 }
 
-export function getChatFooterHint(planMode: boolean, approvalMode: AppState["approvalMode"]): string {
-  return planMode || approvalMode === "auto"
-    ? "/ for commands | Shift+Tab to toggle | Esc to cancel"
-    : "/ for commands | Shift+Tab plan mode | Esc to cancel";
-}
-
-function subagentHistoryFields(tc: ToolCallHistoryItem): Partial<TimelineEntry> {
-  if ((tc.toolName || "").trim().toLowerCase() !== "run_subagent") return {};
-  const title = String(tc.subagentTitle ?? tc.params?.title ?? "").trim();
-  const task = String(tc.subagentTask ?? tc.params?.task ?? "").trim();
-  return {
-    ...(title ? { subagentTitle: title } : {}),
-    ...(task ? { subagentTask: task } : {}),
-  };
-}
-
-function normalizeHistoryToolCall(tc: ToolCallHistoryItem, interrupted: boolean): ToolCallHistoryItem {
-  if (!interrupted || (tc.status !== "pending" && tc.status !== "executing")) {
-    return tc;
-  }
-  return {
-    ...tc,
-    status: "error",
-    error: tc.error || "Execution cancelled.",
-  };
-}
-
-function normalizeHistoryThinking(thinking: ThinkingHistoryItem, interrupted: boolean): ThinkingHistoryItem {
-  if (!interrupted || thinking.status !== "streaming") {
-    return thinking;
-  }
-  return {
-    ...thinking,
-    status: "completed",
-  };
-}
-
 interface AppProps {
   apiURL: string;
   cliToken: string;
   version: string;
-}
-
-export function mapHistoryMessages(
-  messages: Message[],
-  toolCallsByMsgId: Record<string, ToolCallHistoryItem[]>,
-  thinkingByMsgId: Record<string, ThinkingHistoryItem[]> = {},
-): TimelineEntry[] {
-  const ordered = [...messages].sort((a, b) => (a.seq || 0) - (b.seq || 0));
-  const entries: TimelineEntry[] = [];
-
-  for (const msg of ordered) {
-    if (msg.isStopPlaceholder) continue;
-
-    if (msg.role === "user") {
-      entries.push({ kind: "user", content: msg.content });
-      continue;
-    }
-    if (msg.role === "assistant") {
-      const interrupted = !!msg.isInterrupted;
-      const toolCalls = [...(toolCallsByMsgId[msg.id] || [])].map((tc) => normalizeHistoryToolCall(tc, interrupted)).sort((a, b) => {
-        return new Date(a.startedAt).getTime() - new Date(b.startedAt).getTime();
-      });
-      const thinkingRecords = [...(thinkingByMsgId[msg.id] || [])].map((thinking) => normalizeHistoryThinking(thinking, interrupted)).sort((a, b) => {
-        return new Date(a.startedAt || 0).getTime() - new Date(b.startedAt || 0).getTime();
-      });
-
-      if (hasContentMarkers(msg.content)) {
-        // New messages with markers: split into separate timeline blocks
-        const toolCallMap = new Map(toolCalls.map(tc => [tc.toolCallId, tc]));
-        const thinkingMap = new Map(thinkingRecords
-          .filter(item => !item.parentToolCallId && !item.subagentRunId)
-          .map(item => [item.thinkingId, item]));
-        const subagentThinkingByParent = new Map(thinkingRecords
-          .filter(item => item.parentToolCallId || item.subagentRunId)
-          .map(item => [item.parentToolCallId || "", item]));
-        const segments = parseContentMarkers(msg.content);
-        const markerIds = new Set<string>();
-        const thinkingMarkerIds = new Set<string>();
-        let inPlan = false;
-        const planParts: string[] = [];
-        const flushPlan = () => {
-          if (planParts.length > 0) {
-            entries.push({ kind: "plan", content: planParts.join("") });
-            planParts.length = 0;
-          }
-        };
-        const pushThinking = (thinkingId: string) => {
-          thinkingMarkerIds.add(thinkingId);
-          const thinking = thinkingMap.get(thinkingId);
-          if (thinking) {
-            entries.push({
-              kind: "thinking",
-              content: thinking.content || "",
-              thinkingDone: thinking.status !== "streaming",
-              thinkingDurationMs: thinking.durationMs,
-            });
-          }
-        };
-        const pushToolCall = (toolCallId: string) => {
-          markerIds.add(toolCallId);
-          const tc = toolCallMap.get(toolCallId);
-          if (tc) {
-            const subagentThinking = subagentThinkingByParent.get(tc.toolCallId);
-            entries.push({
-              kind: "tool",
-              content: tc.output || tc.error || "",
-              toolCallId: tc.toolCallId,
-              toolName: tc.toolName,
-              command: tc.command,
-              params: tc.params,
-              status: (tc.status || "completed") as ToolCallStatus,
-              output: tc.output,
-              error: tc.error,
-              ...(tc.parentToolCallId ? { parentToolCallId: tc.parentToolCallId } : {}),
-              ...(tc.subagentRunId ? { subagentRunId: tc.subagentRunId } : {}),
-              ...subagentHistoryFields(tc),
-              ...(subagentThinking ? {
-                subagentThinking: {
-                  content: subagentThinking.content || "",
-                  thinkingDone: subagentThinking.status !== "streaming",
-                  thinkingDurationMs: subagentThinking.durationMs,
-                  thinkingStartedAt: subagentThinking.startedAt ? new Date(subagentThinking.startedAt).getTime() : undefined,
-                },
-              } : {}),
-            });
-          }
-        };
-        for (const seg of segments) {
-          if (seg.type === "plan_start") {
-            inPlan = true;
-            continue;
-          }
-          if (seg.type === "plan_end") {
-            flushPlan();
-            inPlan = false;
-            continue;
-          }
-          if (inPlan) {
-            if (seg.type === "text") planParts.push(seg.content);
-            if (seg.type === "thinking_marker" && seg.thinkingId) {
-              flushPlan();
-              pushThinking(seg.thinkingId);
-            }
-            if (seg.type === "tool_call_marker" && seg.toolCallId) {
-              flushPlan();
-              pushToolCall(seg.toolCallId);
-            }
-            continue;
-          }
-          if (seg.type === "text") {
-            entries.push({ kind: "assistant", content: seg.content });
-          } else if (seg.type === "thinking_marker" && seg.thinkingId) {
-            pushThinking(seg.thinkingId);
-          } else if (seg.type === "tool_call_marker" && seg.toolCallId) {
-            pushToolCall(seg.toolCallId);
-          }
-        }
-        // Handle unclosed plan
-        if (inPlan) flushPlan();
-        for (const thinking of thinkingRecords) {
-          if (thinking.parentToolCallId || thinking.subagentRunId) continue;
-          if (!thinkingMarkerIds.has(thinking.thinkingId)) {
-            entries.push({
-              kind: "thinking",
-              content: thinking.content || "",
-              thinkingDone: thinking.status !== "streaming",
-              thinkingDurationMs: thinking.durationMs,
-            });
-          }
-        }
-        // Fallback: append orphan tool (markers missing)
-        for (const tc of toolCalls) {
-          if (!markerIds.has(tc.toolCallId)) {
-            const subagentThinking = subagentThinkingByParent.get(tc.toolCallId);
-            entries.push({
-              kind: "tool",
-              content: tc.output || tc.error || "",
-              toolCallId: tc.toolCallId,
-              toolName: tc.toolName,
-              command: tc.command,
-              params: tc.params,
-              status: (tc.status || "completed") as ToolCallStatus,
-              output: tc.output,
-              error: tc.error,
-              ...(tc.parentToolCallId ? { parentToolCallId: tc.parentToolCallId } : {}),
-              ...(tc.subagentRunId ? { subagentRunId: tc.subagentRunId } : {}),
-              ...subagentHistoryFields(tc),
-              ...(subagentThinking ? {
-                subagentThinking: {
-                  content: subagentThinking.content || "",
-                  thinkingDone: subagentThinking.status !== "streaming",
-                  thinkingDurationMs: subagentThinking.durationMs,
-                  thinkingStartedAt: subagentThinking.startedAt ? new Date(subagentThinking.startedAt).getTime() : undefined,
-                },
-              } : {}),
-            });
-          }
-        }
-      } else {
-        // Legacy: all tools first, then text
-        for (const thinking of thinkingRecords) {
-          if (thinking.parentToolCallId || thinking.subagentRunId) continue;
-          entries.push({
-            kind: "thinking",
-            content: thinking.content || "",
-            thinkingDone: thinking.status !== "streaming",
-            thinkingDurationMs: thinking.durationMs,
-          });
-        }
-        for (const tc of toolCalls) {
-          const subagentThinking = thinkingRecords.find((item) => item.parentToolCallId === tc.toolCallId);
-          entries.push({
-            kind: "tool",
-            content: tc.output || tc.error || "",
-            toolCallId: tc.toolCallId,
-            toolName: tc.toolName,
-            command: tc.command,
-            params: tc.params,
-            status: (tc.status || "completed") as ToolCallStatus,
-            output: tc.output,
-            error: tc.error,
-            ...(tc.parentToolCallId ? { parentToolCallId: tc.parentToolCallId } : {}),
-            ...(tc.subagentRunId ? { subagentRunId: tc.subagentRunId } : {}),
-            ...subagentHistoryFields(tc),
-            ...(subagentThinking ? {
-              subagentThinking: {
-                content: subagentThinking.content || "",
-                thinkingDone: subagentThinking.status !== "streaming",
-                thinkingDurationMs: subagentThinking.durationMs,
-                thinkingStartedAt: subagentThinking.startedAt ? new Date(subagentThinking.startedAt).getTime() : undefined,
-              },
-            } : {}),
-          });
-        }
-        const { narration, planBody } = splitNarrationAndPlan(msg.content);
-        if (planBody && planBody !== msg.content) {
-          if (narration) {
-            entries.push({ kind: "assistant", content: narration });
-          }
-          entries.push({ kind: "plan", content: planBody });
-        } else {
-          entries.push({ kind: "assistant", content: msg.content });
-        }
-      }
-      continue;
-    }
-
-    entries.push({ kind: "system", content: msg.content });
-  }
-
-  return entries;
 }
 
 export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement {
@@ -449,7 +176,7 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
     }
   }, [appendSystem]);
 
-  const THINGKING_LEVEL_DESC: Record<string, string> = {
+  const THINKING_LEVEL_DESC: Record<string, string> = {
     off: "No extended thinking",
     low: "Light reasoning (8K budget)",
     medium: "Moderate reasoning (16K budget)",
@@ -460,7 +187,7 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
   const toggleThinkingLevel = useCallback(() => {
     const items: MenuItem[] = THINKING_LEVELS.map((level) => ({
       title: level,
-      desc: (level === state.thinkingLevel ? "current · " : "") + (THINGKING_LEVEL_DESC[level] || ""),
+      desc: (level === state.thinkingLevel ? "current · " : "") + (THINKING_LEVEL_DESC[level] || ""),
       data: level,
     }));
     dispatch({
@@ -858,56 +585,38 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
   }, [appendSystem, applyTerminalTitle, state.modelId, state.sessionId, state.planMode, state.thinkingLevel]);
 
   const handleCommand = useCallback(async (raw: string) => {
-    const cmd = raw.trim();
-    if (cmd === "/new") {
-      dispatch({ type: "RESET_SESSION" } as AppAction);
-      applyTerminalTitle("");
-      clearScreenDeferred();
-      return;
-    }
-    if (cmd === "/session") {
-      await loadSessions();
-      return;
-    }
-    if (cmd === "/model") {
-      await loadModels();
-      return;
-    }
-    if (cmd === "/subagent_model") {
-      await loadSubagentModels();
-      return;
-    }
-    if (cmd === "/approval") {
-      await toggleApprovalMode();
-      return;
-    }
-    if (cmd === "/effort") {
-      toggleThinkingLevel();
-      return;
-    }
-    if (cmd.startsWith("/effort ")) {
-      const level = cmd.slice(8).trim();
-      setThinkingLevel(level);
-      return;
-    }
-    if (cmd === "/skills") {
-      await loadSkills();
-      return;
-    }
-    if (cmd === "/mcp") {
-      await loadMCPConfigs();
-      return;
-    }
-    if (cmd === "/help") {
-      showHelp();
-      return;
-    }
-    if (cmd === "/plan") {
-      dispatch({ type: "TOGGLE_PLAN_MODE" } as AppAction);
-      return;
-    }
-    appendSystem(`Unknown command: ${cmd}`);
-  }, [appendSystem, applyTerminalTitle, clearScreenDeferred, loadMCPConfigs, loadModels, loadSessions, loadSkills, showHelp]);
+    await runCliCommand(raw, {
+      newSession: () => {
+        dispatch({ type: "RESET_SESSION" } as AppAction);
+        applyTerminalTitle("");
+        clearScreenDeferred();
+      },
+      loadSessions,
+      loadModels,
+      loadSubagentModels,
+      toggleApprovalMode,
+      toggleThinkingLevel,
+      setThinkingLevel,
+      loadSkills,
+      loadMCPConfigs,
+      showHelp,
+      togglePlanMode: () => dispatch({ type: "TOGGLE_PLAN_MODE" } as AppAction),
+      unknownCommand: (cmd) => appendSystem(`Unknown command: ${cmd}`),
+    });
+  }, [
+    appendSystem,
+    applyTerminalTitle,
+    clearScreenDeferred,
+    loadMCPConfigs,
+    loadModels,
+    loadSessions,
+    loadSkills,
+    loadSubagentModels,
+    setThinkingLevel,
+    showHelp,
+    toggleApprovalMode,
+    toggleThinkingLevel,
+  ]);
 
   // Initial clear + default model.
   useEffect(() => {
@@ -951,512 +660,35 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
     };
   }, [state.streaming, state.assistantWaiting]);
 
-  // WebSocket lifecycle.
-  useEffect(() => {
-    const socket = new CLISocket();
-    socketRef.current = socket;
+  useCliSocket({
+    apiURL,
+    cliToken,
+    socketRef,
+    sessionRef,
+    liveAssistantRef,
+    planStartedRef,
+    preambleShownRef,
+    dispatch,
+    refreshSessionName,
+    applyTerminalTitle,
+  });
 
-    const wsBase = apiURL.replace(/^http/, "ws");
-    socket.connect(wsBase, cliToken, {
-      onSession: (sessionId) => {
-        dispatch({ type: "SET_SESSION", sessionId } as AppAction);
-        void refreshSessionName(sessionId);
-      },
-      onStart: () => {
-        planStartedRef.current = false;
-        preambleShownRef.current = "";
-        dispatch({ type: "STREAM_START" } as AppAction);
-      },
-      onChunk: (chunk) => {
-        dispatch({ type: "STREAM_CHUNK", chunk } as AppAction);
-      },
-      onSessionTitle: (title, sessionId) => {
-        const trimmed = title.trim();
-        if (!trimmed || !sessionId || sessionId !== sessionRef.current.id) return;
-        sessionRef.current = { ...sessionRef.current, name: trimmed };
-        dispatch({ type: "APPLY_SESSION_TITLE", sessionId, title: trimmed } as AppAction);
-        applyTerminalTitle(trimmed);
-      },
-      onDone: (_sid, meta) => {
-        dispatch({
-          type: "STREAM_DONE",
-          error: meta?.isStopPlaceholder ? "Generation stopped." : null,
-        } as AppAction);
-        if (meta?.planId) {
-          dispatch({
-            type: "SET_PLAN_CONFIRMATION",
-            planId: meta.planId,
-            content: meta.planBody || liveAssistantRef.current || "",
-          } as AppAction);
-        }
-        const current = sessionRef.current;
-        applyTerminalTitle(current.name);
-        if (current.id) {
-          void refreshSessionName(current.id);
-        }
-      },
-      onError: (error) => {
-        dispatch({ type: "STREAM_DONE", error } as AppAction);
-      },
-      onToolCallStart: (data: ToolCallStartData) => {
-        // Flush preamble text to timeline before tool entry
-        const hadLiveText = !!liveAssistantRef.current.trim();
-        const preamble = data.preamble?.trim() || "";
-        const preambleAlreadyShown = preamble && preamble === preambleShownRef.current;
-        dispatch({ type: "FLUSH_AND_WAIT" } as AppAction);
-        // Fallback: if streamed text was incomplete/missing, use preamble from tool_call_start
-        if (!hadLiveText && preamble && !preambleAlreadyShown) {
-          dispatch({
-            type: "APPEND_ENTRY",
-            entry: { kind: "assistant", content: preamble },
-          } as AppAction);
-          preambleShownRef.current = preamble;
-        }
-        dispatch({
-          type: "UPSERT_TOOL_ENTRY",
-          entry: {
-            kind: "tool",
-            toolCallId: data.toolCallId,
-            toolName: data.toolName,
-            command: data.command,
-            params: data.params,
-            status: data.requiresApproval ? "pending" : "executing",
-            content: "",
-            parentToolCallId: data.parentToolCallId,
-            subagentRunId: data.subagentRunId,
-          },
-        } as AppAction);
-
-        if (data.requiresApproval) {
-          // ask_questions: show Q&A view instead of simple approval.
-          if (data.toolName === "ask_questions" && data.params?.questions) {
-            try {
-              const questions = JSON.parse(data.params.questions);
-              if (Array.isArray(questions) && questions.length > 0) {
-                dispatch({
-                  type: "SET_QA",
-                  toolCallId: data.toolCallId,
-                  questions,
-                } as AppAction);
-              }
-            } catch { /* ignore */ }
-          } else {
-            dispatch({
-              type: "ADD_PENDING_APPROVAL",
-              item: {
-                toolCallId: data.toolCallId,
-                toolName: data.toolName,
-                command: data.command,
-                params: data.params,
-              },
-            } as AppAction);
-          }
-        }
-      },
-      onToolCallResult: (data: ToolCallResultData) => {
-        dispatch({
-          type: "UPSERT_TOOL_ENTRY",
-          entry: {
-            kind: "tool",
-            toolCallId: data.toolCallId,
-            toolName: data.toolName,
-            command: data.command,
-            status: data.status || "completed",
-            output: data.output,
-            error: data.error,
-            content: data.output || data.error || "",
-            parentToolCallId: data.parentToolCallId,
-            subagentRunId: data.subagentRunId,
-          },
-        } as AppAction);
-        dispatch({ type: "REMOVE_PENDING_APPROVAL", toolCallId: data.toolCallId } as AppAction);
-      },
-      onSubagentStart: (data) => {
-        if (!data.parentToolCallId) return;
-        dispatch({
-          type: "UPSERT_TOOL_ENTRY",
-          entry: {
-            kind: "tool",
-            toolCallId: data.parentToolCallId,
-            toolName: "run_subagent",
-            command: "delegate",
-            status: "executing",
-            content: "",
-            subagentRunId: data.subagentRunId,
-            subagentTitle: data.title,
-            subagentTask: data.task,
-          },
-        } as AppAction);
-      },
-      onSubagentChunk: (data) => {
-        if (!data.parentToolCallId || !data.content) return;
-        dispatch({
-          type: "APPEND_SUBAGENT_STREAM",
-          parentToolCallId: data.parentToolCallId,
-          content: data.content,
-        } as AppAction);
-      },
-      onSubagentDone: (data) => {
-        if (!data.parentToolCallId) return;
-        dispatch({
-          type: "SUBAGENT_DONE",
-          parentToolCallId: data.parentToolCallId,
-          error: data.error,
-          finishedAt: Date.now(),
-        } as AppAction);
-      },
-      onThinkingStart: (data) => {
-        dispatch({
-          type: "THINKING_START",
-          parentToolCallId: data.parentToolCallId,
-          subagentRunId: data.subagentRunId,
-        } as AppAction);
-      },
-      onThinkingChunk: (data) => {
-        dispatch({
-          type: "THINKING_CHUNK",
-          chunk: data.content || "",
-          parentToolCallId: data.parentToolCallId,
-          subagentRunId: data.subagentRunId,
-        } as AppAction);
-      },
-      onThinkingDone: (data) => {
-        dispatch({
-          type: "THINKING_DONE",
-          finishedAt: Date.now(),
-          parentToolCallId: data.parentToolCallId,
-          subagentRunId: data.subagentRunId,
-        } as AppAction);
-      },
-      onTodoUpdate: (data) => {
-        dispatch({
-          type: "TODO_UPDATE",
-          items: data.items,
-          note: data.note,
-          updatedAt: data.updatedAt ? Date.parse(data.updatedAt) : undefined,
-        } as AppAction);
-      },
-      onPlanBody: (content: string) => {
-        dispatch({ type: "PLAN_BODY", planBody: content } as AppAction);
-      },
-      onPlanChunk: (chunk: string) => {
-        dispatch({ type: "PLAN_CHUNK", chunk } as AppAction);
-      },
-      onPlanStart: () => {
-        planStartedRef.current = true;
-        dispatch({ type: "PLAN_START" } as AppAction);
-      },
-    });
-
-    return () => {
-      socket.close();
-    };
-  }, [apiURL, cliToken]);
-
-  useInput((input, key) => {
-    if (key.ctrl && input === "c") {
-      if (state.streaming) {
-        const sent = state.sessionId && socketRef.current?.sendStop(state.sessionId) || false;
-        if (!sent) {
-          dispatch({ type: "STREAM_DONE", error: "Generation stopped (disconnected)." } as AppAction);
-        }
-        return;
-      }
-      socketRef.current?.close();
-      exit();
-      return;
-    }
-
-    if (key.tab && key.shift && state.view === "chat") {
-      dispatch({ type: "TOGGLE_PLAN_MODE" } as AppAction);
-      return;
-    }
-
-    if (state.view === "approval") {
-      const currentApproval = state.pendingApprovals[state.approvalCursor] ?? {
-        toolCallId: state.approvalToolCallId,
-        toolName: state.approvalToolName,
-        command: state.approvalCommand,
-        params: state.approvalParams,
-      };
-      const settleApproval = (toolCallId: string, approved: boolean) => {
-        socketRef.current?.sendToolApproval(toolCallId, approved);
-        dispatch({
-          type: "UPSERT_TOOL_ENTRY",
-          entry: {
-            kind: "tool",
-            toolCallId,
-            status: approved ? "executing" : "rejected",
-            error: approved ? "" : "Execution was rejected by the user.",
-            content: "",
-          },
-        } as AppAction);
-        dispatch({ type: "REMOVE_PENDING_APPROVAL", toolCallId } as AppAction);
-      };
-      if (key.upArrow) {
-        dispatch({ type: "APPROVAL_NAV", delta: -1 } as AppAction);
-        return;
-      }
-      if (key.downArrow) {
-        dispatch({ type: "APPROVAL_NAV", delta: 1 } as AppAction);
-        return;
-      }
-      if (input === "a" || input === "A") {
-        for (const item of state.pendingApprovals) {
-          settleApproval(item.toolCallId, true);
-        }
-        dispatch({ type: "CLEAR_PENDING_APPROVALS" } as AppAction);
-        return;
-      }
-      if (input === "r" || input === "R") {
-        for (const item of state.pendingApprovals) {
-          settleApproval(item.toolCallId, false);
-        }
-        dispatch({ type: "CLEAR_PENDING_APPROVALS" } as AppAction);
-        return;
-      }
-      if (input === "y" || input === "Y") {
-        settleApproval(currentApproval.toolCallId, true);
-      } else if (input === "n" || input === "N" || key.escape) {
-        settleApproval(currentApproval.toolCallId, false);
-      }
-      return;
-    }
-
-    if (state.view === "plan-confirm") {
-      // When input is focused (cursor=1), TextInput handles keys except nav
-      if (state.planConfirmCursor === 1) {
-        if (key.upArrow) {
-          dispatch({ type: "PLAN_CONFIRM_NAV", delta: -1 } as AppAction);
-          return;
-        }
-        // Let TextInput handle Enter, Escape, and typing
-        return;
-      }
-      if (key.upArrow) {
-        dispatch({ type: "PLAN_CONFIRM_NAV", delta: -1 } as AppAction);
-        return;
-      }
-      if (key.downArrow) {
-        dispatch({ type: "PLAN_CONFIRM_NAV", delta: 1 } as AppAction);
-        return;
-      }
-      if (key.return) {
-        // cursor=0: Execute Plan
-        const displayContent = "Execute this plan";
-        dispatch({ type: "APPEND_ENTRY", entry: { kind: "user", content: displayContent } } as AppAction);
-        socketRef.current?.sendPlanApprove(
-          state.pendingPlanId, state.sessionId, state.modelId, displayContent,
-        );
-        if (state.planMode) {
-          dispatch({ type: "TOGGLE_PLAN_MODE" } as AppAction);
-        }
-        dispatch({ type: "CLEAR_PLAN_CONFIRMATION" } as AppAction);
-        return;
-      }
-      if (key.escape) {
-        socketRef.current?.sendPlanReject(
-          state.pendingPlanId, state.sessionId,
-        );
-        dispatch({ type: "CLEAR_PLAN_CONFIRMATION" } as AppAction);
-      }
-      return;
-    }
-
-        if (state.view === "question-answer") {
-      if (state.qaStep === "questions") {
-        if (key.upArrow) {
-          dispatch({ type: "QA_NAV", delta: -1 } as AppAction);
-          return;
-        }
-        if (key.downArrow) {
-          dispatch({ type: "QA_NAV", delta: 1 } as AppAction);
-          return;
-        }
-        if (key.return) {
-          const q = state.qaQuestions[state.qaCurrentIndex];
-          if (!q) return;
-          const maxIdx = q.options.length; // last = custom
-          if (state.qaCursor < maxIdx) {
-            dispatch({ type: "QA_SELECT", optionIndex: state.qaCursor } as AppAction);
-          } else {
-            // Custom option selected
-            dispatch({ type: "QA_SELECT", optionIndex: -1 } as AppAction);
-          }
-          // Auto-advance after selecting preset, stay for custom input
-          if (state.qaCursor < maxIdx) {
-            if (state.qaCurrentIndex < state.qaQuestions.length - 1) {
-              dispatch({ type: "QA_NEXT_QUESTION" } as AppAction);
-            } else {
-              dispatch({ type: "QA_STEP_CONFIRM" } as AppAction);
-            }
-          }
-          return;
-        }
-        if (key.tab) {
-          // Tab to go to next question or confirm
-          if (state.qaCurrentIndex < state.qaQuestions.length - 1) {
-            dispatch({ type: "QA_NEXT_QUESTION" } as AppAction);
-          } else {
-            dispatch({ type: "QA_STEP_CONFIRM" } as AppAction);
-          }
-          return;
-        }
-      } else {
-        // Confirm step
-        if (key.upArrow || key.downArrow) {
-          dispatch({ type: "QA_CONFIRM_NAV", delta: key.upArrow ? -1 : 1 } as AppAction);
-          return;
-        }
-        if (key.return && state.qaCursor === 0) {
-          // Submit answers
-          const answersJSON = JSON.stringify(state.qaAnswers);
-          socketRef.current?.sendToolApproval(state.qaToolCallId, true, answersJSON);
-          dispatch({ type: "CLEAR_QA" } as AppAction);
-          return;
-        }
-        if (key.return && state.qaCursor === 1) {
-          dispatch({ type: "QA_STEP_BACK" } as AppAction);
-          return;
-        }
-      }
-      if (key.escape) {
-        const cancelAnswers = JSON.stringify(
-          state.qaQuestions.map((q: { id: string }) => ({ questionId: q.id, selectedOption: -2, customAnswer: "" })),
-        );
-        socketRef.current?.sendToolApproval(state.qaToolCallId, true, cancelAnswers);
-        dispatch({ type: "CLEAR_QA" } as AppAction);
-      }
-      return;
-    }
-
-    if (state.view === "thinking-detail") {
-      if (key.escape) {
-        dispatch({ type: "SET_VIEW", view: "chat" } as AppAction);
-      }
-      return;
-    }
-
-    if (state.view === "menu") {
-      const current = state.menuItems[state.menuCursor];
-      if (key.upArrow) {
-        dispatch({ type: "MENU_NAV", delta: -1 } as AppAction);
-        return;
-      }
-      if (key.downArrow) {
-        dispatch({ type: "MENU_NAV", delta: 1 } as AppAction);
-        return;
-      }
-      if (key.return) {
-        void handleMenuSelect(current);
-        return;
-      }
-      if (key.escape) {
-        dispatch({ type: "CLOSE_MENU" } as AppAction);
-        return;
-      }
-      if (input === "d") {
-        void handleMenuDelete(current);
-        return;
-      }
-      if (input === "a") {
-        handleMenuAdd();
-        return;
-      }
-      if (input === "e") {
-        handleMenuEdit(current);
-        return;
-      }
-      if (input === " ") {
-        void handleMenuToggle(current);
-      }
-      return;
-    }
-
-    if (state.view === "mcp-editor") {
-      if (key.tab) {
-        dispatch({ type: "TOGGLE_MCP_EDITOR_FOCUS" } as AppAction);
-        return;
-      }
-      if (key.escape) {
-        void loadMCPConfigs();
-        return;
-      }
-      if (key.ctrl && input === "e") {
-        dispatch({ type: "TOGGLE_MCP_EDITOR_ENABLED" } as AppAction);
-        return;
-      }
-      if (key.ctrl && input === "s") {
-        void saveMCPConfig();
-      }
-      return;
-    }
-
-    if (state.view === "mcp-template") {
-      if (key.upArrow) {
-        dispatch({ type: "MCP_TEMPLATE_NAV", delta: -1 } as AppAction);
-        return;
-      }
-      if (key.downArrow) {
-        dispatch({ type: "MCP_TEMPLATE_NAV", delta: 1 } as AppAction);
-        return;
-      }
-      if (key.return) {
-        const template = MCP_TEMPLATES[state.mcpTemplateCursor];
-        selectMCPTemplate(template);
-        return;
-      }
-      if (key.escape) {
-        void loadMCPConfigs();
-      }
-      return;
-    }
-
-    if (state.view === "model-editor") {
-      if (state.modelEditorProviderSelect) {
-        if (key.upArrow) {
-          dispatch({ type: "SET_MODEL_EDITOR_PROVIDER", provider: moveModelProvider(state.modelEditorProvider, -1) } as AppAction);
-          return;
-        }
-        if (key.downArrow) {
-          dispatch({ type: "SET_MODEL_EDITOR_PROVIDER", provider: moveModelProvider(state.modelEditorProvider, 1) } as AppAction);
-          return;
-        }
-        if (key.return || key.escape) {
-          dispatch({ type: "TOGGLE_MODEL_EDITOR_PROVIDER_SELECT" } as AppAction);
-          return;
-        }
-        return;
-      }
-      if (key.tab) {
-        dispatch({ type: "MODEL_EDITOR_NEXT_FIELD" } as AppAction);
-        return;
-      }
-      if (key.escape) {
-        void loadModels();
-        return;
-      }
-      if (key.ctrl && input === "s") {
-        void saveModelConfig();
-        return;
-      }
-      if (key.return && state.modelEditorFocusIndex === 1) {
-        dispatch({ type: "TOGGLE_MODEL_EDITOR_PROVIDER_SELECT" } as AppAction);
-        return;
-      }
-    }
-
-    if (state.view !== "chat") return;
-
-    if (state.streaming) {
-      if (key.escape) {
-        const sent = state.sessionId && socketRef.current?.sendStop(state.sessionId) || false;
-        if (!sent) {
-          dispatch({ type: "STREAM_DONE", error: "Generation stopped (disconnected)." } as AppAction);
-        }
-      }
-      return;
-    }
+  useCliKeyboard({
+    state,
+    dispatch,
+    socketRef,
+    exit,
+    handleMenuSelect,
+    handleMenuDelete,
+    handleMenuAdd,
+    handleMenuEdit,
+    handleMenuToggle,
+    loadMCPConfigs,
+    loadModels,
+    saveMCPConfig,
+    saveModelConfig,
+    selectMCPTemplate,
+    moveModelProvider,
   });
 
   const topLevelThinkingActive = state.timeline.some((entry) =>
@@ -1557,9 +789,6 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
           items={state.menuItems}
           cursor={state.menuCursor}
           hint={state.menuHint}
-          kind={state.menuKind}
-          onSelect={() => {}}
-          onBack={() => dispatch({ type: "CLOSE_MENU" } as AppAction)}
         />
       )}
 

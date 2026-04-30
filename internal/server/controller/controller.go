@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"context"
 	"mime/multipart"
 	"slimebot/internal/domain"
 	"time"
@@ -8,49 +9,48 @@ import (
 	"slimebot/internal/auth"
 	chatsvc "slimebot/internal/services/chat"
 	configsvc "slimebot/internal/services/config"
+	sessionsvc "slimebot/internal/services/session"
 	settingssvc "slimebot/internal/services/settings"
 )
 
 type authService interface {
-	VerifyLogin(username, password string) (bool, error)
-	MustChangePassword() (bool, error)
-	UpdateAccount(username, oldPassword, newPassword string) error
+	VerifyLogin(ctx context.Context, username, password string) (bool, error)
+	MustChangePassword(ctx context.Context) (bool, error)
+	UpdateAccount(ctx context.Context, username, oldPassword, newPassword string) error
 }
 
 type sessionService interface {
-	List(limit int, offset int, query string) ([]domain.Session, error)
-	Create(name string) (*domain.Session, error)
-	RenameByUser(id, name string) error
-	Delete(id string) error
-	ListMessagesPage(sessionID string, limit int, before *time.Time, beforeSeq *int64, after *time.Time, afterSeq *int64) ([]domain.Message, bool, error)
-	ListToolCallRecordsByAssistantMessageIDs(sessionID string, messageIDs []string) ([]domain.ToolCallRecord, error)
-	ListThinkingRecordsByAssistantMessageIDs(sessionID string, messageIDs []string) ([]domain.ThinkingRecord, error)
+	List(ctx context.Context, limit int, offset int, query string) (sessionsvc.ListResult, error)
+	Create(ctx context.Context, name string) (*domain.Session, error)
+	RenameByUser(ctx context.Context, id, name string) error
+	Delete(ctx context.Context, id string) error
+	GetMessageHistory(ctx context.Context, sessionID string, limit int, before *time.Time, beforeSeq *int64, after *time.Time, afterSeq *int64) (sessionsvc.MessageHistoryPage, error)
 }
 
 type settingsService interface {
-	Get() (*settingssvc.AppSettings, error)
-	Update(input settingssvc.UpdateSettingsInput) error
+	Get(ctx context.Context) (*settingssvc.AppSettings, error)
+	Update(ctx context.Context, input settingssvc.UpdateSettingsInput) error
 }
 
 type llmConfigService interface {
-	List() ([]domain.LLMConfig, error)
-	Create(input configsvc.LLMConfigCreateInput) (*domain.LLMConfig, error)
-	Delete(id string) error
+	List(ctx context.Context) ([]domain.LLMConfig, error)
+	Create(ctx context.Context, input configsvc.LLMConfigCreateInput) (*domain.LLMConfig, error)
+	Delete(ctx context.Context, id string) error
 }
 
 type mcpConfigService interface {
-	List() ([]domain.MCPConfig, error)
+	List(ctx context.Context) ([]domain.MCPConfig, error)
 	ValidateConfig(raw string) error
-	Create(input configsvc.MCPConfigInput) (*domain.MCPConfig, error)
-	Update(id string, input configsvc.MCPConfigInput) error
-	Delete(id string) error
+	Create(ctx context.Context, input configsvc.MCPConfigInput) (*domain.MCPConfig, error)
+	Update(ctx context.Context, id string, input configsvc.MCPConfigInput) error
+	Delete(ctx context.Context, id string) error
 }
 
 type messagePlatformConfigService interface {
-	List() ([]domain.MessagePlatformConfig, error)
-	Create(input configsvc.MessagePlatformConfigInput) (*domain.MessagePlatformConfig, error)
-	Update(id string, input configsvc.MessagePlatformConfigInput) error
-	Delete(id string) error
+	List(ctx context.Context) ([]domain.MessagePlatformConfig, error)
+	Create(ctx context.Context, input configsvc.MessagePlatformConfigInput) (*domain.MessagePlatformConfig, error)
+	Update(ctx context.Context, id string, input configsvc.MessagePlatformConfigInput) error
+	Delete(ctx context.Context, id string) error
 }
 
 type skillPackageService interface {

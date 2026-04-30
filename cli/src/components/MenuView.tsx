@@ -4,7 +4,7 @@
 
 import { Box, Text, useStdout } from "ink";
 import type React from "react";
-import type { MenuItem, MenuKind } from "../types.js";
+import type { MenuItem } from "../types.js";
 import { wrapText } from "../utils/format.js";
 
 interface MenuViewProps {
@@ -12,13 +12,6 @@ interface MenuViewProps {
 	items: MenuItem[];
 	cursor: number;
 	hint: string;
-	kind: MenuKind;
-	onSelect: (item: MenuItem, index: number) => void;
-	onBack: () => void;
-	onDelete?: (item: MenuItem, index: number) => void;
-	onAdd?: () => void;
-	onEdit?: (item: MenuItem, index: number) => void;
-	onToggle?: (item: MenuItem, index: number) => void;
 }
 
 const MAX_MENU_TITLE_LENGTH = 25;
@@ -87,13 +80,6 @@ export function MenuView({
 	items,
 	cursor,
 	hint,
-	kind: _kind,
-	onSelect: _onSelect,
-	onBack: _onBack,
-	onDelete: _onDelete,
-	onAdd: _onAdd,
-	onEdit: _onEdit,
-	onToggle: _onToggle,
 }: MenuViewProps): React.ReactElement {
 	const { stdout } = useStdout();
 	const terminalWidth = Math.max(20, stdout?.columns || 80);

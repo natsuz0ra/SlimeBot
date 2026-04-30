@@ -16,6 +16,7 @@ import {
 import { hasContentMarkers, parseContentMarkers, stripContentMarkers } from '@/utils/contentMarkers'
 import { appendPlanBodyToBatch, appendPlanChunkToBatch, appendSubagentThinkingChunk, appendTextChunkToBatch, finalizeOpenReplyRuntimeState, finalizeReplyBatchTiming, finishOpenThinkingEntries, finishSubagentThinking, markLastThinkingDone, markToolCallError, startSubagentThinking } from '@/utils/liveReplyTimeline'
 import { getBatchApprovalToolCallIds, markToolApprovalDecision } from '@/utils/toolApprovals'
+import { materializeStoppedMessages } from '@/utils/chatMessages'
 
 const HISTORY_PAGE_SIZE = 10
 const MAX_SESSION_PAGE_SIZE = 100
@@ -99,15 +100,8 @@ export const useChatStore = defineStore('chat', () => {
     return i18n.global.t('assistantStopped') as string
   }
 
-  function materializeMessage(item: MessageItem): MessageItem {
-    if (item.isStopPlaceholder && (!item.content || item.content.trim() === '')) {
-      return { ...item, content: getStoppedPlaceholderText() }
-    }
-    return item
-  }
-
   function materializeMessages(items: MessageItem[]): MessageItem[] {
-    return items.map((item) => materializeMessage(item))
+    return materializeStoppedMessages(items, getStoppedPlaceholderText())
   }
 
   function rebuildReplyBatchesFromHistory(sessionId: string, history: SessionHistoryPayload) {

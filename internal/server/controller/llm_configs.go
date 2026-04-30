@@ -8,7 +8,7 @@ import (
 
 // ListLLMConfigs returns all saved LLM model configs.
 func (h *HTTPController) ListLLMConfigs(c WebContext) {
-	items, err := h.llmConfigs.List()
+	items, err := h.llmConfigs.List(c.Request().Context())
 	if err != nil {
 		jsonInternalError(c, err)
 		return
@@ -33,7 +33,7 @@ func (h *HTTPController) CreateLLMConfig(c WebContext) {
 		jsonError(c, http.StatusBadRequest, "name, baseUrl, apiKey, and model are all required.")
 		return
 	}
-	item, err := h.llmConfigs.Create(configsvc.LLMConfigCreateInput{
+	item, err := h.llmConfigs.Create(c.Request().Context(), configsvc.LLMConfigCreateInput{
 		Name:     req.Name,
 		Provider: req.Provider,
 		BaseURL:  req.BaseURL,
@@ -50,7 +50,7 @@ func (h *HTTPController) CreateLLMConfig(c WebContext) {
 // DeleteLLMConfig removes a model config by id.
 func (h *HTTPController) DeleteLLMConfig(c WebContext) {
 	id := c.Param("id")
-	if err := h.llmConfigs.Delete(id); err != nil {
+	if err := h.llmConfigs.Delete(c.Request().Context(), id); err != nil {
 		jsonInternalError(c, err)
 		return
 	}

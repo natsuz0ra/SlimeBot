@@ -708,18 +708,20 @@ export function reducer(state: AppState, action: AppAction): AppState {
         const idx = entries.findIndex(
           (entry) => entry.kind === "tool" && entry.toolCallId === action.parentToolCallId,
         );
-        if (idx === -1 || !entries[idx].subagentThinking) return state;
+        if (idx === -1) return state;
+        const thinking = entries[idx].subagentThinking;
+        if (!thinking) return state;
         const prev = entries[idx];
-        const startedAt = prev.subagentThinking?.thinkingStartedAt;
+        const startedAt = thinking.thinkingStartedAt;
         entries[idx] = {
           ...prev,
           subagentThinking: {
-            ...prev.subagentThinking,
-            content: prev.subagentThinking.content,
+            ...thinking,
+            content: thinking.content,
             thinkingDone: true,
             thinkingDurationMs: startedAt !== undefined
               ? Math.max(0, (action.finishedAt ?? Date.now()) - startedAt)
-              : prev.subagentThinking.thinkingDurationMs,
+              : thinking.thinkingDurationMs,
           },
         };
         return {

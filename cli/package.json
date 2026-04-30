@@ -1,6 +1,6 @@
 {
   "name": "@slimebot/cli",
-  "version": "0.1.0",
+  "version": "1.19.1",
   "type": "module",
   "bin": {
     "slimebot-cli": "./cli.cjs"

@@ -1,7 +1,9 @@
 package controller
 
 import (
+	"errors"
 	"net/http"
+	"slimebot/internal/apperrors"
 	apierrors2 "slimebot/internal/server/apierrors"
 	"strings"
 )
@@ -13,6 +15,14 @@ func jsonError(c WebContext, status int, message string) {
 func jsonInternalError(c WebContext, err error) {
 	if err != nil {
 		c.Error(err)
+	}
+	if errors.Is(err, apperrors.ErrInvalidInput) {
+		jsonError(c, http.StatusBadRequest, "invalid input")
+		return
+	}
+	if errors.Is(err, apperrors.ErrNotFound) {
+		jsonError(c, http.StatusNotFound, "not found")
+		return
 	}
 	jsonError(c, http.StatusInternalServerError, "internal server error")
 }

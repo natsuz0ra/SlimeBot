@@ -1,5 +1,6 @@
 import type { Ref } from 'vue'
 import { skillsAPI } from '@/api/skills'
+import type { SkillItem } from '@/types/settings'
 
 type ToastLike = {
   error(message: string): void
@@ -8,7 +9,14 @@ type ToastLike = {
 
 type Translate = (key: string) => string
 
-type SkillItem = any
+type SkillUploadFailure = {
+  file: string
+  error: string
+}
+
+function formatUploadFailures(failed: SkillUploadFailure[]) {
+  return failed.map((item) => `${item.file}: ${item.error}`).join('\n')
+}
 
 export function useSettingsSkills(options: {
   skillsList: Ref<SkillItem[]>
@@ -44,21 +52,20 @@ export function useSettingsSkills(options: {
     skillsUploading.value = true
     try {
       const result = await skillsAPI.upload(files)
-      const failed = Array.isArray(result?.failed) ? result.failed : []
+      const failed = Array.isArray(result?.failed) ? result.failed as SkillUploadFailure[] : []
       if (failed.length > 0) {
-        const detail = failed.map((x: any) => `${x.file}: ${x.error}`).join('\n')
-        toast.error(`${t('skillsUploadPartial')}\n${detail}`)
+        toast.error(`${t('skillsUploadPartial')}\n${formatUploadFailures(failed)}`)
       } else {
         toast.success(t('skillsUploadSuccess'))
       }
       await refreshSkills()
-    } catch (err: any) {
-      const failed = err?.response?.data?.failed
+    } catch (err: unknown) {
+      const response = err as { response?: { data?: { failed?: unknown; error?: string } } }
+      const failed = response.response?.data?.failed
       if (Array.isArray(failed) && failed.length > 0) {
-        const detail = failed.map((x: any) => `${x.file}: ${x.error}`).join('\n')
-        toast.error(`${t('skillsUploadFailed')}\n${detail}`)
+        toast.error(`${t('skillsUploadFailed')}\n${formatUploadFailures(failed as SkillUploadFailure[])}`)
       } else {
-        toast.error(err?.response?.data?.error || t('skillsUploadFailed'))
+        toast.error(response.response?.data?.error || t('skillsUploadFailed'))
       }
     } finally {
       skillsUploading.value = false

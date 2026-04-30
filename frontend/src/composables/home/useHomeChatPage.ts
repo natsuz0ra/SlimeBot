@@ -1,4 +1,4 @@
-import { computed, watch } from 'vue'
+import { computed, reactive, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useToast } from '@/composables/useToast'
 import { MESSAGE_PLATFORM_SESSION_ID } from '@/api/chat'
@@ -83,37 +83,68 @@ export function useHomeChatPage() {
     },
   )
 
-  return {
-    t,
-    store,
-    hasMoreHistory: store.hasMoreHistory,
-    loadingOlderHistory: store.loadingOlderHistory,
+  const ui = reactive({
     drawerOpen: uiState.drawerOpen,
     renameVisible: uiState.renameVisible,
     renameValue: uiState.renameValue,
-    inputValue: uiState.inputValue,
-    pendingFiles: uiState.pendingFiles,
     loading: uiState.loading,
-    isEmptySession,
-    currentSessionPlanConfirmationVisible,
-    showScrollToBottom: scrollState.showScrollToBottom,
     settingsVisible: uiState.settingsVisible,
-    toolDetailVisible: toolDetailState.toolDetailVisible,
-    toolDetailDialogWidth: toolDetailState.toolDetailDialogWidth,
-    activeSessionMenu: uiState.activeSessionMenu,
     topMenuVisible: uiState.topMenuVisible,
+    deleteConfirmVisible: uiState.deleteConfirmVisible,
+    isEmptySession,
+    toggleSidebar: uiState.toggleSidebar,
+    toggleSessionMenu: uiState.toggleSessionMenu,
+  })
+
+  const models = reactive({
     modelOptions: modelState.modelOptions,
     selectedModelId: modelState.selectedModelId,
+    modelSelectOptions: modelState.modelSelectOptions,
     thinkingLevel: modelState.thinkingLevel,
     thinkingSelectOptions: modelState.thinkingSelectOptions,
+    subagentModelId: modelState.subagentModelId,
+    subagentModelSelectOptions: modelState.subagentModelSelectOptions,
+    refreshModelOptions: modelState.refreshModelOptions,
+    onModelChange: modelState.onModelChange,
     onThinkingLevelChange: modelState.onThinkingLevelChange,
-    setMessagesRef: scrollState.setMessagesRef,
+    onSubagentModelChange: modelState.onSubagentModelChange,
+  })
+
+  const sessions = reactive({
     currentSession: sessionActions.currentSession,
+    activeSessionMenu: uiState.activeSessionMenu,
+    canManageCurrentSession: sessionActions.canManageCurrentSession,
+    isMessagePlatformSession: sessionActions.isMessagePlatformSession,
+    setSidebarListRef: scrollState.setSidebarListRef,
+    openRename: sessionActions.openRename,
+    confirmRename: sessionActions.confirmRename,
+    removeSession: sessionActions.removeSession,
+    confirmDeleteSession: sessionActions.confirmDeleteSession,
+    pickSession: sessionActions.pickSession,
+    createSession: sessionActions.createSession,
+    renameFromFloatingMenu: sessionActions.renameFromFloatingMenu,
+    deleteFromFloatingMenu: sessionActions.deleteFromFloatingMenu,
+  })
+
+  const composer = reactive({
+    inputValue: uiState.inputValue,
+    pendingFiles: uiState.pendingFiles,
     sendDisabled,
     stopDisabled,
-    networkStatusText: networkState.networkStatusText,
-    isMessagePlatformSession: sessionActions.isMessagePlatformSession,
-    canManageCurrentSession: sessionActions.canManageCurrentSession,
+    currentSessionPlanConfirmationVisible,
+    planMode: computed(() => store.planMode),
+    sendMessage: sessionActions.sendMessage,
+    stopMessage: sessionActions.stopMessage,
+    onSelectFiles: sessionActions.onSelectFiles,
+    removePendingFile: sessionActions.removePendingFile,
+    onPlanToggle: store.togglePlanMode,
+  })
+
+  const tools = reactive({
+    toolDetailVisible: toolDetailState.toolDetailVisible,
+    toolDetailDialogWidth: toolDetailState.toolDetailDialogWidth,
+    toolDetailItems: toolDetailState.toolDetailItems,
+    toolDetailToolTimeline: toolDetailState.toolDetailToolTimeline,
     getReplyToolCount: toolDetailState.getReplyToolCount,
     getReplyToolSummary: toolDetailState.getReplyToolSummary,
     getReplyTimeline: toolDetailState.getReplyTimeline,
@@ -127,32 +158,27 @@ export function useHomeChatPage() {
     shouldShowReplyCollapseBar: toolDetailState.shouldShowReplyCollapseBar,
     isEmptyPlaceholder: toolDetailState.isEmptyPlaceholder,
     openToolDetail: toolDetailState.openToolDetail,
-    toolDetailItems: toolDetailState.toolDetailItems,
-    toolDetailToolTimeline: toolDetailState.toolDetailToolTimeline,
-    modelSelectOptions: modelState.modelSelectOptions,
-    setSidebarListRef: scrollState.setSidebarListRef,
-    toggleSidebar: uiState.toggleSidebar,
-    toggleSessionMenu: uiState.toggleSessionMenu,
-    refreshModelOptions: modelState.refreshModelOptions,
-    openRename: sessionActions.openRename,
-    confirmRename: sessionActions.confirmRename,
-    removeSession: sessionActions.removeSession,
-    confirmDeleteSession: sessionActions.confirmDeleteSession,
-    deleteConfirmVisible: uiState.deleteConfirmVisible,
-    pickSession: sessionActions.pickSession,
-    createSession: sessionActions.createSession,
-    sendMessage: sessionActions.sendMessage,
-    stopMessage: sessionActions.stopMessage,
-    onSelectFiles: sessionActions.onSelectFiles,
-    removePendingFile: sessionActions.removePendingFile,
+  })
+
+  const network = reactive({
+    networkStatusText: networkState.networkStatusText,
+  })
+
+  const scroll = reactive({
+    showScrollToBottom: scrollState.showScrollToBottom,
+    setMessagesRef: scrollState.setMessagesRef,
     scrollToBottomByButton: scrollState.scrollToBottomByButton,
-    renameFromFloatingMenu: sessionActions.renameFromFloatingMenu,
-    deleteFromFloatingMenu: sessionActions.deleteFromFloatingMenu,
-    onModelChange: modelState.onModelChange,
-    subagentModelId: modelState.subagentModelId,
-    subagentModelSelectOptions: modelState.subagentModelSelectOptions,
-    onSubagentModelChange: modelState.onSubagentModelChange,
-    planMode: computed(() => store.planMode),
-    onPlanToggle: store.togglePlanMode,
+  })
+
+  return {
+    t,
+    store,
+    ui,
+    models,
+    sessions,
+    composer,
+    tools,
+    network,
+    scroll,
   }
 }

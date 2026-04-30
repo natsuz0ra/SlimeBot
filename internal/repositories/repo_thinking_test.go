@@ -63,7 +63,7 @@ func TestThinkingRecordLifecycle_BindsAndListsByAssistantMessage(t *testing.T) {
 		t.Fatalf("bind thinking failed: %v", err)
 	}
 
-	records, err := repo.ListSessionThinkingRecordsByAssistantMessageIDs(session.ID, []string{assistant.ID})
+	records, err := repo.ListSessionThinkingRecordsByAssistantMessageIDs(context.Background(), session.ID, []string{assistant.ID})
 	if err != nil {
 		t.Fatalf("list thinking records failed: %v", err)
 	}
@@ -121,7 +121,7 @@ func TestThinkingRecordLifecycle_PreservesSubagentOwnership(t *testing.T) {
 		t.Fatalf("bind thinking failed: %v", err)
 	}
 
-	records, err := repo.ListSessionThinkingRecordsByAssistantMessageIDs(session.ID, []string{assistant.ID})
+	records, err := repo.ListSessionThinkingRecordsByAssistantMessageIDs(context.Background(), session.ID, []string{assistant.ID})
 	if err != nil {
 		t.Fatalf("list thinking records failed: %v", err)
 	}

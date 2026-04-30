@@ -1,6 +1,7 @@
 package config
 
 import (
+	"context"
 	"strings"
 
 	"slimebot/internal/domain"
@@ -21,12 +22,12 @@ func NewMessagePlatformConfigService(store domain.MessagePlatformConfigStore) *M
 	return &MessagePlatformConfigService{store: store}
 }
 
-func (s *MessagePlatformConfigService) List() ([]domain.MessagePlatformConfig, error) {
-	return s.store.ListMessagePlatformConfigs()
+func (s *MessagePlatformConfigService) List(ctx context.Context) ([]domain.MessagePlatformConfig, error) {
+	return s.store.ListMessagePlatformConfigs(ctx)
 }
 
-func (s *MessagePlatformConfigService) Create(input MessagePlatformConfigInput) (*domain.MessagePlatformConfig, error) {
-	return s.store.CreateMessagePlatformConfig(domain.MessagePlatformConfig{
+func (s *MessagePlatformConfigService) Create(ctx context.Context, input MessagePlatformConfigInput) (*domain.MessagePlatformConfig, error) {
+	return s.store.CreateMessagePlatformConfig(ctx, domain.MessagePlatformConfig{
 		Platform:       strings.ToLower(strings.TrimSpace(input.Platform)),
 		DisplayName:    strings.TrimSpace(input.DisplayName),
 		AuthConfigJSON: strings.TrimSpace(input.AuthConfigJSON),
@@ -34,8 +35,8 @@ func (s *MessagePlatformConfigService) Create(input MessagePlatformConfigInput) 
 	})
 }
 
-func (s *MessagePlatformConfigService) Update(id string, input MessagePlatformConfigInput) error {
-	return s.store.UpdateMessagePlatformConfig(id, domain.MessagePlatformConfig{
+func (s *MessagePlatformConfigService) Update(ctx context.Context, id string, input MessagePlatformConfigInput) error {
+	return s.store.UpdateMessagePlatformConfig(ctx, id, domain.MessagePlatformConfig{
 		Platform:       strings.ToLower(strings.TrimSpace(input.Platform)),
 		DisplayName:    strings.TrimSpace(input.DisplayName),
 		AuthConfigJSON: strings.TrimSpace(input.AuthConfigJSON),
@@ -43,6 +44,6 @@ func (s *MessagePlatformConfigService) Update(id string, input MessagePlatformCo
 	})
 }
 
-func (s *MessagePlatformConfigService) Delete(id string) error {
-	return s.store.DeleteMessagePlatformConfig(id)
+func (s *MessagePlatformConfigService) Delete(ctx context.Context, id string) error {
+	return s.store.DeleteMessagePlatformConfig(ctx, id)
 }

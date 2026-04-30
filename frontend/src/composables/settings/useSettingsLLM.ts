@@ -1,5 +1,6 @@
 import { computed, ref, type Ref } from 'vue'
 import { llmAPI } from '@/api/llm'
+import type { LLMConfig } from '@/types/settings'
 
 type ToastLike = {
   error(message: string): void
@@ -7,7 +8,6 @@ type ToastLike = {
 
 type Translate = (key: string) => string
 
-type LLMItem = any
 type LLMProvider = 'openai' | 'anthropic' | 'deepseek'
 
 function emptyLLMForm() {
@@ -15,7 +15,7 @@ function emptyLLMForm() {
 }
 
 export function useSettingsLLM(options: {
-  llmList: Ref<LLMItem[]>
+  llmList: Ref<LLMConfig[]>
   llmDialogVisible: Ref<boolean>
   llmSubmitting: Ref<boolean>
   toast: ToastLike

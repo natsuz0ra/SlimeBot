@@ -1,12 +1,14 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { mdiBrain, mdiCheck, mdiClose, mdiConsoleLine, mdiHelpCircleOutline, mdiSourceBranch, mdiWeb } from '@mdi/js'
+import { mdiCheck, mdiClose } from '@mdi/js'
 import { useI18n } from 'vue-i18n'
 import MdiIcon from '@/components/ui/MdiIcon.vue'
 import ThinkingBlock from '@/components/chat/ThinkingBlock.vue'
+import ToolCallHeader from '@/components/chat/ToolCallHeader.vue'
 import type { ToolCallItem } from '@/api/chat'
+import { useToolCallDisplay } from '@/composables/chat/useToolCallDisplay'
 import { buildSubagentTimeline } from '@/utils/subagentTimeline'
-import { buildToolCallSummary, buildToolResultDisplay, filterToolParamsForDetail, formatDisplayText, formatToolParams, parseAskQuestionsReadableAnswers } from '@/utils/toolDisplay'
+import { buildToolResultDisplay, filterToolParamsForDetail, formatDisplayText, formatToolParams, parseAskQuestionsReadableAnswers } from '@/utils/toolDisplay'
 
 const props = withDefaults(defineProps<{
   item: ToolCallItem & { preamble?: string }
@@ -28,26 +30,10 @@ const { t } = useI18n()
 const isOutputExpanded = ref(false)
 const isCollapsed = ref(props.item.toolName === 'ask_questions')
 const subagentTimelineExpanded = ref(false)
-
-const toolIcon = computed(() => {
-  if (props.item.toolName === 'run_subagent') return mdiSourceBranch
-  if (props.item.toolName === 'exec') return mdiConsoleLine
-  if (props.item.toolName === 'http_request') return mdiWeb
-  if (props.item.toolName === 'web_search') return mdiWeb
-  if (props.item.toolName === 'search_memory') return mdiBrain
-  if (props.item.toolName === 'ask_questions') return mdiHelpCircleOutline
-  return mdiConsoleLine
-})
-
-const toolLabel = computed(() => {
-  if (props.item.toolName === 'exec') return t('toolExec')
-  if (props.item.toolName === 'http_request') return t('toolHttpRequest')
-  if (props.item.toolName === 'web_search') return t('toolWebSearch')
-  if (props.item.toolName === 'run_subagent') return t('toolRunSubagent')
-  if (props.item.toolName === 'search_memory') return t('toolSearchMemory')
-  if (props.item.toolName === 'ask_questions') return t('toolAskQuestions')
-  return props.item.toolName
-})
+const { toolIcon, toolLabel, toolSummary, statusLabel, statusDotClass, statusTextClass } = useToolCallDisplay(
+  () => props.item,
+  (key) => t(key),
+)
 
 const showSubagentStream = computed(() => {
   return props.item.toolName === 'run_subagent' && !!props.item.subagentStream && props.item.subagentStream.trim() !== ''
@@ -59,39 +45,6 @@ const subagentThinkingItems = computed(() => {
 const subagentTimelineItems = computed(() => buildSubagentTimeline(subagentThinkingItems.value, props.nestedTools))
 const showSubagentToolCallsThinking = computed(() => subagentTimelineItems.value.length > 0)
 
-const statusLabel = computed(() => {
-  switch (props.item.status) {
-    case 'pending': return t('toolCallPending')
-    case 'executing': return t('toolCallExecuting')
-    case 'completed': return t('toolCallCompleted')
-    case 'rejected': return t('toolCallRejected')
-    case 'error': return t('toolCallError')
-    default: return ''
-  }
-})
-
-const statusDotClass = computed(() => {
-  switch (props.item.status) {
-    case 'pending': return 'status-dot-pending'
-    case 'executing': return 'status-dot-executing'
-    case 'completed': return 'status-dot-success'
-    case 'rejected':
-    case 'error': return 'status-dot-error'
-    default: return 'status-dot-default'
-  }
-})
-
-const statusTextClass = computed(() => {
-  switch (props.item.status) {
-    case 'pending': return 'tool-status-text tool-status-text-pending'
-    case 'executing': return 'tool-status-text tool-status-text-executing'
-    case 'completed': return 'tool-status-text tool-status-text-success'
-    case 'rejected':
-    case 'error': return 'tool-status-text tool-status-text-error'
-    default: return 'tool-status-text tool-status-text-default'
-  }
-})
-
 const paramsDisplay = computed(() => {
   return formatToolParams(filterToolParamsForDetail(props.item))
 })
@@ -100,7 +53,6 @@ const runSubagentParamsDisplay = computed(() => {
   const { context: _context, ...rest } = filterToolParamsForDetail(props.item)
   return formatToolParams(rest)
 })
-const toolSummary = computed(() => buildToolCallSummary(props.item))
 const subagentContextSummary = computed(() => {
   if (!isRunSubagent.value) return ''
   return formatDisplayText(String(props.item.params?.context ?? '')).trim()
@@ -149,58 +101,20 @@ function toggleSubagentTimeline() {
 
 <template>
   <article :class="['tool-card w-full rounded-xl text-base', { 'tool-card--dense': dense, 'tool-card--collapsed': isCollapsed }]">
-    <header :class="['tool-header', { 'tool-header--clickable': isAskQuestions }]" @click="toggleCollapse">
-      <div class="tool-header-main">
-        <div class="tool-meta">
-          <MdiIcon :path="toolIcon" :size="16" class="tool-icon flex-shrink-0" />
-          <span class="tool-label">{{ toolLabel }}</span>
-          <span
-            v-if="toolSummary && !isAskQuestions"
-            class="tool-summary"
-            :title="toolSummary"
-          >
-            {{ toolSummary }}
-          </span>
-          <span v-if="isAskQuestions && askQuestionsData" class="tool-qa-count">
-            {{ askQuestionsData.length }} {{ t('qaTitle') }}
-          </span>
-        </div>
-
-        <div class="tool-status ml-auto">
-          <span
-            class="tool-status-dot"
-            :class="[statusDotClass, item.status === 'executing' ? 'status-dot-pulse' : '']"
-          />
-          <span :class="statusTextClass">{{ statusLabel }}</span>
-          <svg
-            v-if="item.status === 'executing'"
-            class="animate-spin-icon w-3.5 h-3.5 flex-shrink-0 tool-status-spinner"
-            fill="none"
-            viewBox="0 0 24 24"
-            aria-hidden="true"
-          >
-            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" />
-            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
-          </svg>
-          <svg
-            v-if="isAskQuestions"
-            class="tool-collapse-arrow"
-            :class="{ 'tool-collapse-arrow--open': !isCollapsed }"
-            viewBox="0 0 16 16"
-            width="14"
-            height="14"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            aria-hidden="true"
-          >
-            <path d="M4 6l4 4 4-4" />
-          </svg>
-        </div>
-      </div>
-    </header>
+    <ToolCallHeader
+      :tool-icon="toolIcon"
+      :tool-label="toolLabel"
+      :tool-summary="toolSummary"
+      :status-label="statusLabel"
+      :status-dot-class="statusDotClass"
+      :status-text-class="statusTextClass"
+      :status="item.status"
+      :is-ask-questions="isAskQuestions"
+      :qa-count="askQuestionsData?.length"
+      :qa-title="t('qaTitle')"
+      :collapsed="isCollapsed"
+      @toggle="toggleCollapse"
+    />
 
     <!-- ask_questions: custom Q&A result section (hidden when collapsed) -->
     <template v-if="isAskQuestions && !isCollapsed">
@@ -433,7 +347,7 @@ function toggleSubagentTimeline() {
   </article>
 </template>
 
-<style scoped>
+<style>
 .tool-card {
   background: var(--card-bg);
   border: 1px solid var(--tool-card-border);

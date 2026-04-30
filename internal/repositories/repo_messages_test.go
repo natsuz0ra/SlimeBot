@@ -35,7 +35,7 @@ func TestAddMessageWithInput_PersistsFlagsAndAttachments(t *testing.T) {
 		t.Fatalf("add message failed: %v", err)
 	}
 
-	items, _, listErr := repo.ListSessionMessagesPage(session.ID, 100, nil, nil, nil, nil)
+	items, _, listErr := repo.ListSessionMessagesPage(context.Background(), session.ID, 100, nil, nil, nil, nil)
 	if listErr != nil {
 		t.Fatalf("list messages failed: %v", listErr)
 	}
@@ -69,7 +69,7 @@ func TestListSessionMessagesPage_HasMoreWithLimitPlusOne(t *testing.T) {
 		time.Sleep(1 * time.Millisecond)
 	}
 
-	page, hasMore, err := repo.ListSessionMessagesPage(session.ID, 2, nil, nil, nil, nil)
+	page, hasMore, err := repo.ListSessionMessagesPage(context.Background(), session.ID, 2, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("list page failed: %v", err)
 	}
@@ -102,7 +102,7 @@ func TestListSessionMessagesPage_DefaultReturnsNewest(t *testing.T) {
 	}
 
 	// Request limit=2 (default case, no cursor) — should return the 2 newest messages.
-	page, hasMore, err := repo.ListSessionMessagesPage(session.ID, 2, nil, nil, nil, nil)
+	page, hasMore, err := repo.ListSessionMessagesPage(context.Background(), session.ID, 2, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("list page failed: %v", err)
 	}
@@ -138,7 +138,7 @@ func TestListSessionMessagesPage_BeforeCursorReturnsNewestBeforeCursor(t *testin
 	}
 
 	// Get m3's cursor (4th message, 0-indexed).
-	all, _, err := repo.ListSessionMessagesPage(session.ID, 100, nil, nil, nil, nil)
+	all, _, err := repo.ListSessionMessagesPage(context.Background(), session.ID, 100, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("list all failed: %v", err)
 	}
@@ -147,7 +147,7 @@ func TestListSessionMessagesPage_BeforeCursorReturnsNewestBeforeCursor(t *testin
 	// Request 2 messages before m3 — should return [m1, m2] (the 2 newest before the cursor).
 	before := m3.CreatedAt
 	beforeSeq := m3.Seq
-	page, hasMore, err := repo.ListSessionMessagesPage(session.ID, 2, &before, &beforeSeq, nil, nil)
+	page, hasMore, err := repo.ListSessionMessagesPage(context.Background(), session.ID, 2, &before, &beforeSeq, nil, nil)
 	if err != nil {
 		t.Fatalf("list page failed: %v", err)
 	}

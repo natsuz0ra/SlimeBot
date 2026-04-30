@@ -18,9 +18,9 @@ func escapeSQLiteLikePattern(s string) string {
 	return replacer.Replace(s)
 }
 
-func (r *Repository) ListSessions(limit int, offset int, query string) ([]domain.Session, error) {
+func (r *Repository) ListSessions(ctx context.Context, limit int, offset int, query string) ([]domain.Session, error) {
 	var sessions []domain.Session
-	q := r.db.Order("updated_at desc")
+	q := r.dbWithContext(ctx).Order("updated_at desc")
 	if trimmed := strings.TrimSpace(query); trimmed != "" {
 		like := "%" + escapeSQLiteLikePattern(trimmed) + "%"
 		q = q.Where("name LIKE ? ESCAPE '\\'", like)
@@ -59,8 +59,8 @@ func (r *Repository) CreateSessionWithID(ctx context.Context, id, name string) (
 	return session, err
 }
 
-func (r *Repository) RenameSessionByUser(id, name string) error {
-	return r.db.Model(&domain.Session{}).
+func (r *Repository) RenameSessionByUser(ctx context.Context, id, name string) error {
+	return r.dbWithContext(ctx).Model(&domain.Session{}).
 		Where("id = ?", id).
 		Updates(map[string]any{"name": name, "is_title_locked": true, "updated_at": time.Now()}).
 		Error
@@ -76,8 +76,8 @@ func (r *Repository) UpdateSessionTitle(ctx context.Context, id, name string) (b
 	return result.RowsAffected > 0, nil
 }
 
-func (r *Repository) DeleteSession(id string) error {
-	return r.db.Transaction(func(tx *gorm.DB) error {
+func (r *Repository) DeleteSession(ctx context.Context, id string) error {
+	return r.dbWithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		// Delete messages.
 		if err := tx.Table("messages").Where("session_id = ?", id).Delete(nil).Error; err != nil {
 			return err

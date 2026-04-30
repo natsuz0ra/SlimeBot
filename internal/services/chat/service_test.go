@@ -135,7 +135,7 @@ func TestHandleChatStream_PersistsThinkingHistory(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create session failed: %v", err)
 	}
-	model, err := repo.CreateLLMConfig(domain.LLMConfig{
+	model, err := repo.CreateLLMConfig(context.Background(), domain.LLMConfig{
 		Name:     "fake",
 		Provider: llmsvc.ProviderOpenAI,
 		BaseURL:  "http://fake",
@@ -158,7 +158,7 @@ func TestHandleChatStream_PersistsThinkingHistory(t *testing.T) {
 		t.Fatalf("expected stored answer to contain thinking marker, got %#v", result)
 	}
 
-	messages, _, err := repo.ListSessionMessagesPage(session.ID, 10, nil, nil, nil, nil)
+	messages, _, err := repo.ListSessionMessagesPage(context.Background(), session.ID, 10, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("list messages failed: %v", err)
 	}
@@ -174,7 +174,7 @@ func TestHandleChatStream_PersistsThinkingHistory(t *testing.T) {
 	if assistantID == "" {
 		t.Fatal("expected assistant message")
 	}
-	records, err := repo.ListSessionThinkingRecordsByAssistantMessageIDs(session.ID, []string{assistantID})
+	records, err := repo.ListSessionThinkingRecordsByAssistantMessageIDs(context.Background(), session.ID, []string{assistantID})
 	if err != nil {
 		t.Fatalf("list thinking records failed: %v", err)
 	}
@@ -193,7 +193,7 @@ func TestHandleChatStream_FinishesThinkingBeforeAnswerChunk(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create session failed: %v", err)
 	}
-	model, err := repo.CreateLLMConfig(domain.LLMConfig{
+	model, err := repo.CreateLLMConfig(context.Background(), domain.LLMConfig{
 		Name:     "fake",
 		Provider: llmsvc.ProviderOpenAI,
 		BaseURL:  "http://fake",
@@ -242,7 +242,7 @@ func TestHandleChatStream_UsesDisplayContentForStoredUserMessage(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create session failed: %v", err)
 	}
-	model, err := repo.CreateLLMConfig(domain.LLMConfig{
+	model, err := repo.CreateLLMConfig(context.Background(), domain.LLMConfig{
 		Name:     "fake",
 		Provider: llmsvc.ProviderOpenAI,
 		BaseURL:  "http://fake",
@@ -264,7 +264,7 @@ func TestHandleChatStream_UsesDisplayContentForStoredUserMessage(t *testing.T) {
 		t.Fatalf("HandleChatStream failed: %v", err)
 	}
 
-	messages, _, err := repo.ListSessionMessagesPage(session.ID, 10, nil, nil, nil, nil)
+	messages, _, err := repo.ListSessionMessagesPage(context.Background(), session.ID, 10, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("list messages failed: %v", err)
 	}
@@ -298,7 +298,7 @@ func TestHandleChatStream_PlanModeSavesOnlyPlanBody(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create session failed: %v", err)
 	}
-	model, err := repo.CreateLLMConfig(domain.LLMConfig{
+	model, err := repo.CreateLLMConfig(context.Background(), domain.LLMConfig{
 		Name:     "fake",
 		Provider: llmsvc.ProviderOpenAI,
 		BaseURL:  "http://fake",
@@ -363,7 +363,7 @@ func TestHandleChatStream_PlanModeDoesNotSavePlanBodyWithoutSubmitTool(t *testin
 	if err != nil {
 		t.Fatalf("create session failed: %v", err)
 	}
-	model, err := repo.CreateLLMConfig(domain.LLMConfig{
+	model, err := repo.CreateLLMConfig(context.Background(), domain.LLMConfig{
 		Name:     "fake",
 		Provider: llmsvc.ProviderOpenAI,
 		BaseURL:  "http://fake",
@@ -413,7 +413,7 @@ func TestHandleChatStream_StartsTitleGenerationBeforeAssistantChunk(t *testing.T
 	if err != nil {
 		t.Fatalf("create session failed: %v", err)
 	}
-	model, err := repo.CreateLLMConfig(domain.LLMConfig{
+	model, err := repo.CreateLLMConfig(context.Background(), domain.LLMConfig{
 		Name:     "fake",
 		Provider: llmsvc.ProviderOpenAI,
 		BaseURL:  "http://fake",

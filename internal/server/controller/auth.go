@@ -31,7 +31,7 @@ func (h *HTTPController) Login(c WebContext) {
 		return
 	}
 
-	ok, err := h.auth.VerifyLogin(username, password)
+	ok, err := h.auth.VerifyLogin(c.Request().Context(), username, password)
 	if err != nil {
 		switch {
 		case errors.Is(err, authsvc.ErrAccountNotInitialized):
@@ -52,7 +52,7 @@ func (h *HTTPController) Login(c WebContext) {
 		return
 	}
 
-	mustChangePassword, err := h.auth.MustChangePassword()
+	mustChangePassword, err := h.auth.MustChangePassword(c.Request().Context())
 	if err != nil {
 		jsonInternalError(c, err)
 		return
@@ -84,7 +84,7 @@ func (h *HTTPController) UpdateAccount(c WebContext) {
 		return
 	}
 
-	err := h.auth.UpdateAccount(req.Username, req.OldPassword, req.NewPassword)
+	err := h.auth.UpdateAccount(c.Request().Context(), req.Username, req.OldPassword, req.NewPassword)
 	if err == nil {
 		c.Status(http.StatusNoContent)
 		return

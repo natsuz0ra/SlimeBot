@@ -11,13 +11,13 @@ import (
 	"time"
 
 	"slimebot/internal/constants"
+	"slimebot/internal/domain"
 	"slimebot/internal/platforms"
-	"slimebot/internal/repositories"
 	chatsvc "slimebot/internal/services/chat"
 )
 
 type Worker struct {
-	repo            *repositories.Repository
+	configStore     workerConfigStore
 	dispatcher      *platforms.Dispatcher
 	uploads         workerUploadService
 	dispatchInbound func(context.Context, platforms.InboundMessage, platforms.OutboundSender) error
@@ -28,6 +28,10 @@ type workerUploadService interface {
 	RegisterLocalFiles(sessionID string, files []chatsvc.LocalAttachmentFile) ([]chatsvc.UploadedAttachment, error)
 }
 
+type workerConfigStore interface {
+	GetMessagePlatformConfigByPlatform(ctx context.Context, platform string) (*domain.MessagePlatformConfig, error)
+}
+
 const (
 	workerMaxConcurrentDispatch = 8
 	workerDispatchTimeout       = 180 * time.Second
@@ -35,9 +39,9 @@ const (
 	workerMaxAttachmentsPerMsg  = 5
 )
 
-func NewWorker(repo *repositories.Repository, dispatcher *platforms.Dispatcher, uploads workerUploadService) *Worker {
+func NewWorker(configStore workerConfigStore, dispatcher *platforms.Dispatcher, uploads workerUploadService) *Worker {
 	w := &Worker{
-		repo:          repo,
+		configStore:   configStore,
 		dispatcher:    dispatcher,
 		uploads:       uploads,
 		dispatchSlots: make(chan struct{}, workerMaxConcurrentDispatch),
@@ -71,7 +75,7 @@ func (w *Worker) run(ctx context.Context) {
 		default:
 		}
 
-		cfg, err := w.repo.GetMessagePlatformConfigByPlatform(constants.TelegramPlatformName)
+		cfg, err := w.configStore.GetMessagePlatformConfigByPlatform(ctx, constants.TelegramPlatformName)
 		if err != nil {
 			logging.Warn("telegram_worker_load_config_failed", "err", err)
 			time.Sleep(constants.TelegramErrorBackoff)

@@ -8,9 +8,9 @@ import (
 	"github.com/google/uuid"
 )
 
-func (r *Repository) ListMCPConfigs() ([]domain.MCPConfig, error) {
+func (r *Repository) ListMCPConfigs(ctx context.Context) ([]domain.MCPConfig, error) {
 	var items []domain.MCPConfig
-	err := r.db.Order("created_at asc").Find(&items).Error
+	err := r.dbWithContext(ctx).Order("created_at asc").Find(&items).Error
 	return items, err
 }
 
@@ -20,16 +20,16 @@ func (r *Repository) ListEnabledMCPConfigs(ctx context.Context) ([]domain.MCPCon
 	return items, err
 }
 
-func (r *Repository) CreateMCPConfig(item domain.MCPConfig) (*domain.MCPConfig, error) {
+func (r *Repository) CreateMCPConfig(ctx context.Context, item domain.MCPConfig) (*domain.MCPConfig, error) {
 	item.ID = uuid.NewString()
-	if err := r.db.Create(&item).Error; err != nil {
+	if err := r.dbWithContext(ctx).Create(&item).Error; err != nil {
 		return nil, err
 	}
 	return &item, nil
 }
 
-func (r *Repository) UpdateMCPConfig(id string, item domain.MCPConfig) error {
-	return r.db.Model(&domain.MCPConfig{}).
+func (r *Repository) UpdateMCPConfig(ctx context.Context, id string, item domain.MCPConfig) error {
+	return r.dbWithContext(ctx).Model(&domain.MCPConfig{}).
 		Where("id = ?", id).
 		Updates(map[string]any{
 			"name":       item.Name,
@@ -39,6 +39,6 @@ func (r *Repository) UpdateMCPConfig(id string, item domain.MCPConfig) error {
 		}).Error
 }
 
-func (r *Repository) DeleteMCPConfig(id string) error {
-	return r.db.Where("id = ?", id).Delete(&domain.MCPConfig{}).Error
+func (r *Repository) DeleteMCPConfig(ctx context.Context, id string) error {
+	return r.dbWithContext(ctx).Where("id = ?", id).Delete(&domain.MCPConfig{}).Error
 }

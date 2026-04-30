@@ -9,7 +9,7 @@ import (
 
 // ListMessagePlatformConfigs returns all message platform configs.
 func (h *HTTPController) ListMessagePlatformConfigs(c WebContext) {
-	items, err := h.platforms.List()
+	items, err := h.platforms.List(c.Request().Context())
 	if err != nil {
 		jsonInternalError(c, err)
 		return
@@ -38,7 +38,7 @@ func (h *HTTPController) CreateMessagePlatformConfig(c WebContext) {
 		jsonError(c, http.StatusBadRequest, "authConfigJson is invalid or missing required fields.")
 		return
 	}
-	item, err := h.platforms.Create(configsvc.MessagePlatformConfigInput{
+	item, err := h.platforms.Create(c.Request().Context(), configsvc.MessagePlatformConfigInput{
 		Platform:       req.Platform,
 		DisplayName:    req.DisplayName,
 		AuthConfigJSON: req.AuthConfigJSON,
@@ -73,7 +73,7 @@ func (h *HTTPController) UpdateMessagePlatformConfig(c WebContext) {
 		jsonError(c, http.StatusBadRequest, "authConfigJson is invalid or missing required fields.")
 		return
 	}
-	if err := h.platforms.Update(id, configsvc.MessagePlatformConfigInput{
+	if err := h.platforms.Update(c.Request().Context(), id, configsvc.MessagePlatformConfigInput{
 		Platform:       req.Platform,
 		DisplayName:    req.DisplayName,
 		AuthConfigJSON: req.AuthConfigJSON,
@@ -88,7 +88,7 @@ func (h *HTTPController) UpdateMessagePlatformConfig(c WebContext) {
 // DeleteMessagePlatformConfig removes a message platform config by id.
 func (h *HTTPController) DeleteMessagePlatformConfig(c WebContext) {
 	id := c.Param("id")
-	if err := h.platforms.Delete(id); err != nil {
+	if err := h.platforms.Delete(c.Request().Context(), id); err != nil {
 		jsonInternalError(c, err)
 		return
 	}

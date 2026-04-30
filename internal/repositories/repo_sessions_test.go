@@ -42,7 +42,7 @@ func TestUpdateSessionTitle_UpdatesOnlyWhenUnlockedAndChanged(t *testing.T) {
 		t.Fatal("expected same title update to report false")
 	}
 
-	if err := repo.RenameSessionByUser(session.ID, "用户标题"); err != nil {
+	if err := repo.RenameSessionByUser(context.Background(), session.ID, "用户标题"); err != nil {
 		t.Fatalf("rename session by user failed: %v", err)
 	}
 	updated, err = repo.UpdateSessionTitle(ctx, session.ID, "自动标题")
@@ -93,7 +93,7 @@ func TestDeleteSession_DeletesSessionAndRelatedRecords(t *testing.T) {
 		t.Fatalf("create tool call failed: %v", err)
 	}
 
-	if err := repo.DeleteSession(sessionID); err != nil {
+	if err := repo.DeleteSession(context.Background(), sessionID); err != nil {
 		t.Fatalf("delete session failed: %v", err)
 	}
 
@@ -163,7 +163,7 @@ END;
 		t.Fatalf("create trigger failed: %v", err)
 	}
 
-	if err := repo.DeleteSession(sessionID); err == nil {
+	if err := repo.DeleteSession(context.Background(), sessionID); err == nil {
 		t.Fatal("expected delete session to fail when tool call delete is blocked")
 	}
 

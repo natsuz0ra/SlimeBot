@@ -574,6 +574,14 @@ func (s *ChatService) finalizeChatTurn(
 	if err != nil {
 		return nil, err
 	}
+	if result.interrupted {
+		if err := s.store.FinishOpenToolCallsForRequest(ctx, sessionID, requestID, "Execution cancelled."); err != nil {
+			return nil, err
+		}
+		if err := s.store.FinishOpenThinkingForRequest(ctx, sessionID, requestID); err != nil {
+			return nil, err
+		}
+	}
 	if err := s.store.BindToolCallsToAssistantMessage(ctx, sessionID, requestID, assistantMessage.ID); err != nil {
 		return nil, err
 	}

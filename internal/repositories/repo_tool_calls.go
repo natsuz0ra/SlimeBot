@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"slimebot/internal/constants"
 	"slimebot/internal/domain"
 
 	"github.com/google/uuid"
@@ -60,6 +61,24 @@ func (r *Repository) UpsertToolCallStart(ctx context.Context, input domain.ToolC
 			"updated_at":           time.Now(),
 		}),
 	}).Create(&record).Error
+}
+
+func (r *Repository) FinishOpenToolCallsForRequest(ctx context.Context, sessionID, requestID, errorMessage string) error {
+	trimmedError := strings.TrimSpace(errorMessage)
+	if trimmedError == "" {
+		trimmedError = "Execution cancelled."
+	}
+	now := time.Now()
+	return r.dbWithContext(ctx).Model(&domain.ToolCallRecord{}).
+		Where("session_id = ? AND request_id = ?", sessionID, requestID).
+		Where("status IN ?", []string{constants.ToolCallStatusPending, constants.ToolCallStatusExecuting}).
+		Updates(map[string]any{
+			"status":      constants.ToolCallStatusError,
+			"error":       trimmedError,
+			"finished_at": now,
+			"updated_at":  now,
+		}).
+		Error
 }
 
 func (r *Repository) UpdateToolCallResult(ctx context.Context, input domain.ToolCallResultRecordInput) error {

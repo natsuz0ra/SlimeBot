@@ -27,7 +27,9 @@ func TestCreateSession_ReturnsBadRequestForMalformedJSON(t *testing.T) {
 }
 
 type sessionServiceStub struct {
-	messages []domain.Message
+	messages        []domain.Message
+	toolRecords     []domain.ToolCallRecord
+	thinkingRecords []domain.ThinkingRecord
 }
 
 func (s sessionServiceStub) List(limit int, offset int, query string) ([]domain.Session, error) {
@@ -51,11 +53,11 @@ func (s sessionServiceStub) ListMessagesPage(sessionID string, limit int, before
 }
 
 func (s sessionServiceStub) ListToolCallRecordsByAssistantMessageIDs(sessionID string, messageIDs []string) ([]domain.ToolCallRecord, error) {
-	return []domain.ToolCallRecord{}, nil
+	return s.toolRecords, nil
 }
 
 func (s sessionServiceStub) ListThinkingRecordsByAssistantMessageIDs(sessionID string, messageIDs []string) ([]domain.ThinkingRecord, error) {
-	return []domain.ThinkingRecord{}, nil
+	return s.thinkingRecords, nil
 }
 
 func TestListMessages_ReturnsReplyTimingForAssistantMessages(t *testing.T) {
@@ -85,6 +87,62 @@ func TestListMessages_ReturnsReplyTimingForAssistantMessages(t *testing.T) {
 	}
 	if !bytes.Contains([]byte(body), []byte(`"assistant-1":{"startedAt":"2026-04-29T01:02:03.000Z","finishedAt":"2026-04-29T01:02:05.500Z","durationMs":2500}`)) {
 		t.Fatalf("unexpected reply timing body: %s", body)
+	}
+}
+
+func TestListMessages_NormalizesInterruptedOpenToolAndThinkingHistory(t *testing.T) {
+	sessionID := "session-1"
+	assistantID := "assistant-1"
+	assistantIDPtr := assistantID
+	assistantAt := time.Date(2026, 4, 29, 1, 2, 3, 0, time.UTC)
+	controller := NewHTTPController(nil, sessionServiceStub{
+		messages: []domain.Message{{
+			ID:            assistantID,
+			SessionID:     sessionID,
+			Role:          "assistant",
+			Content:       "<!-- TOOL_CALL:parent-tool -->",
+			IsInterrupted: true,
+			CreatedAt:     assistantAt,
+			Seq:           1,
+		}},
+		toolRecords: []domain.ToolCallRecord{{
+			ToolCallID:         "parent-tool",
+			ToolName:           "run_subagent",
+			Command:            "delegate",
+			ParamsJSON:         `{}`,
+			Status:             "executing",
+			RequiresApproval:   false,
+			AssistantMessageID: &assistantIDPtr,
+			StartedAt:          assistantAt,
+		}},
+		thinkingRecords: []domain.ThinkingRecord{{
+			ThinkingID:         "think-child",
+			ParentToolCallID:   "parent-tool",
+			SubagentRunID:      "sub-run",
+			Content:            "child reasoning",
+			Status:             "streaming",
+			AssistantMessageID: &assistantIDPtr,
+			StartedAt:          assistantAt,
+		}},
+	}, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+
+	req := httptest.NewRequest(http.MethodGet, "/sessions/"+sessionID+"/messages", nil)
+	routeCtx := chi.NewRouteContext()
+	routeCtx.URLParams.Add("id", sessionID)
+	req = req.WithContext(contextWithRoute(req.Context(), routeCtx))
+	resp := httptest.NewRecorder()
+
+	controller.ListMessages(NewChiContext(resp, req))
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d body=%s", resp.Code, resp.Body.String())
+	}
+	body := resp.Body.String()
+	if !bytes.Contains([]byte(body), []byte(`"status":"error"`)) || !bytes.Contains([]byte(body), []byte(`"error":"Execution cancelled."`)) {
+		t.Fatalf("expected interrupted open tool to be returned as error: %s", body)
+	}
+	if !bytes.Contains([]byte(body), []byte(`"thinkingId":"think-child"`)) || !bytes.Contains([]byte(body), []byte(`"status":"completed"`)) {
+		t.Fatalf("expected interrupted streaming thinking to be returned as completed: %s", body)
 	}
 }
 

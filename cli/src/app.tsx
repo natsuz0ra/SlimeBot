@@ -99,6 +99,27 @@ function subagentHistoryFields(tc: ToolCallHistoryItem): Partial<TimelineEntry> 
   };
 }
 
+function normalizeHistoryToolCall(tc: ToolCallHistoryItem, interrupted: boolean): ToolCallHistoryItem {
+  if (!interrupted || (tc.status !== "pending" && tc.status !== "executing")) {
+    return tc;
+  }
+  return {
+    ...tc,
+    status: "error",
+    error: tc.error || "Execution cancelled.",
+  };
+}
+
+function normalizeHistoryThinking(thinking: ThinkingHistoryItem, interrupted: boolean): ThinkingHistoryItem {
+  if (!interrupted || thinking.status !== "streaming") {
+    return thinking;
+  }
+  return {
+    ...thinking,
+    status: "completed",
+  };
+}
+
 interface AppProps {
   apiURL: string;
   cliToken: string;
@@ -121,10 +142,11 @@ export function mapHistoryMessages(
       continue;
     }
     if (msg.role === "assistant") {
-      const toolCalls = [...(toolCallsByMsgId[msg.id] || [])].sort((a, b) => {
+      const interrupted = !!msg.isInterrupted;
+      const toolCalls = [...(toolCallsByMsgId[msg.id] || [])].map((tc) => normalizeHistoryToolCall(tc, interrupted)).sort((a, b) => {
         return new Date(a.startedAt).getTime() - new Date(b.startedAt).getTime();
       });
-      const thinkingRecords = [...(thinkingByMsgId[msg.id] || [])].sort((a, b) => {
+      const thinkingRecords = [...(thinkingByMsgId[msg.id] || [])].map((thinking) => normalizeHistoryThinking(thinking, interrupted)).sort((a, b) => {
         return new Date(a.startedAt || 0).getTime() - new Date(b.startedAt || 0).getTime();
       });
 

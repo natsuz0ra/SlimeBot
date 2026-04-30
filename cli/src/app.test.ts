@@ -167,6 +167,86 @@ test("mapHistoryMessages restores run_subagent title from history params", () =>
   assert.equal(parent.subagentTask, "Inspect UI cards and report exact files");
 });
 
+test("mapHistoryMessages marks interrupted open subagent tool history as error", () => {
+  const messages: Message[] = [
+    {
+      id: "a1",
+      sessionId: "s1",
+      role: "assistant",
+      content: "<!-- TOOL_CALL:parent -->",
+      seq: 1,
+      isInterrupted: true,
+      createdAt: "2026-01-01T00:00:01Z",
+    },
+  ];
+  const toolCallsByMsgId: Record<string, ToolCallHistoryItem[]> = {
+    a1: [
+      {
+        toolCallId: "parent",
+        toolName: "run_subagent",
+        command: "delegate",
+        params: { task: "x" },
+        status: "executing",
+        requiresApproval: false,
+        startedAt: "2026-01-01T00:00:00Z",
+      },
+    ],
+  };
+
+  const entries = mapHistoryMessages(messages, toolCallsByMsgId);
+  const parent = entries.find((e) => e.kind === "tool" && e.toolCallId === "parent");
+
+  assert.ok(parent && parent.kind === "tool");
+  assert.equal(parent.status, "error");
+  assert.equal(parent.error, "Execution cancelled.");
+});
+
+test("mapHistoryMessages closes interrupted streaming subagent thinking history", () => {
+  const messages: Message[] = [
+    {
+      id: "a1",
+      sessionId: "s1",
+      role: "assistant",
+      content: "<!-- TOOL_CALL:parent -->",
+      seq: 1,
+      isInterrupted: true,
+      createdAt: "2026-01-01T00:00:01Z",
+    },
+  ];
+  const toolCallsByMsgId: Record<string, ToolCallHistoryItem[]> = {
+    a1: [
+      {
+        toolCallId: "parent",
+        toolName: "run_subagent",
+        command: "delegate",
+        params: { task: "x" },
+        status: "error",
+        error: "Execution cancelled.",
+        requiresApproval: false,
+        startedAt: "2026-01-01T00:00:00Z",
+      },
+    ],
+  };
+  const thinkingByMsgId: Record<string, ThinkingHistoryItem[]> = {
+    a1: [
+      {
+        thinkingId: "think-child",
+        parentToolCallId: "parent",
+        subagentRunId: "sub-run",
+        content: "child reasoning",
+        status: "streaming",
+        startedAt: "2026-01-01T00:00:00Z",
+      },
+    ],
+  };
+
+  const entries = mapHistoryMessages(messages, toolCallsByMsgId, thinkingByMsgId);
+  const parent = entries.find((e) => e.kind === "tool" && e.toolCallId === "parent");
+
+  assert.ok(parent && parent.kind === "tool");
+  assert.equal(parent.subagentThinking?.thinkingDone, true);
+});
+
 test("mapHistoryMessages restores thinking entries from history markers", () => {
   const messages: Message[] = [
     {
@@ -388,4 +468,3 @@ test("handleChatShortcut handles Ctrl+O and raw Ctrl+O", () => {
   assert.equal(handledRaw, true);
   assert.equal(actions.filter((x) => x === "TOGGLE_TOOL_OUTPUT").length, 2);
 });
-

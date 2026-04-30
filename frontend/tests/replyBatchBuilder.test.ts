@@ -271,6 +271,75 @@ test('buildReplyBatchesFromHistory preserves nested tool start times for subagen
   assert.equal(batch.toolCalls.find((item) => item.toolCallId === 'parent-tool')?.subagentThinkings?.[0]?.startedAt, Date.parse('2026-04-28T00:00:01.000Z'))
 })
 
+test('buildReplyBatchesFromHistory marks interrupted open subagent tools as error', async () => {
+  const { buildReplyBatchesFromHistory } = await import('../src/utils/replyBatchBuilder')
+  const batches = buildReplyBatchesFromHistory('session-1', {
+    messages: [{
+      id: 'assistant-1',
+      role: 'assistant',
+      content: '<!-- TOOL_CALL:parent-tool -->',
+      isInterrupted: true,
+      seq: 1,
+    }],
+    toolCallsByAssistantMessageId: {
+      'assistant-1': [{
+        toolCallId: 'parent-tool',
+        toolName: 'run_subagent',
+        command: 'delegate',
+        params: {},
+        requiresApproval: false,
+        status: 'executing',
+        startedAt: '2026-04-28T00:00:00.000Z',
+      }],
+    },
+    thinkingByAssistantMessageId: {},
+    hasMore: false,
+  })
+
+  const tool = batches[0]!.toolCalls[0]!
+  assert.equal(tool.status, 'error')
+  assert.equal(tool.error, 'Execution cancelled.')
+  assert.deepEqual(batches[0]!.timeline.map((entry) => entry.kind), ['tool_start', 'tool_result'])
+})
+
+test('buildReplyBatchesFromHistory closes interrupted streaming subagent thinking', async () => {
+  const { buildReplyBatchesFromHistory } = await import('../src/utils/replyBatchBuilder')
+  const batches = buildReplyBatchesFromHistory('session-1', {
+    messages: [{
+      id: 'assistant-1',
+      role: 'assistant',
+      content: '<!-- TOOL_CALL:parent-tool -->',
+      isInterrupted: true,
+      seq: 1,
+    }],
+    toolCallsByAssistantMessageId: {
+      'assistant-1': [{
+        toolCallId: 'parent-tool',
+        toolName: 'run_subagent',
+        command: 'delegate',
+        params: {},
+        requiresApproval: false,
+        status: 'error',
+        error: 'Execution cancelled.',
+        startedAt: '2026-04-28T00:00:00.000Z',
+      }],
+    },
+    thinkingByAssistantMessageId: {
+      'assistant-1': [{
+        thinkingId: 'child-think',
+        content: 'child reasoning',
+        status: 'streaming',
+        parentToolCallId: 'parent-tool',
+        subagentRunId: 'sub-run',
+        startedAt: '2026-04-28T00:00:01.000Z',
+      }],
+    },
+    hasMore: false,
+  })
+
+  assert.equal(batches[0]!.toolCalls[0]!.subagentThinkings?.[0]?.done, true)
+})
+
 test('buildReplyBatchesFromHistory derives reply timing from persisted timestamps', async () => {
   const { buildReplyBatchesFromHistory } = await import('../src/utils/replyBatchBuilder')
   const batches = buildReplyBatchesFromHistory('session-1', {

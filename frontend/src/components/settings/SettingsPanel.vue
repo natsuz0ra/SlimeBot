@@ -14,6 +14,7 @@ import SettingsLLMTab from '@/components/settings/SettingsLLMTab.vue'
 import SettingsMCPTab from '@/components/settings/SettingsMCPTab.vue'
 import SettingsSkillsTab from '@/components/settings/SettingsSkillsTab.vue'
 import SettingsPlatformTab from '@/components/settings/SettingsPlatformTab.vue'
+import SettingsAboutTab from '@/components/settings/SettingsAboutTab.vue'
 import AccountEditDialog from '@/components/settings/AccountEditDialog.vue'
 import { llmAPI } from '@/api/llm'
 import { mcpAPI } from '@/api/mcp'
@@ -43,7 +44,7 @@ const chatStore = useChatStore()
 const router = useRouter()
 const { language, languageSelectOptions, savingLanguage, loadLanguage, changeLanguage } = useLanguagePreference()
 
-const tab = ref<'basic' | 'llm' | 'mcp' | 'skills' | 'platform'>('basic')
+const tab = ref<'basic' | 'llm' | 'mcp' | 'skills' | 'platform' | 'about'>('basic')
 const llmList = ref<any[]>([])
 const mcpList = ref<any[]>([])
 const skillsList = ref<any[]>([])
@@ -281,6 +282,7 @@ onMounted(loadData)
             { key: 'mcp', label: t('mcpSettings') },
             { key: 'skills', label: t('skillsSettings') },
             { key: 'platform', label: t('messagePlatformSettings') },
+            { key: 'about', label: t('aboutSettings') },
           ]"
           :key="item.key"
           type="button"
@@ -360,6 +362,8 @@ onMounted(loadData)
           @toggle-telegram="toggleTelegramEnabled"
           @open-bind="openMessagePlatformDialog"
         />
+
+        <SettingsAboutTab v-if="tab === 'about'" />
       </section>
     </div>
   </div>

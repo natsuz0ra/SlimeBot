@@ -10,10 +10,19 @@
  *   SLIMEBOT_CLI_TOKEN — CLI auth token
  */
 
+import { readFileSync } from "node:fs";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import React from "react";
 import { render } from "ink";
 import { ArgumentParser } from "argparse";
 import { App } from "./app.js";
+
+function readPackageVersion(): string {
+  const packagePath = resolve(dirname(fileURLToPath(import.meta.url)), "../package.json");
+  const packageJson = JSON.parse(readFileSync(packagePath, "utf-8")) as { version?: string };
+  return packageJson.version || "0.0.0";
+}
 
 function parseArgs(): { apiUrl: string; cliToken: string } {
   const parser = new ArgumentParser({
@@ -44,7 +53,7 @@ function main(): void {
     process.exit(1);
   }
 
-  const version = "1.19.1";
+  const version = readPackageVersion();
 
   render(
     <App

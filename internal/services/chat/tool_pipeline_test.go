@@ -171,6 +171,61 @@ func TestBuildToolDefs_ExecRunSchema(t *testing.T) {
 	}
 }
 
+func TestBuildToolDefs_FileToolSchemas(t *testing.T) {
+	defs := BuildToolDefs()
+	expected := map[string][]string{
+		"file_read__read":   {"file_path"},
+		"file_edit__edit":   {"file_path", "old_string", "new_string"},
+		"file_write__write": {"file_path", "content"},
+	}
+	for name, requiredParams := range expected {
+		def := findToolDef(defs, name)
+		if def == nil {
+			t.Fatalf("expected %s tool definition", name)
+		}
+		properties, ok := def.Parameters["properties"].(map[string]any)
+		if !ok {
+			t.Fatalf("%s parameters.properties has unexpected type: %#v", name, def.Parameters["properties"])
+		}
+		required, ok := def.Parameters["required"].([]string)
+		if !ok {
+			t.Fatalf("%s required has unexpected type: %#v", name, def.Parameters["required"])
+		}
+		for _, param := range requiredParams {
+			if _, ok := properties[param]; !ok {
+				t.Fatalf("%s missing property %q", name, param)
+			}
+			if !containsString(required, param) {
+				t.Fatalf("%s missing required param %q in %#v", name, param, required)
+			}
+		}
+	}
+}
+
+func TestRequiresToolApproval_FileWritesInStandardMode(t *testing.T) {
+	if !requiresToolApproval("file_edit", false, constants.ApprovalModeStandard) {
+		t.Fatal("file_edit should require approval in standard mode")
+	}
+	if !requiresToolApproval("file_write", false, constants.ApprovalModeStandard) {
+		t.Fatal("file_write should require approval in standard mode")
+	}
+	if requiresToolApproval("file_read", false, constants.ApprovalModeStandard) {
+		t.Fatal("file_read should not require approval in standard mode")
+	}
+	if requiresToolApproval("file_write", false, constants.ApprovalModeAuto) {
+		t.Fatal("file_write should not require approval in auto mode")
+	}
+}
+
+func findToolDef(defs []llmsvc.ToolDef, name string) *llmsvc.ToolDef {
+	for i := range defs {
+		if defs[i].Name == name {
+			return &defs[i]
+		}
+	}
+	return nil
+}
+
 // Ensure underscore sanitization in names
 var _ = filepath.Join
 var _ = os.ReadFile

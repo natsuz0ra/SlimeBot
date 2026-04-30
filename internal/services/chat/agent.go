@@ -28,6 +28,9 @@ type AgentService struct {
 	subagentHost    SubagentHost
 	toolCacheMu     sync.Mutex
 	toolCache       map[string]cachedToolDefs
+	readFilesMu     sync.Mutex
+	readFilesBySess map[string]*tools.ReadFileState
+	readFilesAt     map[string]time.Time
 }
 
 // cachedToolDefs is a cached tool-definition bundle with MCP metadata.
@@ -45,12 +48,57 @@ func NewAgentService(providerFactory *llmsvc.Factory, mcpManager *mcp.Manager, s
 		skillRuntime:    skillRuntime,
 		memory:          memory,
 		toolCache:       make(map[string]cachedToolDefs),
+		readFilesBySess: make(map[string]*tools.ReadFileState),
+		readFilesAt:     make(map[string]time.Time),
 	}
 }
 
 // SetSubagentHost wires ChatService (or tests) for run_subagent delegation.
 func (a *AgentService) SetSubagentHost(h SubagentHost) {
 	a.subagentHost = h
+}
+
+func (a *AgentService) getSessionReadFileState(sessionID string) *tools.ReadFileState {
+	key := strings.TrimSpace(sessionID)
+	if key == "" {
+		return tools.NewReadFileState()
+	}
+	a.readFilesMu.Lock()
+	defer a.readFilesMu.Unlock()
+	if a.readFilesBySess == nil {
+		a.readFilesBySess = make(map[string]*tools.ReadFileState)
+	}
+	if a.readFilesAt == nil {
+		a.readFilesAt = make(map[string]time.Time)
+	}
+	state := a.readFilesBySess[key]
+	if state == nil {
+		state = tools.NewReadFileState()
+		a.readFilesBySess[key] = state
+	}
+	a.readFilesAt[key] = time.Now()
+	if len(a.readFilesBySess) > 1024 {
+		a.evictOldReadFileSessionsLocked(256)
+	}
+	return state
+}
+
+func (a *AgentService) evictOldReadFileSessionsLocked(maxEvict int) {
+	for i := 0; i < maxEvict && len(a.readFilesAt) > 0; i++ {
+		var oldestSession string
+		var oldestTime time.Time
+		for sessionID, touchedAt := range a.readFilesAt {
+			if oldestSession == "" || touchedAt.Before(oldestTime) {
+				oldestSession = sessionID
+				oldestTime = touchedAt
+			}
+		}
+		if oldestSession == "" {
+			return
+		}
+		delete(a.readFilesBySess, oldestSession)
+		delete(a.readFilesAt, oldestSession)
+	}
 }
 
 // BuildToolDefs builds function-calling tool definitions from the global registry.
@@ -355,6 +403,7 @@ func (a *AgentService) RunAgentLoop(
 
 	var finalAnswer strings.Builder
 	memoryToolUsed := false
+	readFileState := a.getSessionReadFileState(sessionID)
 
 	provider := a.providerFactory.GetProvider(modelConfig.Provider)
 
@@ -611,6 +660,7 @@ func (a *AgentService) RunAgentLoop(
 						memoryMu.Lock()
 						defer memoryMu.Unlock()
 					}
+					execCtx = tools.WithReadFileState(execCtx, readFileState)
 					return a.executeInvocation(execCtx, tcCopy, invocationCopy, paramsCopy, sessionID, mcpConfigs, &memoryToolUsed)
 				},
 			})
@@ -633,10 +683,10 @@ func isPlanModeAllowedTool(funcName string) bool {
 	case "search_memory", "plan_start", constants.RunSubagentTool, constants.TodoUpdateTool:
 		return true
 	}
-	// Handle tools with __ separator (e.g. web_search__search, plan_complete__submit).
+	// Handle tools with __ separator (e.g. web_search__search, file_read__read, plan_complete__submit).
 	toolName, _, _ := parseToolCallName(funcName)
 	switch toolName {
-	case "web_search", "plan_complete":
+	case "web_search", "file_read", "plan_complete":
 		return true
 	default:
 		return false
@@ -784,7 +834,7 @@ func requiresToolApproval(toolName string, isMCP bool, approvalMode string) bool
 	if isMCP {
 		return false
 	}
-	return toolName == constants.ExecToolName
+	return toolName == constants.ExecToolName || toolName == "file_edit" || toolName == "file_write"
 }
 
 func appendToolMessage(messages []llmsvc.ChatMessage, toolCallID string, content string) []llmsvc.ChatMessage {

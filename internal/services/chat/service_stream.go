@@ -655,7 +655,7 @@ Analyze the user's request and create a detailed implementation plan.
 
 ## Workflow
 
-1. **Research** — Use read-only tools (web_search, search_memory) ONLY to gather information.
+1. **Research** — Use read-only tools (file_read, web_search, search_memory) ONLY to gather information.
 2. **Analyze** — Assess the current state and identify what needs to change.
 3. **Begin Plan** — Call the plan_start tool when you are ready to begin writing your plan. All text output BEFORE this call will appear as narration; all text AFTER will be the plan body. You MUST call this before writing your plan.
 4. **Plan** — Create a structured markdown plan with:
@@ -673,4 +673,4 @@ Analyze the user's request and create a detailed implementation plan.
 - Be specific: include file paths, function names, and concrete actions in each step.
 - You MUST call plan_start before writing your plan.
 - You MUST call plan_complete__submit when your plan is complete.
-- Only web_search, search_memory, plan_start, and plan_complete__submit tools are available.`
+- Only file_read, web_search, search_memory, plan_start, and plan_complete__submit tools are available.`

@@ -105,6 +105,9 @@ func TestFilterPlanModeToolDefs_KeepsRunSubagentAndReadOnlyTools(t *testing.T) {
 	defs := []llmsvc.ToolDef{
 		{Name: constants.RunSubagentTool},
 		{Name: constants.SearchMemoryTool},
+		{Name: "file_read__read"},
+		{Name: "file_edit__edit"},
+		{Name: "file_write__write"},
 		{Name: "web_search__search"},
 		{Name: constants.PlanStartTool},
 		{Name: constants.PlanCompleteTool},
@@ -117,6 +120,7 @@ func TestFilterPlanModeToolDefs_KeepsRunSubagentAndReadOnlyTools(t *testing.T) {
 	for _, name := range []string{
 		constants.RunSubagentTool,
 		constants.SearchMemoryTool,
+		"file_read__read",
 		"web_search__search",
 		constants.PlanStartTool,
 		constants.PlanCompleteTool,
@@ -125,7 +129,7 @@ func TestFilterPlanModeToolDefs_KeepsRunSubagentAndReadOnlyTools(t *testing.T) {
 			t.Fatalf("expected plan mode to keep %s; got %#v", name, toolNames(filtered))
 		}
 	}
-	for _, name := range []string{"exec__run", "http_request__request"} {
+	for _, name := range []string{"exec__run", "file_edit__edit", "file_write__write", "http_request__request"} {
 		if containsToolName(filtered, name) {
 			t.Fatalf("expected plan mode to filter %s; got %#v", name, toolNames(filtered))
 		}

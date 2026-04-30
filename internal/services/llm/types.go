@@ -4,6 +4,7 @@ package llm
 const (
 	ProviderOpenAI    = "openai"
 	ProviderAnthropic = "anthropic"
+	ProviderDeepSeek  = "deepseek"
 )
 
 // ModelRuntimeConfig is per-request LLM configuration.
@@ -18,7 +19,7 @@ type ModelRuntimeConfig struct {
 	Model string
 	// Sampling temperature.
 	Temperature float64
-	// Thinking level: off, low, medium, high. Empty or "off" = no extended thinking.
+	// Thinking level: off, low, medium, high, max. Empty or "off" = no extended thinking.
 	ThinkingLevel string
 }
 
@@ -86,6 +87,8 @@ func ThinkingBudgetTokens(level string) int {
 		return 16384
 	case "high":
 		return 32768
+	case "max":
+		return 65536
 	default:
 		return 0
 	}
@@ -101,6 +104,21 @@ func ThinkingReasoningEffort(level string) string {
 		return "medium"
 	case "high":
 		return "high"
+	case "max":
+		return "xhigh"
+	default:
+		return ""
+	}
+}
+
+// DeepSeekReasoningEffort maps the shared thinking level to DeepSeek's
+// OpenAI-compatible reasoning_effort values.
+func DeepSeekReasoningEffort(level string) string {
+	switch level {
+	case "low", "medium", "high":
+		return "high"
+	case "max":
+		return "max"
 	default:
 		return ""
 	}

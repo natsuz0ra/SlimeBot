@@ -73,7 +73,7 @@ type AgentCallbacks struct {
 	OnToolCallStart  func(req ApprovalRequest) error                                         // notify client that a tool awaits approval
 	WaitApproval     func(ctx context.Context, toolCallID string) (*ApprovalResponse, error) // block until approval
 	OnToolCallResult func(result ToolCallResult) error                                       // notify client of tool outcome
-	OnSubagentStart  func(parentToolCallID, runID, task string) error
+	OnSubagentStart  func(parentToolCallID, runID, title, task string) error
 	OnSubagentChunk  func(parentToolCallID, runID, chunk string) error
 	OnSubagentDone   func(parentToolCallID, runID string, runErr error) error
 	OnThinkingStart  func(meta ThinkingEventMeta) error
@@ -190,12 +190,16 @@ func buildRunSubagentToolDef() llmsvc.ToolDef {
 					"type":        "string",
 					"description": "Concrete self-contained task for the sub-agent, including the expected deliverable and boundaries.",
 				},
+				"title": map[string]any{
+					"type":        "string",
+					"description": "Short one-line title for the sub-agent task, about 80 characters or less.",
+				},
 				"context": map[string]any{
 					"type":        "string",
 					"description": "Optional compressed background from the main assistant; include only state the isolated sub-agent needs.",
 				},
 			},
-			"required": []string{"task"},
+			"required": []string{"title", "task"},
 		},
 	}
 }
@@ -500,8 +504,25 @@ func (a *AgentService) RunAgentLoop(
 		messages = append(messages, result.AssistantMessage)
 		//preamble := strings.TrimSpace(result.AssistantMessage.Content)
 
-		for _, tc := range result.ToolCalls {
+		var memoryMu sync.Mutex
+		var activatedSkillsMu sync.Mutex
+		var parallelJobs []parallelToolJob
+		flushParallelJobs := func() {
+			if len(parallelJobs) == 0 {
+				return
+			}
+			outcomes := runParallelToolJobs(ctx, parallelJobs, constants.MaxParallelToolCalls, func(result ToolCallResult) {
+				notifyToolResult(callbacks, result)
+			})
+			for _, outcome := range outcomes {
+				messages = appendToolMessage(messages, outcome.toolCallID, outcome.messageContent)
+			}
+			parallelJobs = nil
+		}
+
+		for toolIndex, tc := range result.ToolCalls {
 			if tc.Name == constants.TodoUpdateTool {
+				flushParallelJobs()
 				update, parseErr := parseTodoUpdate(tc.Arguments)
 				if parseErr != nil {
 					messages = appendToolMessage(messages, tc.ID, fmt.Sprintf("failed to update todo list: %s", parseErr.Error()))
@@ -518,6 +539,7 @@ func (a *AgentService) RunAgentLoop(
 
 			// Handle plan_start: signal transition from research to plan writing.
 			if tc.Name == constants.PlanStartTool {
+				flushParallelJobs()
 				if opts.PlanStarted != nil {
 					*opts.PlanStarted = true
 				}
@@ -532,6 +554,7 @@ func (a *AgentService) RunAgentLoop(
 
 			// Handle plan_complete: signal plan completion and skip regular execution.
 			if tc.Name == constants.PlanCompleteTool {
+				flushParallelJobs()
 				if opts.PlanComplete != nil {
 					*opts.PlanComplete = true
 				}
@@ -541,23 +564,27 @@ func (a *AgentService) RunAgentLoop(
 
 			// Plan mode: block non-read-only tools.
 			if opts.PlanMode && !isPlanModeAllowedTool(tc.Name) {
+				flushParallelJobs()
 				messages = appendToolMessage(messages, tc.ID, "This tool is blocked in plan mode. Only read-only tools (web_search, search_memory) are allowed.")
 				continue
 			}
 
 			invocation, err := resolveToolInvocation(tc, mcpToolMeta, opts.ApprovalMode)
 			if err != nil {
+				flushParallelJobs()
 				messages = appendToolMessage(messages, tc.ID, fmt.Sprintf("failed to parse tool invocation: %s", err.Error()))
 				continue
 			}
 
 			params, err := parseToolCallArgs(tc.Arguments)
 			if err != nil {
+				flushParallelJobs()
 				messages = appendToolMessage(messages, tc.ID, fmt.Sprintf("failed to parse arguments: %s", err.Error()))
 				continue
 			}
 
 			if tc.Name == constants.ActivateSkillTool && a.skillRuntime != nil {
+				flushParallelJobs()
 				skillName := strings.TrimSpace(params["name"])
 				content, _, activateErr := a.skillRuntime.ActivateSkill(skillName, activatedSkills)
 				if activateErr != nil {
@@ -568,33 +595,24 @@ func (a *AgentService) RunAgentLoop(
 				continue
 			}
 
-			if tc.Name == constants.RunSubagentTool {
-				if err := a.handleRunSubagentTool(ctx, modelConfig, sessionID, mcpConfigs, activatedSkills, callbacks, opts, tc, invocation, params, opts.SubagentModelID, "", &messages); err != nil {
-					return "", err
-				}
-				continue
-			}
-
-			if callbacks.OnToolCallStart != nil {
-				if err := callbacks.OnToolCallStart(ApprovalRequest{
-					ToolCallID:       tc.ID,
-					ToolName:         invocation.toolName,
-					Command:          invocation.command,
-					Params:           params,
-					RequiresApproval: invocation.requiresApproval,
-				}); err != nil {
-					return "", fmt.Errorf("failed to push tool approval request: %w", err)
-				}
-			}
-
-			approved, rejectionMessage, answers := waitApprovalIfNeeded(ctx, callbacks, tc, invocation, params, "")
-			if !approved {
-				messages = appendToolMessage(messages, tc.ID, rejectionMessage)
-				continue
-			}
-
-			// ask_questions tool: use answers from approval directly, skip executeInvocation.
 			if invocation.toolName == constants.AskQuestionsTool {
+				flushParallelJobs()
+				if callbacks.OnToolCallStart != nil {
+					if err := callbacks.OnToolCallStart(ApprovalRequest{
+						ToolCallID:       tc.ID,
+						ToolName:         invocation.toolName,
+						Command:          invocation.command,
+						Params:           params,
+						RequiresApproval: invocation.requiresApproval,
+					}); err != nil {
+						return "", fmt.Errorf("failed to push tool approval request: %w", err)
+					}
+				}
+				approved, rejectionMessage, answers := waitApprovalIfNeeded(ctx, callbacks, tc, invocation, params, "")
+				if !approved {
+					messages = appendToolMessage(messages, tc.ID, rejectionMessage)
+					continue
+				}
 				formattedAnswers := formatAskQuestionsAnswers(params["questions"], answers)
 				notifyToolResult(callbacks, ToolCallResult{
 					ToolCallID:       tc.ID,
@@ -608,21 +626,73 @@ func (a *AgentService) RunAgentLoop(
 				continue
 			}
 
-			// Execute tool.
-			execResult := a.executeInvocation(ctx, tc, invocation, params, sessionID, mcpConfigs, &memoryToolUsed)
-			resultStatus := buildToolResultStatus(execResult)
-			notifyToolResult(callbacks, ToolCallResult{
-				ToolCallID:       tc.ID,
-				ToolName:         invocation.toolName,
-				Command:          invocation.command,
-				RequiresApproval: invocation.requiresApproval,
-				Status:           resultStatus,
-				Output:           execResult.Output,
-				Error:            execResult.Error,
-			})
+			if callbacks.OnToolCallStart != nil && invocation.toolName != constants.RunSubagentTool {
+				if err := callbacks.OnToolCallStart(ApprovalRequest{
+					ToolCallID:       tc.ID,
+					ToolName:         invocation.toolName,
+					Command:          invocation.command,
+					Params:           params,
+					RequiresApproval: invocation.requiresApproval,
+				}); err != nil {
+					return "", fmt.Errorf("failed to push tool approval request: %w", err)
+				}
+			}
 
-			messages = appendToolMessage(messages, tc.ID, buildToolResultContent(execResult))
+			tcCopy := tc
+			invocationCopy := invocation
+			paramsCopy := params
+			parallelJobs = append(parallelJobs, parallelToolJob{
+				index:            toolIndex,
+				toolCallID:       tc.ID,
+				toolName:         invocation.toolName,
+				command:          invocation.command,
+				requiresApproval: invocation.requiresApproval,
+				awaitApproval: func(approvalCtx context.Context) approvalDecision {
+					approved, rejectionMessage, _ := waitApprovalIfNeeded(approvalCtx, callbacks, tcCopy, invocationCopy, paramsCopy, "")
+					if approved {
+						return approvalDecision{approved: true}
+					}
+					status := constants.ToolCallStatusRejected
+					errText := "Execution was rejected by the user."
+					if strings.Contains(strings.ToLower(rejectionMessage), "timed out") {
+						status = constants.ToolCallStatusError
+						errText = "Approval timed out."
+					}
+					return approvalDecision{
+						approved:         false,
+						rejectionMessage: rejectionMessage,
+						status:           status,
+						error:            errText,
+						notified:         true,
+					}
+				},
+				execute: func(execCtx context.Context) *tools.ExecuteResult {
+					if invocationCopy.toolName == constants.RunSubagentTool {
+						activatedSkillsMu.Lock()
+						childActivatedSkills := cloneActivatedSkills(activatedSkills)
+						activatedSkillsMu.Unlock()
+
+						execResult, err := a.executeRunSubagentTool(execCtx, modelConfig, sessionID, mcpConfigs, childActivatedSkills, callbacks, opts, tcCopy, invocationCopy, paramsCopy, opts.SubagentModelID, "")
+
+						activatedSkillsMu.Lock()
+						mergeActivatedSkills(activatedSkills, childActivatedSkills)
+						activatedSkillsMu.Unlock()
+
+						if err != nil {
+							return &tools.ExecuteResult{Error: err.Error()}
+						}
+						return execResult
+					}
+					if (invocationCopy.toolName == "memory" && invocationCopy.command == "query") ||
+						(invocationCopy.toolName == constants.SearchMemoryTool && invocationCopy.command == "query") {
+						memoryMu.Lock()
+						defer memoryMu.Unlock()
+					}
+					return a.executeInvocation(execCtx, tcCopy, invocationCopy, paramsCopy, sessionID, mcpConfigs, &memoryToolUsed)
+				},
+			})
 		}
+		flushParallelJobs()
 
 		// If plan_complete was called, return immediately so the caller can save the plan.
 		if opts.PlanComplete != nil && *opts.PlanComplete {

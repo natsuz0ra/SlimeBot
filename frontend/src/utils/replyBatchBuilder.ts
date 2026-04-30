@@ -124,6 +124,29 @@ export function normalizeToolStatus(status?: string, fallbackError?: string): To
   return fallbackError ? 'error' : 'completed'
 }
 
+function normalizeHistoryToolStatus(item: SessionHistoryToolCallItem, interrupted: boolean): ToolCallStatus {
+  const status = normalizeToolStatus(item.status, item.error)
+  if (interrupted && (status === 'pending' || status === 'executing')) {
+    return 'error'
+  }
+  return status
+}
+
+function normalizeHistoryToolError(item: SessionHistoryToolCallItem, interrupted: boolean) {
+  const status = normalizeToolStatus(item.status, item.error)
+  if (interrupted && (status === 'pending' || status === 'executing')) {
+    return item.error || 'Execution cancelled.'
+  }
+  return item.error
+}
+
+function normalizeHistoryThinkingStatus(item: SessionHistoryThinkingItem, interrupted: boolean) {
+  if (interrupted && item.status === 'streaming') {
+    return 'completed'
+  }
+  return item.status
+}
+
 export function buildLegacyTimeline(toolCalls: ToolCallItem[], content: string, thinkingRecords: SessionHistoryThinkingItem[] = []): AssistantReplyTimelineItem[] {
   const timeline: AssistantReplyTimelineItem[] = []
   for (const item of thinkingRecords) {
@@ -242,6 +265,13 @@ export function buildReplyBatchesFromHistory(sessionId: string, history: Session
     if (message.role !== 'assistant') continue
     const historyToolCalls = history.toolCallsByAssistantMessageId[message.id] || []
     const historyThinking = history.thinkingByAssistantMessageId?.[message.id] || []
+    const interrupted = !!message.isInterrupted
+    const normalizedHistoryThinking = interrupted
+      ? historyThinking.map((thinking) => ({
+          ...thinking,
+          status: normalizeHistoryThinkingStatus(thinking, true),
+        }))
+      : historyThinking
 
     const sortedCalls = [...historyToolCalls].sort((left, right) => {
       const leftAt = new Date(left.startedAt || 0).getTime()
@@ -255,16 +285,18 @@ export function buildReplyBatchesFromHistory(sessionId: string, history: Session
       command: item.command,
       params: item.params || {},
       requiresApproval: !!item.requiresApproval,
-      status: normalizeToolStatus(item.status, item.error),
+      status: normalizeHistoryToolStatus(item, interrupted),
       output: item.output,
-      error: item.error,
+      error: normalizeHistoryToolError(item, interrupted),
       startedAt: parseTimestamp(item.startedAt),
       finishedAt: parseTimestamp(item.finishedAt),
       parentToolCallId: item.parentToolCallId,
       subagentRunId: item.subagentRunId,
+      subagentTitle: item.toolName === 'run_subagent' ? String(item.params?.title ?? '').trim() || undefined : undefined,
+      subagentTask: item.toolName === 'run_subagent' ? String(item.params?.task ?? '').trim() || undefined : undefined,
     }))
 
-    const subagentThinkingRecords = historyThinking
+    const subagentThinkingRecords = normalizedHistoryThinking
       .filter((thinking) => thinking.parentToolCallId || thinking.subagentRunId)
       .sort((left, right) => {
         const leftAt = new Date(left.startedAt || 0).getTime()
@@ -278,7 +310,7 @@ export function buildReplyBatchesFromHistory(sessionId: string, history: Session
       if (!parent) continue
       const entry = {
         content: thinking.content || '',
-        done: thinking.status !== 'streaming',
+        done: normalizeHistoryThinkingStatus(thinking, interrupted) !== 'streaming',
         durationMs: thinking.durationMs,
         startedAt: parseTimestamp(thinking.startedAt),
         finishedAt: parseTimestamp(thinking.finishedAt),
@@ -291,8 +323,8 @@ export function buildReplyBatchesFromHistory(sessionId: string, history: Session
     }
 
     const timeline = hasContentMarkers(message.content)
-      ? buildInterleavedTimeline(toolCalls, message.content, historyThinking)
-      : buildLegacyTimeline(toolCalls, message.content, historyThinking)
+      ? buildInterleavedTimeline(toolCalls, message.content, normalizedHistoryThinking)
+      : buildLegacyTimeline(toolCalls, message.content, normalizedHistoryThinking)
 
     nextBatches.push({
       id: crypto.randomUUID(),
@@ -301,7 +333,7 @@ export function buildReplyBatchesFromHistory(sessionId: string, history: Session
       toolCalls,
       timeline,
       collapsed: true,
-      ...deriveReplyTiming(message.createdAt, historyToolCalls, historyThinking, history.replyTimingByAssistantMessageId?.[message.id]),
+      ...deriveReplyTiming(message.createdAt, historyToolCalls, normalizedHistoryThinking, history.replyTimingByAssistantMessageId?.[message.id]),
     })
   }
   return nextBatches

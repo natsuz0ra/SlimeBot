@@ -7,6 +7,96 @@ export function formatToolInvocation(toolName: string, command: string): string 
   return `${name}.${cmd}()`;
 }
 
+function normalizedParam(params: Record<string, string> | undefined, key: string): string {
+  return String(params?.[key] ?? "").trim();
+}
+
+function firstNonEmptyParam(params?: Record<string, string>): { key: string; value: string } | null {
+  if (!params) return null;
+  for (const key of Object.keys(params).sort()) {
+    const value = normalizedParam(params, key);
+    if (value !== "") return { key, value };
+  }
+  return null;
+}
+
+export function getToolSummaryParamKeys(
+  toolName: string,
+  command: string,
+  params?: Record<string, string>,
+): string[] {
+  const tool = toolName.trim().toLowerCase();
+  const cmd = command.trim().toLowerCase();
+  if (tool === "") return [];
+
+  if (tool === "exec" && cmd === "run" && normalizedParam(params, "description") !== "") {
+    return ["description"];
+  }
+  if ((tool === "web_search" || tool === "search_memory") && normalizedParam(params, "query") !== "") {
+    return ["query"];
+  }
+  if (tool === "run_subagent") {
+    const keys: string[] = [];
+    if (normalizedParam(params, "title") !== "") keys.push("title");
+    if (normalizedParam(params, "task") !== "") keys.push("task");
+    if (keys.length > 0) return keys;
+  }
+  if (tool === "http_request" && cmd === "request") {
+    const keys: string[] = [];
+    if (normalizedParam(params, "method") !== "") keys.push("method");
+    if (normalizedParam(params, "url") !== "") keys.push("url");
+    if (keys.length > 0) return keys;
+  }
+
+  const fallback = firstNonEmptyParam(params);
+  return fallback ? [fallback.key] : [];
+}
+
+export function formatToolCallSummary(
+  toolName: string,
+  command: string,
+  params?: Record<string, string>,
+): string {
+  const tool = toolName.trim().toLowerCase();
+  const cmd = command.trim().toLowerCase();
+
+  if (tool === "exec" && cmd === "run") {
+    return normalizedParam(params, "description");
+  }
+  if (tool === "web_search" || tool === "search_memory") {
+    const query = normalizedParam(params, "query");
+    return query ? `query: ${query}` : "";
+  }
+  if (tool === "run_subagent") {
+    const title = normalizedParam(params, "title");
+    if (title) return title;
+    const task = normalizedParam(params, "task");
+    return task ? `task: ${task}` : "";
+  }
+  if (tool === "http_request" && cmd === "request") {
+    const method = normalizedParam(params, "method").toUpperCase();
+    const url = normalizedParam(params, "url");
+    return [method, url].filter(Boolean).join(" ");
+  }
+
+  const fallback = firstNonEmptyParam(params);
+  return fallback ? `${fallback.key}: ${fallback.value}` : "";
+}
+
+export function filterToolParamsForDetail(
+  toolName: string,
+  command: string,
+  params?: Record<string, string>,
+): Record<string, string> {
+  if (!params) return {};
+  const hidden = new Set(getToolSummaryParamKeys(toolName, command, params));
+  const result: Record<string, string> = {};
+  for (const [key, value] of Object.entries(params)) {
+    if (!hidden.has(key)) result[key] = value;
+  }
+  return result;
+}
+
 type JSONValue = null | boolean | number | string | JSONValue[] | { [k: string]: JSONValue };
 
 export interface ExecOutputPayload {
@@ -160,12 +250,15 @@ export function formatWaitingStatsSuffix(stats: {
   elapsedMs: number;
   tokenEstimate: number;
   thoughtDurationMs?: number;
+  thinkingActive?: boolean;
 }): string {
   const parts = [
     formatTurnDuration(stats.elapsedMs),
     `↑ ${formatCompactTokenCount(stats.tokenEstimate)}`,
   ];
-  if (stats.thoughtDurationMs !== undefined) {
+  if (stats.thinkingActive) {
+    parts.push("thinking");
+  } else if (stats.thoughtDurationMs !== undefined) {
     parts.push(`thought for ${formatTurnDuration(stats.thoughtDurationMs)}`);
   }
   return `(${parts.join(" · ")})`;

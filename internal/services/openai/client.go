@@ -72,9 +72,7 @@ func (c *OpenAIClient) StreamChatWithTools(
 		//Temperature: openai.Float(modelConfig.Temperature),
 	}
 
-	if effort := llmsvc.ThinkingReasoningEffort(modelConfig.ThinkingLevel); effort != "" {
-		params.ReasoningEffort = shared.ReasoningEffort(effort)
-	}
+	applyThinkingParams(&params, modelConfig)
 
 	if len(toolDefs) > 0 {
 		params.Tools = buildToolParams(toolDefs)
@@ -139,6 +137,24 @@ func (c *OpenAIClient) StreamChatWithTools(
 	}
 
 	return &llmsvc.StreamResult{Type: llmsvc.StreamResultText}, nil
+}
+
+func applyThinkingParams(params *openai.ChatCompletionNewParams, modelConfig llmsvc.ModelRuntimeConfig) {
+	if params == nil {
+		return
+	}
+	if strings.EqualFold(strings.TrimSpace(modelConfig.Provider), llmsvc.ProviderDeepSeek) {
+		thinking := map[string]any{"type": "disabled"}
+		if effort := llmsvc.DeepSeekReasoningEffort(modelConfig.ThinkingLevel); effort != "" {
+			thinking["type"] = "enabled"
+			params.ReasoningEffort = shared.ReasoningEffort(effort)
+		}
+		params.SetExtraFields(map[string]any{"thinking": thinking})
+		return
+	}
+	if effort := llmsvc.ThinkingReasoningEffort(modelConfig.ThinkingLevel); effort != "" {
+		params.ReasoningEffort = shared.ReasoningEffort(effort)
+	}
 }
 
 // extractReasoningContent extracts reasoning_content from a streaming delta.

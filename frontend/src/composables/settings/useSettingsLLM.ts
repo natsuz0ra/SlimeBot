@@ -8,6 +8,11 @@ type ToastLike = {
 type Translate = (key: string) => string
 
 type LLMItem = any
+type LLMProvider = 'openai' | 'anthropic' | 'deepseek'
+
+function emptyLLMForm() {
+  return { name: '', provider: 'openai' as LLMProvider, baseUrl: '', apiKey: '', model: '' }
+}
 
 export function useSettingsLLM(options: {
   llmList: Ref<LLMItem[]>
@@ -18,7 +23,7 @@ export function useSettingsLLM(options: {
   onChanged?: () => void
 }) {
   const { llmList, llmDialogVisible, llmSubmitting, toast, t, onChanged } = options
-  const llmForm = ref({ name: '', provider: 'openai' as 'openai' | 'anthropic', baseUrl: '', apiKey: '', model: '' })
+  const llmForm = ref(emptyLLMForm())
   const llmRows = computed(() => llmList.value || [])
 
   async function refreshLLM() {
@@ -26,7 +31,7 @@ export function useSettingsLLM(options: {
   }
 
   function openLLMDialog() {
-    llmForm.value = { name: '', provider: 'openai', baseUrl: '', apiKey: '', model: '' }
+    llmForm.value = emptyLLMForm()
     llmDialogVisible.value = true
   }
 
@@ -38,7 +43,7 @@ export function useSettingsLLM(options: {
     llmSubmitting.value = true
     try {
       await llmAPI.create(llmForm.value)
-      llmForm.value = { name: '', provider: 'openai', baseUrl: '', apiKey: '', model: '' }
+      llmForm.value = emptyLLMForm()
       await refreshLLM()
       onChanged?.()
       llmDialogVisible.value = false

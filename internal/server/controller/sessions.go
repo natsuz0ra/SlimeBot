@@ -237,9 +237,13 @@ func (h *HTTPController) ListMessages(c WebContext) {
 		return
 	}
 	messageIDSet := make(map[string]struct{}, len(messages))
+	interruptedAssistantIDs := make(map[string]struct{}, len(messages))
 	messageIDs := make([]string, 0, len(messages))
 	for _, message := range messages {
 		messageIDSet[message.ID] = struct{}{}
+		if message.Role == "assistant" && message.IsInterrupted {
+			interruptedAssistantIDs[message.ID] = struct{}{}
+		}
 		messageIDs = append(messageIDs, message.ID)
 	}
 	records, err := h.sessions.ListToolCallRecordsByAssistantMessageIDs(sessionID, messageIDs)
@@ -262,17 +266,25 @@ func (h *HTTPController) ListMessages(c WebContext) {
 		if _, ok := messageIDSet[key]; !ok {
 			continue
 		}
+		status := record.Status
+		errText := record.Error
+		if _, interrupted := interruptedAssistantIDs[key]; interrupted && (status == constants.ToolCallStatusPending || status == constants.ToolCallStatusExecuting) {
+			status = constants.ToolCallStatusError
+			if strings.TrimSpace(errText) == "" {
+				errText = "Execution cancelled."
+			}
+		}
 		item := sessionToolCallHistory{
 			ToolCallID:       record.ToolCallID,
 			ToolName:         record.ToolName,
 			Command:          record.Command,
 			Params:           parseToolCallParams(record.ParamsJSON),
-			Status:           record.Status,
+			Status:           status,
 			RequiresApproval: record.RequiresApproval,
 			ParentToolCallID: record.ParentToolCallID,
 			SubagentRunID:    record.SubagentRunID,
 			Output:           record.Output,
-			Error:            record.Error,
+			Error:            errText,
 			StartedAt:        record.StartedAt.Format("2006-01-02T15:04:05.000Z07:00"),
 		}
 		if record.FinishedAt != nil {
@@ -289,12 +301,16 @@ func (h *HTTPController) ListMessages(c WebContext) {
 		if _, ok := messageIDSet[key]; !ok {
 			continue
 		}
+		status := record.Status
+		if _, interrupted := interruptedAssistantIDs[key]; interrupted && status == "streaming" {
+			status = "completed"
+		}
 		item := sessionThinkingHistory{
 			ThinkingID:       record.ThinkingID,
 			ParentToolCallID: record.ParentToolCallID,
 			SubagentRunID:    record.SubagentRunID,
 			Content:          record.Content,
-			Status:           record.Status,
+			Status:           status,
 			StartedAt:        record.StartedAt.Format("2006-01-02T15:04:05.000Z07:00"),
 			DurationMs:       record.DurationMs,
 		}

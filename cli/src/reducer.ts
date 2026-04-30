@@ -58,6 +58,70 @@ function addTokenEstimate(state: AppState, chunk: string): number {
   return Math.max(0, state.turnTokenEstimate + estimateTokens(chunk));
 }
 
+function isOpenToolStatus(status?: string): boolean {
+  return status === "pending" || status === "executing";
+}
+
+function finishThinkingEntry(entry: TimelineEntry, finishedAt: number): TimelineEntry {
+  if (entry.kind === "thinking" && !entry.thinkingDone) {
+    const startedAt = entry.thinkingStartedAt;
+    return {
+      ...entry,
+      thinkingDone: true,
+      thinkingDurationMs: startedAt !== undefined
+        ? Math.max(0, finishedAt - startedAt)
+        : entry.thinkingDurationMs,
+    };
+  }
+  if (entry.kind === "tool" && entry.subagentThinking && !entry.subagentThinking.thinkingDone) {
+    const startedAt = entry.subagentThinking.thinkingStartedAt;
+    return {
+      ...entry,
+      subagentThinking: {
+        ...entry.subagentThinking,
+        thinkingDone: true,
+        thinkingDurationMs: startedAt !== undefined
+          ? Math.max(0, finishedAt - startedAt)
+          : entry.subagentThinking.thinkingDurationMs,
+      },
+    };
+  }
+  return entry;
+}
+
+function finalizeOpenRuntimeEntries(entries: TimelineEntry[], error = "Execution cancelled.", finishedAt = Date.now()): TimelineEntry[] {
+  return entries.map((entry) => {
+    const finished = finishThinkingEntry(entry, finishedAt);
+    if (finished.kind !== "tool" || !isOpenToolStatus(finished.status)) {
+      return finished;
+    }
+    return {
+      ...finished,
+      status: "error",
+      error: finished.error || error,
+      content: finished.content || finished.error || error,
+    };
+  });
+}
+
+function finalizeSubagentEntry(entries: TimelineEntry[], parentToolCallId: string, error?: string, finishedAt = Date.now()): TimelineEntry[] {
+  return entries.map((entry) => {
+    if (entry.kind !== "tool" || entry.toolCallId !== parentToolCallId) {
+      return entry;
+    }
+    const finished = finishThinkingEntry(entry, finishedAt);
+    if (!error || !isOpenToolStatus(finished.status)) {
+      return finished;
+    }
+    return {
+      ...finished,
+      status: "error",
+      error,
+      content: finished.content || error,
+    };
+  });
+}
+
 export function createInitialState(
   apiURL: string,
   cliToken: string,
@@ -117,6 +181,8 @@ export function createInitialState(
     approvalCommand: "",
     approvalParams: {},
     approvalReplyCh: null,
+    pendingApprovals: [],
+    approvalCursor: 0,
     pendingPlanId: "",
     pendingPlanContent: "",
     planConfirmCursor: 0,
@@ -204,7 +270,7 @@ export function reducer(state: AppState, action: AppAction): AppState {
     }
 
     case "STREAM_DONE": {
-      const entries = [...state.timeline];
+      let entries = finalizeOpenRuntimeEntries([...state.timeline], action.error || "Execution cancelled.");
       // In the current plan turn, PLAN_BODY already flushed liveAssistant; older plan entries
       // must not suppress a later execution response.
       if (!state.planReceived && state.liveAssistant.trim()) {
@@ -301,6 +367,20 @@ export function reducer(state: AppState, action: AppAction): AppState {
       };
     }
 
+    case "SUBAGENT_DONE": {
+      const entries = finalizeSubagentEntry(
+        state.timeline,
+        action.parentToolCallId,
+        action.error,
+        action.finishedAt ?? Date.now(),
+      );
+      return {
+        ...state,
+        timeline: entries,
+        turnTokenEstimate: state.streaming ? estimateTurnTokens(state, entries) : state.turnTokenEstimate,
+      };
+    }
+
     case "APPEND_ENTRY":
       return {
         ...state,
@@ -324,6 +404,8 @@ export function reducer(state: AppState, action: AppAction): AppState {
         ...clearRuntimeTodos(),
         thinkingDetailContent: "",
         view: "chat",
+        pendingApprovals: [],
+        approvalCursor: 0,
         menuKind: null,
         menuTitle: "",
         menuItems: [],
@@ -465,6 +547,63 @@ export function reducer(state: AppState, action: AppAction): AppState {
         approvalParams: {},
         approvalReplyCh: null,
       };
+
+    case "ADD_PENDING_APPROVAL": {
+      const existing = state.pendingApprovals.find((item) => item.toolCallId === action.item.toolCallId);
+      const pendingApprovals = existing
+        ? state.pendingApprovals.map((item) => item.toolCallId === action.item.toolCallId ? action.item : item)
+        : [...state.pendingApprovals, action.item];
+      return {
+        ...state,
+        view: "approval",
+        pendingApprovals,
+        approvalCursor: Math.min(state.approvalCursor, Math.max(0, pendingApprovals.length - 1)),
+        approvalToolCallId: action.item.toolCallId,
+        approvalToolName: action.item.toolName,
+        approvalCommand: action.item.command,
+        approvalParams: action.item.params,
+      };
+    }
+
+    case "REMOVE_PENDING_APPROVAL": {
+      const pendingApprovals = state.pendingApprovals.filter((item) => item.toolCallId !== action.toolCallId);
+      return {
+        ...state,
+        view: pendingApprovals.length > 0 ? "approval" : "chat",
+        pendingApprovals,
+        approvalCursor: Math.min(state.approvalCursor, Math.max(0, pendingApprovals.length - 1)),
+        ...(pendingApprovals.length === 0
+          ? {
+              approvalToolCallId: "",
+              approvalToolName: "",
+              approvalCommand: "",
+              approvalParams: {},
+              approvalReplyCh: null,
+            }
+          : {}),
+      };
+    }
+
+    case "CLEAR_PENDING_APPROVALS":
+      return {
+        ...state,
+        view: "chat",
+        pendingApprovals: [],
+        approvalCursor: 0,
+        approvalToolCallId: "",
+        approvalToolName: "",
+        approvalCommand: "",
+        approvalParams: {},
+        approvalReplyCh: null,
+      };
+
+    case "APPROVAL_NAV": {
+      const maxIndex = Math.max(0, state.pendingApprovals.length - 1);
+      return {
+        ...state,
+        approvalCursor: Math.max(0, Math.min(maxIndex, state.approvalCursor + action.delta)),
+      };
+    }
 
     case "SET_APPROVAL_MODE":
       return { ...state, approvalMode: action.mode };

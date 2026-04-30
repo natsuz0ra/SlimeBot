@@ -256,10 +256,17 @@ func (s *ChatService) executeChatTurn(
 	accumulator := &chatStreamAccumulator{}
 	streamStart := time.Now()
 	var firstTokenAt time.Time
-	var activeThinkingID string
-	var activeThinkingDone bool
+	var callbackMu sync.Mutex
+	type activeThinkingState struct {
+		id   string
+		done bool
+	}
+	activeThinkings := make(map[string]*activeThinkingState)
 
-	pushBody := func(body string) error {
+	thinkingScopeKey := func(meta ThinkingEventMeta) string {
+		return meta.ParentToolCallID + "\x00" + meta.SubagentRunID
+	}
+	pushBodyLocked := func(body string) error {
 		if body == "" {
 			return nil
 		}
@@ -285,66 +292,84 @@ func (s *ChatService) executeChatTurn(
 		}
 		return nil
 	}
-	finishActiveThinking := func(finishedAt time.Time) error {
-		if activeThinkingID == "" || activeThinkingDone {
+	finishActiveThinkingLocked := func(scope string, finishedAt time.Time) error {
+		active := activeThinkings[scope]
+		if active == nil || active.id == "" || active.done {
 			return nil
 		}
 		if err := s.store.FinishThinking(ctx, domain.ThinkingFinishRecordInput{
 			SessionID:  sessionID,
 			RequestID:  requestID,
-			ThinkingID: activeThinkingID,
+			ThinkingID: active.id,
 			FinishedAt: finishedAt,
 		}); err != nil {
 			return err
 		}
-		activeThinkingDone = true
+		active.done = true
+		return nil
+	}
+	finishAllActiveThinkings := func(finishedAt time.Time) error {
+		callbackMu.Lock()
+		defer callbackMu.Unlock()
+		for scope := range activeThinkings {
+			if err := finishActiveThinkingLocked(scope, finishedAt); err != nil {
+				return err
+			}
+		}
 		return nil
 	}
 
 	agentCallbacks := AgentCallbacks{
 		OnChunk: func(chunk string) error {
+			callbackMu.Lock()
+			defer callbackMu.Unlock()
 			if chunk != "" && firstTokenAt.IsZero() {
 				firstTokenAt = time.Now()
 			}
-			return pushBody(parser.Feed(chunk))
+			return pushBodyLocked(parser.Feed(chunk))
 		},
 		OnToolCallStart: func(req ApprovalRequest) error {
+			callbackMu.Lock()
 			startStatus := constants.ToolCallStatusExecuting
 			if req.RequiresApproval {
 				startStatus = constants.ToolCallStatusPending
 			}
 			if err := s.recordToolCallStart(ctx, sessionID, requestID, req, startStatus); err != nil {
+				callbackMu.Unlock()
 				return err
 			}
-			if err := pushBody(parser.BeginAssistantTurn()); err != nil {
+			if err := pushBodyLocked(parser.BeginAssistantTurn()); err != nil {
+				callbackMu.Unlock()
 				return err
 			}
 			// Insert marker into stored answer (not streamed to client).
 			accumulator.answerBuilder.WriteString(fmt.Sprintf(toolCallMarkerFmt, req.ToolCallID))
-			if callbacks.OnToolCallStart == nil {
-				return nil
-			}
-			// In plan mode, narration text is streamed in real-time.
-			// Clear preamble since text was already sent via chunks.
 			if planMode {
 				req.Preamble = ""
+			}
+			callbackMu.Unlock()
+			if callbacks.OnToolCallStart == nil {
+				return nil
 			}
 			return callbacks.OnToolCallStart(req)
 		},
 		WaitApproval: callbacks.WaitApproval,
 		OnToolCallResult: func(result ToolCallResult) error {
 			status := normalizeToolCallResultStatus(result)
+			callbackMu.Lock()
 			if err := s.recordToolCallResult(ctx, sessionID, requestID, result, status); err != nil {
+				callbackMu.Unlock()
 				return err
 			}
+			callbackMu.Unlock()
 			if callbacks.OnToolCallResult == nil {
 				return nil
 			}
 			return callbacks.OnToolCallResult(result)
 		},
-		OnSubagentStart: func(parentToolCallID, runID, task string) error {
+		OnSubagentStart: func(parentToolCallID, runID, title, task string) error {
 			if callbacks.OnSubagentStart != nil {
-				return callbacks.OnSubagentStart(parentToolCallID, runID, task)
+				return callbacks.OnSubagentStart(parentToolCallID, runID, title, task)
 			}
 			return nil
 		},
@@ -361,23 +386,27 @@ func (s *ChatService) executeChatTurn(
 			return nil
 		},
 		OnThinkingStart: func(meta ThinkingEventMeta) error {
-			if err := finishActiveThinking(time.Now()); err != nil {
+			callbackMu.Lock()
+			defer callbackMu.Unlock()
+			scope := thinkingScopeKey(meta)
+			startedAt := time.Now()
+			if err := finishActiveThinkingLocked(scope, startedAt); err != nil {
 				return err
 			}
-			activeThinkingID = uuid.NewString()
-			activeThinkingDone = false
+			thinkingID := uuid.NewString()
+			activeThinkings[scope] = &activeThinkingState{id: thinkingID}
 			if err := s.store.UpsertThinkingStart(ctx, domain.ThinkingStartRecordInput{
 				SessionID:        sessionID,
 				RequestID:        requestID,
-				ThinkingID:       activeThinkingID,
+				ThinkingID:       thinkingID,
 				ParentToolCallID: meta.ParentToolCallID,
 				SubagentRunID:    meta.SubagentRunID,
-				StartedAt:        time.Now(),
+				StartedAt:        startedAt,
 			}); err != nil {
 				return err
 			}
 			if meta.ParentToolCallID == "" && meta.SubagentRunID == "" {
-				accumulator.answerBuilder.WriteString(fmt.Sprintf(thinkingMarkerFmt, activeThinkingID))
+				accumulator.answerBuilder.WriteString(fmt.Sprintf(thinkingMarkerFmt, thinkingID))
 			}
 			if callbacks.OnThinkingStart == nil {
 				return nil
@@ -385,25 +414,32 @@ func (s *ChatService) executeChatTurn(
 			return callbacks.OnThinkingStart(meta)
 		},
 		OnThinkingChunk: func(chunk string, meta ThinkingEventMeta) error {
-			if activeThinkingID != "" {
+			callbackMu.Lock()
+			active := activeThinkings[thinkingScopeKey(meta)]
+			if active != nil && active.id != "" {
 				if err := s.store.AppendThinkingChunk(ctx, domain.ThinkingChunkRecordInput{
 					SessionID:  sessionID,
 					RequestID:  requestID,
-					ThinkingID: activeThinkingID,
+					ThinkingID: active.id,
 					Chunk:      chunk,
 				}); err != nil {
+					callbackMu.Unlock()
 					return err
 				}
 			}
+			callbackMu.Unlock()
 			if callbacks.OnThinkingChunk == nil {
 				return nil
 			}
 			return callbacks.OnThinkingChunk(chunk, meta)
 		},
 		OnThinkingDone: func(meta ThinkingEventMeta) error {
-			if err := finishActiveThinking(time.Now()); err != nil {
+			callbackMu.Lock()
+			if err := finishActiveThinkingLocked(thinkingScopeKey(meta), time.Now()); err != nil {
+				callbackMu.Unlock()
 				return err
 			}
+			callbackMu.Unlock()
 			if callbacks.OnThinkingDone == nil {
 				return nil
 			}
@@ -416,6 +452,8 @@ func (s *ChatService) executeChatTurn(
 			return callbacks.OnTodoUpdate(update)
 		},
 		OnPlanStart: func() error {
+			callbackMu.Lock()
+			defer callbackMu.Unlock()
 			accumulator.planStarted = true
 			accumulator.answerBuilder.WriteString(planStartMarker)
 			return nil
@@ -437,7 +475,7 @@ func (s *ChatService) executeChatTurn(
 	answer, err := s.agent.RunAgentLoop(ctx, state.modelConfig, sessionID, state.contextMessages, state.enabledMCPConfigs, activatedSkills, agentCallbacks, AgentLoopOptions{ApprovalMode: approvalMode, PlanMode: planMode, PlanComplete: &planCompleted, SubagentModelID: subagentModelID})
 	logging.Span("agent_loop", agentStart)
 	s.mergeSessionActivatedSkills(sessionID, activatedSkills)
-	if finishErr := finishActiveThinking(time.Now()); finishErr != nil && err == nil {
+	if finishErr := finishAllActiveThinkings(time.Now()); finishErr != nil && err == nil {
 		err = finishErr
 	}
 
@@ -452,8 +490,11 @@ func (s *ChatService) executeChatTurn(
 	}
 	logging.Info("chat_stream_done", "session", sessionID, "first_token_ms", firstTokenMs, "total_stream_ms", time.Since(streamStart).Milliseconds())
 
-	if err := pushBody(parser.Flush()); err != nil && !interrupted {
-		return nil, err
+	callbackMu.Lock()
+	flushErr := pushBodyLocked(parser.Flush())
+	callbackMu.Unlock()
+	if flushErr != nil && !interrupted {
+		return nil, flushErr
 	}
 
 	var finalAnswer string
@@ -532,6 +573,14 @@ func (s *ChatService) finalizeChatTurn(
 	})
 	if err != nil {
 		return nil, err
+	}
+	if result.interrupted {
+		if err := s.store.FinishOpenToolCallsForRequest(ctx, sessionID, requestID, "Execution cancelled."); err != nil {
+			return nil, err
+		}
+		if err := s.store.FinishOpenThinkingForRequest(ctx, sessionID, requestID); err != nil {
+			return nil, err
+		}
 	}
 	if err := s.store.BindToolCallsToAssistantMessage(ctx, sessionID, requestID, assistantMessage.ID); err != nil {
 		return nil, err

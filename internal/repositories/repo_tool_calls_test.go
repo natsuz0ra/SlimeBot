@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"slimebot/internal/constants"
 	"slimebot/internal/domain"
 )
 
@@ -101,5 +102,68 @@ func TestUpsertToolCallStart_PersistsParentAndSubagentRun(t *testing.T) {
 	}
 	if row.ParentToolCallID != parentID+"-updated" || row.SubagentRunID != "run-uuid-2" {
 		t.Fatalf("conflict update lost parent/subagent: %+v", row)
+	}
+}
+
+func TestFinishOpenToolCallsForRequest_MarksOnlyPendingAndExecutingAsError(t *testing.T) {
+	repo := New(NewSQLiteDBTest(t, "repo_tool_calls_finish_open"))
+	session, err := repo.CreateSession(context.Background(), "s3")
+	if err != nil {
+		t.Fatalf("create session failed: %v", err)
+	}
+	for _, item := range []struct {
+		id     string
+		status string
+	}{
+		{"pending-tool", constants.ToolCallStatusPending},
+		{"executing-tool", constants.ToolCallStatusExecuting},
+		{"completed-tool", constants.ToolCallStatusCompleted},
+	} {
+		if err := repo.UpsertToolCallStart(context.Background(), domain.ToolCallStartRecordInput{
+			SessionID:        session.ID,
+			RequestID:        "request-finish",
+			ToolCallID:       item.id,
+			ToolName:         "run_subagent",
+			Command:          "delegate",
+			Params:           map[string]string{},
+			Status:           item.status,
+			RequiresApproval: false,
+			StartedAt:        time.Now().Add(-time.Second),
+		}); err != nil {
+			t.Fatalf("upsert %s failed: %v", item.id, err)
+		}
+		if item.status == constants.ToolCallStatusCompleted {
+			if err := repo.UpdateToolCallResult(context.Background(), domain.ToolCallResultRecordInput{
+				SessionID:  session.ID,
+				RequestID:  "request-finish",
+				ToolCallID: item.id,
+				Status:     constants.ToolCallStatusCompleted,
+				Output:     "ok",
+				FinishedAt: time.Now(),
+			}); err != nil {
+				t.Fatalf("complete tool failed: %v", err)
+			}
+		}
+	}
+
+	if err := repo.FinishOpenToolCallsForRequest(context.Background(), session.ID, "request-finish", "Execution cancelled."); err != nil {
+		t.Fatalf("finish open tool calls failed: %v", err)
+	}
+
+	var rows []domain.ToolCallRecord
+	if err := repo.db.Where("session_id = ?", session.ID).Order("tool_call_id asc").Find(&rows).Error; err != nil {
+		t.Fatalf("list tool call records failed: %v", err)
+	}
+	got := map[string]domain.ToolCallRecord{}
+	for _, row := range rows {
+		got[row.ToolCallID] = row
+	}
+	for _, id := range []string{"pending-tool", "executing-tool"} {
+		if got[id].Status != constants.ToolCallStatusError || got[id].Error != "Execution cancelled." || got[id].FinishedAt == nil {
+			t.Fatalf("open tool was not marked error: %+v", got[id])
+		}
+	}
+	if got["completed-tool"].Status != constants.ToolCallStatusCompleted || got["completed-tool"].Error != "" {
+		t.Fatalf("completed tool should not be changed: %+v", got["completed-tool"])
 	}
 }

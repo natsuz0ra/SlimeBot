@@ -16,6 +16,7 @@ const (
 	ToolCallStatusError                = "error"
 	ToolCallStatusRejected             = "rejected"
 	AgentMaxIterations                 = 50
+	MaxParallelToolCalls               = 4
 	// MaxSubagentDepth is max nesting: 0 = main only; 1 = one child level (child cannot run_subagent).
 	MaxSubagentDepth               = 1
 	AgentApprovalTimeout           = 120 * time.Second

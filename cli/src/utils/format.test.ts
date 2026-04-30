@@ -5,6 +5,8 @@ import {
   formatCollapsedLines,
   formatToolTextValue,
   formatToolParamEntries,
+  filterToolParamsForDetail,
+  formatToolCallSummary,
   parseExecOutputPayload,
   estimateTokens,
   formatCompactTokenCount,
@@ -74,6 +76,56 @@ test("formatToolParamEntries formats multiline JSON values", () => {
   assert.ok(entries.some((line) => line.includes('"x": 1')));
 });
 
+test("formatToolCallSummary uses core tool parameters", () => {
+  assert.equal(
+    formatToolCallSummary("exec", "run", { command: "go test ./...", description: "Run Go tests" }),
+    "Run Go tests",
+  );
+  assert.equal(
+    formatToolCallSummary("web_search", "search", { query: "SlimeBot latest" }),
+    "query: SlimeBot latest",
+  );
+  assert.equal(
+    formatToolCallSummary("http_request", "request", { method: "post", url: "https://example.test/api" }),
+    "POST https://example.test/api",
+  );
+  assert.equal(
+    formatToolCallSummary("run_subagent", "delegate", {
+      title: "Inspect UI cards",
+      task: "Inspect UI cards and report exact files",
+    }),
+    "Inspect UI cards",
+  );
+  assert.equal(
+    formatToolCallSummary("run_subagent", "delegate", { task: "Inspect UI cards and report exact files" }),
+    "task: Inspect UI cards and report exact files",
+  );
+});
+
+test("formatToolCallSummary hides missing legacy exec description", () => {
+  assert.equal(formatToolCallSummary("exec", "run", { command: "go test ./..." }), "");
+});
+
+test("filterToolParamsForDetail removes params already shown in summary", () => {
+  assert.deepEqual(
+    filterToolParamsForDetail("exec", "run", { command: "go test ./...", description: "Run Go tests" }),
+    { command: "go test ./..." },
+  );
+  assert.deepEqual(
+    filterToolParamsForDetail("web_search", "search", { query: "SlimeBot latest" }),
+    {},
+  );
+  assert.deepEqual(
+    filterToolParamsForDetail("run_subagent", "delegate", {
+      title: "Inspect UI cards",
+      task: "Inspect UI cards and report exact files",
+      context: "repo state",
+      priority: "high",
+    }),
+    { context: "repo state", priority: "high" },
+  );
+});
+
 test("parseExecOutputPayload parses valid exec output payload", () => {
   const payload = parseExecOutputPayload(JSON.stringify({
     stdout: "ok",
@@ -131,5 +183,28 @@ test("formatWaitingStatsSuffix includes thought duration when present", () => {
       thoughtDurationMs: 5_000,
     }),
     "(13m 27s · ↑ 23.7k tokens · thought for 5s)",
+  );
+});
+
+test("formatWaitingStatsSuffix shows active thinking before duration is available", () => {
+  assert.equal(
+    formatWaitingStatsSuffix({
+      elapsedMs: 13 * 60_000 + 27_000,
+      tokenEstimate: 23_700,
+      thinkingActive: true,
+    }),
+    "(13m 27s · ↑ 23.7k tokens · thinking)",
+  );
+});
+
+test("formatWaitingStatsSuffix prefers active thinking over thought duration", () => {
+  assert.equal(
+    formatWaitingStatsSuffix({
+      elapsedMs: 13 * 60_000 + 27_000,
+      tokenEstimate: 23_700,
+      thoughtDurationMs: 5_000,
+      thinkingActive: true,
+    }),
+    "(13m 27s · ↑ 23.7k tokens · thinking)",
   );
 });

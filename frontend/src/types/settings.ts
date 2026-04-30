@@ -9,7 +9,7 @@ export interface AppSettings {
 export interface LLMConfig {
   id: string
   name: string
-  provider: 'openai' | 'anthropic'
+  provider: 'openai' | 'anthropic' | 'deepseek'
   baseUrl: string
   apiKey: string
   model: string

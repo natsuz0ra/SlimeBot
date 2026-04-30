@@ -15,6 +15,7 @@ const FIELD_COUNT = 5;
 const PROVIDER_OPTIONS: { value: ModelProvider; label: string }[] = [
   { value: "openai", label: "OpenAI Compatible" },
   { value: "anthropic", label: "Anthropic" },
+  { value: "deepseek", label: "DeepSeek" },
 ];
 
 interface ModelEditorProps {
@@ -50,6 +51,7 @@ export function ModelEditor({
 }: ModelEditorProps): React.ReactElement {
   const { stdout } = useStdout();
   const columns = Math.max(20, (stdout?.columns || 80) - 12);
+  const currentProvider = PROVIDER_OPTIONS.find((opt) => opt.value === provider) || PROVIDER_OPTIONS[0];
 
   const renderField = (
     idx: number,
@@ -120,8 +122,8 @@ export function ModelEditor({
           </Box>
         ) : (
           <Box marginLeft={2}>
-            <Text color={provider === "openai" ? "white" : "#d97706"}>
-              {provider === "openai" ? "OpenAI Compatible" : "Anthropic"}
+            <Text color={provider === "anthropic" ? "#d97706" : provider === "deepseek" ? "#14b8a6" : "white"}>
+              {currentProvider.label}
             </Text>
             {active && (
               <Text color="gray"> {"  Enter to change"}</Text>

@@ -80,6 +80,18 @@ func TestResolveTimeoutMsDefaultAndClamp(t *testing.T) {
 	}
 }
 
+func TestParseExecRunConfigRequiresDescription(t *testing.T) {
+	_, err := parseExecRunConfig(map[string]string{
+		"command": "go version",
+	})
+	if err == nil {
+		t.Fatal("expected missing description error")
+	}
+	if !strings.Contains(err.Error(), "description is required") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 func TestValidateWorkingDirectoryRejectsMissing(t *testing.T) {
 	_, err := validateWorkingDirectory(filepath.Join(t.TempDir(), "missing"))
 	if err == nil {
@@ -134,7 +146,8 @@ func TestFormatExecErrorNotFound(t *testing.T) {
 func TestExecRunReturnsStructuredOutput(t *testing.T) {
 	e := &execTool{}
 	res, err := e.run(context.Background(), map[string]string{
-		"command": "go version",
+		"command":     "go version",
+		"description": "Check Go version",
 	})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -167,8 +180,9 @@ func TestExecRunTimeoutProducesStructuredFlag(t *testing.T) {
 		command = "Start-Sleep -Seconds 2"
 	}
 	res, err := e.run(context.Background(), map[string]string{
-		"command":    command,
-		"timeout_ms": "50",
+		"command":     command,
+		"description": "Verify timeout handling",
+		"timeout_ms":  "50",
 	})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -188,7 +202,8 @@ func TestExecRunTimeoutProducesStructuredFlag(t *testing.T) {
 func TestExecRunDangerousCommandReturnsToolError(t *testing.T) {
 	e := &execTool{}
 	res, err := e.run(context.Background(), map[string]string{
-		"command": "rm -rf /",
+		"command":     "rm -rf /",
+		"description": "Verify dangerous command rejection",
 	})
 	if err == nil {
 		t.Fatal("expected tool error for dangerous command")
@@ -266,6 +281,7 @@ func TestExecRunUsesProvidedWorkingDirectory(t *testing.T) {
 	dir := t.TempDir()
 	res, err := e.run(context.Background(), map[string]string{
 		"command":           "go version",
+		"description":       "Verify custom working directory",
 		"working_directory": dir,
 	})
 	if err != nil {
@@ -298,7 +314,10 @@ func TestResolveTimeoutMsInvalidFallsBackDefault(t *testing.T) {
 func TestRunDurationIsMeasured(t *testing.T) {
 	e := &execTool{}
 	start := time.Now()
-	res, err := e.run(context.Background(), map[string]string{"command": "go version"})
+	res, err := e.run(context.Background(), map[string]string{
+		"command":     "go version",
+		"description": "Measure command duration",
+	})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

@@ -158,7 +158,7 @@ function symbolFor(status: RuntimeTodoItem['status']) {
 }
 
 .todo-panel-item--in_progress .todo-panel-mark {
-  color: #2563eb;
+  color: var(--tool-running-dot);
 }
 
 .todo-panel-item--completed .todo-panel-text {

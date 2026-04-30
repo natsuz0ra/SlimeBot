@@ -158,6 +158,19 @@ export function useHomeScroll(options: {
     })
   }
 
+  function getCurrentSessionPlanConfirmationId() {
+    const pendingPlanConfirmation = store.pendingPlanConfirmation
+    if (!pendingPlanConfirmation) return ''
+    return pendingPlanConfirmation.sessionId === store.currentSessionId
+      ? pendingPlanConfirmation.planId
+      : ''
+  }
+
+  function hasNewActionRequest(next: string[], previous: string[] | undefined) {
+    if (!previous) return next.some(Boolean)
+    return next.some((value, index) => value !== '' && value !== previous[index])
+  }
+
   function scrollToBottomByButton() {
     const el = messagesRef.value
     if (!el) return
@@ -309,6 +322,19 @@ export function useHomeScroll(options: {
     },
     () => {
       queueScrollMessagesToBottom()
+    },
+  )
+
+  watch(
+    () => [
+      store.pendingApprovalToolCallIds.join('|'),
+      store.pendingQuestions?.toolCallId ?? '',
+      getCurrentSessionPlanConfirmationId(),
+    ],
+    (next, previous) => {
+      if (hasNewActionRequest(next, previous)) {
+        queueScrollMessagesToBottom(true)
+      }
     },
   )
 

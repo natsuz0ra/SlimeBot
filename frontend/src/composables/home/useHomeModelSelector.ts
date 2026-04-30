@@ -21,6 +21,7 @@ export function useHomeModelSelector() {
     { value: 'low', label: t('thinkingLow') as string },
     { value: 'medium', label: t('thinkingMedium') as string },
     { value: 'high', label: t('thinkingHigh') as string },
+    { value: 'max', label: t('thinkingMax') as string },
   ])
 
   function syncModelToLocal(modelId: string) {

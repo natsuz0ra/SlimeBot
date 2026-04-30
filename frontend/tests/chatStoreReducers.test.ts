@@ -10,6 +10,8 @@ import {
   appendPlanChunkToBatch,
   appendTextChunkToBatch,
   finishOpenThinkingEntries,
+  finishAllSubagentThinkings,
+  finalizeOpenReplyRuntimeState,
   getLiveReplyContentSignature,
 } from '../src/utils/liveReplyTimeline'
 
@@ -135,6 +137,59 @@ test('subagent thinking chunks only update the latest open entry', () => {
 
   assert.deepEqual(batch.toolCalls[0]!.subagentThinkings?.map((item) => item.content), ['first', 'second'])
   assert.deepEqual(batch.toolCalls[0]!.subagentThinkings?.map((item) => item.done), [false, true])
+})
+
+test('finishAllSubagentThinkings closes open subagent thinking entries', () => {
+  const batch: AssistantReplyBatch = {
+    id: 'batch-1',
+    sessionId: 'session-1',
+    assistantMessageId: 'assistant-1',
+    toolCalls: [{
+      toolCallId: 'parent-tool',
+      toolName: 'run_subagent',
+      command: 'delegate',
+      params: {},
+      requiresApproval: false,
+      status: 'executing',
+      subagentThinkings: [
+        { content: 'first', done: true, startedAt: 500, durationMs: 250 },
+        { content: 'second', done: false, startedAt: 1000 },
+      ],
+    }],
+    timeline: [],
+    collapsed: false,
+  }
+
+  finishAllSubagentThinkings(batch, 1500)
+
+  assert.deepEqual(batch.toolCalls[0]!.subagentThinkings?.map((item) => item.done), [true, true])
+  assert.deepEqual(batch.toolCalls[0]!.subagentThinkings?.map((item) => item.durationMs), [250, 500])
+})
+
+test('finalizeOpenReplyRuntimeState marks open tools as cancelled errors', () => {
+  const batch: AssistantReplyBatch = {
+    id: 'batch-1',
+    sessionId: 'session-1',
+    assistantMessageId: 'assistant-1',
+    toolCalls: [{
+      toolCallId: 'parent-tool',
+      toolName: 'run_subagent',
+      command: 'delegate',
+      params: {},
+      requiresApproval: false,
+      status: 'executing',
+      subagentThinkings: [{ content: 'working', done: false, startedAt: 1000 }],
+    }],
+    timeline: [{ id: 'tool-start-1', kind: 'tool_start', toolCallId: 'parent-tool' }],
+    collapsed: false,
+  }
+
+  finalizeOpenReplyRuntimeState(batch, 'Execution cancelled.', 1750)
+
+  assert.equal(batch.toolCalls[0]!.status, 'error')
+  assert.equal(batch.toolCalls[0]!.error, 'Execution cancelled.')
+  assert.equal(batch.toolCalls[0]!.subagentThinkings?.[0]?.done, true)
+  assert.deepEqual(batch.timeline.map((entry) => entry.kind), ['tool_start', 'tool_result'])
 })
 
 test('getLiveReplyContentSignature changes when streaming plan content grows in place', () => {

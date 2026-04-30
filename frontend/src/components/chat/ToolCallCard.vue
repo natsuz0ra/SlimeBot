@@ -6,7 +6,7 @@ import MdiIcon from '@/components/ui/MdiIcon.vue'
 import ThinkingBlock from '@/components/chat/ThinkingBlock.vue'
 import type { ToolCallItem } from '@/api/chat'
 import { buildSubagentTimeline } from '@/utils/subagentTimeline'
-import { buildToolResultDisplay, formatDisplayText, formatToolParams, parseAskQuestionsReadableAnswers } from '@/utils/toolDisplay'
+import { buildToolCallSummary, buildToolResultDisplay, filterToolParamsForDetail, formatDisplayText, formatToolParams, parseAskQuestionsReadableAnswers } from '@/utils/toolDisplay'
 
 const props = withDefaults(defineProps<{
   item: ToolCallItem & { preamble?: string }
@@ -93,13 +93,14 @@ const statusTextClass = computed(() => {
 })
 
 const paramsDisplay = computed(() => {
-  return formatToolParams(props.item.params)
+  return formatToolParams(filterToolParamsForDetail(props.item))
 })
 const runSubagentParamsDisplay = computed(() => {
   if (!isRunSubagent.value) return paramsDisplay.value
-  const { context: _context, task: _task, ...rest } = props.item.params || {}
+  const { context: _context, ...rest } = filterToolParamsForDetail(props.item)
   return formatToolParams(rest)
 })
+const toolSummary = computed(() => buildToolCallSummary(props.item))
 const subagentContextSummary = computed(() => {
   if (!isRunSubagent.value) return ''
   return formatDisplayText(String(props.item.params?.context ?? '')).trim()
@@ -153,13 +154,13 @@ function toggleSubagentTimeline() {
         <div class="tool-meta">
           <MdiIcon :path="toolIcon" :size="16" class="tool-icon flex-shrink-0" />
           <span class="tool-label">{{ toolLabel }}</span>
-          <code
-            v-if="item.command && !isAskQuestions"
-            class="tool-command"
-            :title="item.command"
+          <span
+            v-if="toolSummary && !isAskQuestions"
+            class="tool-summary"
+            :title="toolSummary"
           >
-            {{ item.command }}
-          </code>
+            {{ toolSummary }}
+          </span>
           <span v-if="isAskQuestions && askQuestionsData" class="tool-qa-count">
             {{ askQuestionsData.length }} {{ t('qaTitle') }}
           </span>
@@ -478,28 +479,28 @@ function toggleSubagentTimeline() {
   gap: 5px;
   min-width: 0;
   flex: 1 1 auto;
-  max-width: calc(100% - 110px);
 }
 
-.tool-command {
-  display: inline-block;
-  max-width: min(48%, 320px);
+.tool-summary {
+  display: block;
+  flex: 1 1 auto;
   color: var(--tool-command-text);
   background: var(--tool-command-bg);
   border: 1px solid var(--tool-command-border);
   border-radius: 7px;
   padding: 1px 6px;
   font-size: 13px;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  min-width: 0;
 }
 
 .tool-status {
   display: inline-flex;
   align-items: center;
   gap: 5px;
+  flex: 0 0 auto;
   white-space: nowrap;
 }
 
@@ -560,7 +561,7 @@ function toggleSubagentTimeline() {
   font-size: 14px;
 }
 
-.tool-card--dense .tool-command {
+.tool-card--dense .tool-summary {
   font-size: 13px;
   padding: 1px 5px;
 }
@@ -1031,11 +1032,11 @@ details[open] > .tool-result-summary .tool-result-arrow {
   }
 
   .tool-meta {
-    max-width: calc(100% - 80px);
+    flex: 1 1 auto;
   }
 
-  .tool-command {
-    max-width: 42%;
+  .tool-summary {
+    flex: 1 1 auto;
   }
 
   .tool-actions {

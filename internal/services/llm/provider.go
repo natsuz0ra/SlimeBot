@@ -23,7 +23,8 @@ type Factory struct {
 func NewFactory(openai Provider) *Factory {
 	return &Factory{
 		providers: map[string]Provider{
-			ProviderOpenAI: openai,
+			ProviderOpenAI:   openai,
+			ProviderDeepSeek: openai,
 		},
 	}
 }

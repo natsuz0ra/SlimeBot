@@ -17,6 +17,10 @@ export function useHomeChatPage() {
   const uiState = useHomeUiState()
   const modelState = useHomeModelSelector()
   const isEmptySession = computed(() => !uiState.loading.value && store.messages.length === 0)
+  const currentSessionPlanConfirmationVisible = computed(() => (
+    !!store.pendingPlanConfirmation &&
+    store.pendingPlanConfirmation.sessionId === store.currentSessionId
+  ))
   const scrollState = useHomeScroll({
     store,
     isEmptySession,
@@ -91,6 +95,7 @@ export function useHomeChatPage() {
     pendingFiles: uiState.pendingFiles,
     loading: uiState.loading,
     isEmptySession,
+    currentSessionPlanConfirmationVisible,
     showScrollToBottom: scrollState.showScrollToBottom,
     settingsVisible: uiState.settingsVisible,
     toolDetailVisible: toolDetailState.toolDetailVisible,

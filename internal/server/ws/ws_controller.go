@@ -103,10 +103,15 @@ type approvalBroker struct {
 	mu sync.Mutex
 	// toolCallID -> channel for approval response.
 	channels map[string]chan chatsvc.ApprovalResponse
+	// toolCallID -> approval response that arrived before WaitApproval registered.
+	pending map[string]chatsvc.ApprovalResponse
 }
 
 func newApprovalBroker() *approvalBroker {
-	return &approvalBroker{channels: make(map[string]chan chatsvc.ApprovalResponse)}
+	return &approvalBroker{
+		channels: make(map[string]chan chatsvc.ApprovalResponse),
+		pending:  make(map[string]chatsvc.ApprovalResponse),
+	}
 }
 
 // Register registers an approval channel for a tool call; returns the receive channel.
@@ -114,6 +119,11 @@ func (b *approvalBroker) Register(toolCallID string) chan chatsvc.ApprovalRespon
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	ch := make(chan chatsvc.ApprovalResponse, 1)
+	if resp, ok := b.pending[toolCallID]; ok {
+		ch <- resp
+		delete(b.pending, toolCallID)
+		return ch
+	}
 	b.channels[toolCallID] = ch
 	return ch
 }
@@ -128,7 +138,9 @@ func (b *approvalBroker) Resolve(toolCallID string, resp chatsvc.ApprovalRespons
 		default:
 		}
 		delete(b.channels, toolCallID)
+		return
 	}
+	b.pending[toolCallID] = resp
 }
 
 // Remove drops the approval channel for a tool call (timeout or cancel).
@@ -136,6 +148,7 @@ func (b *approvalBroker) Remove(toolCallID string) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	delete(b.channels, toolCallID)
+	delete(b.pending, toolCallID)
 }
 
 // Chat handles a WebSocket: upgrades HTTP, starts read/write loops and chat loop.
@@ -466,6 +479,29 @@ func buildTodoUpdatePayload(sessionID string, update chatsvc.TodoUpdate, updated
 	return payload
 }
 
+func truncateWSString(value string, maxRunes int) string {
+	trimmed := strings.TrimSpace(value)
+	runes := []rune(trimmed)
+	if maxRunes <= 0 || len(runes) <= maxRunes {
+		return trimmed
+	}
+	if maxRunes <= 3 {
+		return string(runes[:maxRunes])
+	}
+	return string(runes[:maxRunes-3]) + "..."
+}
+
+func buildSubagentStartPayload(sessionID, parentToolCallID, runID, title, task string) map[string]any {
+	return map[string]any{
+		"type":             "subagent_start",
+		"sessionId":        sessionID,
+		"parentToolCallId": parentToolCallID,
+		"subagentRunId":    runID,
+		"title":            truncateWSString(title, 80),
+		"task":             truncateWSString(task, 512),
+	}
+}
+
 // buildCallbacks builds ChatService callbacks and maps them to WebSocket events.
 func (w *Controller) buildCallbacks(
 	enqueue func(any) bool,
@@ -585,18 +621,8 @@ func (w *Controller) buildCallbacks(
 			}
 			return nil
 		},
-		OnSubagentStart: func(parentToolCallID, runID, task string) error {
-			t := task
-			if len(t) > 512 {
-				t = t[:512] + "…"
-			}
-			if !enqueue(map[string]any{
-				"type":             "subagent_start",
-				"sessionId":        sessionID,
-				"parentToolCallId": parentToolCallID,
-				"subagentRunId":    runID,
-				"task":             t,
-			}) {
+		OnSubagentStart: func(parentToolCallID, runID, title, task string) error {
+			if !enqueue(buildSubagentStartPayload(sessionID, parentToolCallID, runID, title, task)) {
 				return context.Canceled
 			}
 			return nil

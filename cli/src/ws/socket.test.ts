@@ -133,3 +133,76 @@ test("dispatchWSMessage routes todo_update with items, note, and session id", ()
     ],
   }]);
 });
+
+test("dispatchWSMessage routes subagent_start with title and task", () => {
+  const calls: Array<{
+    sessionId?: string;
+    title: string;
+    task: string;
+  }> = [];
+  const handlers: WSHandlers = {
+    onSession: () => {},
+    onStart: () => {},
+    onChunk: () => {},
+    onDone: () => {},
+    onError: () => {},
+    onSubagentStart: (data, sessionId) => {
+      calls.push({ sessionId, title: data.title, task: data.task });
+    },
+  };
+
+  dispatchWSMessage(
+    JSON.stringify({
+      type: "subagent_start",
+      sessionId: "sid-sub",
+      parentToolCallId: "parent-tool",
+      subagentRunId: "run-1",
+      title: "Inspect UI cards",
+      task: "Inspect UI cards and report exact files",
+    }),
+    handlers,
+  );
+
+  assert.deepEqual(calls, [{
+    sessionId: "sid-sub",
+    title: "Inspect UI cards",
+    task: "Inspect UI cards and report exact files",
+  }]);
+});
+
+test("dispatchWSMessage routes subagent_done with error", () => {
+  const calls: Array<{
+    sessionId?: string;
+    parentToolCallId: string;
+    subagentRunId: string;
+    error?: string;
+  }> = [];
+  const handlers: WSHandlers = {
+    onSession: () => {},
+    onStart: () => {},
+    onChunk: () => {},
+    onDone: () => {},
+    onError: () => {},
+    onSubagentDone: (data, sessionId) => {
+      calls.push({ sessionId, ...data });
+    },
+  };
+
+  dispatchWSMessage(
+    JSON.stringify({
+      type: "subagent_done",
+      sessionId: "sid-sub",
+      parentToolCallId: "parent-tool",
+      subagentRunId: "run-1",
+      error: "context canceled",
+    }),
+    handlers,
+  );
+
+  assert.deepEqual(calls, [{
+    sessionId: "sid-sub",
+    parentToolCallId: "parent-tool",
+    subagentRunId: "run-1",
+    error: "context canceled",
+  }]);
+});

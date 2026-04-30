@@ -6,7 +6,7 @@ import MdiIcon from '@/components/ui/MdiIcon.vue'
 import ThinkingBlock from '@/components/chat/ThinkingBlock.vue'
 import type { ToolCallItem } from '@/api/chat'
 import { buildSubagentTimeline } from '@/utils/subagentTimeline'
-import { buildToolResultDisplay, formatDisplayText, formatToolParams, parseAskQuestionsReadableAnswers } from '@/utils/toolDisplay'
+import { buildToolCallSummary, buildToolResultDisplay, filterToolParamsForDetail, formatDisplayText, formatToolParams, parseAskQuestionsReadableAnswers } from '@/utils/toolDisplay'
 import { shouldAutoExpandToolCall } from '@/utils/toolApprovalExpansion'
 
 const props = withDefaults(defineProps<{
@@ -45,10 +45,7 @@ const toolLabel = computed(() => {
   return props.item.toolName
 })
 
-const commandDisplay = computed(() => {
-  if (!props.item.command) return ''
-  return `${props.item.toolName}.${props.item.command}()`
-})
+const toolSummary = computed(() => buildToolCallSummary(props.item))
 
 const statusIcon = computed(() => {
   switch (props.item.status) {
@@ -70,8 +67,9 @@ const showPendingLabel = computed(() => props.item.status === 'pending')
 
 const isRunSubagent = computed(() => props.item.toolName === 'run_subagent')
 const paramsDisplay = computed(() => {
-  if (!isRunSubagent.value) return formatToolParams(props.item.params)
-  const { context: _context, task: _task, ...rest } = props.item.params || {}
+  const filtered = filterToolParamsForDetail(props.item)
+  if (!isRunSubagent.value) return formatToolParams(filtered)
+  const { context: _context, ...rest } = filtered
   return formatToolParams(rest)
 })
 
@@ -121,7 +119,12 @@ const askQuestionsData = computed(() => {
 watch(
   shouldAutoExpand,
   (value) => {
-    if (value) expanded.value = true
+    if (value) {
+      expanded.value = true
+      return
+    }
+    expanded.value = false
+    subagentTimelineExpanded.value = false
   },
   { immediate: true },
 )
@@ -149,7 +152,7 @@ function toggleSubagentTimeline() {
         <MdiIcon :path="toolIcon" :size="14" class="inline-tool-icon" />
 
         <span class="inline-tool-name">{{ toolLabel }}</span>
-      <code v-if="commandDisplay && !isAskQuestions" class="inline-tool-cmd">{{ commandDisplay }}</code>
+      <span v-if="toolSummary && !isAskQuestions" class="inline-tool-summary" :title="toolSummary">{{ toolSummary }}</span>
 
       <span v-if="showPendingLabel" class="inline-tool-pending-label">
         {{ t('toolWaitingApproval') }}
@@ -390,19 +393,19 @@ function toggleSubagentTimeline() {
   white-space: nowrap;
 }
 
-.inline-tool-cmd {
+.inline-tool-summary {
   display: inline-block;
-  max-width: 200px;
+  max-width: min(42vw, 360px);
   color: var(--tool-command-text, #94a3b8);
   background: var(--tool-command-bg, rgba(30, 41, 59, 0.8));
   border: 1px solid var(--tool-command-border, rgba(100, 116, 139, 0.2));
   border-radius: 5px;
   padding: 1px 5px;
   font-size: 13px;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  min-width: 0;
 }
 
 .inline-tool-pending-label {

@@ -4,9 +4,12 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"slimebot/internal/constants"
+	"slimebot/internal/domain"
 	llmsvc "slimebot/internal/services/llm"
 )
 
@@ -88,6 +91,88 @@ func TestWrapSubagentCallbacksTagsThinkingEvents(t *testing.T) {
 	}
 	if len(done) != 1 || done[0] != want {
 		t.Fatalf("unexpected thinking done: %+v", done)
+	}
+}
+
+func TestHandleRunSubagentTool_EmitsNormalizedSubagentTitle(t *testing.T) {
+	provider := &captureToolDefsProvider{}
+	agent := NewAgentService(llmsvc.NewFactory(provider), nil, nil, nil)
+	agent.SetSubagentHost(&stubSubagentHost{})
+
+	var gotTitle string
+	var gotTask string
+	messages := []llmsvc.ChatMessage{{Role: "user", Content: "delegate"}}
+	err := agent.handleRunSubagentTool(
+		context.Background(),
+		llmsvc.ModelRuntimeConfig{Provider: llmsvc.ProviderOpenAI},
+		"session-1",
+		nil,
+		map[string]struct{}{},
+		AgentCallbacks{
+			OnSubagentStart: func(_ string, _ string, title string, task string) error {
+				gotTitle = title
+				gotTask = task
+				return nil
+			},
+		},
+		AgentLoopOptions{},
+		llmsvc.ToolCallInfo{ID: "call-subagent", Name: constants.RunSubagentTool},
+		resolvedToolInvocation{toolName: constants.RunSubagentTool, command: "run"},
+		map[string]string{
+			"title": "  Inspect\nprompt   flow  ",
+			"task":  "Inspect prompt flow and report risks",
+		},
+		"",
+		"",
+		&messages,
+	)
+	if err != nil {
+		t.Fatalf("handleRunSubagentTool failed: %v", err)
+	}
+	if gotTitle != "Inspect prompt flow" {
+		t.Fatalf("unexpected title: %q", gotTitle)
+	}
+	if gotTask != "Inspect prompt flow and report risks" {
+		t.Fatalf("unexpected task: %q", gotTask)
+	}
+}
+
+func TestHandleRunSubagentTool_FallsBackTitleToTask(t *testing.T) {
+	provider := &captureToolDefsProvider{}
+	agent := NewAgentService(llmsvc.NewFactory(provider), nil, nil, nil)
+	agent.SetSubagentHost(&stubSubagentHost{})
+
+	var gotTitle string
+	longTask := strings.Repeat("a", 90) + "\nmore detail"
+	messages := []llmsvc.ChatMessage{{Role: "user", Content: "delegate"}}
+	err := agent.handleRunSubagentTool(
+		context.Background(),
+		llmsvc.ModelRuntimeConfig{Provider: llmsvc.ProviderOpenAI},
+		"session-1",
+		nil,
+		map[string]struct{}{},
+		AgentCallbacks{
+			OnSubagentStart: func(_ string, _ string, title string, _ string) error {
+				gotTitle = title
+				return nil
+			},
+		},
+		AgentLoopOptions{},
+		llmsvc.ToolCallInfo{ID: "call-subagent", Name: constants.RunSubagentTool},
+		resolvedToolInvocation{toolName: constants.RunSubagentTool, command: "run"},
+		map[string]string{"task": longTask},
+		"",
+		"",
+		&messages,
+	)
+	if err != nil {
+		t.Fatalf("handleRunSubagentTool failed: %v", err)
+	}
+	if len([]rune(gotTitle)) > 80 {
+		t.Fatalf("fallback title should be capped to 80 runes, got %d: %q", len([]rune(gotTitle)), gotTitle)
+	}
+	if !strings.HasSuffix(gotTitle, "...") {
+		t.Fatalf("fallback title should show truncation suffix: %q", gotTitle)
 	}
 }
 
@@ -396,6 +481,247 @@ func TestRunAgentLoop_MainAgentStillStopsAtMaxIterations(t *testing.T) {
 	}
 }
 
+func TestRunAgentLoop_RunSubagentToolCallsExecuteConcurrentlyAndPreserveMessageOrder(t *testing.T) {
+	provider := newParallelSubagentProvider(false)
+	agent := NewAgentService(llmsvc.NewFactory(provider), nil, nil, nil)
+	agent.SetSubagentHost(&stubSubagentHost{})
+
+	var startMu sync.Mutex
+	startCounts := map[string]int{}
+	done := make(chan error, 1)
+	go func() {
+		answer, err := agent.RunAgentLoop(
+			context.Background(),
+			llmsvc.ModelRuntimeConfig{Provider: llmsvc.ProviderOpenAI},
+			"session-1",
+			[]llmsvc.ChatMessage{{Role: "user", Content: "delegate parallel subagents"}},
+			nil,
+			map[string]struct{}{},
+			AgentCallbacks{
+				OnToolCallStart: func(req ApprovalRequest) error {
+					startMu.Lock()
+					defer startMu.Unlock()
+					startCounts[req.ToolCallID]++
+					return nil
+				},
+			},
+			AgentLoopOptions{},
+		)
+		if err != nil {
+			done <- err
+			return
+		}
+		if answer != "parent done" {
+			done <- fmt.Errorf("unexpected answer: %q", answer)
+			return
+		}
+		done <- nil
+	}()
+
+	seen := map[string]bool{}
+	for len(seen) < 2 {
+		select {
+		case task := <-provider.started:
+			seen[task] = true
+		case err := <-done:
+			t.Fatalf("agent finished before both subagents started: %v", err)
+		case <-time.After(500 * time.Millisecond):
+			t.Fatalf("expected both subagents to start concurrently, saw %v", seen)
+		}
+	}
+	close(provider.release)
+
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("RunAgentLoop failed: %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("agent did not finish after releasing subagents")
+	}
+
+	toolOutputs := provider.parentToolOutputs()
+	if len(toolOutputs) != 2 {
+		t.Fatalf("expected two tool outputs in parent follow-up, got %d: %#v", len(toolOutputs), toolOutputs)
+	}
+	if !strings.Contains(toolOutputs[0], "answer task-a") || !strings.Contains(toolOutputs[1], "answer task-b") {
+		t.Fatalf("subagent tool outputs were not appended in original order: %#v", toolOutputs)
+	}
+
+	startMu.Lock()
+	defer startMu.Unlock()
+	if startCounts["call-a"] != 1 || startCounts["call-b"] != 1 {
+		t.Fatalf("expected one tool start per subagent, got %+v", startCounts)
+	}
+}
+
+func TestRunAgentLoop_CancelledSubagentEmitsDoneAndParentToolError(t *testing.T) {
+	provider := &cancelSubagentProvider{started: make(chan struct{})}
+	agent := NewAgentService(llmsvc.NewFactory(provider), nil, nil, nil)
+	agent.SetSubagentHost(&stubSubagentHost{})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	var (
+		subagentDoneErrs []error
+		toolResults      []ToolCallResult
+		mu               sync.Mutex
+	)
+	done := make(chan error, 1)
+	go func() {
+		_, err := agent.RunAgentLoop(
+			ctx,
+			llmsvc.ModelRuntimeConfig{Provider: llmsvc.ProviderOpenAI},
+			"session-1",
+			[]llmsvc.ChatMessage{{Role: "user", Content: "delegate cancellable subagent"}},
+			nil,
+			map[string]struct{}{},
+			AgentCallbacks{
+				OnSubagentDone: func(_ string, _ string, runErr error) error {
+					mu.Lock()
+					defer mu.Unlock()
+					subagentDoneErrs = append(subagentDoneErrs, runErr)
+					return nil
+				},
+				OnToolCallResult: func(result ToolCallResult) error {
+					mu.Lock()
+					defer mu.Unlock()
+					toolResults = append(toolResults, result)
+					return nil
+				},
+			},
+			AgentLoopOptions{},
+		)
+		done <- err
+	}()
+
+	select {
+	case <-provider.started:
+	case err := <-done:
+		t.Fatalf("agent finished before subagent started: %v", err)
+	case <-time.After(time.Second):
+		t.Fatal("subagent did not start")
+	}
+	cancel()
+
+	select {
+	case err := <-done:
+		if err == nil {
+			t.Fatal("expected canceled parent loop to return an error")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("agent did not finish after cancel")
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	if len(subagentDoneErrs) != 1 || subagentDoneErrs[0] == nil {
+		t.Fatalf("expected one subagent_done error, got %+v", subagentDoneErrs)
+	}
+	if !strings.Contains(subagentDoneErrs[0].Error(), context.Canceled.Error()) {
+		t.Fatalf("expected subagent_done context canceled error, got %v", subagentDoneErrs[0])
+	}
+	if len(toolResults) != 1 {
+		t.Fatalf("expected one parent tool result, got %+v", toolResults)
+	}
+	if got := toolResults[0]; got.ToolCallID != "call-cancel-subagent" || got.Status != constants.ToolCallStatusError || !strings.Contains(got.Error, context.Canceled.Error()) {
+		t.Fatalf("unexpected parent tool result: %+v", got)
+	}
+}
+
+func TestHandleChatStream_ParallelSubagentThinkingRecordsKeepSeparateScopes(t *testing.T) {
+	repo := newTestRepo(t)
+	ctx := context.Background()
+	session, err := repo.CreateSession(ctx, "s")
+	if err != nil {
+		t.Fatalf("create session failed: %v", err)
+	}
+	model, err := repo.CreateLLMConfig(domain.LLMConfig{
+		Name:     "fake",
+		Provider: llmsvc.ProviderOpenAI,
+		BaseURL:  "http://fake",
+		APIKey:   "key",
+		Model:    "fake-model",
+	})
+	if err != nil {
+		t.Fatalf("create model failed: %v", err)
+	}
+
+	provider := newParallelSubagentProvider(true)
+	svc := NewChatService(repo, nil, llmsvc.NewFactory(provider), nil, nil, nil)
+
+	done := make(chan error, 1)
+	go func() {
+		_, err := svc.HandleChatStream(ctx, session.ID, "request-1", "delegate parallel subagents", "", model.ID, nil, "high", false, "", AgentCallbacks{
+			OnChunk: func(string) error { return nil },
+		})
+		done <- err
+	}()
+
+	seen := map[string]bool{}
+	for len(seen) < 2 {
+		select {
+		case task := <-provider.started:
+			seen[task] = true
+		case err := <-done:
+			t.Fatalf("chat stream finished before both subagents started: %v", err)
+		case <-time.After(500 * time.Millisecond):
+			t.Fatalf("expected both subagents to start, saw %v", seen)
+		}
+	}
+	close(provider.release)
+
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("HandleChatStream failed: %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("chat stream did not finish after releasing subagents")
+	}
+
+	messages, _, err := repo.ListSessionMessagesPage(session.ID, 10, nil, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("list messages failed: %v", err)
+	}
+	var assistantID string
+	for _, message := range messages {
+		if message.Role == "assistant" {
+			assistantID = message.ID
+			break
+		}
+	}
+	if assistantID == "" {
+		t.Fatal("expected assistant message")
+	}
+	records, err := repo.ListSessionThinkingRecordsByAssistantMessageIDs(session.ID, []string{assistantID})
+	if err != nil {
+		t.Fatalf("list thinking records failed: %v", err)
+	}
+	if len(records) != 2 {
+		t.Fatalf("expected two subagent thinking records, got %d: %+v", len(records), records)
+	}
+	byParent := map[string]string{}
+	runIDs := map[string]bool{}
+	for _, record := range records {
+		if record.ParentToolCallID == "" || record.SubagentRunID == "" {
+			t.Fatalf("subagent thinking record missing scope: %+v", record)
+		}
+		byParent[record.ParentToolCallID] = record.Content
+		runIDs[record.SubagentRunID] = true
+		if record.Status != constants.ToolCallStatusCompleted {
+			t.Fatalf("thinking record should be completed: %+v", record)
+		}
+	}
+	if byParent["call-a"] != "thought task-a" || byParent["call-b"] != "thought task-b" {
+		t.Fatalf("thinking records attached to wrong parents: %+v", byParent)
+	}
+	if len(runIDs) != 2 {
+		t.Fatalf("expected distinct subagent run ids, got %+v", runIDs)
+	}
+}
+
 type stubSubagentHost struct {
 	resolved     llmsvc.ModelRuntimeConfig
 	resolveErr   error
@@ -411,6 +737,157 @@ type subagentReasoningIterationProvider struct {
 type loopUntilTextProvider struct {
 	call       int
 	textAtCall int
+}
+
+type parallelSubagentProvider struct {
+	started      chan string
+	release      chan struct{}
+	emitThinking bool
+
+	mu             sync.Mutex
+	parentFollowup []llmsvc.ChatMessage
+}
+
+func newParallelSubagentProvider(emitThinking bool) *parallelSubagentProvider {
+	return &parallelSubagentProvider{
+		started:      make(chan string, 2),
+		release:      make(chan struct{}),
+		emitThinking: emitThinking,
+	}
+}
+
+func (p *parallelSubagentProvider) parentToolOutputs() []string {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	var outputs []string
+	for _, msg := range p.parentFollowup {
+		if msg.Role == "tool" {
+			outputs = append(outputs, msg.Content)
+		}
+	}
+	return outputs
+}
+
+func (p *parallelSubagentProvider) StreamChatWithTools(
+	ctx context.Context,
+	_ llmsvc.ModelRuntimeConfig,
+	messages []llmsvc.ChatMessage,
+	_ []llmsvc.ToolDef,
+	callbacks llmsvc.StreamCallbacks,
+) (*llmsvc.StreamResult, error) {
+	if task, ok := parallelSubagentTask(messages); ok {
+		p.started <- task
+		if p.emitThinking && callbacks.OnThinkingChunk != nil {
+			if err := callbacks.OnThinkingChunk("thought " + task); err != nil {
+				return nil, err
+			}
+		}
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-p.release:
+		}
+		if callbacks.OnChunk != nil {
+			if err := callbacks.OnChunk("answer " + task); err != nil {
+				return nil, err
+			}
+		}
+		return &llmsvc.StreamResult{Type: llmsvc.StreamResultText}, nil
+	}
+
+	if hasToolMessages(messages) {
+		p.mu.Lock()
+		p.parentFollowup = append([]llmsvc.ChatMessage{}, messages...)
+		p.mu.Unlock()
+		if callbacks.OnChunk != nil {
+			if err := callbacks.OnChunk("parent done"); err != nil {
+				return nil, err
+			}
+		}
+		return &llmsvc.StreamResult{Type: llmsvc.StreamResultText}, nil
+	}
+
+	toolCalls := []llmsvc.ToolCallInfo{
+		{ID: "call-a", Name: constants.RunSubagentTool, Arguments: `{"title":"A","task":"task-a"}`},
+		{ID: "call-b", Name: constants.RunSubagentTool, Arguments: `{"title":"B","task":"task-b"}`},
+	}
+	return &llmsvc.StreamResult{
+		Type:      llmsvc.StreamResultToolCalls,
+		ToolCalls: toolCalls,
+		AssistantMessage: llmsvc.ChatMessage{
+			Role:      "assistant",
+			ToolCalls: toolCalls,
+		},
+	}, nil
+}
+
+type cancelSubagentProvider struct {
+	started chan struct{}
+	once    sync.Once
+}
+
+func (p *cancelSubagentProvider) StreamChatWithTools(
+	ctx context.Context,
+	_ llmsvc.ModelRuntimeConfig,
+	messages []llmsvc.ChatMessage,
+	_ []llmsvc.ToolDef,
+	_ llmsvc.StreamCallbacks,
+) (*llmsvc.StreamResult, error) {
+	if containsMessageText(messages, "cancel-task") {
+		p.once.Do(func() { close(p.started) })
+		<-ctx.Done()
+		return nil, ctx.Err()
+	}
+	if hasToolMessages(messages) {
+		<-ctx.Done()
+		return nil, ctx.Err()
+	}
+	toolCalls := []llmsvc.ToolCallInfo{{
+		ID:        "call-cancel-subagent",
+		Name:      constants.RunSubagentTool,
+		Arguments: `{"title":"Cancel child","task":"cancel-task"}`,
+	}}
+	return &llmsvc.StreamResult{
+		Type:      llmsvc.StreamResultToolCalls,
+		ToolCalls: toolCalls,
+		AssistantMessage: llmsvc.ChatMessage{
+			Role:      "assistant",
+			ToolCalls: toolCalls,
+		},
+	}, nil
+}
+
+func parallelSubagentTask(messages []llmsvc.ChatMessage) (string, bool) {
+	for _, msg := range messages {
+		if msg.Role != "user" {
+			continue
+		}
+		switch {
+		case strings.Contains(msg.Content, "task-a"):
+			return "task-a", true
+		case strings.Contains(msg.Content, "task-b"):
+			return "task-b", true
+		}
+	}
+	return "", false
+}
+
+func containsMessageText(messages []llmsvc.ChatMessage, text string) bool {
+	for _, msg := range messages {
+		if strings.Contains(msg.Content, text) {
+			return true
+		}
+	}
+	return false
+}
+
+func hasToolMessages(messages []llmsvc.ChatMessage) bool {
+	for _, msg := range messages {
+		if msg.Role == "tool" {
+			return true
+		}
+	}
+	return false
 }
 
 func (p *loopUntilTextProvider) StreamChatWithTools(

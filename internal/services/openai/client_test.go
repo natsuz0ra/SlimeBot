@@ -6,6 +6,8 @@ import (
 	"testing"
 
 	llmsvc "slimebot/internal/services/llm"
+
+	"github.com/openai/openai-go/v3"
 )
 
 func TestSupportsDeveloperRole(t *testing.T) {
@@ -50,6 +52,66 @@ func TestBuildRequestMessages_DeveloperRoleFallback(t *testing.T) {
 	supportedJSON := string(rawSupported)
 	if !strings.Contains(supportedJSON, `"role":"developer"`) {
 		t.Fatalf("expected developer role preserved, got: %s", supportedJSON)
+	}
+}
+
+func TestApplyThinkingParamsDeepSeek(t *testing.T) {
+	tests := []struct {
+		name         string
+		level        string
+		wantThinking string
+		wantEffort   string
+		forbidEffort bool
+	}{
+		{name: "off disables thinking", level: "off", wantThinking: `"thinking":{"type":"disabled"}`, forbidEffort: true},
+		{name: "empty disables thinking", level: "", wantThinking: `"thinking":{"type":"disabled"}`, forbidEffort: true},
+		{name: "low maps to high", level: "low", wantThinking: `"thinking":{"type":"enabled"}`, wantEffort: `"reasoning_effort":"high"`},
+		{name: "medium maps to high", level: "medium", wantThinking: `"thinking":{"type":"enabled"}`, wantEffort: `"reasoning_effort":"high"`},
+		{name: "high maps to high", level: "high", wantThinking: `"thinking":{"type":"enabled"}`, wantEffort: `"reasoning_effort":"high"`},
+		{name: "max maps to max", level: "max", wantThinking: `"thinking":{"type":"enabled"}`, wantEffort: `"reasoning_effort":"max"`},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			params := openai.ChatCompletionNewParams{}
+			applyThinkingParams(&params, llmsvc.ModelRuntimeConfig{
+				Provider:      llmsvc.ProviderDeepSeek,
+				ThinkingLevel: tt.level,
+			})
+			raw, err := json.Marshal(params)
+			if err != nil {
+				t.Fatalf("marshal params failed: %v", err)
+			}
+			got := string(raw)
+			if !strings.Contains(got, tt.wantThinking) {
+				t.Fatalf("expected %s in payload, got: %s", tt.wantThinking, got)
+			}
+			if tt.wantEffort != "" && !strings.Contains(got, tt.wantEffort) {
+				t.Fatalf("expected %s in payload, got: %s", tt.wantEffort, got)
+			}
+			if tt.forbidEffort && strings.Contains(got, `"reasoning_effort"`) {
+				t.Fatalf("did not expect reasoning_effort in payload, got: %s", got)
+			}
+		})
+	}
+}
+
+func TestApplyThinkingParamsOpenAIDoesNotSendDeepSeekThinking(t *testing.T) {
+	params := openai.ChatCompletionNewParams{}
+	applyThinkingParams(&params, llmsvc.ModelRuntimeConfig{
+		Provider:      llmsvc.ProviderOpenAI,
+		ThinkingLevel: "high",
+	})
+	raw, err := json.Marshal(params)
+	if err != nil {
+		t.Fatalf("marshal params failed: %v", err)
+	}
+	got := string(raw)
+	if strings.Contains(got, `"thinking"`) {
+		t.Fatalf("openai provider should not receive DeepSeek thinking field: %s", got)
+	}
+	if !strings.Contains(got, `"reasoning_effort":"high"`) {
+		t.Fatalf("expected generic reasoning_effort in payload, got: %s", got)
 	}
 }
 

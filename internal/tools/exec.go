@@ -79,7 +79,7 @@ func (e *execTool) Commands() []Command {
 				{Name: "timeout_ms", Required: false, Description: "Optional timeout in milliseconds. Default 30000, max 600000.", Example: "120000"},
 				{Name: "shell", Required: false, Description: "Shell selection: auto|bash|sh|powershell|cmd. Default auto.", Example: "auto"},
 				{Name: "working_directory", Required: false, Description: "Optional working directory. Must exist and be a directory.", Example: "g:\\gitCode\\SlimeBot"},
-				{Name: "description", Required: false, Description: "Short human-readable intent for approval and audit.", Example: "Run unit tests for tools package"},
+				{Name: "description", Required: true, Description: "Required short human-readable intent for approval and audit.", Example: "Run unit tests for tools package"},
 			},
 		},
 	}
@@ -187,6 +187,9 @@ func parseExecRunConfig(params map[string]string) (execRunConfig, error) {
 	cfg.workingDirectory = wd
 	if cfg.command == "" {
 		return execRunConfig{}, fmt.Errorf("command is required")
+	}
+	if cfg.description == "" {
+		return execRunConfig{}, fmt.Errorf("description is required")
 	}
 	return cfg, nil
 }

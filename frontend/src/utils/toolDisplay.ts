@@ -46,6 +46,14 @@ export interface AskQuestionsQuestion {
   option_descriptions?: string[]
 }
 
+export interface ToolCallSummaryInput {
+  toolName: string
+  command: string
+  params?: Record<string, string>
+  subagentTitle?: string
+  subagentTask?: string
+}
+
 export function parseAskQuestionsAnswers(raw: string): AskQuestionsAnswer[] | null {
   const parsed = tryParseJSON(raw)
   if (!Array.isArray(parsed)) return null
@@ -204,6 +212,84 @@ export function formatToolParams(params: Record<string, string>): Array<{ key: s
   return Object.keys(params)
     .sort()
     .map((key) => ({ key, value: formatDisplayText(params[key] ?? '') }))
+}
+
+function normalizedParam(params: Record<string, string> | undefined, key: string): string {
+  return String(params?.[key] ?? '').trim()
+}
+
+function firstNonEmptyParam(params: Record<string, string> | undefined): { key: string; value: string } | null {
+  if (!params) return null
+  for (const key of Object.keys(params).sort()) {
+    const value = normalizedParam(params, key)
+    if (value !== '') return { key, value }
+  }
+  return null
+}
+
+export function getToolSummaryParamKeys(toolCall: ToolCallSummaryInput): string[] {
+  const toolName = toolCall.toolName.trim().toLowerCase()
+  const command = toolCall.command.trim().toLowerCase()
+  const params = toolCall.params || {}
+
+  if (toolName === 'exec' && command === 'run' && normalizedParam(params, 'description') !== '') {
+    return ['description']
+  }
+  if ((toolName === 'web_search' || toolName === 'search_memory') && normalizedParam(params, 'query') !== '') {
+    return ['query']
+  }
+  if (toolName === 'run_subagent') {
+    const keys: string[] = []
+    if (normalizedParam(params, 'title') !== '') keys.push('title')
+    if (normalizedParam(params, 'task') !== '') keys.push('task')
+    if (keys.length > 0) return keys
+  }
+  if (toolName === 'http_request' && command === 'request') {
+    const keys: string[] = []
+    if (normalizedParam(params, 'method') !== '') keys.push('method')
+    if (normalizedParam(params, 'url') !== '') keys.push('url')
+    if (keys.length > 0) return keys
+  }
+
+  const fallback = firstNonEmptyParam(params)
+  return fallback ? [fallback.key] : []
+}
+
+export function buildToolCallSummary(toolCall: ToolCallSummaryInput): string {
+  const toolName = toolCall.toolName.trim().toLowerCase()
+  const command = toolCall.command.trim().toLowerCase()
+  const params = toolCall.params || {}
+
+  if (toolName === 'exec' && command === 'run') {
+    return normalizedParam(params, 'description')
+  }
+  if (toolName === 'web_search' || toolName === 'search_memory') {
+    const query = normalizedParam(params, 'query')
+    return query
+  }
+  if (toolName === 'run_subagent') {
+    const title = String(toolCall.subagentTitle ?? '').trim() || normalizedParam(params, 'title')
+    if (title) return title
+    const task = normalizedParam(params, 'task') || String(toolCall.subagentTask ?? '').trim()
+    return task ? `task: ${task}` : ''
+  }
+  if (toolName === 'http_request' && command === 'request') {
+    const method = normalizedParam(params, 'method').toUpperCase()
+    const url = normalizedParam(params, 'url')
+    return [method, url].filter(Boolean).join(' ')
+  }
+
+  const fallback = firstNonEmptyParam(params)
+  return fallback ? `${fallback.key}: ${fallback.value}` : ''
+}
+
+export function filterToolParamsForDetail(toolCall: ToolCallSummaryInput): Record<string, string> {
+  const hidden = new Set(getToolSummaryParamKeys(toolCall))
+  const result: Record<string, string> = {}
+  for (const [key, value] of Object.entries(toolCall.params || {})) {
+    if (!hidden.has(key)) result[key] = value
+  }
+  return result
 }
 
 export function buildToolResultDisplay(toolName: string, command: string, output?: string): ToolResultDisplay {

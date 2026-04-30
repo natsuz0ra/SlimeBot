@@ -34,8 +34,8 @@ function toRgbString(c: RGB): string {
   return `rgb(${c.r},${c.g},${c.b})`;
 }
 
-const DEFAULT_BASE: RGB = { r: 130, g: 115, b: 160 };   // #8273a0 readable mid-purple
-const DEFAULT_SHIMMER: RGB = { r: 167, g: 139, b: 250 }; // #a78bfa logo purple
+const DEFAULT_BASE: RGB = { r: 169, g: 141, b: 238 };   // #a98dee bright readable purple
+const DEFAULT_SHIMMER: RGB = { r: 233, g: 213, b: 255 }; // #e9d5ff pale purple highlight
 
 export function GradientFlowText({
   text,

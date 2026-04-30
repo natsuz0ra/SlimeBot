@@ -13,6 +13,37 @@ import (
 	"github.com/google/uuid"
 )
 
+const maxSubagentTitleRunes = 80
+
+func normalizeSubagentTitle(title, task string) string {
+	normalized := strings.Join(strings.Fields(strings.TrimSpace(title)), " ")
+	if normalized == "" {
+		normalized = strings.Join(strings.Fields(strings.TrimSpace(task)), " ")
+	}
+	runes := []rune(normalized)
+	if len(runes) <= maxSubagentTitleRunes {
+		return normalized
+	}
+	if maxSubagentTitleRunes <= 3 {
+		return string(runes[:maxSubagentTitleRunes])
+	}
+	return string(runes[:maxSubagentTitleRunes-3]) + "..."
+}
+
+func cloneActivatedSkills(activated map[string]struct{}) map[string]struct{} {
+	cloned := make(map[string]struct{}, len(activated))
+	for name := range activated {
+		cloned[name] = struct{}{}
+	}
+	return cloned
+}
+
+func mergeActivatedSkills(dst, src map[string]struct{}) {
+	for name := range src {
+		dst[name] = struct{}{}
+	}
+}
+
 func (a *AgentService) handleRunSubagentTool(
 	ctx context.Context,
 	parentModel llmsvc.ModelRuntimeConfig,
@@ -28,19 +59,48 @@ func (a *AgentService) handleRunSubagentTool(
 	preamble string,
 	messages *[]llmsvc.ChatMessage,
 ) error {
+	execResult, err := a.executeRunSubagentTool(ctx, parentModel, sessionID, mcpConfigs, activatedSkills, callbacks, opts, tc, invocation, params, userSubagentModelID, preamble)
+	if err != nil {
+		return err
+	}
+	resultStatus := buildToolResultStatus(execResult)
+	notifyToolResult(callbacks, ToolCallResult{
+		ToolCallID:       tc.ID,
+		ToolName:         invocation.toolName,
+		Command:          invocation.command,
+		RequiresApproval: invocation.requiresApproval,
+		Status:           resultStatus,
+		Output:           execResult.Output,
+		Error:            execResult.Error,
+	})
+	*messages = appendToolMessage(*messages, tc.ID, buildToolResultContent(execResult))
+	return nil
+}
+
+func (a *AgentService) executeRunSubagentTool(
+	ctx context.Context,
+	parentModel llmsvc.ModelRuntimeConfig,
+	sessionID string,
+	mcpConfigs []domain.MCPConfig,
+	activatedSkills map[string]struct{},
+	callbacks AgentCallbacks,
+	opts AgentLoopOptions,
+	tc llmsvc.ToolCallInfo,
+	invocation resolvedToolInvocation,
+	params map[string]string,
+	userSubagentModelID string,
+	preamble string,
+) (*tools.ExecuteResult, error) {
 	if a.subagentHost == nil {
-		*messages = appendToolMessage(*messages, tc.ID, "subagent execution is not configured")
-		return nil
+		return &tools.ExecuteResult{Output: "subagent execution is not configured"}, nil
 	}
 	if opts.Depth >= constants.MaxSubagentDepth {
-		*messages = appendToolMessage(*messages, tc.ID, "nested run_subagent is not allowed")
-		return nil
+		return &tools.ExecuteResult{Output: "nested run_subagent is not allowed"}, nil
 	}
 
 	task := strings.TrimSpace(params["task"])
 	if task == "" {
-		*messages = appendToolMessage(*messages, tc.ID, "task is required")
-		return nil
+		return &tools.ExecuteResult{Output: "task is required"}, nil
 	}
 
 	if callbacks.OnToolCallStart != nil {
@@ -52,14 +112,13 @@ func (a *AgentService) handleRunSubagentTool(
 			RequiresApproval: invocation.requiresApproval,
 			Preamble:         preamble,
 		}); err != nil {
-			return fmt.Errorf("failed to push tool approval request: %w", err)
+			return nil, fmt.Errorf("failed to push tool approval request: %w", err)
 		}
 	}
 
 	approved, rejectionMessage, _ := waitApprovalIfNeeded(ctx, callbacks, tc, invocation, params, preamble)
 	if !approved {
-		*messages = appendToolMessage(*messages, tc.ID, rejectionMessage)
-		return nil
+		return &tools.ExecuteResult{Output: rejectionMessage}, nil
 	}
 
 	parentCtx := strings.TrimSpace(params["context"])
@@ -71,17 +130,7 @@ func (a *AgentService) handleRunSubagentTool(
 		resolved, err := a.subagentHost.ResolveModelRuntimeConfig(ctx, userOverride)
 		if err != nil {
 			msg := fmt.Sprintf("failed to resolve user subagent model: %s", err.Error())
-			notifyToolResult(callbacks, ToolCallResult{
-				ToolCallID:       tc.ID,
-				ToolName:         invocation.toolName,
-				Command:          invocation.command,
-				RequiresApproval: invocation.requiresApproval,
-				Status:           constants.ToolCallStatusError,
-				Output:           "",
-				Error:            msg,
-			})
-			*messages = appendToolMessage(*messages, tc.ID, msg)
-			return nil
+			return &tools.ExecuteResult{Error: msg}, nil
 		}
 		resolved.ThinkingLevel = parentModel.ThinkingLevel
 		subModel = resolved
@@ -90,22 +139,12 @@ func (a *AgentService) handleRunSubagentTool(
 	subMsgs, err := a.subagentHost.BuildSubagentMessages(ctx, sessionID, task, parentCtx)
 	if err != nil {
 		msg := fmt.Sprintf("failed to build subagent context: %s", err.Error())
-		notifyToolResult(callbacks, ToolCallResult{
-			ToolCallID:       tc.ID,
-			ToolName:         invocation.toolName,
-			Command:          invocation.command,
-			RequiresApproval: invocation.requiresApproval,
-			Status:           constants.ToolCallStatusError,
-			Output:           "",
-			Error:            msg,
-		})
-		*messages = appendToolMessage(*messages, tc.ID, msg)
-		return nil
+		return &tools.ExecuteResult{Error: msg}, nil
 	}
 
 	runID := uuid.NewString()
 	if callbacks.OnSubagentStart != nil {
-		_ = callbacks.OnSubagentStart(tc.ID, runID, task)
+		_ = callbacks.OnSubagentStart(tc.ID, runID, normalizeSubagentTitle(params["title"], task), task)
 	}
 
 	subCb := wrapSubagentCallbacks(callbacks, tc.ID, runID)
@@ -124,17 +163,5 @@ func (a *AgentService) handleRunSubagentTool(
 		execResult = &tools.ExecuteResult{Output: strings.TrimSpace(answer), Error: ""}
 	}
 
-	resultStatus := buildToolResultStatus(execResult)
-	notifyToolResult(callbacks, ToolCallResult{
-		ToolCallID:       tc.ID,
-		ToolName:         invocation.toolName,
-		Command:          invocation.command,
-		RequiresApproval: invocation.requiresApproval,
-		Status:           resultStatus,
-		Output:           execResult.Output,
-		Error:            execResult.Error,
-	})
-
-	*messages = appendToolMessage(*messages, tc.ID, buildToolResultContent(execResult))
-	return nil
+	return execResult, nil
 }

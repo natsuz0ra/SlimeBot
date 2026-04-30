@@ -5,13 +5,18 @@ import test from "node:test";
 import type { TimelineEntry } from "../types";
 import {
   PLAN_GOLD,
+  SHOW_CLI_THINKING,
   WAITING_STATS_COLOR,
+  buildTimelineDisplayRows,
   formatSubagentThinkingLines,
   formatRunSubagentDetailLines,
+  getRunSubagentDetailLineColor,
   formatPlanningIndicatorParts,
   formatThinkingLabel,
   formatToolOutputLines,
   formatToolParamLines,
+  formatToolStatusPart,
+  formatToolSummaryTag,
   formatPlanFrameLines,
   formatWaitingPromptText,
   formatTodoListLines,
@@ -131,6 +136,19 @@ test("formatThinkingLabel uses fixed duration after thinking completes", () => {
   assert.equal(label, "Thought for 1.8s");
 });
 
+test("formatToolStatusPart maps statuses to distinct colored labels", () => {
+  assert.deepEqual(formatToolStatusPart("completed"), { text: "✓ completed", color: "#2E7D32" });
+  assert.deepEqual(formatToolStatusPart("error"), { text: "✕ failed", color: "#C62828" });
+  assert.deepEqual(formatToolStatusPart("rejected"), { text: "✕ rejected", color: "#C62828" });
+  assert.deepEqual(formatToolStatusPart("pending"), { text: "? pending approval", color: "#B8860B" });
+  assert.deepEqual(formatToolStatusPart("executing"), { text: "… executing", color: "#B8860B" });
+});
+
+test("formatToolSummaryTag wraps non-empty summaries and hides empty ones", () => {
+  assert.equal(formatToolSummaryTag("查看全局安装的 opencode-ai 版本"), "[查看全局安装的 opencode-ai 版本]");
+  assert.equal(formatToolSummaryTag(""), "");
+});
+
 test("formatSubagentThinkingLines shows live child reasoning while sub-agent is still running", () => {
   const entry: TimelineEntry = {
     kind: "tool",
@@ -166,6 +184,26 @@ test("formatSubagentThinkingLines collapses completed child reasoning by default
 
   assert.equal(lines[0], "   Sub-agent thought for 1.2s");
   assert.ok(lines.some((line) => line.includes("ctrl+o to expand")));
+});
+
+test("CLI thinking display is disabled by default", () => {
+  assert.equal(SHOW_CLI_THINKING, false);
+});
+
+test("buildTimelineDisplayRows hides top-level thinking entries by default", () => {
+  const rows = buildTimelineDisplayRows([
+    { kind: "user", content: "question" },
+    {
+      kind: "thinking",
+      content: "private reasoning",
+      thinkingDone: true,
+      thinkingDurationMs: 1200,
+    },
+    { kind: "assistant", content: "answer" },
+  ]);
+
+  assert.deepEqual(rows.map((row) => row.entry.kind), ["user", "assistant"]);
+  assert.ok(rows.every((row) => !row.entry.content.includes("private reasoning")));
 });
 
 function runSubagentFixture(): { parent: TimelineEntry; nested: TimelineEntry[] } {
@@ -226,10 +264,83 @@ test("formatRunSubagentDetailLines keeps collapsed display to one-line summaries
 
   assert.ok(lines.some((line) => line.includes("Context → repo context line 1 ... +3 more lines")));
   assert.ok(lines.some((line) => line.includes("Task → inspect the display ordering ... +1 more lines")));
-  assert.ok(lines.some((line) => line.includes("Thinking & tools: thinking complete in 1.3s · 1 tool")));
+  assert.ok(lines.some((line) => line.includes("Thinking & tools: 1 tool")));
   assert.ok(lines.some((line) => line.includes("Result → final result line 1")));
-  assert.ok(lines.every((line) => !line.includes("child reason 4")));
+  assert.ok(lines.every((line) => !line.includes("child reason")));
+  assert.ok(lines.every((line) => !line.includes("thinking complete")));
   assert.ok(lines.every((line) => !line.includes("final result line 4")));
+});
+
+test("getRunSubagentDetailLineColor renders content sections white and thinking cyan", () => {
+  assert.equal(getRunSubagentDetailLineColor("   鈹溾攢 Context 鈫?repo context"), "white");
+  assert.equal(getRunSubagentDetailLineColor("                 wrapped context", "white"), "white");
+  assert.equal(getRunSubagentDetailLineColor("   鈹溾攢 Task 鈫?inspect display"), "white");
+  assert.equal(getRunSubagentDetailLineColor("   鈹斺攢 Result 鈫?final result"), "white");
+  assert.equal(getRunSubagentDetailLineColor("   鈹溾攢 Thinking & tools: 1 tool"), "cyan");
+  assert.equal(getRunSubagentDetailLineColor("                 nested tool detail", "cyan"), "gray");
+  assert.equal(getRunSubagentDetailLineColor("   鈹溾攢 Params"), "gray");
+});
+
+test("formatRunSubagentDetailLines shows active subagent thinking without details", () => {
+  const { parent, nested } = runSubagentFixture();
+  parent.status = "executing";
+  parent.output = "";
+  parent.subagentThinking = {
+    content: "private child reasoning",
+    thinkingDone: false,
+  };
+
+  const lines = formatRunSubagentDetailLines(parent, nested, 100, true);
+
+  assert.ok(lines.some((line) => line.includes("Thinking & tools: Thinking...")));
+  assert.ok(lines.every((line) => !line.includes("private child reasoning")));
+  assert.ok(lines.every((line) => !line.includes("Sub-agent thinking")));
+  assert.ok(lines.every((line) => !line.includes("Sub-agent thought")));
+});
+
+test("formatRunSubagentDetailLines shows active child tool name and description", () => {
+  const { parent, nested } = runSubagentFixture();
+  parent.status = "executing";
+  parent.output = "";
+  nested.push({
+    kind: "tool",
+    content: "",
+    toolCallId: "active-child",
+    toolName: "exec",
+    command: "run",
+    status: "executing",
+    params: {
+      command: "npm install -g @openai/codex",
+      description: "npm安装codex",
+    },
+    parentToolCallId: "parent",
+    subagentRunId: "run-1",
+  });
+
+  const lines = formatRunSubagentDetailLines(parent, nested, 100, false);
+
+  assert.ok(lines.some((line) => line.includes("Thinking & tools: exec [npm安装codex]")));
+});
+
+test("formatRunSubagentDetailLines uses stable fallback for active child tool without description", () => {
+  const { parent } = runSubagentFixture();
+  parent.status = "executing";
+  parent.output = "";
+  const lines = formatRunSubagentDetailLines(parent, [{
+    kind: "tool",
+    content: "",
+    toolCallId: "active-child",
+    toolName: "exec",
+    command: "run",
+    status: "executing",
+    params: {
+      command: "npm install -g @openai/codex",
+    },
+    parentToolCallId: "parent",
+    subagentRunId: "run-1",
+  }], 100, false);
+
+  assert.ok(lines.some((line) => line.includes("Thinking & tools: exec [exec.run()]")));
 });
 
 test("formatRunSubagentDetailLines aligns wrapped collapsed summaries under the value", () => {
@@ -250,14 +361,42 @@ test("formatRunSubagentDetailLines aligns wrapped collapsed summaries under the 
   assert.equal(continuationIndent, valueStart);
 });
 
+test("formatRunSubagentDetailLines keeps tree guides on wrapped non-final summaries", () => {
+  const { parent, nested } = runSubagentFixture();
+  parent.params = {
+    context: "This context summary is intentionally long enough to wrap before the task section",
+    task: "short task",
+  };
+  parent.output = "This result summary is intentionally long enough to wrap after all previous sections";
+
+  const maxWidth = 42;
+  const safeWidth = maxWidth - 2;
+  const lines = formatRunSubagentDetailLines(parent, nested, maxWidth, false);
+  const contextIndex = lines.findIndex((line) => line.includes("Context"));
+  const resultIndex = lines.findIndex((line) => line.includes("Result"));
+
+  assert.ok(contextIndex >= 0);
+  assert.ok(resultIndex >= 0);
+  assert.equal(lines[contextIndex + 1]!.startsWith("   │"), true);
+  assert.equal(lines[contextIndex + 1]!.startsWith("│"), false);
+  assert.equal(lines[resultIndex + 1]!.startsWith("   "), true);
+  assert.equal(lines[resultIndex + 1]!.includes("│"), false);
+  assert.ok(lines.every((line) => stringWidth(stripAnsi(line)) <= safeWidth));
+});
+
 test("formatRunSubagentDetailLines expands full details and keeps collapse hint", () => {
   const { parent, nested } = runSubagentFixture();
   const lines = formatRunSubagentDetailLines(parent, nested, 100, true);
 
   assert.ok(lines.some((line) => line.includes("repo context line 4")));
-  assert.ok(lines.some((line) => line.includes("child reason 4")));
   assert.ok(lines.some((line) => line.includes("final result line 4")));
+  assert.ok(lines.some((line) => line.includes("Thinking & tools")));
+  assert.ok(lines.some((line) => line.includes("1 tool")));
   assert.ok(lines.some((line) => line.includes("ctrl+o to collapse")));
+  assert.ok(lines.every((line) => !line.includes("child reason")));
+  assert.ok(lines.every((line) => !line.includes("Sub-agent thinking")));
+  assert.ok(lines.every((line) => !line.includes("Sub-agent thought")));
+  assert.ok(lines.every((line) => !line.includes("thinking complete")));
 });
 
 test("formatRunSubagentDetailLines hides context and task from extra params", () => {

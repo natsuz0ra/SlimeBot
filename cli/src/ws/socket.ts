@@ -4,7 +4,7 @@
  */
 
 import WebSocket from "ws";
-import type { SubagentChunkData, TodoUpdateData, ToolCallStartData, ToolCallResultData } from "../types.js";
+import type { SubagentChunkData, SubagentDoneData, SubagentStartData, TodoUpdateData, ToolCallStartData, ToolCallResultData } from "../types.js";
 
 export interface ThinkingEventData {
   content?: string;
@@ -24,7 +24,9 @@ export interface WSHandlers {
   onError: (error: string, sessionId?: string) => void;
   onToolCallStart?: (data: ToolCallStartData, sessionId?: string) => void;
   onToolCallResult?: (data: ToolCallResultData, sessionId?: string) => void;
+  onSubagentStart?: (data: SubagentStartData, sessionId?: string) => void;
   onSubagentChunk?: (data: SubagentChunkData, sessionId?: string) => void;
+  onSubagentDone?: (data: SubagentDoneData, sessionId?: string) => void;
   onThinkingStart?: (data: ThinkingEventData) => void;
   onThinkingChunk?: (data: ThinkingEventData) => void;
   onThinkingDone?: (data: ThinkingEventData) => void;
@@ -53,6 +55,8 @@ interface WSIncoming {
   isStopPlaceholder?: boolean;
   parentToolCallId?: string;
   subagentRunId?: string;
+  title?: string;
+  task?: string;
   planId?: string;
   planBody?: string;
   narration?: string;
@@ -251,6 +255,17 @@ export function dispatchWSMessage(raw: string, handlers: WSHandlers | null): voi
     );
   }
 
+  if (msg.type === "subagent_done") {
+    handlers?.onSubagentDone?.(
+      {
+        parentToolCallId: msg.parentToolCallId || "",
+        subagentRunId: msg.subagentRunId || "",
+        error: msg.error,
+      },
+      msg.sessionId,
+    );
+  }
+
   if (msg.type === "thinking_start") {
     handlers?.onThinkingStart?.({
       parentToolCallId: msg.parentToolCallId,
@@ -269,6 +284,18 @@ export function dispatchWSMessage(raw: string, handlers: WSHandlers | null): voi
       parentToolCallId: msg.parentToolCallId,
       subagentRunId: msg.subagentRunId,
     });
+  }
+
+  if (msg.type === "subagent_start") {
+    handlers?.onSubagentStart?.(
+      {
+        parentToolCallId: msg.parentToolCallId || "",
+        subagentRunId: msg.subagentRunId || "",
+        title: msg.title || "",
+        task: msg.task || "",
+      },
+      msg.sessionId,
+    );
   }
 
   if (msg.type === "todo_update") {

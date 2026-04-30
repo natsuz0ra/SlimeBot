@@ -56,6 +56,7 @@ export interface ToolCallResultData {
 export interface SubagentStartData {
   parentToolCallId: string
   subagentRunId: string
+  title: string
   task: string
 }
 
@@ -116,6 +117,7 @@ type WSIncoming = {
   isStopPlaceholder?: boolean
   parentToolCallId?: string
   subagentRunId?: string
+  title?: string
   task?: string
   planId?: string
   planBody?: string
@@ -182,6 +184,7 @@ export function dispatchChatSocketMessage(raw: string, handlers: ChatSocketHandl
     handlers?.onSubagentStart?.({
       parentToolCallId: data.parentToolCallId || '',
       subagentRunId: data.subagentRunId || '',
+      title: data.title || '',
       task: data.task || '',
     }, data.sessionId)
   }

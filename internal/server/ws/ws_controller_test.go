@@ -26,6 +26,27 @@ func TestChatTimingPayloadsUseServerReceivedAndDoneTimes(t *testing.T) {
 	}
 }
 
+func TestApprovalBrokerDeliversResponseResolvedBeforeRegister(t *testing.T) {
+	broker := newApprovalBroker()
+	broker.Resolve("call-fast", chatsvc.ApprovalResponse{
+		ToolCallID: "call-fast",
+		Approved:   true,
+	})
+
+	ch := broker.Register("call-fast")
+
+	select {
+	case resp := <-ch:
+		if resp.ToolCallID != "call-fast" || !resp.Approved {
+			t.Fatalf("unexpected approval response: %+v", resp)
+		}
+	case <-time.After(100 * time.Millisecond):
+		t.Fatal("expected queued approval response")
+	}
+
+	broker.Remove("call-fast")
+}
+
 func TestBuildTodoUpdatePayloadIncludesSessionScopedItems(t *testing.T) {
 	updatedAt := time.Date(2026, 4, 29, 1, 2, 3, 0, time.UTC)
 	payload := buildTodoUpdatePayload("session-1", chatsvc.TodoUpdate{
@@ -52,5 +73,28 @@ func TestBuildTodoUpdatePayloadIncludesSessionScopedItems(t *testing.T) {
 	items, ok := payload["items"].([]chatsvc.TodoItem)
 	if !ok || len(items) != 1 || items[0].Status != "in_progress" {
 		t.Fatalf("unexpected items: %+v", payload["items"])
+	}
+}
+
+func TestBuildSubagentStartPayloadIncludesTitleAndTask(t *testing.T) {
+	payload := buildSubagentStartPayload("session-1", "parent-call", "run-1", "Inspect UI cards", "Inspect UI cards and report exact files")
+
+	if payload["type"] != "subagent_start" {
+		t.Fatalf("unexpected type: %+v", payload)
+	}
+	if payload["sessionId"] != "session-1" {
+		t.Fatalf("unexpected session id: %+v", payload)
+	}
+	if payload["parentToolCallId"] != "parent-call" {
+		t.Fatalf("unexpected parent id: %+v", payload)
+	}
+	if payload["subagentRunId"] != "run-1" {
+		t.Fatalf("unexpected run id: %+v", payload)
+	}
+	if payload["title"] != "Inspect UI cards" {
+		t.Fatalf("unexpected title: %+v", payload)
+	}
+	if payload["task"] != "Inspect UI cards and report exact files" {
+		t.Fatalf("unexpected task: %+v", payload)
 	}
 }

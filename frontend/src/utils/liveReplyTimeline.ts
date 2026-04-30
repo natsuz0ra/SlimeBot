@@ -1,4 +1,5 @@
 import type { AssistantReplyBatch, AssistantReplyTimelineItem } from './replyBatchBuilder'
+import type { ToolCallStatus } from '@/types/chat'
 
 type ThinkingTimelineItem = Extract<AssistantReplyTimelineItem, { kind: 'thinking' }>
 
@@ -101,6 +102,75 @@ export function finishSubagentThinking(batch: AssistantReplyBatch, parentToolCal
   }
   toolCall.subagentThinkings = [...entries]
   toolCall.subagentThinking = toolCall.subagentThinkings[toolCall.subagentThinkings.length - 1]
+}
+
+export function finishAllSubagentThinkings(batch: AssistantReplyBatch, finishedAt = Date.now()) {
+  for (const toolCall of batch.toolCalls) {
+    const entries = toolCall.subagentThinkings ?? (toolCall.subagentThinking ? [toolCall.subagentThinking] : [])
+    if (entries.length === 0) continue
+    let changed = false
+    const nextEntries = entries.map((entry) => {
+      if (entry.done) return entry
+      changed = true
+      return {
+        ...entry,
+        done: true,
+        finishedAt,
+        durationMs: entry.startedAt ? Math.max(0, finishedAt - entry.startedAt) : entry.durationMs,
+      }
+    })
+    if (!changed) continue
+    toolCall.subagentThinkings = nextEntries
+    toolCall.subagentThinking = nextEntries[nextEntries.length - 1]
+  }
+}
+
+function isOpenToolStatus(status: ToolCallStatus | undefined) {
+  return status === 'pending' || status === 'executing'
+}
+
+export function markOpenToolCallsError(batch: AssistantReplyBatch, error = 'Execution cancelled.', finishedAt = Date.now()) {
+  const existingResultIds = new Set(
+    batch.timeline
+      .filter((entry) => entry.kind === 'tool_result')
+      .map((entry) => entry.toolCallId),
+  )
+  for (const toolCall of batch.toolCalls) {
+    if (!isOpenToolStatus(toolCall.status)) continue
+    toolCall.status = 'error'
+    toolCall.error = toolCall.error || error
+    toolCall.finishedAt = toolCall.finishedAt || finishedAt
+    if (!toolCall.parentToolCallId && !existingResultIds.has(toolCall.toolCallId)) {
+      batch.timeline.push({
+        id: crypto.randomUUID(),
+        kind: 'tool_result',
+        toolCallId: toolCall.toolCallId,
+      })
+      existingResultIds.add(toolCall.toolCallId)
+    }
+  }
+}
+
+export function markToolCallError(batch: AssistantReplyBatch, toolCallId: string, error = 'Execution cancelled.', finishedAt = Date.now()) {
+  const toolCall = batch.toolCalls.find((item) => item.toolCallId === toolCallId)
+  if (!toolCall || !isOpenToolStatus(toolCall.status)) return
+  toolCall.status = 'error'
+  toolCall.error = toolCall.error || error
+  toolCall.finishedAt = toolCall.finishedAt || finishedAt
+  const hasResult = batch.timeline.some((entry) => entry.kind === 'tool_result' && entry.toolCallId === toolCallId)
+  if (!toolCall.parentToolCallId && !hasResult) {
+    batch.timeline.push({
+      id: crypto.randomUUID(),
+      kind: 'tool_result',
+      toolCallId,
+    })
+  }
+}
+
+export function finalizeOpenReplyRuntimeState(batch: AssistantReplyBatch, error = 'Execution cancelled.', finishedAt = Date.now()) {
+  finishOpenThinkingEntries(batch, finishedAt)
+  finishAllSubagentThinkings(batch, finishedAt)
+  markOpenToolCallsError(batch, error, finishedAt)
 }
 
 export function appendTextChunkToBatch(batch: AssistantReplyBatch, chunk: string) {

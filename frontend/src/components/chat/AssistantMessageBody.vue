@@ -29,6 +29,12 @@ const renderedTimeline = computed(() => (
     ? fullTimeline.value
     : fullTimeline.value.filter((entry) => collapsedEntryIds.value.has(entry.id))
 ))
+const pendingApprovalIds = computed(() => fullTimeline.value
+  .filter((entry) => entry.kind === 'tool_start')
+  .map((entry) => entry.kind === 'tool_start' ? ctx.getReplyToolItem(props.item.id, entry.toolCallId) : undefined)
+  .filter((tool) => tool && tool.status === 'pending' && tool.toolName !== 'ask_questions')
+  .map((tool) => tool!.toolCallId))
+const showBatchApprovalActions = computed(() => pendingApprovalIds.value.length > 1)
 const isTypingPlaceholder = computed(() => ctx.isEmptyPlaceholder(props.item.id) && ctx.waiting)
 const elapsedMs = computed(() => {
   elapsedTick.value
@@ -140,6 +146,15 @@ onUnmounted(() => {
       </div>
     </TransitionGroup>
 
+    <div v-if="showBatchApprovalActions" class="reply-approval-actions">
+      <button type="button" class="reply-approval-btn reply-approval-btn--approve" @click="ctx.approveAllPendingToolCalls()">
+        {{ t('toolCallApproveAll') }}
+      </button>
+      <button type="button" class="reply-approval-btn reply-approval-btn--reject" @click="ctx.rejectAllPendingToolCalls()">
+        {{ t('toolCallRejectAll') }}
+      </button>
+    </div>
+
     <div v-if="isTypingPlaceholder" class="assistant-typing-placeholder">
       <TypingDots />
     </div>
@@ -164,6 +179,34 @@ onUnmounted(() => {
   min-height: 40px;
   display: flex;
   align-items: center;
+}
+
+.reply-approval-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: min(100%, 680px);
+}
+
+.reply-approval-btn {
+  min-height: 30px;
+  padding: 6px 12px;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.reply-approval-btn--approve {
+  color: var(--tool-success-text);
+  background: var(--tool-success-bg);
+  border: 1px solid var(--tool-success-border);
+}
+
+.reply-approval-btn--reject {
+  color: var(--tool-error-text);
+  background: var(--tool-error-bg);
+  border: 1px solid var(--tool-error-border);
 }
 
 .assistant-reply-segment {

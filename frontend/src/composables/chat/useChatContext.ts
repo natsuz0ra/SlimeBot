@@ -20,6 +20,8 @@ export interface ChatMessageContext {
   isEmptyPlaceholder: (messageId: string) => boolean
   openToolDetail: (messageId: string) => void
   approveToolCall: (toolCallId: string, approved: boolean) => void
+  approveAllPendingToolCalls: () => void
+  rejectAllPendingToolCalls: () => void
   isFailedUserMessage: (messageId: string) => boolean
   isAssistantErrorMessage: (messageId: string) => boolean
   isChatAssistantAvatarAnimated: (messageId: string) => boolean

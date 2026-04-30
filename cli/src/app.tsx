@@ -17,7 +17,7 @@ import { MCPTemplatePicker } from "./components/MCPTemplatePicker.js";
 import { MenuView } from "./components/MenuView.js";
 import { ModelEditor } from "./components/ModelEditor.js";
 import { TextInput } from "./components/TextInput.js";
-import { Timeline } from "./components/Timeline.js";
+import { SHOW_CLI_THINKING, Timeline } from "./components/Timeline.js";
 import { reducer, createInitialState } from "./reducer.js";
 import { completeCommand, isCommand } from "./utils/commands.js";
 import { formatTimestamp, formatWaitingStatsSuffix } from "./utils/format.js";
@@ -44,6 +44,15 @@ import type {
   ToolCallStatus,
 } from "./types.js";
 import { MCP_TEMPLATES, THINKING_LEVELS } from "./types.js";
+
+const MODEL_PROVIDER_ORDER: ModelProvider[] = ["openai", "anthropic", "deepseek"];
+
+function moveModelProvider(current: ModelProvider, delta: number): ModelProvider {
+  const currentIndex = MODEL_PROVIDER_ORDER.indexOf(current);
+  const start = currentIndex >= 0 ? currentIndex : 0;
+  const next = (start + delta + MODEL_PROVIDER_ORDER.length) % MODEL_PROVIDER_ORDER.length;
+  return MODEL_PROVIDER_ORDER[next];
+}
 
 /** Detects ctrl+letter keypresses, with a fallback for terminals/OS
  *  combos where Ink's `key.ctrl` flag is not set (e.g. Windows).
@@ -79,6 +88,38 @@ export function getChatFooterHint(planMode: boolean, approvalMode: AppState["app
     ? "/ for commands | Shift+Tab to toggle | Esc to cancel"
     : "/ for commands | Shift+Tab plan mode | Esc to cancel";
 }
+
+function subagentHistoryFields(tc: ToolCallHistoryItem): Partial<TimelineEntry> {
+  if ((tc.toolName || "").trim().toLowerCase() !== "run_subagent") return {};
+  const title = String(tc.subagentTitle ?? tc.params?.title ?? "").trim();
+  const task = String(tc.subagentTask ?? tc.params?.task ?? "").trim();
+  return {
+    ...(title ? { subagentTitle: title } : {}),
+    ...(task ? { subagentTask: task } : {}),
+  };
+}
+
+function normalizeHistoryToolCall(tc: ToolCallHistoryItem, interrupted: boolean): ToolCallHistoryItem {
+  if (!interrupted || (tc.status !== "pending" && tc.status !== "executing")) {
+    return tc;
+  }
+  return {
+    ...tc,
+    status: "error",
+    error: tc.error || "Execution cancelled.",
+  };
+}
+
+function normalizeHistoryThinking(thinking: ThinkingHistoryItem, interrupted: boolean): ThinkingHistoryItem {
+  if (!interrupted || thinking.status !== "streaming") {
+    return thinking;
+  }
+  return {
+    ...thinking,
+    status: "completed",
+  };
+}
+
 interface AppProps {
   apiURL: string;
   cliToken: string;
@@ -101,10 +142,11 @@ export function mapHistoryMessages(
       continue;
     }
     if (msg.role === "assistant") {
-      const toolCalls = [...(toolCallsByMsgId[msg.id] || [])].sort((a, b) => {
+      const interrupted = !!msg.isInterrupted;
+      const toolCalls = [...(toolCallsByMsgId[msg.id] || [])].map((tc) => normalizeHistoryToolCall(tc, interrupted)).sort((a, b) => {
         return new Date(a.startedAt).getTime() - new Date(b.startedAt).getTime();
       });
-      const thinkingRecords = [...(thinkingByMsgId[msg.id] || [])].sort((a, b) => {
+      const thinkingRecords = [...(thinkingByMsgId[msg.id] || [])].map((thinking) => normalizeHistoryThinking(thinking, interrupted)).sort((a, b) => {
         return new Date(a.startedAt || 0).getTime() - new Date(b.startedAt || 0).getTime();
       });
 
@@ -157,6 +199,7 @@ export function mapHistoryMessages(
               error: tc.error,
               ...(tc.parentToolCallId ? { parentToolCallId: tc.parentToolCallId } : {}),
               ...(tc.subagentRunId ? { subagentRunId: tc.subagentRunId } : {}),
+              ...subagentHistoryFields(tc),
               ...(subagentThinking ? {
                 subagentThinking: {
                   content: subagentThinking.content || "",
@@ -227,6 +270,7 @@ export function mapHistoryMessages(
               error: tc.error,
               ...(tc.parentToolCallId ? { parentToolCallId: tc.parentToolCallId } : {}),
               ...(tc.subagentRunId ? { subagentRunId: tc.subagentRunId } : {}),
+              ...subagentHistoryFields(tc),
               ...(subagentThinking ? {
                 subagentThinking: {
                   content: subagentThinking.content || "",
@@ -263,6 +307,7 @@ export function mapHistoryMessages(
             error: tc.error,
             ...(tc.parentToolCallId ? { parentToolCallId: tc.parentToolCallId } : {}),
             ...(tc.subagentRunId ? { subagentRunId: tc.subagentRunId } : {}),
+            ...subagentHistoryFields(tc),
             ...(subagentThinking ? {
               subagentThinking: {
                 content: subagentThinking.content || "",
@@ -409,6 +454,7 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
     low: "Light reasoning (8K budget)",
     medium: "Moderate reasoning (16K budget)",
     high: "Deep reasoning (32K budget)",
+    max: "Maximum reasoning (64K budget or provider max)",
   };
 
   const toggleThinkingLevel = useCallback(() => {
@@ -996,12 +1042,13 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
             } catch { /* ignore */ }
           } else {
             dispatch({
-              type: "SET_APPROVAL",
-              toolCallId: data.toolCallId,
-              toolName: data.toolName,
-              command: data.command,
-              params: data.params,
-              replyCh: () => {},
+              type: "ADD_PENDING_APPROVAL",
+              item: {
+                toolCallId: data.toolCallId,
+                toolName: data.toolName,
+                command: data.command,
+                params: data.params,
+              },
             } as AppAction);
           }
         }
@@ -1022,6 +1069,24 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
             subagentRunId: data.subagentRunId,
           },
         } as AppAction);
+        dispatch({ type: "REMOVE_PENDING_APPROVAL", toolCallId: data.toolCallId } as AppAction);
+      },
+      onSubagentStart: (data) => {
+        if (!data.parentToolCallId) return;
+        dispatch({
+          type: "UPSERT_TOOL_ENTRY",
+          entry: {
+            kind: "tool",
+            toolCallId: data.parentToolCallId,
+            toolName: "run_subagent",
+            command: "delegate",
+            status: "executing",
+            content: "",
+            subagentRunId: data.subagentRunId,
+            subagentTitle: data.title,
+            subagentTask: data.task,
+          },
+        } as AppAction);
       },
       onSubagentChunk: (data) => {
         if (!data.parentToolCallId || !data.content) return;
@@ -1029,6 +1094,15 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
           type: "APPEND_SUBAGENT_STREAM",
           parentToolCallId: data.parentToolCallId,
           content: data.content,
+        } as AppAction);
+      },
+      onSubagentDone: (data) => {
+        if (!data.parentToolCallId) return;
+        dispatch({
+          type: "SUBAGENT_DONE",
+          parentToolCallId: data.parentToolCallId,
+          error: data.error,
+          finishedAt: Date.now(),
         } as AppAction);
       },
       onThinkingStart: (data) => {
@@ -1099,33 +1173,52 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
     }
 
     if (state.view === "approval") {
+      const currentApproval = state.pendingApprovals[state.approvalCursor] ?? {
+        toolCallId: state.approvalToolCallId,
+        toolName: state.approvalToolName,
+        command: state.approvalCommand,
+        params: state.approvalParams,
+      };
+      const settleApproval = (toolCallId: string, approved: boolean) => {
+        socketRef.current?.sendToolApproval(toolCallId, approved);
+        dispatch({
+          type: "UPSERT_TOOL_ENTRY",
+          entry: {
+            kind: "tool",
+            toolCallId,
+            status: approved ? "executing" : "rejected",
+            error: approved ? "" : "Execution was rejected by the user.",
+            content: "",
+          },
+        } as AppAction);
+        dispatch({ type: "REMOVE_PENDING_APPROVAL", toolCallId } as AppAction);
+      };
+      if (key.upArrow) {
+        dispatch({ type: "APPROVAL_NAV", delta: -1 } as AppAction);
+        return;
+      }
+      if (key.downArrow) {
+        dispatch({ type: "APPROVAL_NAV", delta: 1 } as AppAction);
+        return;
+      }
+      if (input === "a" || input === "A") {
+        for (const item of state.pendingApprovals) {
+          settleApproval(item.toolCallId, true);
+        }
+        dispatch({ type: "CLEAR_PENDING_APPROVALS" } as AppAction);
+        return;
+      }
+      if (input === "r" || input === "R") {
+        for (const item of state.pendingApprovals) {
+          settleApproval(item.toolCallId, false);
+        }
+        dispatch({ type: "CLEAR_PENDING_APPROVALS" } as AppAction);
+        return;
+      }
       if (input === "y" || input === "Y") {
-        state.approvalReplyCh?.(true);
-        socketRef.current?.sendToolApproval(state.approvalToolCallId, true);
-        dispatch({
-          type: "UPSERT_TOOL_ENTRY",
-          entry: {
-            kind: "tool",
-            toolCallId: state.approvalToolCallId,
-            status: "executing",
-            content: "",
-          },
-        } as AppAction);
-        dispatch({ type: "CLEAR_APPROVAL" } as AppAction);
+        settleApproval(currentApproval.toolCallId, true);
       } else if (input === "n" || input === "N" || key.escape) {
-        state.approvalReplyCh?.(false);
-        socketRef.current?.sendToolApproval(state.approvalToolCallId, false);
-        dispatch({
-          type: "UPSERT_TOOL_ENTRY",
-          entry: {
-            kind: "tool",
-            toolCallId: state.approvalToolCallId,
-            status: "rejected",
-            error: "Execution was rejected by the user.",
-            content: "",
-          },
-        } as AppAction);
-        dispatch({ type: "CLEAR_APPROVAL" } as AppAction);
+        settleApproval(currentApproval.toolCallId, false);
       }
       return;
     }
@@ -1322,11 +1415,11 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
     if (state.view === "model-editor") {
       if (state.modelEditorProviderSelect) {
         if (key.upArrow) {
-          dispatch({ type: "SET_MODEL_EDITOR_PROVIDER", provider: "openai" as ModelProvider } as AppAction);
+          dispatch({ type: "SET_MODEL_EDITOR_PROVIDER", provider: moveModelProvider(state.modelEditorProvider, -1) } as AppAction);
           return;
         }
         if (key.downArrow) {
-          dispatch({ type: "SET_MODEL_EDITOR_PROVIDER", provider: "anthropic" as ModelProvider } as AppAction);
+          dispatch({ type: "SET_MODEL_EDITOR_PROVIDER", provider: moveModelProvider(state.modelEditorProvider, 1) } as AppAction);
           return;
         }
         if (key.return || key.escape) {
@@ -1366,6 +1459,10 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
     }
   });
 
+  const topLevelThinkingActive = state.timeline.some((entry) =>
+    entry.kind === "thinking" && entry.thinkingDone !== true
+  );
+
   return (
     <Box flexDirection="column">
       <Banner version={state.version} modelName={state.modelName} cwd={state.cwd} approvalMode={state.approvalMode} thinkingLevel={state.thinkingLevel} />
@@ -1381,13 +1478,13 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
             maxWidth={width}
             compact={state.compact}
             toolOutputExpanded={state.toolOutputExpanded}
-            thinkingEntryIndex={state.timeline.filter((e) => e.kind === "thinking").length}
             planGenerating={state.planGenerating}
             planReceived={state.planReceived}
             waitingStatsSuffix={state.streaming ? formatWaitingStatsSuffix({
               elapsedMs: state.turnElapsedMs,
               tokenEstimate: state.turnTokenEstimate,
               thoughtDurationMs: state.turnThoughtDurationMs,
+              thinkingActive: topLevelThinkingActive,
             }) : ""}
             runtimeTodos={state.runtimeTodos}
           />
@@ -1410,9 +1507,9 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
               if (!value) return;
               dispatch({ type: "SET_INPUT", value: "" } as AppAction);
 
-              // Check if input is a number → view thinking detail
+              // Kept behind the display flag so hidden thinking data remains recoverable later.
               const num = parseInt(value, 10);
-              if (!isNaN(num) && String(num) === value && num > 0) {
+              if (SHOW_CLI_THINKING && !isNaN(num) && String(num) === value && num > 0) {
                 const thinkingEntries = state.timeline.filter((e) => e.kind === "thinking");
                 if (num <= thinkingEntries.length) {
                   dispatch({
@@ -1471,6 +1568,8 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
           toolName={state.approvalToolName}
           command={state.approvalCommand}
           params={state.approvalParams}
+          items={state.pendingApprovals}
+          cursor={state.approvalCursor}
         />
       )}
 
@@ -1573,7 +1672,7 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
           model={state.modelEditorModel}
           focusIndex={state.modelEditorFocusIndex}
           providerSelect={state.modelEditorProviderSelect}
-          providerCursor={state.modelEditorProvider === "openai" ? 0 : 1}
+          providerCursor={Math.max(0, MODEL_PROVIDER_ORDER.indexOf(state.modelEditorProvider))}
           onNameChange={(name) => dispatch({ type: "SET_MODEL_EDITOR_NAME", name } as AppAction)}
           onProviderChange={(provider) => dispatch({ type: "SET_MODEL_EDITOR_PROVIDER", provider } as AppAction)}
           onBaseUrlChange={(url) => dispatch({ type: "SET_MODEL_EDITOR_BASE_URL", baseUrl: url } as AppAction)}
@@ -1613,7 +1712,7 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
 
       {state.view === "approval" && (
         <Text color="gray" dimColor>
-          Y to approve | N/Esc to reject
+          ↑/↓ select | Y approve | N/Esc reject | A approve all | R reject all
         </Text>
       )}
 
@@ -1643,4 +1742,3 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
     </Box>
   );
 }
-

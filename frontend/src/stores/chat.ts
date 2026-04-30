@@ -14,7 +14,8 @@ import {
   type AssistantReplyTimelineItem,
 } from '@/utils/replyBatchBuilder'
 import { hasContentMarkers, parseContentMarkers, stripContentMarkers } from '@/utils/contentMarkers'
-import { appendPlanBodyToBatch, appendPlanChunkToBatch, appendSubagentThinkingChunk, appendTextChunkToBatch, finalizeReplyBatchTiming, finishOpenThinkingEntries, finishSubagentThinking, markLastThinkingDone, startSubagentThinking } from '@/utils/liveReplyTimeline'
+import { appendPlanBodyToBatch, appendPlanChunkToBatch, appendSubagentThinkingChunk, appendTextChunkToBatch, finalizeOpenReplyRuntimeState, finalizeReplyBatchTiming, finishOpenThinkingEntries, finishSubagentThinking, markLastThinkingDone, markToolCallError, startSubagentThinking } from '@/utils/liveReplyTimeline'
+import { getBatchApprovalToolCallIds, markToolApprovalDecision } from '@/utils/toolApprovals'
 
 const HISTORY_PAGE_SIZE = 10
 const MAX_SESSION_PAGE_SIZE = 100
@@ -47,7 +48,8 @@ export const useChatStore = defineStore('chat', () => {
   const currentBatchId = ref<string>('')
   const assistantErrorIds = ref(new Set<string>())
   const failedUserMessageIds = ref(new Set<string>())
-  const pendingPlanConfirmation = ref<{ planId: string; content: string } | null>(null)
+  const pendingPlanConfirmation = ref<{ sessionId: string; planId: string; content: string } | null>(null)
+  const pendingApprovalToolCallIds = computed(() => replyBatches.value.flatMap((batch) => getBatchApprovalToolCallIds(batch.toolCalls)))
 
   interface QuestionItem {
     id: string
@@ -453,6 +455,7 @@ export const useChatStore = defineStore('chat', () => {
         planGenerating.value = false
         const batch = getCurrentBatch()
         if (batch) {
+          finalizeOpenReplyRuntimeState(batch, 'Execution cancelled.', parseSocketTimestamp(meta?.finishedAt))
           const assistant = messages.value.find((msg) => msg.id === batch.assistantMessageId)
           if (assistant) {
             assistant.isInterrupted = !!meta?.isInterrupted
@@ -477,6 +480,7 @@ export const useChatStore = defineStore('chat', () => {
         currentBatchId.value = ''
         if (meta?.planId) {
           pendingPlanConfirmation.value = {
+            sessionId,
             planId: meta.planId,
             content: meta.planBody || (answer ? stripContentMarkers(answer) : ''),
           }
@@ -488,6 +492,10 @@ export const useChatStore = defineStore('chat', () => {
         waiting.value = false
         streamingStarted.value = false
         connectionError.value = error
+        const batch = getCurrentBatch()
+        if (batch) {
+          finalizeOpenReplyRuntimeState(batch, error || 'Execution cancelled.')
+        }
         finalizeAssistantError(error, sessionId)
       },
       onToolCallStart: (data, sessionId) => {
@@ -557,6 +565,7 @@ export const useChatStore = defineStore('chat', () => {
         const parent = batch.toolCalls.find((tc) => tc.toolCallId === data.parentToolCallId)
         if (parent) {
           parent.subagentRunId = data.subagentRunId
+          parent.subagentTitle = data.title
           parent.subagentTask = data.task
           if (parent.subagentStream === undefined) parent.subagentStream = ''
         }
@@ -571,9 +580,17 @@ export const useChatStore = defineStore('chat', () => {
           parent.subagentStream += data.content
         }
       },
-      onSubagentDone: (_data, sessionId) => {
+      onSubagentDone: (data, sessionId) => {
         if (!sessionId || sessionId !== currentSessionId.value) return
-        // Final text also arrives via tool_call_result; no state change required here.
+        const batch = getCurrentBatch()
+        if (!batch) return
+        finishSubagentThinking(batch, data.parentToolCallId)
+        if (data.error) {
+          const parent = batch.toolCalls.find((tc) => tc.toolCallId === data.parentToolCallId)
+          if (parent && (parent.status === 'pending' || parent.status === 'executing')) {
+            markToolCallError(batch, data.parentToolCallId, data.error)
+          }
+        }
       },
       onThinkingStart: (data, sessionId) => {
         if (!sessionId || sessionId !== currentSessionId.value) return
@@ -646,11 +663,19 @@ export const useChatStore = defineStore('chat', () => {
         waiting.value = false
         streamingStarted.value = false
         connectionError.value = error
+        const batch = getCurrentBatch()
+        if (batch) {
+          finalizeOpenReplyRuntimeState(batch, error || 'Execution cancelled.')
+        }
         clearRuntimeTodos()
       },
       onClose: () => {
         waiting.value = false
         streamingStarted.value = false
+        const batch = getCurrentBatch()
+        if (batch) {
+          finalizeOpenReplyRuntimeState(batch)
+        }
         clearRuntimeTodos()
       },
       onStatusChange: (status, error) => {
@@ -739,11 +764,20 @@ export const useChatStore = defineStore('chat', () => {
 
   function approveToolCall(toolCallId: string, approved: boolean) {
     const batch = replyBatches.value.find((group) => group.toolCalls.some((tc) => tc.toolCallId === toolCallId))
-    const item = batch?.toolCalls.find((tc) => tc.toolCallId === toolCallId)
-    if (item) {
-      item.status = approved ? 'executing' : 'rejected'
-    }
+    if (batch) markToolApprovalDecision(batch.toolCalls, toolCallId, approved)
     ws.sendToolApproval(toolCallId, approved)
+  }
+
+  function approveAllPendingToolCalls() {
+    for (const toolCallId of pendingApprovalToolCallIds.value) {
+      approveToolCall(toolCallId, true)
+    }
+  }
+
+  function rejectAllPendingToolCalls() {
+    for (const toolCallId of pendingApprovalToolCallIds.value) {
+      approveToolCall(toolCallId, false)
+    }
   }
 
   function submitQuestionAnswers(toolCallId: string, answers: string) {
@@ -800,6 +834,7 @@ export const useChatStore = defineStore('chat', () => {
     const { planId } = pendingPlanConfirmation.value
     const sessionId = currentSessionId.value
     if (!sessionId) return
+    if (pendingPlanConfirmation.value.sessionId !== sessionId) return
     planMode.value = false
     const visibleContent = displayContent.trim() || (i18n.global.t('planExecuteUserMessage') as string)
     messages.value.push({
@@ -818,6 +853,7 @@ export const useChatStore = defineStore('chat', () => {
     const { planId } = pendingPlanConfirmation.value
     const sessionId = currentSessionId.value
     if (!sessionId) return
+    if (pendingPlanConfirmation.value.sessionId !== sessionId) return
     ws.sendPlanReject(planId, sessionId)
     pendingPlanConfirmation.value = null
   }
@@ -827,6 +863,7 @@ export const useChatStore = defineStore('chat', () => {
     const { planId } = pendingPlanConfirmation.value
     const sessionId = currentSessionId.value
     if (!sessionId) return
+    if (pendingPlanConfirmation.value.sessionId !== sessionId) return
     ws.sendPlanModify(planId, sessionId, modelId, feedback, thinkingLevel)
     pendingPlanConfirmation.value = null
   }
@@ -874,12 +911,15 @@ export const useChatStore = defineStore('chat', () => {
     planGenerating,
     togglePlanMode,
     pendingPlanConfirmation,
+    pendingApprovalToolCallIds,
     approvePlan,
     rejectPlan,
     modifyPlan,
     dismissPlanConfirmation,
 
     pendingQuestions,
+    approveAllPendingToolCalls,
+    rejectAllPendingToolCalls,
     submitQuestionAnswers,
     cancelQuestionAnswers,
     runtimeTodos,

@@ -166,8 +166,8 @@ func TestBuildToolDefs_ExecRunSchema(t *testing.T) {
 	if !ok {
 		t.Fatalf("unexpected required type: %#v", execDef.Parameters["required"])
 	}
-	if len(required) != 1 || required[0] != "command" {
-		t.Fatalf("expected required=[command], got %#v", required)
+	if len(required) != 2 || required[0] != "command" || required[1] != "description" {
+		t.Fatalf("expected required=[command description], got %#v", required)
 	}
 }
 

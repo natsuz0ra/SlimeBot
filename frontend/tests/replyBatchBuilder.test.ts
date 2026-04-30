@@ -192,6 +192,34 @@ test('buildReplyBatchesFromHistory attaches ordered subagent thinking entries to
   assert.deepEqual(batch.toolCalls[0]!.subagentThinkings?.map((item) => item.done), [true, true])
 })
 
+test('buildReplyBatchesFromHistory restores run_subagent title from history params', async () => {
+  const { buildReplyBatchesFromHistory } = await import('../src/utils/replyBatchBuilder')
+  const batches = buildReplyBatchesFromHistory('session-1', {
+    messages: [{
+      id: 'assistant-1',
+      role: 'assistant',
+      content: '<!-- TOOL_CALL:parent-tool -->',
+      seq: 1,
+    }],
+    toolCallsByAssistantMessageId: {
+      'assistant-1': [{
+        toolCallId: 'parent-tool',
+        toolName: 'run_subagent',
+        command: 'delegate',
+        params: { title: 'Inspect UI cards', task: 'Inspect UI cards and report exact files' },
+        requiresApproval: false,
+        status: 'completed',
+        startedAt: '2026-04-28T00:00:00.000Z',
+      }],
+    },
+    thinkingByAssistantMessageId: {},
+    hasMore: false,
+  })
+
+  assert.equal(batches[0]!.toolCalls[0]!.subagentTitle, 'Inspect UI cards')
+  assert.equal(batches[0]!.toolCalls[0]!.subagentTask, 'Inspect UI cards and report exact files')
+})
+
 test('buildReplyBatchesFromHistory preserves nested tool start times for subagent timelines', async () => {
   const { buildReplyBatchesFromHistory } = await import('../src/utils/replyBatchBuilder')
   const batches = buildReplyBatchesFromHistory('session-1', {
@@ -241,6 +269,75 @@ test('buildReplyBatchesFromHistory preserves nested tool start times for subagen
   const batch = batches[0]!
   assert.equal(batch.toolCalls.find((item) => item.toolCallId === 'child-tool')?.startedAt, Date.parse('2026-04-28T00:00:02.000Z'))
   assert.equal(batch.toolCalls.find((item) => item.toolCallId === 'parent-tool')?.subagentThinkings?.[0]?.startedAt, Date.parse('2026-04-28T00:00:01.000Z'))
+})
+
+test('buildReplyBatchesFromHistory marks interrupted open subagent tools as error', async () => {
+  const { buildReplyBatchesFromHistory } = await import('../src/utils/replyBatchBuilder')
+  const batches = buildReplyBatchesFromHistory('session-1', {
+    messages: [{
+      id: 'assistant-1',
+      role: 'assistant',
+      content: '<!-- TOOL_CALL:parent-tool -->',
+      isInterrupted: true,
+      seq: 1,
+    }],
+    toolCallsByAssistantMessageId: {
+      'assistant-1': [{
+        toolCallId: 'parent-tool',
+        toolName: 'run_subagent',
+        command: 'delegate',
+        params: {},
+        requiresApproval: false,
+        status: 'executing',
+        startedAt: '2026-04-28T00:00:00.000Z',
+      }],
+    },
+    thinkingByAssistantMessageId: {},
+    hasMore: false,
+  })
+
+  const tool = batches[0]!.toolCalls[0]!
+  assert.equal(tool.status, 'error')
+  assert.equal(tool.error, 'Execution cancelled.')
+  assert.deepEqual(batches[0]!.timeline.map((entry) => entry.kind), ['tool_start', 'tool_result'])
+})
+
+test('buildReplyBatchesFromHistory closes interrupted streaming subagent thinking', async () => {
+  const { buildReplyBatchesFromHistory } = await import('../src/utils/replyBatchBuilder')
+  const batches = buildReplyBatchesFromHistory('session-1', {
+    messages: [{
+      id: 'assistant-1',
+      role: 'assistant',
+      content: '<!-- TOOL_CALL:parent-tool -->',
+      isInterrupted: true,
+      seq: 1,
+    }],
+    toolCallsByAssistantMessageId: {
+      'assistant-1': [{
+        toolCallId: 'parent-tool',
+        toolName: 'run_subagent',
+        command: 'delegate',
+        params: {},
+        requiresApproval: false,
+        status: 'error',
+        error: 'Execution cancelled.',
+        startedAt: '2026-04-28T00:00:00.000Z',
+      }],
+    },
+    thinkingByAssistantMessageId: {
+      'assistant-1': [{
+        thinkingId: 'child-think',
+        content: 'child reasoning',
+        status: 'streaming',
+        parentToolCallId: 'parent-tool',
+        subagentRunId: 'sub-run',
+        startedAt: '2026-04-28T00:00:01.000Z',
+      }],
+    },
+    hasMore: false,
+  })
+
+  assert.equal(batches[0]!.toolCalls[0]!.subagentThinkings?.[0]?.done, true)
 })
 
 test('buildReplyBatchesFromHistory derives reply timing from persisted timestamps', async () => {

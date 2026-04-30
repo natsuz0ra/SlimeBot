@@ -385,6 +385,10 @@ onMounted(loadData)
             <input type="radio" v-model="llmForm.provider" value="anthropic" class="accent-[#6366f1]" />
             {{ t('providerAnthropic') }}
           </label>
+          <label class="flex items-center gap-1.5 text-sm cursor-pointer">
+            <input type="radio" v-model="llmForm.provider" value="deepseek" class="accent-[#6366f1]" />
+            {{ t('providerDeepSeek') }}
+          </label>
         </div>
       </div>
       <div class="flex flex-col gap-1.5">

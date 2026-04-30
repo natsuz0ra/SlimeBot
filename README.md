@@ -13,7 +13,7 @@ A personal AI agent demo: an extensible foundation for conversational AI apps. I
 - **Chat & sessions**
   - Session list, create, rename, delete
   - Per-session message history
-  - WebSocket streaming (`start` / `chunk` / `done`, plus `error`, tool-call, and subagent events)
+  - Real-time streaming replies
   - Auto-generated session titles with live updates
   - Multimodal support
 - **Tools & agent**
@@ -21,9 +21,9 @@ A personal AI agent demo: an extensible foundation for conversational AI apps. I
   - Approval modes: **standard** (manual confirm for sensitive tools) and **auto** (execute directly)
   - User approval for sensitive built-in tools (today: `exec`) in web UI, CLI, and Telegram flows
   - Tool results stored in history with detail views
-  - Built-in tools: `exec`, `http_request`, `web_search` (Tavily), **`run_subagent`** (nested agent)
+  - Built-in tools: `command line`, `web request`, `web search` (Tavily), `to-do`
+  - Supports coding-agent-like file read/write capabilities for text editing workflows
   - **Subagent:** the main agent can delegate a self-contained task to an inner agent with **isolated context** (no parent chat history). Only **one nesting level** is allowed (the subagent cannot call `run_subagent` again). Inner tool calls are shown **nested under** the parent tool in the web UI and CLI; session history stores `parentToolCallId` so grouping survives a reload.
-  - WebSocket subagent stream: `subagent_start`, `subagent_chunk`, `subagent_done` (in addition to `tool_call_start` / `tool_call_result`)
 - **Planning & reasoning controls**
   - Plan mode for “draft first, execute after approval” workflow
   - Plan lifecycle: generate, approve/reject, modify-and-regenerate, execute
@@ -32,18 +32,15 @@ A personal AI agent demo: an extensible foundation for conversational AI apps. I
 - **Memory**
   - Rolling session summaries
   - Long-context compression with recent-message backfill
-  - Cross-session retrieval from file-backed markdown memories, indexed for full-text search
+  - Cross-session retrieval
 - **Configuration & extensions**
-  - LLM profiles (add / remove / list)
-  - MCP servers (CRUD, enable/disable) and tool loading
+  - MCP configuration management
   - Skills: upload, list, delete, runtime activation
 - **Messaging platforms** (Telegram today)
-  - Platform config (create, update, enable/disable)
+  - Platform configuration management
   - Inbound messages and replies
 - **CLI TUI**
   - Standalone CLI for chat and basic configuration (headless Go child + Ink UI)
-- **Web UI**
-  - Optional internationalization (e.g. English / Chinese) via vue-i18n
 
 ## Screenshots
 

@@ -200,6 +200,36 @@ function runSubagentExtraParams(params: Record<string, string> | undefined): Rec
   return Object.keys(filtered).length > 0 ? filtered : undefined;
 }
 
+function formatActiveSubagentToolSummary(child: TimelineEntry): string {
+  const toolName = (child.toolName || "tool").trim() || "tool";
+  const description = formatToolCallSummary(child.toolName || "", child.command || "", child.params).trim()
+    || formatToolInvocation(child.toolName || "", child.command || "");
+  return description ? `${toolName} [${description}]` : toolName;
+}
+
+function formatRunSubagentThinkingToolsSummary(entry: TimelineEntry, nestedTools: TimelineEntry[]): string {
+  if (entry.status === "pending" || entry.status === "executing") {
+    if (entry.subagentThinking && !entry.subagentThinking.thinkingDone) {
+      return "Thinking...";
+    }
+
+    const activeTool = [...nestedTools].reverse().find((child) =>
+      child.status === "executing" || child.status === "pending"
+    );
+    if (activeTool) {
+      return formatActiveSubagentToolSummary(activeTool);
+    }
+
+    return nestedTools.length > 0
+      ? `${nestedTools.length} tool${nestedTools.length === 1 ? "" : "s"}`
+      : "working...";
+  }
+
+  return nestedTools.length > 0
+    ? `${nestedTools.length} tool${nestedTools.length === 1 ? "" : "s"}`
+    : "No tools";
+}
+
 type RunSubagentTreeItem = {
   label: string;
   summary: string;
@@ -215,6 +245,7 @@ function treeDetailPrefix(index: number, total: number): string {
 }
 
 function formatRunSubagentTreeLines(lines: string[], maxWidth: number): string[] {
+  const safeWidth = Math.max(1, Math.floor(maxWidth) - 2);
   const items: RunSubagentTreeItem[] = [];
   const sectionPattern = /^(Context|Task|Thinking & tools|Params|Result):\s*(.*)$/;
 
@@ -237,23 +268,30 @@ function formatRunSubagentTreeLines(lines: string[], maxWidth: number): string[]
     const separator = item.label === "Thinking & tools" ? ": " : " → ";
     const summaryPrefix = `   ${treeConnector(i, items.length)} ${item.label}${item.summary ? separator : ""}`;
     if (item.summary) {
-      const wrapped = wrapText(item.summary, Math.max(1, maxWidth - summaryPrefix.length)).split("\n");
+      const wrapped = wrapText(item.summary, Math.max(1, safeWidth - summaryPrefix.length)).split("\n");
       result.push(`${summaryPrefix}${wrapped[0] ?? ""}`);
-      const continuationPrefix = " ".repeat(summaryPrefix.length);
+      const continuationPrefix = `   ${treeDetailPrefix(i, items.length)}`.padEnd(summaryPrefix.length, " ");
       for (const part of wrapped.slice(1)) {
         result.push(`${continuationPrefix}${part}`);
       }
     } else {
-      result.push(...wrapText(summaryPrefix, maxWidth).split("\n"));
+      result.push(...wrapText(summaryPrefix, safeWidth).split("\n"));
     }
 
     const detailPrefix = `   ${treeDetailPrefix(i, items.length)}  `;
     for (const detail of item.detailLines) {
-      const wrapped = wrapText(detail, Math.max(1, maxWidth - detailPrefix.length));
+      const wrapped = wrapText(detail, Math.max(1, safeWidth - detailPrefix.length));
       result.push(...wrapped.split("\n").map((part) => `${detailPrefix}${part}`));
     }
   }
   return result;
+}
+
+export function getRunSubagentDetailLineColor(line: string, previousColor: string = "gray"): string {
+  if (line.includes("Thinking & tools")) return "cyan";
+  if (line.includes("Context") || line.includes("Task") || line.includes("Result")) return "white";
+  if (line.includes("Params")) return "gray";
+  return previousColor === "white" ? "white" : "gray";
 }
 
 function formatSubagentSectionLines(label: string, body: string, maxWidth: number, expanded: boolean): string[] {
@@ -288,23 +326,10 @@ export function formatRunSubagentDetailLines(
   lines.push(...formatSubagentSectionLines("Context", context, maxWidth, expanded));
   lines.push(...formatSubagentSectionLines("Task", task, maxWidth, expanded));
 
-  const toolCount = nestedTools.length;
-  const thinkingLabel = SHOW_CLI_THINKING && entry.subagentThinking
-    ? (entry.subagentThinking.thinkingDone
-      ? `thinking complete${entry.subagentThinking.thinkingDurationMs !== undefined ? ` in ${(entry.subagentThinking.thinkingDurationMs / 1000).toFixed(1)}s` : ""}`
-      : "Sub-agent thinking...")
-    : "";
-  const toolSummary = toolCount > 0 ? `${toolCount} tool${toolCount === 1 ? "" : "s"}` : "";
-  const hiddenThinkingSummary = toolSummary || (entry.status === "pending" || entry.status === "executing" ? "working..." : "No tools");
-  const thinkingToolsSummary = SHOW_CLI_THINKING
-    ? [thinkingLabel, toolSummary].filter(Boolean).join(" · ") || "No thinking or tools yet"
-    : hiddenThinkingSummary;
+  const thinkingToolsSummary = formatRunSubagentThinkingToolsSummary(entry, nestedTools);
   lines.push(`   Thinking & tools: ${thinkingToolsSummary}${expanded ? " (ctrl+o to collapse)" : " (ctrl+o to expand)"}`);
 
   if (expanded) {
-    if (SHOW_CLI_THINKING) {
-      lines.push(...formatSubagentThinkingLines(entry, maxWidth, true));
-    }
     for (const child of nestedTools) {
       lines.push(...formatToolParamLinesForParams({ tool: formatToolInvocation(child.toolName || "", child.command || "") }, maxWidth));
       if (child.status === "completed" || child.status === "error" || child.status === "rejected") {
@@ -664,6 +689,11 @@ function TimelineBlock({
   const runSubagentLines = isRunSubagent
     ? formatRunSubagentDetailLines(entry, nestedTools || [], maxWidth, toolOutputExpanded)
     : [];
+  let runSubagentLineColor = "gray";
+  const coloredRunSubagentLines = runSubagentLines.map((line) => {
+    runSubagentLineColor = getRunSubagentDetailLineColor(line, runSubagentLineColor);
+    return { line, color: runSubagentLineColor };
+  });
 
   return (
     <Box flexDirection="column">
@@ -687,9 +717,9 @@ function TimelineBlock({
           </Text>
         ))
       ) : isRunSubagent ? (
-        runSubagentLines.map((line, index) => (
-          <Text key={`${entry.toolCallId || invocation}-run-subagent-${index}`} color={line.includes("Thinking & tools") ? "cyan" : "gray"}>
-            {line}
+        coloredRunSubagentLines.map((item, index) => (
+          <Text key={`${entry.toolCallId || invocation}-run-subagent-${index}`} color={item.color}>
+            {item.line}
           </Text>
         ))
       ) : (

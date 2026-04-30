@@ -10,6 +10,7 @@ import {
   buildTimelineDisplayRows,
   formatSubagentThinkingLines,
   formatRunSubagentDetailLines,
+  getRunSubagentDetailLineColor,
   formatPlanningIndicatorParts,
   formatThinkingLabel,
   formatToolOutputLines,
@@ -270,6 +271,78 @@ test("formatRunSubagentDetailLines keeps collapsed display to one-line summaries
   assert.ok(lines.every((line) => !line.includes("final result line 4")));
 });
 
+test("getRunSubagentDetailLineColor renders content sections white and thinking cyan", () => {
+  assert.equal(getRunSubagentDetailLineColor("   鈹溾攢 Context 鈫?repo context"), "white");
+  assert.equal(getRunSubagentDetailLineColor("                 wrapped context", "white"), "white");
+  assert.equal(getRunSubagentDetailLineColor("   鈹溾攢 Task 鈫?inspect display"), "white");
+  assert.equal(getRunSubagentDetailLineColor("   鈹斺攢 Result 鈫?final result"), "white");
+  assert.equal(getRunSubagentDetailLineColor("   鈹溾攢 Thinking & tools: 1 tool"), "cyan");
+  assert.equal(getRunSubagentDetailLineColor("                 nested tool detail", "cyan"), "gray");
+  assert.equal(getRunSubagentDetailLineColor("   鈹溾攢 Params"), "gray");
+});
+
+test("formatRunSubagentDetailLines shows active subagent thinking without details", () => {
+  const { parent, nested } = runSubagentFixture();
+  parent.status = "executing";
+  parent.output = "";
+  parent.subagentThinking = {
+    content: "private child reasoning",
+    thinkingDone: false,
+  };
+
+  const lines = formatRunSubagentDetailLines(parent, nested, 100, true);
+
+  assert.ok(lines.some((line) => line.includes("Thinking & tools: Thinking...")));
+  assert.ok(lines.every((line) => !line.includes("private child reasoning")));
+  assert.ok(lines.every((line) => !line.includes("Sub-agent thinking")));
+  assert.ok(lines.every((line) => !line.includes("Sub-agent thought")));
+});
+
+test("formatRunSubagentDetailLines shows active child tool name and description", () => {
+  const { parent, nested } = runSubagentFixture();
+  parent.status = "executing";
+  parent.output = "";
+  nested.push({
+    kind: "tool",
+    content: "",
+    toolCallId: "active-child",
+    toolName: "exec",
+    command: "run",
+    status: "executing",
+    params: {
+      command: "npm install -g @openai/codex",
+      description: "npm安装codex",
+    },
+    parentToolCallId: "parent",
+    subagentRunId: "run-1",
+  });
+
+  const lines = formatRunSubagentDetailLines(parent, nested, 100, false);
+
+  assert.ok(lines.some((line) => line.includes("Thinking & tools: exec [npm安装codex]")));
+});
+
+test("formatRunSubagentDetailLines uses stable fallback for active child tool without description", () => {
+  const { parent } = runSubagentFixture();
+  parent.status = "executing";
+  parent.output = "";
+  const lines = formatRunSubagentDetailLines(parent, [{
+    kind: "tool",
+    content: "",
+    toolCallId: "active-child",
+    toolName: "exec",
+    command: "run",
+    status: "executing",
+    params: {
+      command: "npm install -g @openai/codex",
+    },
+    parentToolCallId: "parent",
+    subagentRunId: "run-1",
+  }], 100, false);
+
+  assert.ok(lines.some((line) => line.includes("Thinking & tools: exec [exec.run()]")));
+});
+
 test("formatRunSubagentDetailLines aligns wrapped collapsed summaries under the value", () => {
   const { parent, nested } = runSubagentFixture();
   parent.output = "This is a very long subagent result summary that must wrap onto a continuation line";
@@ -286,6 +359,29 @@ test("formatRunSubagentDetailLines aligns wrapped collapsed summaries under the 
   assert.ok(valueStart > 0);
   assert.ok(continuationIndent > 0);
   assert.equal(continuationIndent, valueStart);
+});
+
+test("formatRunSubagentDetailLines keeps tree guides on wrapped non-final summaries", () => {
+  const { parent, nested } = runSubagentFixture();
+  parent.params = {
+    context: "This context summary is intentionally long enough to wrap before the task section",
+    task: "short task",
+  };
+  parent.output = "This result summary is intentionally long enough to wrap after all previous sections";
+
+  const maxWidth = 42;
+  const safeWidth = maxWidth - 2;
+  const lines = formatRunSubagentDetailLines(parent, nested, maxWidth, false);
+  const contextIndex = lines.findIndex((line) => line.includes("Context"));
+  const resultIndex = lines.findIndex((line) => line.includes("Result"));
+
+  assert.ok(contextIndex >= 0);
+  assert.ok(resultIndex >= 0);
+  assert.equal(lines[contextIndex + 1]!.startsWith("   │"), true);
+  assert.equal(lines[contextIndex + 1]!.startsWith("│"), false);
+  assert.equal(lines[resultIndex + 1]!.startsWith("   "), true);
+  assert.equal(lines[resultIndex + 1]!.includes("│"), false);
+  assert.ok(lines.every((line) => stringWidth(stripAnsi(line)) <= safeWidth));
 });
 
 test("formatRunSubagentDetailLines expands full details and keeps collapse hint", () => {

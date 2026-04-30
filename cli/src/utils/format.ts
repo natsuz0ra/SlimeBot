@@ -250,12 +250,15 @@ export function formatWaitingStatsSuffix(stats: {
   elapsedMs: number;
   tokenEstimate: number;
   thoughtDurationMs?: number;
+  thinkingActive?: boolean;
 }): string {
   const parts = [
     formatTurnDuration(stats.elapsedMs),
     `↑ ${formatCompactTokenCount(stats.tokenEstimate)}`,
   ];
-  if (stats.thoughtDurationMs !== undefined) {
+  if (stats.thinkingActive) {
+    parts.push("thinking");
+  } else if (stats.thoughtDurationMs !== undefined) {
     parts.push(`thought for ${formatTurnDuration(stats.thoughtDurationMs)}`);
   }
   return `(${parts.join(" · ")})`;

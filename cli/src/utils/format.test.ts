@@ -185,3 +185,26 @@ test("formatWaitingStatsSuffix includes thought duration when present", () => {
     "(13m 27s · ↑ 23.7k tokens · thought for 5s)",
   );
 });
+
+test("formatWaitingStatsSuffix shows active thinking before duration is available", () => {
+  assert.equal(
+    formatWaitingStatsSuffix({
+      elapsedMs: 13 * 60_000 + 27_000,
+      tokenEstimate: 23_700,
+      thinkingActive: true,
+    }),
+    "(13m 27s · ↑ 23.7k tokens · thinking)",
+  );
+});
+
+test("formatWaitingStatsSuffix prefers active thinking over thought duration", () => {
+  assert.equal(
+    formatWaitingStatsSuffix({
+      elapsedMs: 13 * 60_000 + 27_000,
+      tokenEstimate: 23_700,
+      thoughtDurationMs: 5_000,
+      thinkingActive: true,
+    }),
+    "(13m 27s · ↑ 23.7k tokens · thinking)",
+  );
+});

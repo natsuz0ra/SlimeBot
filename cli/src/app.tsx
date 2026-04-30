@@ -1418,6 +1418,10 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
     }
   });
 
+  const topLevelThinkingActive = state.timeline.some((entry) =>
+    entry.kind === "thinking" && entry.thinkingDone !== true
+  );
+
   return (
     <Box flexDirection="column">
       <Banner version={state.version} modelName={state.modelName} cwd={state.cwd} approvalMode={state.approvalMode} thinkingLevel={state.thinkingLevel} />
@@ -1439,6 +1443,7 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
               elapsedMs: state.turnElapsedMs,
               tokenEstimate: state.turnTokenEstimate,
               thoughtDurationMs: state.turnThoughtDurationMs,
+              thinkingActive: topLevelThinkingActive,
             }) : ""}
             runtimeTodos={state.runtimeTodos}
           />

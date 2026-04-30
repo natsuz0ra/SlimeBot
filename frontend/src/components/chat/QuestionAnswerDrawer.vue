@@ -386,7 +386,7 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown))
 }
 
 .qa-option--selected .qa-option-radio {
-  border-color: var(--color-primary);
+  border-color: var(--tool-running-dot);
 }
 
 .qa-option--selected .qa-option-radio::after {
@@ -394,7 +394,7 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown))
   position: absolute;
   inset: 2px;
   border-radius: 50%;
-  background: var(--color-primary);
+  background: var(--tool-running-dot);
 }
 
 .qa-option-text {

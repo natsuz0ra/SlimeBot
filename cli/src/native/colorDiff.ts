@@ -3,6 +3,7 @@ import { basename, extname } from "node:path";
 import { diffWordsWithSpace } from "diff";
 import hljs from "highlight.js";
 import type { FileDiffLine } from "../utils/fileToolDisplay.js";
+import { stringWidth } from "../utils/stringWidth.js";
 import { stripAnsi } from "../utils/terminal.js";
 
 export type ColorDiffLine = Pick<FileDiffLine, "kind" | "oldLine" | "newLine" | "text">;
@@ -286,8 +287,12 @@ function applyWordBackground(ansiText: string, ranges: Array<[number, number]>, 
 }
 
 function truncateAnsi(input: string, maxWidth: number): string {
+  if (maxWidth <= 0) return "";
+  const ellipsis = "…";
+  const ellipsisWidth = stringWidth(ellipsis);
   const plain = stripAnsi(input);
-  if (plain.length <= maxWidth) return input;
+  if (stringWidth(plain) <= maxWidth) return input;
+  const limit = Math.max(0, maxWidth - ellipsisWidth);
   let visible = 0;
   let out = "";
   for (let i = 0; i < input.length; i++) {
@@ -299,9 +304,14 @@ function truncateAnsi(input: string, maxWidth: number): string {
         continue;
       }
     }
-    if (visible >= Math.max(1, maxWidth - 1)) break;
-    out += input[i];
-    visible++;
+    const cp = input.codePointAt(i);
+    if (cp === undefined) break;
+    const char = String.fromCodePoint(cp);
+    const width = stringWidth(char);
+    if (visible + width > limit) break;
+    out += char;
+    visible += width;
+    if (cp > 0xffff) i++;
   }
-  return `${out}…`;
+  return `${out}${ellipsis}`;
 }

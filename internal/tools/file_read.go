@@ -32,7 +32,7 @@ func (f *fileReadTool) Description() string {
 func (f *fileReadTool) Commands() []Command {
 	return []Command{{
 		Name:        "read",
-		Description: fmt.Sprintf("Read UTF-8 text files. Supports single-file mode (file_path/offset/limit) and batch mode via requests[]. Default max %d lines per range.", fileReadDefaultMaxLines),
+		Description: fmt.Sprintf("Read UTF-8 text files. Prefer batch mode via requests[].ranges[] when reading multiple non-contiguous lines or ranges in one file; use single-file mode (file_path/offset/limit) for simple one-range reads. Default max %d lines per range.", fileReadDefaultMaxLines),
 		Params: []CommandParam{
 			{Name: "file_path", Required: false, Description: "Single-file mode path.", Example: "/path/to/file.go"},
 			{Name: "offset", Required: false, Description: "Single-file mode 1-based start line.", Example: "120"},

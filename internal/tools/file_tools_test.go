@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -124,7 +125,7 @@ func TestFileEditUniqueReplaceAllAndCreate(t *testing.T) {
 		"file_path":  path,
 		"old_string": "two",
 		"new_string": "three",
-	}); err == nil || !strings.Contains(err.Error(), "matches") {
+	}); err == nil || !strings.Contains(err.Error(), "reason_code=MULTI_MATCH") {
 		t.Fatalf("expected multiple match rejection, got %v", err)
 	}
 
@@ -230,6 +231,132 @@ func TestFileEditRejectsBinary(t *testing.T) {
 		"new_string": "y",
 	}); err == nil || !strings.Contains(strings.ToLower(err.Error()), "binary") {
 		t.Fatalf("expected binary/utf8 rejection, got %v", err)
+	}
+}
+
+func TestFileEditLineSelectorOccurrenceAndAnchor(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "sample.txt")
+	content := strings.Join([]string{
+		"zheli shi ceshi wenben",
+		"请把你读到的东西转成中文打印出来",
+		"foo",
+		"zheli shi ceshi wenben",
+		"bar",
+		"zheli shi ceshi wenben",
+	}, "\n") + "\n"
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+	ctx := WithReadFileState(context.Background(), NewReadFileState())
+	if _, err := (&fileReadTool{}).read(ctx, map[string]any{"file_path": path}); err != nil {
+		t.Fatalf("read failed: %v", err)
+	}
+
+	_, err := (&fileEditTool{}).edit(ctx, map[string]any{
+		"file_path":  path,
+		"old_string": "zheli shi ceshi wenben",
+		"new_string": "ZH",
+	})
+	if err == nil || !strings.Contains(err.Error(), "reason_code=MULTI_MATCH") {
+		t.Fatalf("expected structured multi-match error, got %v", err)
+	}
+
+	if _, err := (&fileEditTool{}).edit(ctx, map[string]any{
+		"file_path":  path,
+		"old_string": "zheli shi ceshi wenben",
+		"new_string": "ONLY_SECOND",
+		"occurrence_selector": map[string]any{
+			"nth": 2,
+		},
+	}); err != nil {
+		t.Fatalf("occurrence selector edit failed: %v", err)
+	}
+
+	if _, err := (&fileEditTool{}).edit(ctx, map[string]any{
+		"file_path":  path,
+		"new_string": "HEADER_CHANGED",
+		"line_selector": map[string]any{
+			"start_line": 1,
+			"end_line":   1,
+		},
+	}); err != nil {
+		t.Fatalf("line selector edit failed: %v", err)
+	}
+
+	if _, err := (&fileEditTool{}).edit(ctx, map[string]any{
+		"file_path":  path,
+		"new_string": "TAIL_CHANGED",
+		"anchor_context": map[string]any{
+			"before": "bar\n",
+			"target": "zheli shi ceshi wenben",
+			"after":  "\n",
+		},
+	}); err != nil {
+		t.Fatalf("anchor selector edit failed: %v", err)
+	}
+
+	got, _ := os.ReadFile(path)
+	text := string(got)
+	if !strings.Contains(text, "HEADER_CHANGED") || !strings.Contains(text, "ONLY_SECOND") || !strings.Contains(text, "TAIL_CHANGED") {
+		t.Fatalf("unexpected final content:\n%s", text)
+	}
+}
+
+func TestFileEditStrictModeNormalizedAndSwapBatch(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "swap.txt")
+	lines := make([]string, 30)
+	for i := range lines {
+		lines[i] = "line-" + strconv.Itoa(i+1)
+	}
+	lines[0] = "zheli shi ceshi wenben"
+	lines[29] = "请把你读到的东西转成中文打印出来"
+	content := strings.Join(lines, "\n") + "\n"
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+	ctx := WithReadFileState(context.Background(), NewReadFileState())
+	if _, err := (&fileReadTool{}).read(ctx, map[string]any{"file_path": path}); err != nil {
+		t.Fatalf("read failed: %v", err)
+	}
+
+	// normalized mode strips read output line-number prefixes.
+	if _, err := (&fileEditTool{}).edit(ctx, map[string]any{
+		"file_path":   path,
+		"old_string":  "     2\tline-2\n",
+		"new_string":  "line-2-changed\n",
+		"strict_mode": "normalized",
+	}); err != nil {
+		t.Fatalf("normalized edit failed: %v", err)
+	}
+
+	// One-call swap using batch operations on the same file.
+	if _, err := (&fileEditTool{}).edit(ctx, map[string]any{
+		"edits": []map[string]any{
+			{
+				"file_path": path,
+				"operations": []map[string]any{
+					{"line_selector": map[string]any{"start_line": 1, "end_line": 1}, "new_string": "__TMP__"},
+					{"line_selector": map[string]any{"start_line": 30, "end_line": 30}, "new_string": "zheli shi ceshi wenben"},
+					{"line_selector": map[string]any{"start_line": 1, "end_line": 1}, "new_string": "请把你读到的东西转成中文打印出来"},
+				},
+			},
+		},
+	}); err != nil {
+		t.Fatalf("batch swap edit failed: %v", err)
+	}
+
+	got, _ := os.ReadFile(path)
+	updatedLines := strings.Split(strings.TrimSuffix(string(got), "\n"), "\n")
+	if updatedLines[0] != "请把你读到的东西转成中文打印出来" {
+		t.Fatalf("line 1 not swapped, got %q", updatedLines[0])
+	}
+	if updatedLines[29] != "zheli shi ceshi wenben" {
+		t.Fatalf("line 30 not swapped, got %q", updatedLines[29])
+	}
+	if updatedLines[1] != "line-2-changed" {
+		t.Fatalf("normalized mode change missing, got %q", updatedLines[1])
 	}
 }
 

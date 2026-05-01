@@ -202,6 +202,23 @@ func TestBuildToolDefs_FileToolSchemas(t *testing.T) {
 	}
 }
 
+func TestBuildToolDefs_FileReadDescriptionPrefersBatchRanges(t *testing.T) {
+	defs := BuildToolDefs()
+	def := findToolDef(defs, "file_read__read")
+	if def == nil {
+		t.Fatal("expected file_read__read tool definition")
+	}
+	for _, want := range []string{
+		"Prefer batch mode via requests[].ranges[]",
+		"single-file mode (file_path/offset/limit)",
+		"simple one-range reads",
+	} {
+		if !strings.Contains(def.Description, want) {
+			t.Fatalf("file_read__read description missing %q: %q", want, def.Description)
+		}
+	}
+}
+
 func TestRequiresToolApproval_FileWritesInStandardMode(t *testing.T) {
 	if !requiresToolApproval("file_edit", false, constants.ApprovalModeStandard) {
 		t.Fatal("file_edit should require approval in standard mode")

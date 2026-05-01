@@ -33,3 +33,16 @@ func TestSystemPrompt_EncouragesBoundedSubagentDelegation(t *testing.T) {
 		t.Fatal("system prompt should not encourage tool-heavy subagent delegation")
 	}
 }
+
+func TestSystemPrompt_PrefersFileReadMultiRangeSingleCall(t *testing.T) {
+	prompt := SystemPrompt()
+	for _, want := range []string{
+		"multiple non-contiguous lines/ranges",
+		"prefer one call with `requests[].ranges[]`",
+		"Keep `offset/limit` for simple single-range reads",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("system prompt missing %q", want)
+		}
+	}
+}

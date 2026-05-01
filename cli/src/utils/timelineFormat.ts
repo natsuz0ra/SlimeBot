@@ -157,17 +157,28 @@ export function formatFileToolTimelineLines(entry: TimelineEntry, maxWidth: numb
     }
 
     const maxPreviewLines = 8;
-    const diffLines = expanded ? display.diffLines : display.diffLines.slice(0, maxPreviewLines);
+    const isFileEdit = display.toolName === "file_edit";
+    const diffLines = isFileEdit ? display.diffLines : (expanded ? display.diffLines : display.diffLines.slice(0, maxPreviewLines));
     const remaining = display.diffLines.length - diffLines.length;
     const rows = diffLines.map(fileDiffLineText);
+    const separatorLine = "─".repeat(Math.max(8, maxWidth - 12));
     if (remaining > 0) {
-      rows.push(`... +${remaining} more changed lines (ctrl+o to expand)`);
-    } else if (expanded && display.diffLines.length > maxPreviewLines) {
+      rows.push(isFileEdit ? `+${remaining} more changed lines` : `... +${remaining} more changed lines (ctrl+o to expand)`);
+    } else if (expanded && !isFileEdit && display.diffLines.length > maxPreviewLines) {
       rows.push("... (ctrl+o to collapse)");
     }
 
     rows.forEach((row, index) => {
       const connector = index === rows.length - 1 ? "└─ " : "├─ ";
+      if (index > 0 && row.startsWith("+") === false && diffLines[index] && diffLines[index - 1]) {
+        const prev = diffLines[index - 1]!;
+        const curr = diffLines[index]!;
+        const prevNo = prev.newLine ?? prev.oldLine;
+        const currNo = curr.newLine ?? curr.oldLine;
+        if (prevNo !== undefined && currNo !== undefined && currNo - prevNo > 1) {
+          lines.push(...treeWrapLine("      ├─ ", separatorLine, maxWidth));
+        }
+      }
       lines.push(...treeWrapLine(`      ${connector}`, row, maxWidth));
     });
   }

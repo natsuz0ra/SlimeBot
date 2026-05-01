@@ -5,6 +5,7 @@ use syntect::easy::HighlightLines;
 use syntect::highlighting::ThemeSet;
 use syntect::parsing::SyntaxSet;
 use syntect::util::{as_24_bit_terminal_escaped, LinesWithEndings};
+use unicode_width::UnicodeWidthChar;
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -240,6 +241,15 @@ fn apply_word_background(input: &str, ranges: &[(usize, usize)], kind: &str) -> 
 }
 
 fn truncate_plain(input: &str, max_width: usize) -> String {
+    if max_width == 0 {
+        return String::new();
+    }
+    if display_width(input) <= max_width {
+        return input.to_string();
+    }
+    let ellipsis = '…';
+    let ellipsis_width = UnicodeWidthChar::width(ellipsis).unwrap_or(1);
+    let limit = max_width.saturating_sub(ellipsis_width);
     let mut out = String::new();
     let mut visible = 0usize;
     let mut chars = input.chars().peekable();
@@ -254,12 +264,50 @@ fn truncate_plain(input: &str, max_width: usize) -> String {
             }
             continue;
         }
-        if visible >= max_width.saturating_sub(1) {
-            out.push('…');
-            return out;
+        let width = UnicodeWidthChar::width(ch).unwrap_or(0);
+        if visible + width > limit {
+            break;
         }
         out.push(ch);
-        visible += 1;
+        visible += width;
     }
+    out.push(ellipsis);
     out
+}
+
+fn display_width(input: &str) -> usize {
+    let mut width = 0usize;
+    let mut chars = input.chars().peekable();
+    while let Some(ch) = chars.next() {
+        if ch == '\x1b' {
+            for next in chars.by_ref() {
+                if next == 'm' {
+                    break;
+                }
+            }
+            continue;
+        }
+        width += UnicodeWidthChar::width(ch).unwrap_or(0);
+    }
+    width
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn truncate_plain_limits_by_display_width_for_cjk() {
+        let input = "\x1b[38;5;203m成功使用file_write工具写入此行内容zheli shi ceshi wenben";
+        let out = truncate_plain(input, 18);
+        assert!(display_width(&out) <= 18);
+        assert!(out.ends_with('…'));
+    }
+
+    #[test]
+    fn truncate_plain_keeps_short_line() {
+        let input = "\x1b[38;5;114mshort line";
+        let out = truncate_plain(input, 40);
+        assert_eq!(out, input);
+    }
 }

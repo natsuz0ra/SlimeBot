@@ -6,9 +6,12 @@ import { buildFileToolDisplays } from "../utils/fileToolDisplay.js";
 import { renderColorDiffRows } from "../native/colorDiff.js";
 
 const MAX_PREVIEW_LINES = 8;
-const BORDER_COLOR = "#64748b";
+const MAX_FILE_EDIT_RENDER_LINES = 3000;
+const BORDER_COLOR = "#475569";
+const FILE_EDIT_BORDER_COLOR = "#ffffff";
 const SUMMARY_COLOR = "#cbd5e1";
 const HINT_COLOR = "#94a3b8";
+const FILE_EDIT_SEPARATOR_COLOR = "#9ca3af";
 
 interface FileToolDiffBlockProps {
   entry: TimelineEntry;
@@ -55,40 +58,52 @@ export function FileToolDiffBlock({
 
   if (entry.status !== "completed") return null;
 
-  const width = Math.max(24, Math.min(maxWidth - 3, maxWidth));
+  const blockHorizontalInset = 3;
+  const width = Math.max(24, maxWidth - (blockHorizontalInset * 2));
   return (
-    <Box marginLeft={3} flexDirection="column">
+    <Box marginLeft={blockHorizontalInset} marginRight={blockHorizontalInset} flexDirection="column">
       {displays.map((display, idx) => {
-        const previewLines = expanded ? display.diffLines : display.diffLines.slice(0, MAX_PREVIEW_LINES);
-        const remaining = display.diffLines.length - previewLines.length;
+        const isFileEdit = display.toolName === "file_edit";
+        const hardLimited = isFileEdit && display.diffLines.length > MAX_FILE_EDIT_RENDER_LINES;
+        const effectiveLines = hardLimited
+          ? display.diffLines.slice(0, MAX_FILE_EDIT_RENDER_LINES)
+          : display.diffLines;
+        const previewLines = isFileEdit
+          ? effectiveLines
+          : (expanded ? effectiveLines : effectiveLines.slice(0, MAX_PREVIEW_LINES));
+        const remaining = effectiveLines.length - previewLines.length;
         const renderedRows = chunkDiffLines(previewLines).flatMap((chunk, index) => {
           const rows = renderColorDiffRows({
             filePath: display.filePath,
             lines: chunk,
             width: Math.max(12, width - 2),
           });
-          return index === 0 ? rows : [{ gutter: "", content: "..." }, ...rows];
+          return index === 0 ? rows : [{ gutter: "", content: "─".repeat(Math.max(8, width - 2)) }, ...rows];
         });
         return (
           <Box key={`${display.filePath}-${display.operation}-${idx}`} flexDirection="column">
             <Text color={SUMMARY_COLOR}>└─ {display.summary}</Text>
             {display.toolName === "file_read" || display.diffLines.length === 0 ? null : (
-              <Box flexDirection="column" borderStyle="single" borderColor={BORDER_COLOR} borderLeft={false} borderRight={false}>
-                <Box flexDirection="row">
-                  <Box flexDirection="column" flexShrink={0}>
-                    {renderedRows.map((row, index) => (
-                      <Text key={`gutter-${idx}-${index}`}>{row.gutter}</Text>
-                    ))}
-                  </Box>
-                  <Box flexDirection="column" marginLeft={1}>
-                    {renderedRows.map((row, index) => (
-                      <Text key={`content-${idx}-${index}`}>{row.content}</Text>
-                    ))}
-                  </Box>
-                </Box>
-                {remaining > 0 ? (
+              <Box
+                flexDirection="column"
+                borderStyle="single"
+                borderColor={isFileEdit ? FILE_EDIT_BORDER_COLOR : BORDER_COLOR}
+                borderLeft={false}
+                borderRight={false}
+              >
+                {renderedRows.map((row, index) => (
+                  <Text
+                    key={`row-${idx}-${index}`}
+                    color={row.gutter === "" ? FILE_EDIT_SEPARATOR_COLOR : undefined}
+                  >
+                    {row.gutter === "" ? row.content : `${row.gutter} ${row.content}`}
+                  </Text>
+                ))}
+                {hardLimited ? (
+                  <Text color={HINT_COLOR}>output safety limit reached: showing first {MAX_FILE_EDIT_RENDER_LINES} changed lines</Text>
+                ) : remaining > 0 ? (
                   <Text color={HINT_COLOR}>... +{remaining} more changed lines (ctrl+o to expand)</Text>
-                ) : expanded && display.diffLines.length > MAX_PREVIEW_LINES ? (
+                ) : expanded && !isFileEdit && display.diffLines.length > MAX_PREVIEW_LINES ? (
                   <Text color={HINT_COLOR}>... (ctrl+o to collapse)</Text>
                 ) : null}
               </Box>

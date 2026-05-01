@@ -5,6 +5,7 @@ import {
   renderColorDiffRows,
   setNativeColorDiffForTest,
 } from "./colorDiff";
+import { stringWidth } from "../utils/stringWidth";
 import { stripAnsi } from "../utils/terminal";
 
 test("renderColorDiffRows uses native renderer when available", () => {
@@ -76,4 +77,22 @@ test("renderColorDiffRows keeps compact marker and line-number gutters", () => {
   assert.equal(gutters[0]!.trim(), "4");
   assert.equal(gutters[1]!.trim(), "- 5");
   assert.equal(gutters[2]!.trim(), "+ 5");
+});
+
+test("renderColorDiffRows fallback truncates by display width for CJK lines", () => {
+  setNativeColorDiffForTest(null);
+  const rows = renderColorDiffRows({
+    filePath: "src/example.ts",
+    width: 22,
+    lines: [
+      { kind: "removed", oldLine: 30, text: "成功使用file_write工具写入此行内容zheli shi ceshi wenben" },
+      { kind: "added", newLine: 30, text: "nebnew ihsec ihs ilehz" },
+    ],
+  });
+
+  assert.equal(stripAnsi(rows[0]!.gutter).trim(), "- 30");
+  assert.equal(stripAnsi(rows[1]!.gutter).trim(), "+ 30");
+  const contentWidth = Math.max(8, 22 - (String(30).length + 2) - 1);
+  assert.ok(stringWidth(stripAnsi(rows[0]!.content)) <= contentWidth);
+  assert.ok(stringWidth(stripAnsi(rows[1]!.content)) <= contentWidth);
 });

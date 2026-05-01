@@ -64,7 +64,7 @@ function marker(kind: string) {
           role="listitem"
         >
           <template v-if="line.kind === 'separator'">
-            <span class="file-tool-diff-separator">...</span>
+            <span class="file-tool-diff-separator" aria-hidden="true"></span>
           </template>
           <template v-else>
             <span class="file-tool-diff-marker">{{ marker(line.kind) }}</span>
@@ -184,8 +184,7 @@ function marker(kind: string) {
 
 .file-tool-diff-row--separator {
   display: block;
-  color: var(--text-muted);
-  padding-block: 0;
+  padding: 4px 8px;
 }
 
 .file-tool-diff-marker,
@@ -204,7 +203,10 @@ function marker(kind: string) {
 }
 
 .file-tool-diff-separator {
-  padding-left: 16px;
+  display: block;
+  height: 1px;
+  width: 100%;
+  background: #94a3b8;
 }
 
 .file-tool-diff-code {

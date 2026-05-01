@@ -260,4 +260,5 @@ test('ToolCallInline routes file tools through FileToolDisplay', () => {
   assert.match(source, /<FileToolDisplay v-if="isFileToolCall"/)
   assert.match(source, /showResult && !isFileToolCall/)
   assert.doesNotMatch(readFileSync(resolve(import.meta.dirname, '../src/components/chat/FileToolDisplay.vue'), 'utf8'), /file-tool-diff-guide|├─|└─/)
+  assert.doesNotMatch(readFileSync(resolve(import.meta.dirname, '../src/components/chat/FileToolDisplay.vue'), 'utf8'), /file-tool-diff-separator\">\\.\\.\\.</)
 })

@@ -254,6 +254,33 @@ test("formatFileToolTimelineLines renders multi-file metadata arrays", () => {
   assert.ok(lines.some((line) => line.includes("B")));
 });
 
+test("formatFileToolTimelineLines keeps file_edit expanded and uses line separator", () => {
+  const entry: TimelineEntry = {
+    kind: "tool",
+    content: "",
+    toolName: "file_edit",
+    command: "edit",
+    status: "completed",
+    metadata: [{
+      filePath: "a.ts",
+      operation: "Update",
+      summary: "Updated a.ts",
+      diffLines: [
+        { kind: "context", oldLine: 1, newLine: 1, text: "line 1" },
+        { kind: "added", newLine: 2, text: "line 2 updated" },
+        { kind: "context", oldLine: 20, newLine: 21, text: "line 20" },
+        { kind: "added", newLine: 22, text: "line 21 updated" },
+      ],
+    }],
+  };
+
+  const lines = formatFileToolTimelineLines(entry, 120, false);
+
+  assert.ok(lines.some((line) => line.includes("updated")));
+  assert.ok(lines.every((line) => !line.includes("ctrl+o to expand")));
+  assert.ok(lines.some((line) => line.includes("────")));
+});
+
 test("Timeline renders file tool changes through the dedicated diff component", () => {
   const source = readFileSync(resolve(import.meta.dirname, "Timeline.tsx"), "utf8");
 

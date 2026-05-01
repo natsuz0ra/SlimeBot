@@ -151,7 +151,10 @@ function TimelineBlock({
   }
 
   if (entry.kind === "user") {
-    const lines = entry.content.split("\n");
+    const contentWidth = Math.max(1, maxWidth - 2);
+    const lines = entry.content
+      .split("\n")
+      .flatMap((line) => wrapText(line, contentWidth).split("\n"));
     return (
       <Box flexDirection="column">
         {lines.map((line, i) => (

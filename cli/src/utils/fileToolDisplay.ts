@@ -27,6 +27,24 @@ export type FileToolDisplay = {
   diffLines: FileDiffLine[];
 };
 
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return typeof value === "object" && value !== null && !Array.isArray(value) ? value as Record<string, unknown> : null;
+}
+
+function asArrayParam(params: Record<string, unknown> | undefined, key: string): unknown[] {
+  const value = params?.[key];
+  if (Array.isArray(value)) return value;
+  if (typeof value === "string") {
+    try {
+      const parsed = JSON.parse(value);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  }
+  return [];
+}
+
 const FILE_TOOL_NAMES = new Set(["file_read", "file_edit", "file_write"]);
 
 function baseName(filePath: string): string {
@@ -80,7 +98,7 @@ export function parseFileReadOutput(raw: string): FileReadSummary | null {
   const totalRaw = raw.match(/^Total lines:\s*(\d+)$/m)?.[1];
   if (!filePath || totalRaw === undefined) return null;
 
-  const showing = raw.match(/^Showing lines\s+(\d+)-(\d+):$/m);
+  const showing = raw.match(/^Showing lines\s+(\d+)-(\d+):$/m) || raw.match(/^Range\s+\d+\s+lines\s+(\d+)-(\d+):$/m);
   return {
     filePath,
     totalLines: Number(totalRaw),
@@ -182,67 +200,145 @@ function displayFromMetadata(toolName: FileToolName, metadata: unknown): FileToo
   };
 }
 
-export function buildFileToolDisplay(entry: {
+function displaysFromMetadata(toolName: FileToolName, metadata: unknown): FileToolDisplay[] {
+  if (Array.isArray(metadata)) {
+    return metadata.map((item) => displayFromMetadata(toolName, item)).filter((item): item is FileToolDisplay => !!item);
+  }
+  const single = displayFromMetadata(toolName, metadata);
+  return single ? [single] : [];
+}
+
+function buildBatchSummary(toolName: FileToolName, params: Record<string, unknown>): string {
+  if (toolName === "file_read") {
+    const requests = asArrayParam(params, "requests");
+    return requests.length > 0 ? `Read ${requests.length} ${requests.length === 1 ? "file" : "files"}` : "Read file";
+  }
+  if (toolName === "file_write") {
+    const writes = asArrayParam(params, "writes");
+    return writes.length > 0 ? `Write ${writes.length} ${writes.length === 1 ? "file" : "files"}` : "Write file";
+  }
+  const edits = asArrayParam(params, "edits");
+  if (edits.length === 0) return "Update file";
+  let creates = 0;
+  let updates = 0;
+  for (const item of edits) {
+    const record = asRecord(item);
+    const operations = Array.isArray(record?.operations) ? record.operations : [];
+    const first = asRecord(operations[0]);
+    const oldString = String(first?.old_string ?? "");
+    if (oldString === "") creates++;
+    else updates++;
+  }
+  const parts: string[] = [];
+  if (updates > 0) parts.push(`Update ${updates} ${updates === 1 ? "file" : "files"}`);
+  if (creates > 0) parts.push(`Create ${creates} ${creates === 1 ? "file" : "files"}`);
+  return parts.length > 0 ? parts.join(" / ") : `Edit ${edits.length} ${edits.length === 1 ? "file" : "files"}`;
+}
+
+export function buildFileToolDisplays(entry: {
   toolName?: string;
-  params?: Record<string, string>;
+  params?: Record<string, unknown>;
   output?: string;
   error?: string;
   content?: string;
   metadata?: unknown;
-}): FileToolDisplay | null {
+}): FileToolDisplay[] {
   const toolName = (entry.toolName || "").trim().toLowerCase();
-  if (!isFileToolName(toolName)) return null;
+  if (!isFileToolName(toolName)) return [];
 
-  const metadataDisplay = displayFromMetadata(toolName, entry.metadata);
-  if (metadataDisplay) return metadataDisplay;
+  const metadataDisplays = displaysFromMetadata(toolName, entry.metadata);
+  if (metadataDisplays.length > 0) return metadataDisplays;
 
   const params = entry.params || {};
   const filePath = String(params.file_path || "").trim();
   if (toolName === "file_read") {
     const parsed = parseFileReadOutput(entry.output || entry.content || "");
     const path = parsed?.filePath || filePath;
-    return {
+    const summary = parsed
+      ? formatFileReadSummary(parsed)
+      : filePath
+        ? `Read ${baseName(filePath)}`
+        : buildBatchSummary(toolName, params);
+    return [{
       toolName,
       filePath: path,
       fileName: baseName(path),
       operation: "Read",
-      summary: parsed ? formatFileReadSummary(parsed) : "Read file",
+      summary,
       diffLines: [],
-    };
+    }];
   }
 
   if (toolName === "file_edit") {
     const oldString = String(params.old_string ?? "");
     const newString = String(params.new_string ?? "");
     const creating = oldString === "";
-    return {
+    return [{
       toolName,
       filePath,
       fileName: baseName(filePath),
       operation: creating ? "Create" : "Update",
-      summary: summaryForOperation(creating ? "Create" : "Update", filePath),
-      diffLines: buildLineDiff(oldString, newString),
-    };
+      summary: filePath ? summaryForOperation(creating ? "Create" : "Update", filePath) : buildBatchSummary(toolName, params),
+      diffLines: filePath ? buildLineDiff(oldString, newString) : [],
+    }];
   }
 
   const content = String(params.content ?? "");
   const lineCount = countTextLines(content);
-  return {
+  return [{
     toolName,
     filePath,
     fileName: baseName(filePath),
     operation: "Write",
-    summary: `Wrote ${lineCount} ${lineCount === 1 ? "line" : "lines"} to ${absolutePath(filePath)}`,
-    diffLines: buildLineDiff("", content),
-  };
+    summary: filePath ? `Wrote ${lineCount} ${lineCount === 1 ? "line" : "lines"} to ${absolutePath(filePath)}` : buildBatchSummary(toolName, params),
+    diffLines: filePath ? buildLineDiff("", content) : [],
+  }];
 }
 
-export function fileToolSummaryFromParams(toolName: string, params?: Record<string, string>): string {
+export function buildFileToolDisplay(entry: {
+  toolName?: string;
+  params?: Record<string, unknown>;
+  output?: string;
+  error?: string;
+  content?: string;
+  metadata?: unknown;
+}): FileToolDisplay | null {
+  return buildFileToolDisplays(entry)[0] || null;
+}
+
+export function fileToolSummaryFromParams(toolName: string, params?: Record<string, unknown>): string {
   const name = toolName.trim().toLowerCase();
   if (!isFileToolName(name)) return "";
-  const filePath = String(params?.file_path ?? "").trim();
-  if (!filePath) return "";
+  const normalized = params || {};
+  const filePath = String(normalized.file_path ?? "").trim();
+  if (!filePath) {
+    if (name === "file_read") {
+      const requests = asArrayParam(normalized, "requests");
+      return requests.length > 0 ? `Read ${requests.length} ${requests.length === 1 ? "file" : "files"}` : "";
+    }
+    if (name === "file_write") {
+      const writes = asArrayParam(normalized, "writes");
+      return writes.length > 0 ? `Write ${writes.length} ${writes.length === 1 ? "file" : "files"}` : "";
+    }
+    const edits = asArrayParam(normalized, "edits");
+    if (edits.length > 0) {
+      let creates = 0;
+      let updates = 0;
+      for (const item of edits) {
+        const record = asRecord(item);
+        const operations = Array.isArray(record?.operations) ? record.operations : [];
+        const first = asRecord(operations[0]);
+        if (String(first?.old_string ?? "") === "") creates++;
+        else updates++;
+      }
+      const parts: string[] = [];
+      if (updates > 0) parts.push(`Update ${updates} ${updates === 1 ? "file" : "files"}`);
+      if (creates > 0) parts.push(`Create ${creates} ${creates === 1 ? "file" : "files"}`);
+      return parts.join(" / ");
+    }
+    return "";
+  }
   if (name === "file_read") return `Read ${baseName(filePath)}`;
-  if (name === "file_edit") return `${String(params?.old_string ?? "") === "" ? "Create" : "Update"} ${baseName(filePath)}`;
+  if (name === "file_edit") return `${String(normalized.old_string ?? "") === "" ? "Create" : "Update"} ${baseName(filePath)}`;
   return `Write ${baseName(filePath)}`;
 }

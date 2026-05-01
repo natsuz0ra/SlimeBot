@@ -41,7 +41,7 @@ export interface SessionHistoryToolCallItem {
   toolCallId: string
   toolName: string
   command: string
-  params: Record<string, string>
+  params: Record<string, unknown>
   status: ToolCallStatus
   requiresApproval: boolean
   parentToolCallId?: string
@@ -101,7 +101,7 @@ export interface ToolCallItem {
   toolCallId: string
   toolName: string
   command: string
-  params: Record<string, string>
+  params: Record<string, unknown>
   preamble?: string
   requiresApproval: boolean
   status: ToolCallStatus

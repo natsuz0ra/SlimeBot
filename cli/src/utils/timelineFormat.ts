@@ -15,7 +15,7 @@ import {
   truncateText,
 } from "./format.js";
 import {
-  buildFileToolDisplay,
+  buildFileToolDisplays,
   type FileDiffLine,
   isFileToolEntry as isFileToolTimelineEntry,
 } from "./fileToolDisplay.js";
@@ -122,8 +122,8 @@ function treeWrapLine(prefix: string, text: string, maxWidth: number): string[] 
 }
 
 export function formatFileToolTimelineLines(entry: TimelineEntry, maxWidth: number, expanded: boolean): string[] {
-  const display = buildFileToolDisplay(entry);
-  if (!display) return [];
+  const displays = buildFileToolDisplays(entry);
+  if (displays.length === 0) return [];
 
   if (entry.status === "error" || entry.status === "rejected") {
     const message = entry.error || entry.content || "File tool failed";
@@ -135,29 +135,31 @@ export function formatFileToolTimelineLines(entry: TimelineEntry, maxWidth: numb
   }
 
   const lines: string[] = [];
-  lines.push(...treeWrapLine("   └─ ", display.summary, maxWidth));
-  if (display.toolName === "file_read" || display.diffLines.length === 0) {
-    return lines;
-  }
+  for (const display of displays) {
+    lines.push(...treeWrapLine("   └─ ", display.summary, maxWidth));
+    if (display.toolName === "file_read" || display.diffLines.length === 0) {
+      continue;
+    }
 
-  const maxPreviewLines = 8;
-  const diffLines = expanded ? display.diffLines : display.diffLines.slice(0, maxPreviewLines);
-  const remaining = display.diffLines.length - diffLines.length;
-  const rows = diffLines.map(fileDiffLineText);
-  if (remaining > 0) {
-    rows.push(`... +${remaining} more changed lines (ctrl+o to expand)`);
-  } else if (expanded && display.diffLines.length > maxPreviewLines) {
-    rows.push("... (ctrl+o to collapse)");
-  }
+    const maxPreviewLines = 8;
+    const diffLines = expanded ? display.diffLines : display.diffLines.slice(0, maxPreviewLines);
+    const remaining = display.diffLines.length - diffLines.length;
+    const rows = diffLines.map(fileDiffLineText);
+    if (remaining > 0) {
+      rows.push(`... +${remaining} more changed lines (ctrl+o to expand)`);
+    } else if (expanded && display.diffLines.length > maxPreviewLines) {
+      rows.push("... (ctrl+o to collapse)");
+    }
 
-  rows.forEach((row, index) => {
-    const connector = index === rows.length - 1 ? "└─ " : "├─ ";
-    lines.push(...treeWrapLine(`      ${connector}`, row, maxWidth));
-  });
+    rows.forEach((row, index) => {
+      const connector = index === rows.length - 1 ? "└─ " : "├─ ";
+      lines.push(...treeWrapLine(`      ${connector}`, row, maxWidth));
+    });
+  }
   return lines;
 }
 
-function formatToolParamLinesForParams(params: Record<string, string> | undefined, maxWidth: number): string[] {
+function formatToolParamLinesForParams(params: Record<string, unknown> | undefined, maxWidth: number): string[] {
   const paramPrefix = "   :: ";
   const continuationPrefix = "      ";
   const prefixWidth = paramPrefix.length;
@@ -207,7 +209,7 @@ export function isRunSubagentEntry(entry: TimelineEntry): boolean {
   return (entry.toolName || "").trim().toLowerCase() === "run_subagent";
 }
 
-function displayParamValue(params: Record<string, string> | undefined, key: string): string {
+function displayParamValue(params: Record<string, unknown> | undefined, key: string): string {
   return formatToolTextValue(String(params?.[key] ?? "")).trim();
 }
 
@@ -220,9 +222,9 @@ function summarizeMultilineText(text: string, maxLen: number): string {
   return `${firstLine} ... +${rawLines.length - 1} more lines`;
 }
 
-function runSubagentExtraParams(params: Record<string, string> | undefined): Record<string, string> | undefined {
+function runSubagentExtraParams(params: Record<string, unknown> | undefined): Record<string, unknown> | undefined {
   if (!params) return undefined;
-  const filtered: Record<string, string> = {};
+  const filtered: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(params)) {
     const normalized = key.trim().toLowerCase();
     if (normalized === "context" || normalized === "task" || normalized === "title") continue;

@@ -32,7 +32,7 @@ export interface ToolCallStartData {
   toolCallId: string
   toolName: string
   command: string
-  params: Record<string, string>
+  params: Record<string, unknown>
   requiresApproval: boolean
   preamble?: string
   startedAt?: string
@@ -105,7 +105,7 @@ type WSIncoming = {
   toolCallId?: string
   toolName?: string
   command?: string
-  params?: Record<string, string>
+  params?: Record<string, unknown>
   requiresApproval?: boolean
   status?: ToolCallStatus
   preamble?: string

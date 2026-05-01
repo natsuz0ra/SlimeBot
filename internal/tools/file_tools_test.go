@@ -17,7 +17,7 @@ func TestFileReadReadsTextWithLineNumbers(t *testing.T) {
 	}
 
 	state := NewReadFileState()
-	res, err := (&fileReadTool{}).read(WithReadFileState(context.Background(), state), map[string]string{
+	res, err := (&fileReadTool{}).read(WithReadFileState(context.Background(), state), map[string]any{
 		"file_path": path,
 		"offset":    "2",
 		"limit":     "1",
@@ -42,7 +42,7 @@ func TestFileReadEmptyFileWarning(t *testing.T) {
 	if err := os.WriteFile(path, nil, 0o644); err != nil {
 		t.Fatalf("write fixture: %v", err)
 	}
-	res, err := (&fileReadTool{}).read(context.Background(), map[string]string{"file_path": path})
+	res, err := (&fileReadTool{}).read(context.Background(), map[string]any{"file_path": path})
 	if err != nil {
 		t.Fatalf("read failed: %v", err)
 	}
@@ -54,10 +54,10 @@ func TestFileReadEmptyFileWarning(t *testing.T) {
 func TestFileReadRejectsLargeDirectoryMissingAndDevice(t *testing.T) {
 	dir := t.TempDir()
 	tool := &fileReadTool{}
-	if _, err := tool.read(context.Background(), map[string]string{"file_path": dir}); err == nil {
+	if _, err := tool.read(context.Background(), map[string]any{"file_path": dir}); err == nil {
 		t.Fatal("expected directory rejection")
 	}
-	if _, err := tool.read(context.Background(), map[string]string{"file_path": filepath.Join(dir, "missing.txt")}); err == nil {
+	if _, err := tool.read(context.Background(), map[string]any{"file_path": filepath.Join(dir, "missing.txt")}); err == nil {
 		t.Fatal("expected missing file rejection")
 	}
 
@@ -65,12 +65,12 @@ func TestFileReadRejectsLargeDirectoryMissingAndDevice(t *testing.T) {
 	if err := os.WriteFile(large, []byte(strings.Repeat("a", fileReadMaxSizeBytes+1)), 0o644); err != nil {
 		t.Fatalf("write large fixture: %v", err)
 	}
-	if _, err := tool.read(context.Background(), map[string]string{"file_path": large}); err == nil {
+	if _, err := tool.read(context.Background(), map[string]any{"file_path": large}); err == nil {
 		t.Fatal("expected large file rejection")
 	}
 
 	if runtime.GOOS != "windows" {
-		if _, err := tool.read(context.Background(), map[string]string{"file_path": "/dev/zero"}); err == nil {
+		if _, err := tool.read(context.Background(), map[string]any{"file_path": "/dev/zero"}); err == nil {
 			t.Fatal("expected blocked device rejection")
 		}
 	}
@@ -84,7 +84,7 @@ func TestFileEditRequiresFreshFullRead(t *testing.T) {
 	}
 	ctx := WithReadFileState(context.Background(), NewReadFileState())
 
-	_, err := (&fileEditTool{}).edit(ctx, map[string]string{
+	_, err := (&fileEditTool{}).edit(ctx, map[string]any{
 		"file_path":  path,
 		"old_string": "beta",
 		"new_string": "delta",
@@ -93,13 +93,13 @@ func TestFileEditRequiresFreshFullRead(t *testing.T) {
 		t.Fatalf("expected unread rejection, got %v", err)
 	}
 
-	if _, err := (&fileReadTool{}).read(ctx, map[string]string{"file_path": path}); err != nil {
+	if _, err := (&fileReadTool{}).read(ctx, map[string]any{"file_path": path}); err != nil {
 		t.Fatalf("read failed: %v", err)
 	}
 	if err := os.WriteFile(path, []byte("alpha\nchanged\n"), 0o644); err != nil {
 		t.Fatalf("external write: %v", err)
 	}
-	_, err = (&fileEditTool{}).edit(ctx, map[string]string{
+	_, err = (&fileEditTool{}).edit(ctx, map[string]any{
 		"file_path":  path,
 		"old_string": "changed",
 		"new_string": "delta",
@@ -116,11 +116,11 @@ func TestFileEditUniqueReplaceAllAndCreate(t *testing.T) {
 		t.Fatalf("write fixture: %v", err)
 	}
 	ctx := WithReadFileState(context.Background(), NewReadFileState())
-	if _, err := (&fileReadTool{}).read(ctx, map[string]string{"file_path": path}); err != nil {
+	if _, err := (&fileReadTool{}).read(ctx, map[string]any{"file_path": path}); err != nil {
 		t.Fatalf("read failed: %v", err)
 	}
 
-	if _, err := (&fileEditTool{}).edit(ctx, map[string]string{
+	if _, err := (&fileEditTool{}).edit(ctx, map[string]any{
 		"file_path":  path,
 		"old_string": "two",
 		"new_string": "three",
@@ -128,7 +128,7 @@ func TestFileEditUniqueReplaceAllAndCreate(t *testing.T) {
 		t.Fatalf("expected multiple match rejection, got %v", err)
 	}
 
-	res, err := (&fileEditTool{}).edit(ctx, map[string]string{
+	res, err := (&fileEditTool{}).edit(ctx, map[string]any{
 		"file_path":   path,
 		"old_string":  "two",
 		"new_string":  "three",
@@ -153,7 +153,7 @@ func TestFileEditUniqueReplaceAllAndCreate(t *testing.T) {
 	}
 
 	newPath := filepath.Join(dir, "nested", "created.txt")
-	res, err = (&fileEditTool{}).edit(ctx, map[string]string{
+	res, err = (&fileEditTool{}).edit(ctx, map[string]any{
 		"file_path":  newPath,
 		"old_string": "",
 		"new_string": "created\n",
@@ -188,11 +188,11 @@ func TestFileEditMetadataIncludesNearbyContext(t *testing.T) {
 		t.Fatalf("write fixture: %v", err)
 	}
 	ctx := WithReadFileState(context.Background(), NewReadFileState())
-	if _, err := (&fileReadTool{}).read(ctx, map[string]string{"file_path": path}); err != nil {
+	if _, err := (&fileReadTool{}).read(ctx, map[string]any{"file_path": path}); err != nil {
 		t.Fatalf("read failed: %v", err)
 	}
 
-	res, err := (&fileEditTool{}).edit(ctx, map[string]string{
+	res, err := (&fileEditTool{}).edit(ctx, map[string]any{
 		"file_path":  path,
 		"old_string": "line 5",
 		"new_string": "changed 5",
@@ -224,7 +224,7 @@ func TestFileEditRejectsBinary(t *testing.T) {
 	state := readFileStateFromContext(ctx)
 	info, _ := os.Stat(path)
 	state.set(path, ReadFileEntry{Content: "", MTimeUnix: fileMTimeUnix(info), Partial: false})
-	if _, err := (&fileEditTool{}).edit(ctx, map[string]string{
+	if _, err := (&fileEditTool{}).edit(ctx, map[string]any{
 		"file_path":  path,
 		"old_string": "x",
 		"new_string": "y",
@@ -239,7 +239,7 @@ func TestFileWriteCreateOverwriteAndPartialReadRejection(t *testing.T) {
 	tool := &fileWriteTool{}
 
 	newPath := filepath.Join(dir, "nested", "new.txt")
-	res, err := tool.write(ctx, map[string]string{"file_path": newPath, "content": "hello\n"})
+	res, err := tool.write(ctx, map[string]any{"file_path": newPath, "content": "hello\n"})
 	if err != nil {
 		t.Fatalf("create write failed: %v", err)
 	}
@@ -251,7 +251,7 @@ func TestFileWriteCreateOverwriteAndPartialReadRejection(t *testing.T) {
 		t.Fatalf("unexpected created content: %q", got)
 	}
 
-	res, err = tool.write(ctx, map[string]string{"file_path": newPath, "content": "overwrite\n"})
+	res, err = tool.write(ctx, map[string]any{"file_path": newPath, "content": "overwrite\n"})
 	if err != nil {
 		t.Fatalf("overwrite after state update failed: %v", err)
 	}
@@ -270,10 +270,10 @@ func TestFileWriteCreateOverwriteAndPartialReadRejection(t *testing.T) {
 	if err := os.WriteFile(partial, []byte("a\nb\nc\n"), 0o644); err != nil {
 		t.Fatalf("write fixture: %v", err)
 	}
-	if _, err := (&fileReadTool{}).read(ctx, map[string]string{"file_path": partial, "offset": "2", "limit": "1"}); err != nil {
+	if _, err := (&fileReadTool{}).read(ctx, map[string]any{"file_path": partial, "offset": "2", "limit": "1"}); err != nil {
 		t.Fatalf("partial read failed: %v", err)
 	}
-	if _, err := tool.write(ctx, map[string]string{"file_path": partial, "content": "full\n"}); err == nil || !strings.Contains(err.Error(), "fully read") {
+	if _, err := tool.write(ctx, map[string]any{"file_path": partial, "content": "full\n"}); err == nil || !strings.Contains(err.Error(), "fully read") {
 		t.Fatalf("expected partial read rejection, got %v", err)
 	}
 }

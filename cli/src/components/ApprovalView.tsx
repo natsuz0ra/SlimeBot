@@ -11,12 +11,12 @@ import { buildFileToolDisplay, isFileToolName } from "../utils/fileToolDisplay.j
 interface ApprovalViewProps {
   toolName: string;
   command: string;
-  params: Record<string, string>;
+  params: Record<string, unknown>;
   items?: Array<{
     toolCallId: string;
     toolName: string;
     command: string;
-    params: Record<string, string>;
+    params: Record<string, unknown>;
   }>;
   cursor?: number;
 }

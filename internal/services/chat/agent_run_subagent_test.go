@@ -29,7 +29,7 @@ func TestHandleRunSubagentTool_PlanModeChildKeepsReadOnlyToolFilter(t *testing.T
 		AgentLoopOptions{PlanMode: true},
 		llmsvc.ToolCallInfo{ID: "call-subagent", Name: constants.RunSubagentTool},
 		resolvedToolInvocation{toolName: constants.RunSubagentTool, command: "run"},
-		map[string]string{"task": "Inspect read-only context"},
+		map[string]any{"task": "Inspect read-only context"},
 		"",
 		"",
 		&messages,
@@ -118,7 +118,7 @@ func TestHandleRunSubagentTool_EmitsNormalizedSubagentTitle(t *testing.T) {
 		AgentLoopOptions{},
 		llmsvc.ToolCallInfo{ID: "call-subagent", Name: constants.RunSubagentTool},
 		resolvedToolInvocation{toolName: constants.RunSubagentTool, command: "run"},
-		map[string]string{
+		map[string]any{
 			"title": "  Inspect\nprompt   flow  ",
 			"task":  "Inspect prompt flow and report risks",
 		},
@@ -160,7 +160,7 @@ func TestHandleRunSubagentTool_FallsBackTitleToTask(t *testing.T) {
 		AgentLoopOptions{},
 		llmsvc.ToolCallInfo{ID: "call-subagent", Name: constants.RunSubagentTool},
 		resolvedToolInvocation{toolName: constants.RunSubagentTool, command: "run"},
-		map[string]string{"task": longTask},
+		map[string]any{"task": longTask},
 		"",
 		"",
 		&messages,
@@ -295,11 +295,11 @@ func (p *captureToolDefsProvider) StreamChatWithTools(
 func TestHandleRunSubagentTool_InheritsParentModelForEmptyOrDefaultModelID(t *testing.T) {
 	tests := []struct {
 		name   string
-		params map[string]string
+		params map[string]any
 	}{
-		{name: "empty", params: map[string]string{"task": "Inspect inherited model"}},
-		{name: "default", params: map[string]string{"task": "Inspect inherited model", "model_id": "default"}},
-		{name: "llm-invented-fast", params: map[string]string{"task": "Inspect inherited model", "model_id": "fast"}},
+		{name: "empty", params: map[string]any{"task": "Inspect inherited model"}},
+		{name: "default", params: map[string]any{"task": "Inspect inherited model", "model_id": "default"}},
+		{name: "llm-invented-fast", params: map[string]any{"task": "Inspect inherited model", "model_id": "fast"}},
 	}
 
 	for _, tt := range tests {
@@ -378,7 +378,7 @@ func TestHandleRunSubagentTool_UserConfiguredModelKeepsParentThinkingLevel(t *te
 		AgentLoopOptions{},
 		llmsvc.ToolCallInfo{ID: "call-subagent", Name: constants.RunSubagentTool},
 		resolvedToolInvocation{toolName: constants.RunSubagentTool, command: "run"},
-		map[string]string{"task": "Inspect override"},
+		map[string]any{"task": "Inspect override"},
 		"child-config",
 		"",
 		&messages,
@@ -415,7 +415,7 @@ func TestHandleRunSubagentTool_PreservesChildReasoningAcrossToolIterations(t *te
 		AgentLoopOptions{},
 		llmsvc.ToolCallInfo{ID: "call-subagent", Name: constants.RunSubagentTool},
 		resolvedToolInvocation{toolName: constants.RunSubagentTool, command: "run"},
-		map[string]string{"task": "Inspect with reasoning"},
+		map[string]any{"task": "Inspect with reasoning"},
 		"",
 		"",
 		&messages,
@@ -702,7 +702,7 @@ func TestHandleChatStream_ParallelSubagentThinkingRecordsKeepSeparateScopes(t *t
 	if len(records) != 2 {
 		t.Fatalf("expected two subagent thinking records, got %d: %+v", len(records), records)
 	}
-	byParent := map[string]string{}
+	byParent := map[string]any{}
 	runIDs := map[string]bool{}
 	for _, record := range records {
 		if record.ParentToolCallID == "" || record.SubagentRunID == "" {

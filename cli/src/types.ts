@@ -75,7 +75,7 @@ export interface ToolCallHistoryItem {
   toolCallId: string;
   toolName: string;
   command: string;
-  params: Record<string, string>;
+  params: Record<string, unknown>;
   status: string;
   requiresApproval: boolean;
   parentToolCallId?: string;
@@ -113,7 +113,7 @@ export interface ToolCallStartData {
   toolCallId: string;
   toolName: string;
   command: string;
-  params: Record<string, string>;
+  params: Record<string, unknown>;
   requiresApproval: boolean;
   preamble?: string;
   parentToolCallId?: string;
@@ -221,7 +221,7 @@ export interface TimelineEntry {
   toolCallId?: string;
   toolName?: string;
   command?: string;
-  params?: Record<string, string>;
+  params?: Record<string, unknown>;
   status?: ToolCallStatus;
   output?: string;
   error?: string;
@@ -251,7 +251,7 @@ export interface PendingApprovalItem {
   toolCallId: string;
   toolName: string;
   command: string;
-  params: Record<string, string>;
+  params: Record<string, unknown>;
 }
 
 export interface MenuItem {
@@ -356,7 +356,7 @@ export interface AppState {
   approvalToolCallId: string;
   approvalToolName: string;
   approvalCommand: string;
-  approvalParams: Record<string, string>;
+  approvalParams: Record<string, unknown>;
   approvalReplyCh: ((approved: boolean) => void) | null;
   pendingApprovals: PendingApprovalItem[];
   approvalCursor: number;
@@ -425,7 +425,7 @@ export type AppAction =
   | { type: "MODEL_EDITOR_NEXT_FIELD" }
   | { type: "MODEL_EDITOR_PREV_FIELD" }
   | { type: "TOGGLE_MODEL_EDITOR_PROVIDER_SELECT" }
-  | { type: "SET_APPROVAL"; toolCallId: string; toolName: string; command: string; params: Record<string, string>; replyCh: (approved: boolean) => void }
+  | { type: "SET_APPROVAL"; toolCallId: string; toolName: string; command: string; params: Record<string, unknown>; replyCh: (approved: boolean) => void }
   | { type: "CLEAR_APPROVAL" }
   | { type: "ADD_PENDING_APPROVAL"; item: PendingApprovalItem }
   | { type: "REMOVE_PENDING_APPROVAL"; toolCallId: string }

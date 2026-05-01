@@ -42,7 +42,7 @@ func (h *httpRequestTool) Commands() []Command {
 	}
 }
 
-func (h *httpRequestTool) Execute(ctx context.Context, command string, params map[string]string) (*ExecuteResult, error) {
+func (h *httpRequestTool) Execute(ctx context.Context, command string, params map[string]any) (*ExecuteResult, error) {
 	switch command {
 	case "request":
 		return h.request(ctx, params)
@@ -51,19 +51,19 @@ func (h *httpRequestTool) Execute(ctx context.Context, command string, params ma
 	}
 }
 
-func (h *httpRequestTool) request(ctx context.Context, params map[string]string) (*ExecuteResult, error) {
-	method := strings.ToUpper(strings.TrimSpace(params["method"]))
+func (h *httpRequestTool) request(ctx context.Context, params map[string]any) (*ExecuteResult, error) {
+	method := strings.ToUpper(paramStringTrim(params, "method"))
 	if method == "" {
 		return nil, fmt.Errorf("method is required.")
 	}
 
-	rawURL := strings.TrimSpace(params["url"])
+	rawURL := paramStringTrim(params, "url")
 	if rawURL == "" {
 		return nil, fmt.Errorf("url is required.")
 	}
 
 	var bodyReader io.Reader
-	if body := strings.TrimSpace(params["body"]); body != "" {
+	if body := paramStringTrim(params, "body"); body != "" {
 		bodyReader = strings.NewReader(body)
 	}
 
@@ -76,7 +76,7 @@ func (h *httpRequestTool) request(ctx context.Context, params map[string]string)
 	}
 	req = req.WithContext(ctx)
 
-	if headersStr := strings.TrimSpace(params["headers"]); headersStr != "" {
+	if headersStr := paramStringTrim(params, "headers"); headersStr != "" {
 		var headers map[string]string
 		if err := json.Unmarshal([]byte(headersStr), &headers); err != nil {
 			return nil, fmt.Errorf("invalid headers format; expected a JSON object: %w", err)

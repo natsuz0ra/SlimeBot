@@ -33,19 +33,19 @@ type MessageHistoryPage struct {
 }
 
 type ToolCallHistory struct {
-	ToolCallID       string            `json:"toolCallId"`
-	ToolName         string            `json:"toolName"`
-	Command          string            `json:"command"`
-	Params           map[string]string `json:"params"`
-	Status           string            `json:"status"`
-	RequiresApproval bool              `json:"requiresApproval"`
-	ParentToolCallID string            `json:"parentToolCallId,omitempty"`
-	SubagentRunID    string            `json:"subagentRunId,omitempty"`
-	Output           string            `json:"output,omitempty"`
-	Error            string            `json:"error,omitempty"`
-	Metadata         any               `json:"metadata,omitempty"`
-	StartedAt        string            `json:"startedAt"`
-	FinishedAt       string            `json:"finishedAt,omitempty"`
+	ToolCallID       string         `json:"toolCallId"`
+	ToolName         string         `json:"toolName"`
+	Command          string         `json:"command"`
+	Params           map[string]any `json:"params"`
+	Status           string         `json:"status"`
+	RequiresApproval bool           `json:"requiresApproval"`
+	ParentToolCallID string         `json:"parentToolCallId,omitempty"`
+	SubagentRunID    string         `json:"subagentRunId,omitempty"`
+	Output           string         `json:"output,omitempty"`
+	Error            string         `json:"error,omitempty"`
+	Metadata         any            `json:"metadata,omitempty"`
+	StartedAt        string         `json:"startedAt"`
+	FinishedAt       string         `json:"finishedAt,omitempty"`
 }
 
 type ThinkingHistory struct {
@@ -144,14 +144,14 @@ func formatHistoryTime(value time.Time) string {
 	return value.Format("2006-01-02T15:04:05.000Z07:00")
 }
 
-func parseToolCallParams(raw string) map[string]string {
+func parseToolCallParams(raw string) map[string]any {
 	trimmed := strings.TrimSpace(raw)
 	if trimmed == "" {
-		return map[string]string{}
+		return map[string]any{}
 	}
-	var params map[string]string
+	var params map[string]any
 	if err := json.Unmarshal([]byte(trimmed), &params); err != nil {
-		return map[string]string{}
+		return map[string]any{}
 	}
 	return params
 }

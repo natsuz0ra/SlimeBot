@@ -46,7 +46,7 @@ interface WSIncoming {
   toolCallId?: string;
   toolName?: string;
   command?: string;
-  params?: Record<string, string>;
+  params?: Record<string, unknown>;
   requiresApproval?: boolean;
   preamble?: string;
   status?: string;

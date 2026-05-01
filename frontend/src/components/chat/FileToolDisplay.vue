@@ -1,28 +1,28 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import type { ToolCallItem } from '@/api/chat'
-import { buildFileToolDisplay } from '@/utils/fileToolDisplay'
+import { buildFileToolDisplays } from '@/utils/fileToolDisplay'
 
 const props = defineProps<{
   item: ToolCallItem
 }>()
 
-const display = computed(() => buildFileToolDisplay(props.item))
-const summaryText = computed(() => {
-  if (!display.value) return ''
-  if (props.item.status === 'completed') return display.value.summary
-  return [display.value.operation, display.value.fileName].filter(Boolean).join(' ')
-})
-const showDiff = computed(() => {
-  return props.item.status === 'completed' && display.value && display.value.diffLines.length > 0
-})
+const displays = computed(() => buildFileToolDisplays(props.item))
 const errorText = computed(() => props.item.status === 'error' || props.item.status === 'rejected' ? (props.item.error || props.item.output || '') : '')
 
-const diffRows = computed(() => {
-  if (!display.value) return []
-  const rows: Array<{ kind: 'separator' } | (typeof display.value.diffLines[number] & { kind: 'context' | 'added' | 'removed' })> = []
+function summaryText(display: { summary: string; operation: string; fileName: string }) {
+  if (props.item.status === 'completed') return display.summary
+  return [display.operation, display.fileName].filter(Boolean).join(' ')
+}
+
+function showDiff(display: { diffLines: unknown[] }) {
+  return props.item.status === 'completed' && display.diffLines.length > 0
+}
+
+function diffRows(display: { diffLines: Array<{ kind: 'context' | 'added' | 'removed'; oldLine?: number; newLine?: number; text: string }> }) {
+  const rows: Array<{ kind: 'separator' } | (typeof display.diffLines[number] & { kind: 'context' | 'added' | 'removed' })> = []
   let previousLine: number | undefined
-  for (const line of display.value.diffLines) {
+  for (const line of display.diffLines) {
     const currentLine = line.newLine ?? line.oldLine
     if (previousLine !== undefined && currentLine !== undefined && currentLine - previousLine > 1) {
       rows.push({ kind: 'separator' })
@@ -31,7 +31,7 @@ const diffRows = computed(() => {
     if (currentLine !== undefined) previousLine = currentLine
   }
   return rows
-})
+}
 
 function lineNumber(line: { kind: string; oldLine?: number; newLine?: number }) {
   const value = line.kind === 'added' ? line.newLine : line.oldLine ?? line.newLine
@@ -46,40 +46,48 @@ function marker(kind: string) {
 </script>
 
 <template>
-  <section v-if="display" class="file-tool">
-    <div class="file-tool-summary">
-      <div class="file-tool-badge">{{ display.operation }}</div>
-      <div class="file-tool-summary-main">
-        <div class="file-tool-action">{{ summaryText }}</div>
-        <div v-if="display.filePath" class="file-tool-path">{{ display.filePath }}</div>
+  <section v-if="displays.length > 0" class="file-tool-list">
+    <div v-for="(display, displayIndex) in displays" :key="`${display.filePath}-${display.operation}-${displayIndex}`" class="file-tool">
+      <div class="file-tool-summary">
+        <div class="file-tool-badge">{{ display.operation }}</div>
+        <div class="file-tool-summary-main">
+          <div class="file-tool-action">{{ summaryText(display) }}</div>
+          <div v-if="display.filePath" class="file-tool-path">{{ display.filePath }}</div>
+        </div>
       </div>
-    </div>
 
-    <div v-if="showDiff" class="file-tool-diff sb-scrollbar" role="list">
-      <div
-        v-for="(line, index) in diffRows"
-        :key="`${line.kind}-${index}-${'oldLine' in line ? line.oldLine ?? '' : ''}-${'newLine' in line ? line.newLine ?? '' : ''}`"
-        :class="['file-tool-diff-row', `file-tool-diff-row--${line.kind}`]"
-        role="listitem"
-      >
-        <template v-if="line.kind === 'separator'">
-          <span class="file-tool-diff-separator">...</span>
-        </template>
-        <template v-else>
-          <span class="file-tool-diff-marker">{{ marker(line.kind) }}</span>
-          <span class="file-tool-diff-line">{{ lineNumber(line) }}</span>
-          <code class="file-tool-diff-code">{{ line.text || ' ' }}</code>
-        </template>
+      <div v-if="showDiff(display)" class="file-tool-diff sb-scrollbar" role="list">
+        <div
+          v-for="(line, index) in diffRows(display)"
+          :key="`${line.kind}-${index}-${'oldLine' in line ? line.oldLine ?? '' : ''}-${'newLine' in line ? line.newLine ?? '' : ''}`"
+          :class="['file-tool-diff-row', `file-tool-diff-row--${line.kind}`]"
+          role="listitem"
+        >
+          <template v-if="line.kind === 'separator'">
+            <span class="file-tool-diff-separator">...</span>
+          </template>
+          <template v-else>
+            <span class="file-tool-diff-marker">{{ marker(line.kind) }}</span>
+            <span class="file-tool-diff-line">{{ lineNumber(line) }}</span>
+            <code class="file-tool-diff-code">{{ line.text || ' ' }}</code>
+          </template>
+        </div>
       </div>
-    </div>
 
-    <div v-if="errorText" class="file-tool-error">
-      {{ errorText }}
+      <div v-if="errorText" class="file-tool-error">
+        {{ errorText }}
+      </div>
     </div>
   </section>
 </template>
 
 <style scoped>
+.file-tool-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
 .file-tool {
   display: flex;
   flex-direction: column;

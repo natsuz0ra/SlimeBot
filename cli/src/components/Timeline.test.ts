@@ -174,6 +174,37 @@ test("formatFileToolTimelineLines collapses long file changes with concrete rows
   assert.ok(lines.at(-1)?.includes("ctrl+o to expand"));
 });
 
+test("formatFileToolTimelineLines renders multi-file metadata arrays", () => {
+  const entry: TimelineEntry = {
+    kind: "tool",
+    content: "",
+    toolName: "file_edit",
+    command: "edit",
+    status: "completed",
+    metadata: [
+      {
+        filePath: "a.ts",
+        operation: "Update",
+        summary: "Updated a.ts",
+        diffLines: [{ kind: "added", newLine: 1, text: "A" }],
+      },
+      {
+        filePath: "b.ts",
+        operation: "Create",
+        summary: "Created b.ts",
+        diffLines: [{ kind: "added", newLine: 1, text: "B" }],
+      },
+    ],
+  };
+
+  const lines = formatFileToolTimelineLines(entry, 120, false);
+
+  assert.ok(lines.filter((line) => line.includes("└─ Updated")).length >= 1);
+  assert.ok(lines.filter((line) => line.includes("└─ Created")).length >= 1);
+  assert.ok(lines.some((line) => line.includes("A")));
+  assert.ok(lines.some((line) => line.includes("B")));
+});
+
 test("Timeline renders file tool changes through the dedicated diff component", () => {
   const source = readFileSync(resolve(import.meta.dirname, "Timeline.tsx"), "utf8");
 

@@ -8,6 +8,7 @@ type CommandParam struct {
 	Required    bool   `json:"required"`
 	Description string `json:"description"`
 	Example     string `json:"example,omitempty"`
+	Schema      any    `json:"schema,omitempty"`
 }
 
 // Command describes one subcommand supported by a tool.
@@ -33,5 +34,5 @@ type Tool interface {
 	Description() string
 	// Commands lists supported subcommands.
 	Commands() []Command
-	Execute(ctx context.Context, command string, params map[string]string) (*ExecuteResult, error)
+	Execute(ctx context.Context, command string, params map[string]any) (*ExecuteResult, error)
 }

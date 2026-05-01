@@ -56,7 +56,7 @@ func (a *askQuestionsTool) Commands() []Command {
 	}
 }
 
-func (a *askQuestionsTool) Execute(ctx context.Context, command string, params map[string]string) (*ExecuteResult, error) {
+func (a *askQuestionsTool) Execute(ctx context.Context, command string, params map[string]any) (*ExecuteResult, error) {
 	switch command {
 	case "ask":
 		return a.ask(params)
@@ -65,8 +65,8 @@ func (a *askQuestionsTool) Execute(ctx context.Context, command string, params m
 	}
 }
 
-func (a *askQuestionsTool) ask(params map[string]string) (*ExecuteResult, error) {
-	raw := strings.TrimSpace(params["questions"])
+func (a *askQuestionsTool) ask(params map[string]any) (*ExecuteResult, error) {
+	raw := paramStringTrim(params, "questions")
 	if raw == "" {
 		return nil, fmt.Errorf("questions parameter is required.")
 	}

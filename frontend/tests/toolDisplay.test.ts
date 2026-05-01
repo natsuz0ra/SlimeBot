@@ -60,6 +60,22 @@ test('buildToolCallSummary uses file tool paths and operations', () => {
     buildToolCallSummary(tool({ toolName: 'file_write', command: 'write', params: { file_path: 'frontend/src/utils/fileToolDisplay.ts' } })),
     'Write fileToolDisplay.ts',
   )
+  assert.equal(
+    buildToolCallSummary(tool({ toolName: 'file_read', command: 'read', params: { requests: [{ file_path: 'a.ts' }, { file_path: 'b.ts' }] } })),
+    'Read 2 files',
+  )
+  assert.equal(
+    buildToolCallSummary(tool({ toolName: 'file_write', command: 'write', params: { writes: [{ file_path: 'a.ts', content: 'a' }] } })),
+    'Write 1 file',
+  )
+  assert.equal(
+    buildToolCallSummary(tool({
+      toolName: 'file_edit',
+      command: 'edit',
+      params: { edits: [{ file_path: 'a.ts', operations: [{ old_string: '', new_string: 'x' }] }, { file_path: 'b.ts', operations: [{ old_string: 'a', new_string: 'b' }] }] },
+    })),
+    'Update 1 file / Create 1 file',
+  )
 })
 
 test('buildToolCallSummary uses run_subagent title before task', () => {
@@ -139,6 +155,23 @@ test('parseFileReadOutput summarizes reads without exposing file body', () => {
   assert.equal(formatFileReadSummary(parsed!), 'Read 40 of 462 lines, showing 120-159')
 })
 
+test('parseFileReadOutput supports range-based output format', () => {
+  const parsed = parseFileReadOutput([
+    'File: cli/src/utils/timelineFormat.ts',
+    'Total lines: 462',
+    'Range 1 lines 120-159:',
+    '   120\tconst hidden = true',
+  ].join('\n'))
+
+  assert.deepEqual(parsed, {
+    filePath: 'cli/src/utils/timelineFormat.ts',
+    totalLines: 462,
+    startLine: 120,
+    endLine: 159,
+    truncated: false,
+  })
+})
+
 test('buildLineDiff emits concrete removed and added lines', () => {
   assert.deepEqual(buildLineDiff('a\nb\nc\n', 'a\nx\nc\n'), [
     { kind: 'context', oldLine: 1, newLine: 1, text: 'a' },
@@ -196,6 +229,28 @@ test('buildFileToolDisplay prefers backend metadata diff and basename summary', 
     { kind: 'added', newLine: 10, text: 'new' },
     { kind: 'context', oldLine: 11, newLine: 11, text: 'after' },
   ])
+})
+
+test('buildFileToolDisplay uses first item when metadata is array', () => {
+  const display = buildFileToolDisplay(tool({
+    toolName: 'file_edit',
+    command: 'edit',
+    params: {},
+    metadata: [{
+      filePath: 'a.ts',
+      operation: 'Update',
+      summary: 'Updated a.ts',
+      diffLines: [{ kind: 'added', newLine: 1, text: 'x' }],
+    }, {
+      filePath: 'b.ts',
+      operation: 'Create',
+      summary: 'Created b.ts',
+      diffLines: [{ kind: 'added', newLine: 1, text: 'y' }],
+    }],
+  }))
+
+  assert.equal(display?.filePath, 'a.ts')
+  assert.equal(display?.summary, 'Updated a.ts')
 })
 
 test('ToolCallInline routes file tools through FileToolDisplay', () => {

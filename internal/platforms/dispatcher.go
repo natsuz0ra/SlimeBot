@@ -89,7 +89,7 @@ func (d *Dispatcher) HandleInbound(ctx context.Context, message InboundMessage, 
 		OnToolCallStart: func(req chatsvc.ApprovalRequest) error {
 			// ask_questions: skip approval UI, auto-approve in WaitApproval.
 			if req.ToolName == constants.AskQuestionsTool {
-				askQuestionsIDs[req.ToolCallID] = req.Params["questions"]
+				askQuestionsIDs[req.ToolCallID] = fmt.Sprintf("%v", req.Params["questions"])
 				return nil
 			}
 			if req.RequiresApproval {
@@ -162,7 +162,7 @@ func formatToolStartSummary(req chatsvc.ApprovalRequest) string {
 	}
 	params := make([]string, 0, len(req.Params))
 	for key, value := range req.Params {
-		v := strings.TrimSpace(value)
+		v := strings.TrimSpace(fmt.Sprintf("%v", value))
 		if v == "" {
 			continue
 		}

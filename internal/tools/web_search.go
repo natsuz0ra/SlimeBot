@@ -77,7 +77,7 @@ func (w *webSearchTool) Commands() []Command {
 	}
 }
 
-func (w *webSearchTool) Execute(ctx context.Context, command string, params map[string]string) (*ExecuteResult, error) {
+func (w *webSearchTool) Execute(ctx context.Context, command string, params map[string]any) (*ExecuteResult, error) {
 	switch command {
 	case "search":
 		return w.search(ctx, params)
@@ -86,8 +86,8 @@ func (w *webSearchTool) Execute(ctx context.Context, command string, params map[
 	}
 }
 
-func (w *webSearchTool) search(ctx context.Context, params map[string]string) (*ExecuteResult, error) {
-	query := strings.TrimSpace(params["query"])
+func (w *webSearchTool) search(ctx context.Context, params map[string]any) (*ExecuteResult, error) {
+	query := paramStringTrim(params, "query")
 	if query == "" {
 		return nil, fmt.Errorf("query is required.")
 	}

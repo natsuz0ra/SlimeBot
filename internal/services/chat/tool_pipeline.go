@@ -83,7 +83,7 @@ func waitApprovalIfNeeded(
 	callbacks AgentCallbacks,
 	tc llmsvc.ToolCallInfo,
 	invocation resolvedToolInvocation,
-	params map[string]string,
+	params map[string]any,
 	preamble string,
 ) (bool, string, string) {
 	if !invocation.requiresApproval {
@@ -117,7 +117,7 @@ func (a *AgentService) executeInvocation(
 	ctx context.Context,
 	tc llmsvc.ToolCallInfo,
 	invocation resolvedToolInvocation,
-	params map[string]string,
+	params map[string]any,
 	sessionID string,
 	mcpConfigs []domain.MCPConfig,
 	memoryToolUsed *bool,
@@ -144,7 +144,7 @@ func (a *AgentService) executeInvocation(
 			return &tools.ExecuteResult{Error: "Memory service is not enabled."}
 		}
 		*memoryToolUsed = true
-		queryResult, queryErr := a.memory.QueryForAgent(ctx, sessionID, params["query"], constants.MemoryToolDefaultTopK)
+		queryResult, queryErr := a.memory.QueryForAgent(ctx, sessionID, fmt.Sprintf("%v", params["query"]), constants.MemoryToolDefaultTopK)
 		if queryErr != nil {
 			return &tools.ExecuteResult{Output: queryResult.Output, Error: queryErr.Error()}
 		}

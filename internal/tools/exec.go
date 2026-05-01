@@ -85,7 +85,7 @@ func (e *execTool) Commands() []Command {
 	}
 }
 
-func (e *execTool) Execute(ctx context.Context, command string, params map[string]string) (*ExecuteResult, error) {
+func (e *execTool) Execute(ctx context.Context, command string, params map[string]any) (*ExecuteResult, error) {
 	switch command {
 	case "run":
 		return e.run(ctx, params)
@@ -95,7 +95,7 @@ func (e *execTool) Execute(ctx context.Context, command string, params map[strin
 }
 
 // run parses params, executes command, and returns structured JSON output.
-func (e *execTool) run(ctx context.Context, params map[string]string) (*ExecuteResult, error) {
+func (e *execTool) run(ctx context.Context, params map[string]any) (*ExecuteResult, error) {
 	cfg, err := parseExecRunConfig(params)
 	if err != nil {
 		return nil, err
@@ -170,17 +170,17 @@ func (e *execTool) run(ctx context.Context, params map[string]string) (*ExecuteR
 	return &ExecuteResult{Output: out}, nil
 }
 
-func parseExecRunConfig(params map[string]string) (execRunConfig, error) {
+func parseExecRunConfig(params map[string]any) (execRunConfig, error) {
 	cfg := execRunConfig{}
-	cfg.command = strings.TrimSpace(params["command"])
-	cfg.description = strings.TrimSpace(params["description"])
-	cfg.shell = normalizeShell(params["shell"])
+	cfg.command = paramStringTrim(params, "command")
+	cfg.description = paramStringTrim(params, "description")
+	cfg.shell = normalizeShell(paramString(params, "shell"))
 	if cfg.shell == "" {
 		cfg.shell = "auto"
 	}
-	cfg.timeoutMs = resolveTimeoutMs(params["timeout_ms"])
+	cfg.timeoutMs = resolveTimeoutMs(paramString(params, "timeout_ms"))
 
-	wd, err := resolveWorkingDirectory(params["working_directory"])
+	wd, err := resolveWorkingDirectory(paramString(params, "working_directory"))
 	if err != nil {
 		return execRunConfig{}, err
 	}

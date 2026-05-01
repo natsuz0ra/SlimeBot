@@ -23,7 +23,7 @@ func TestUpsertToolCallStart_UpdatesExistingRow(t *testing.T) {
 		ToolCallID:       "tc1",
 		ToolName:         "exec",
 		Command:          "run",
-		Params:           map[string]string{"cmd": "echo 1"},
+		Params:           map[string]any{"cmd": "echo 1"},
 		Status:           "pending",
 		RequiresApproval: true,
 		StartedAt:        time.Now().Add(-1 * time.Minute),
@@ -37,7 +37,7 @@ func TestUpsertToolCallStart_UpdatesExistingRow(t *testing.T) {
 	second.Command = "search"
 	second.Status = "executing"
 	second.RequiresApproval = false
-	second.Params = map[string]string{"q": "golang"}
+	second.Params = map[string]any{"q": "golang"}
 	second.StartedAt = time.Now()
 	if err := repo.UpsertToolCallStart(context.Background(), second); err != nil {
 		t.Fatalf("second upsert failed: %v", err)
@@ -69,7 +69,7 @@ func TestUpsertToolCallStart_PersistsParentAndSubagentRun(t *testing.T) {
 		ToolCallID:       "child-tc",
 		ToolName:         "web_search",
 		Command:          "search",
-		Params:           map[string]string{"query": "x"},
+		Params:           map[string]any{"query": "x"},
 		Status:           "executing",
 		RequiresApproval: false,
 		StartedAt:        time.Now(),
@@ -118,7 +118,7 @@ func TestUpdateToolCallResult_PersistsMetadata(t *testing.T) {
 		ToolCallID:       "tc-meta",
 		ToolName:         "file_edit",
 		Command:          "edit",
-		Params:           map[string]string{"file_path": "a.txt"},
+		Params:           map[string]any{"file_path": "a.txt"},
 		Status:           constants.ToolCallStatusExecuting,
 		RequiresApproval: true,
 		StartedAt:        time.Now(),
@@ -180,7 +180,7 @@ func TestFinishOpenToolCallsForRequest_MarksOnlyPendingAndExecutingAsError(t *te
 			ToolCallID:       item.id,
 			ToolName:         "run_subagent",
 			Command:          "delegate",
-			Params:           map[string]string{},
+			Params:           map[string]any{},
 			Status:           item.status,
 			RequiresApproval: false,
 			StartedAt:        time.Now().Add(-time.Second),

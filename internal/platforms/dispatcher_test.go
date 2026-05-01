@@ -40,7 +40,7 @@ func (m *mockPlatformChatService) HandleChatStream(
 		ToolCallID:       "tc_1",
 		ToolName:         "http_request",
 		Command:          "run",
-		Params:           map[string]string{"cmd": "echo hi"},
+		Params:           map[string]any{"cmd": "echo hi"},
 		RequiresApproval: false,
 	})
 	_ = callbacks.OnToolCallResult(chatsvc.ToolCallResult{
@@ -111,7 +111,7 @@ func (m *mockApprovalChatService) HandleChatStream(
 		ToolCallID:       "tc_approval",
 		ToolName:         "exec",
 		Command:          "run",
-		Params:           map[string]string{"cmd": "echo hi"},
+		Params:           map[string]any{"cmd": "echo hi"},
 		RequiresApproval: true,
 	})
 	approval, err := callbacks.WaitApproval(ctx, "tc_approval")
@@ -274,7 +274,7 @@ func TestFormatToolStartSummary_WithoutCommand(t *testing.T) {
 	got := formatToolStartSummary(chatsvc.ApprovalRequest{
 		ToolName: "http_request",
 		Command:  "",
-		Params:   map[string]string{},
+		Params:   map[string]any{},
 	})
 	if got != "Tool execution started: http_request" {
 		t.Fatalf("unexpected start summary without command, got=%s", got)

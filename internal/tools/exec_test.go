@@ -81,7 +81,7 @@ func TestResolveTimeoutMsDefaultAndClamp(t *testing.T) {
 }
 
 func TestParseExecRunConfigRequiresDescription(t *testing.T) {
-	_, err := parseExecRunConfig(map[string]string{
+	_, err := parseExecRunConfig(map[string]any{
 		"command": "go version",
 	})
 	if err == nil {
@@ -145,7 +145,7 @@ func TestFormatExecErrorNotFound(t *testing.T) {
 
 func TestExecRunReturnsStructuredOutput(t *testing.T) {
 	e := &execTool{}
-	res, err := e.run(context.Background(), map[string]string{
+	res, err := e.run(context.Background(), map[string]any{
 		"command":     "go version",
 		"description": "Check Go version",
 	})
@@ -179,7 +179,7 @@ func TestExecRunTimeoutProducesStructuredFlag(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		command = "Start-Sleep -Seconds 2"
 	}
-	res, err := e.run(context.Background(), map[string]string{
+	res, err := e.run(context.Background(), map[string]any{
 		"command":     command,
 		"description": "Verify timeout handling",
 		"timeout_ms":  "50",
@@ -201,7 +201,7 @@ func TestExecRunTimeoutProducesStructuredFlag(t *testing.T) {
 
 func TestExecRunDangerousCommandReturnsToolError(t *testing.T) {
 	e := &execTool{}
-	res, err := e.run(context.Background(), map[string]string{
+	res, err := e.run(context.Background(), map[string]any{
 		"command":     "rm -rf /",
 		"description": "Verify dangerous command rejection",
 	})
@@ -279,7 +279,7 @@ func TestResolveWorkingDirectoryUsesCurrentWhenEmpty(t *testing.T) {
 func TestExecRunUsesProvidedWorkingDirectory(t *testing.T) {
 	e := &execTool{}
 	dir := t.TempDir()
-	res, err := e.run(context.Background(), map[string]string{
+	res, err := e.run(context.Background(), map[string]any{
 		"command":           "go version",
 		"description":       "Verify custom working directory",
 		"working_directory": dir,
@@ -314,7 +314,7 @@ func TestResolveTimeoutMsInvalidFallsBackDefault(t *testing.T) {
 func TestRunDurationIsMeasured(t *testing.T) {
 	e := &execTool{}
 	start := time.Now()
-	res, err := e.run(context.Background(), map[string]string{
+	res, err := e.run(context.Background(), map[string]any{
 		"command":     "go version",
 		"description": "Measure command duration",
 	})

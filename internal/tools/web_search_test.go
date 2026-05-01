@@ -28,7 +28,7 @@ func TestWebSearchToolSearchSuccess(t *testing.T) {
 	defer server.Close()
 
 	tool := newWebSearchTool(server.URL, server.Client(), func() string { return "test-key" })
-	result, err := tool.Execute(context.Background(), "search", map[string]string{"query": "Who is Leo Messi?"})
+	result, err := tool.Execute(context.Background(), "search", map[string]any{"query": "Who is Leo Messi?"})
 	if err != nil {
 		t.Fatalf("expected nil error, got %v", err)
 	}
@@ -48,7 +48,7 @@ func TestWebSearchToolSearchSuccess(t *testing.T) {
 
 func TestWebSearchToolMissingAPIKey(t *testing.T) {
 	tool := newWebSearchTool("https://api.tavily.com", &http.Client{}, func() string { return "" })
-	_, err := tool.Execute(context.Background(), "search", map[string]string{"query": "test"})
+	_, err := tool.Execute(context.Background(), "search", map[string]any{"query": "test"})
 	if err == nil {
 		t.Fatal("expected error when API key is empty")
 	}
@@ -65,7 +65,7 @@ func TestWebSearchToolUpstreamError(t *testing.T) {
 	defer server.Close()
 
 	tool := newWebSearchTool(server.URL, server.Client(), func() string { return "test-key" })
-	result, err := tool.Execute(context.Background(), "search", map[string]string{"query": "test"})
+	result, err := tool.Execute(context.Background(), "search", map[string]any{"query": "test"})
 	if err != nil {
 		t.Fatalf("expected nil error, got %v", err)
 	}

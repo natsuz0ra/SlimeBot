@@ -30,6 +30,13 @@ func normalizeSubagentTitle(title, task string) string {
 	return string(runes[:maxSubagentTitleRunes-3]) + "..."
 }
 
+func anyToTrimmedString(v any) string {
+	if v == nil {
+		return ""
+	}
+	return strings.TrimSpace(fmt.Sprintf("%v", v))
+}
+
 func cloneActivatedSkills(activated map[string]struct{}) map[string]struct{} {
 	cloned := make(map[string]struct{}, len(activated))
 	for name := range activated {
@@ -54,7 +61,7 @@ func (a *AgentService) handleRunSubagentTool(
 	opts AgentLoopOptions,
 	tc llmsvc.ToolCallInfo,
 	invocation resolvedToolInvocation,
-	params map[string]string,
+	params map[string]any,
 	userSubagentModelID string,
 	preamble string,
 	messages *[]llmsvc.ChatMessage,
@@ -87,7 +94,7 @@ func (a *AgentService) executeRunSubagentTool(
 	opts AgentLoopOptions,
 	tc llmsvc.ToolCallInfo,
 	invocation resolvedToolInvocation,
-	params map[string]string,
+	params map[string]any,
 	userSubagentModelID string,
 	preamble string,
 ) (*tools.ExecuteResult, error) {
@@ -98,7 +105,7 @@ func (a *AgentService) executeRunSubagentTool(
 		return &tools.ExecuteResult{Output: "nested run_subagent is not allowed"}, nil
 	}
 
-	task := strings.TrimSpace(params["task"])
+	task := anyToTrimmedString(params["task"])
 	if task == "" {
 		return &tools.ExecuteResult{Output: "task is required"}, nil
 	}
@@ -121,7 +128,7 @@ func (a *AgentService) executeRunSubagentTool(
 		return &tools.ExecuteResult{Output: rejectionMessage}, nil
 	}
 
-	parentCtx := strings.TrimSpace(params["context"])
+	parentCtx := anyToTrimmedString(params["context"])
 	subModel := parentModel
 
 	// Priority: user UI/config selection > inherit parent model. Ignore any LLM-supplied
@@ -144,7 +151,7 @@ func (a *AgentService) executeRunSubagentTool(
 
 	runID := uuid.NewString()
 	if callbacks.OnSubagentStart != nil {
-		_ = callbacks.OnSubagentStart(tc.ID, runID, normalizeSubagentTitle(params["title"], task), task)
+		_ = callbacks.OnSubagentStart(tc.ID, runID, normalizeSubagentTitle(anyToTrimmedString(params["title"]), task), task)
 	}
 
 	subCb := wrapSubagentCallbacks(callbacks, tc.ID, runID)

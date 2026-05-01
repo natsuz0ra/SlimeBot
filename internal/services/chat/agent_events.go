@@ -4,14 +4,14 @@ import "context"
 
 // ApprovalRequest is sent to the client for tool-call approval.
 type ApprovalRequest struct {
-	ToolCallID       string            `json:"toolCallId"`
-	ToolName         string            `json:"toolName"`
-	Command          string            `json:"command"`
-	Params           map[string]string `json:"params"`
-	RequiresApproval bool              `json:"requiresApproval"`
-	Preamble         string            `json:"preamble,omitempty"`
-	ParentToolCallID string            `json:"parentToolCallId,omitempty"`
-	SubagentRunID    string            `json:"subagentRunId,omitempty"`
+	ToolCallID       string         `json:"toolCallId"`
+	ToolName         string         `json:"toolName"`
+	Command          string         `json:"command"`
+	Params           map[string]any `json:"params"`
+	RequiresApproval bool           `json:"requiresApproval"`
+	Preamble         string         `json:"preamble,omitempty"`
+	ParentToolCallID string         `json:"parentToolCallId,omitempty"`
+	SubagentRunID    string         `json:"subagentRunId,omitempty"`
 }
 
 // ApprovalResponse is the client's approval decision.

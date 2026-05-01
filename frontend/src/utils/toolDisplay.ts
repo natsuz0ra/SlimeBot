@@ -51,7 +51,7 @@ export interface AskQuestionsQuestion {
 export interface ToolCallSummaryInput {
   toolName: string
   command: string
-  params?: Record<string, string>
+  params?: Record<string, unknown>
   subagentTitle?: string
   subagentTask?: string
 }
@@ -210,17 +210,17 @@ export function parseWebSearchPayload(raw: string): WebSearchPayload | null {
   }
 }
 
-export function formatToolParams(params: Record<string, string>): Array<{ key: string; value: string }> {
+export function formatToolParams(params: Record<string, unknown>): Array<{ key: string; value: string }> {
   return Object.keys(params)
     .sort()
-    .map((key) => ({ key, value: formatDisplayText(params[key] ?? '') }))
+    .map((key) => ({ key, value: formatDisplayText(String(params[key] ?? '')) }))
 }
 
-function normalizedParam(params: Record<string, string> | undefined, key: string): string {
+function normalizedParam(params: Record<string, unknown> | undefined, key: string): string {
   return String(params?.[key] ?? '').trim()
 }
 
-function firstNonEmptyParam(params: Record<string, string> | undefined): { key: string; value: string } | null {
+function firstNonEmptyParam(params: Record<string, unknown> | undefined): { key: string; value: string } | null {
   if (!params) return null
   for (const key of Object.keys(params).sort()) {
     const value = normalizedParam(params, key)
@@ -237,6 +237,9 @@ export function getToolSummaryParamKeys(toolCall: ToolCallSummaryInput): string[
   if (isFileToolName(toolName)) {
     const keys: string[] = []
     if (normalizedParam(params, 'file_path') !== '') keys.push('file_path')
+    if (normalizedParam(params, 'requests') !== '') keys.push('requests')
+    if (normalizedParam(params, 'edits') !== '') keys.push('edits')
+    if (normalizedParam(params, 'writes') !== '') keys.push('writes')
     return keys
   }
 
@@ -295,9 +298,9 @@ export function buildToolCallSummary(toolCall: ToolCallSummaryInput): string {
   return fallback ? `${fallback.key}: ${fallback.value}` : ''
 }
 
-export function filterToolParamsForDetail(toolCall: ToolCallSummaryInput): Record<string, string> {
+export function filterToolParamsForDetail(toolCall: ToolCallSummaryInput): Record<string, unknown> {
   const hidden = new Set(getToolSummaryParamKeys(toolCall))
-  const result: Record<string, string> = {}
+  const result: Record<string, unknown> = {}
   for (const [key, value] of Object.entries(toolCall.params || {})) {
     if (!hidden.has(key)) result[key] = value
   }

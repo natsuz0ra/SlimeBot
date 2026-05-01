@@ -93,7 +93,7 @@ func testBuildToolCallHistory(records []domain.ToolCallRecord, messageIDSet, int
 			ToolCallID:       record.ToolCallID,
 			ToolName:         record.ToolName,
 			Command:          record.Command,
-			Params:           map[string]string{},
+			Params:           map[string]any{},
 			Status:           status,
 			RequiresApproval: record.RequiresApproval,
 			ParentToolCallID: record.ParentToolCallID,

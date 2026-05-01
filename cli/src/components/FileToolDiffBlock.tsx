@@ -2,7 +2,7 @@ import React from "react";
 import { Box, Text } from "ink";
 import type { TimelineEntry } from "../types.js";
 import type { FileDiffLine } from "../utils/fileToolDisplay.js";
-import { buildFileToolDisplay } from "../utils/fileToolDisplay.js";
+import { buildFileToolDisplays } from "../utils/fileToolDisplay.js";
 import { renderColorDiffRows } from "../native/colorDiff.js";
 
 const MAX_PREVIEW_LINES = 8;
@@ -42,8 +42,8 @@ export function FileToolDiffBlock({
   maxWidth,
   expanded,
 }: FileToolDiffBlockProps): React.ReactElement | null {
-  const display = buildFileToolDisplay(entry);
-  if (!display) return null;
+  const displays = buildFileToolDisplays(entry);
+  if (displays.length === 0) return null;
 
   if (entry.status === "error" || entry.status === "rejected") {
     return (
@@ -55,47 +55,47 @@ export function FileToolDiffBlock({
 
   if (entry.status !== "completed") return null;
 
-  if (display.toolName === "file_read" || display.diffLines.length === 0) {
-    return (
-      <Box marginLeft={3}>
-        <Text color={SUMMARY_COLOR}>└─ {display.summary}</Text>
-      </Box>
-    );
-  }
-
   const width = Math.max(24, Math.min(maxWidth - 3, maxWidth));
-  const previewLines = expanded ? display.diffLines : display.diffLines.slice(0, MAX_PREVIEW_LINES);
-  const remaining = display.diffLines.length - previewLines.length;
-  const renderedRows = chunkDiffLines(previewLines).flatMap((chunk, index) => {
-    const rows = renderColorDiffRows({
-      filePath: display.filePath,
-      lines: chunk,
-      width: Math.max(12, width - 2),
-    });
-    return index === 0 ? rows : [{ gutter: "", content: "..." }, ...rows];
-  });
   return (
     <Box marginLeft={3} flexDirection="column">
-      <Text color={SUMMARY_COLOR}>└─ {display.summary}</Text>
-      <Box flexDirection="column" borderStyle="single" borderColor={BORDER_COLOR} borderLeft={false} borderRight={false}>
-        <Box flexDirection="row">
-          <Box flexDirection="column" flexShrink={0}>
-            {renderedRows.map((row, index) => (
-              <Text key={`gutter-${index}`}>{row.gutter}</Text>
-            ))}
+      {displays.map((display, idx) => {
+        const previewLines = expanded ? display.diffLines : display.diffLines.slice(0, MAX_PREVIEW_LINES);
+        const remaining = display.diffLines.length - previewLines.length;
+        const renderedRows = chunkDiffLines(previewLines).flatMap((chunk, index) => {
+          const rows = renderColorDiffRows({
+            filePath: display.filePath,
+            lines: chunk,
+            width: Math.max(12, width - 2),
+          });
+          return index === 0 ? rows : [{ gutter: "", content: "..." }, ...rows];
+        });
+        return (
+          <Box key={`${display.filePath}-${display.operation}-${idx}`} flexDirection="column">
+            <Text color={SUMMARY_COLOR}>└─ {display.summary}</Text>
+            {display.toolName === "file_read" || display.diffLines.length === 0 ? null : (
+              <Box flexDirection="column" borderStyle="single" borderColor={BORDER_COLOR} borderLeft={false} borderRight={false}>
+                <Box flexDirection="row">
+                  <Box flexDirection="column" flexShrink={0}>
+                    {renderedRows.map((row, index) => (
+                      <Text key={`gutter-${idx}-${index}`}>{row.gutter}</Text>
+                    ))}
+                  </Box>
+                  <Box flexDirection="column" marginLeft={1}>
+                    {renderedRows.map((row, index) => (
+                      <Text key={`content-${idx}-${index}`}>{row.content}</Text>
+                    ))}
+                  </Box>
+                </Box>
+                {remaining > 0 ? (
+                  <Text color={HINT_COLOR}>... +{remaining} more changed lines (ctrl+o to expand)</Text>
+                ) : expanded && display.diffLines.length > MAX_PREVIEW_LINES ? (
+                  <Text color={HINT_COLOR}>... (ctrl+o to collapse)</Text>
+                ) : null}
+              </Box>
+            )}
           </Box>
-          <Box flexDirection="column" marginLeft={1}>
-            {renderedRows.map((row, index) => (
-              <Text key={`content-${index}`}>{row.content}</Text>
-            ))}
-          </Box>
-        </Box>
-        {remaining > 0 ? (
-          <Text color={HINT_COLOR}>... +{remaining} more changed lines (ctrl+o to expand)</Text>
-        ) : expanded && display.diffLines.length > MAX_PREVIEW_LINES ? (
-          <Text color={HINT_COLOR}>... (ctrl+o to collapse)</Text>
-        ) : null}
-      </Box>
+        );
+      })}
     </Box>
   );
 }

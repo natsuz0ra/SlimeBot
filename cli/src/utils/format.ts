@@ -8,11 +8,11 @@ export function formatToolInvocation(toolName: string, command: string): string 
   return `${name}.${cmd}()`;
 }
 
-function normalizedParam(params: Record<string, string> | undefined, key: string): string {
+function normalizedParam(params: Record<string, unknown> | undefined, key: string): string {
   return String(params?.[key] ?? "").trim();
 }
 
-function firstNonEmptyParam(params?: Record<string, string>): { key: string; value: string } | null {
+function firstNonEmptyParam(params?: Record<string, unknown>): { key: string; value: string } | null {
   if (!params) return null;
   for (const key of Object.keys(params).sort()) {
     const value = normalizedParam(params, key);
@@ -24,7 +24,7 @@ function firstNonEmptyParam(params?: Record<string, string>): { key: string; val
 export function getToolSummaryParamKeys(
   toolName: string,
   command: string,
-  params?: Record<string, string>,
+  params?: Record<string, unknown>,
 ): string[] {
   const tool = toolName.trim().toLowerCase();
   const cmd = command.trim().toLowerCase();
@@ -33,6 +33,9 @@ export function getToolSummaryParamKeys(
   if (isFileToolName(tool)) {
     const keys: string[] = [];
     if (normalizedParam(params, "file_path") !== "") keys.push("file_path");
+    if (normalizedParam(params, "requests") !== "") keys.push("requests");
+    if (normalizedParam(params, "edits") !== "") keys.push("edits");
+    if (normalizedParam(params, "writes") !== "") keys.push("writes");
     return keys;
   }
 
@@ -66,7 +69,7 @@ export function getToolSummaryParamKeys(
 export function formatToolCallSummary(
   toolName: string,
   command: string,
-  params?: Record<string, string>,
+  params?: Record<string, unknown>,
 ): string {
   const tool = toolName.trim().toLowerCase();
   const cmd = command.trim().toLowerCase();
@@ -105,11 +108,11 @@ export function formatToolCallSummary(
 export function filterToolParamsForDetail(
   toolName: string,
   command: string,
-  params?: Record<string, string>,
-): Record<string, string> {
+  params?: Record<string, unknown>,
+): Record<string, unknown> {
   if (!params) return {};
   const hidden = new Set(getToolSummaryParamKeys(toolName, command, params));
-  const result: Record<string, string> = {};
+  const result: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(params)) {
     if (!hidden.has(key)) result[key] = value;
   }
@@ -173,7 +176,7 @@ export function formatToolTextValue(raw: string): string {
 }
 
 /** Formats params into readable key/value lines. */
-export function formatToolParamEntries(params?: Record<string, string>): string[] {
+export function formatToolParamEntries(params?: Record<string, unknown>): string[] {
   if (!params || Object.keys(params).length === 0) return [];
   const keys = Object.keys(params).sort();
   const lines: string[] = [];

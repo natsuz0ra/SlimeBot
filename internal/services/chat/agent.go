@@ -110,10 +110,15 @@ func BuildToolDefs() []llmsvc.ToolDef {
 			properties := make(map[string]any)
 			var required []string
 			for _, p := range cmd.Params {
-				prop := map[string]any{
-					"type":        "string",
-					"description": p.Description,
+				prop := map[string]any{}
+				if schema, ok := p.Schema.(map[string]any); ok && len(schema) > 0 {
+					for k, v := range schema {
+						prop[k] = v
+					}
+				} else {
+					prop["type"] = "string"
 				}
+				prop["description"] = p.Description
 				if p.Example != "" {
 					prop["example"] = p.Example
 				}
@@ -557,7 +562,7 @@ func (a *AgentService) RunAgentLoop(
 
 			if tc.Name == constants.ActivateSkillTool && a.skillRuntime != nil {
 				flushParallelJobs()
-				skillName := strings.TrimSpace(params["name"])
+				skillName := strings.TrimSpace(fmt.Sprintf("%v", params["name"]))
 				content, _, activateErr := a.skillRuntime.ActivateSkill(skillName, activatedSkills)
 				if activateErr != nil {
 					messages = appendToolMessage(messages, tc.ID, fmt.Sprintf("failed to activate skill: %s", activateErr.Error()))
@@ -585,7 +590,7 @@ func (a *AgentService) RunAgentLoop(
 					messages = appendToolMessage(messages, tc.ID, rejectionMessage)
 					continue
 				}
-				formattedAnswers := formatAskQuestionsAnswers(params["questions"], answers)
+				formattedAnswers := formatAskQuestionsAnswers(fmt.Sprintf("%v", params["questions"]), answers)
 				notifyToolResult(callbacks, ToolCallResult{
 					ToolCallID:       tc.ID,
 					ToolName:         invocation.toolName,
@@ -729,25 +734,15 @@ func parseToolCallName(funcName string) (toolName, command string, err error) {
 }
 
 // parseToolCallArgs normalizes tool arguments to string maps for built-in tools.
-func parseToolCallArgs(arguments string) (map[string]string, error) {
+func parseToolCallArgs(arguments string) (map[string]any, error) {
 	if strings.TrimSpace(arguments) == "" {
-		return map[string]string{}, nil
+		return map[string]any{}, nil
 	}
 	var raw map[string]any
 	if err := json.Unmarshal([]byte(arguments), &raw); err != nil {
 		return nil, fmt.Errorf("failed to parse JSON: %w", err)
 	}
-	result := make(map[string]string, len(raw))
-	for k, v := range raw {
-		switch val := v.(type) {
-		case string:
-			result[k] = val
-		default:
-			b, _ := json.Marshal(val)
-			result[k] = string(b)
-		}
-	}
-	return result, nil
+	return raw, nil
 }
 
 // parseToolCallArgsAny preserves raw JSON types for MCP tool calls.
@@ -810,7 +805,7 @@ func parseTodoUpdate(arguments string) (TodoUpdate, error) {
 }
 
 // executeToolCall runs a built-in tool command with uniform error handling.
-func executeToolCall(ctx context.Context, toolName, command string, params map[string]string) *tools.ExecuteResult {
+func executeToolCall(ctx context.Context, toolName, command string, params map[string]any) *tools.ExecuteResult {
 	t, ok := tools.Get(toolName)
 	if !ok {
 		return &tools.ExecuteResult{Error: fmt.Sprintf("tool %s not found", toolName)}

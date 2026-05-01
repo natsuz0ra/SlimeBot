@@ -204,7 +204,7 @@ onUnmounted(() => {
 
 <template>
   <div class="input-container focus-ring rounded-2xl">
-    <div v-if="planConfirmationVisible" class="plan-confirm-inline">
+    <div v-if="planConfirmationVisible" class="plan-confirm-inline" data-plan-confirmation="true">
       <div class="plan-confirm-copy">{{ t('planConfirmPrompt') }}</div>
       <div class="plan-confirm-actions">
         <button

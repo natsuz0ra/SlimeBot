@@ -6,6 +6,8 @@ const BOTTOM_STICK_THRESHOLD_PX = 32
 const TOP_LOAD_THRESHOLD_PX = 200
 const SIDEBAR_BOTTOM_LOAD_THRESHOLD_PX = 80
 const SCROLL_TO_BOTTOM_PENDING_MAX_MS = 2000
+const ACTION_TARGET_STABILIZE_MAX_FRAMES = 18
+const ACTION_TARGET_STABILIZE_CONSECUTIVE_FRAMES = 2
 const SIDEBAR_SESSION_ITEM_HEIGHT_PX = 38
 const SIDEBAR_SCROLL_AREA_PADDING_PX = 8
 
@@ -156,6 +158,93 @@ export function useHomeScroll(options: {
     void nextTick(() => {
       scrollMessagesToBottom(force)
     })
+  }
+
+  function resolvePendingToolCallTarget(el: HTMLElement) {
+    const pendingId = store.pendingApprovalToolCallIds[0]
+    if (pendingId) {
+      const target = Array.from(el.querySelectorAll<HTMLElement>('[data-pending-tool-call-id]'))
+        .find((item) => item.dataset.pendingToolCallId === pendingId)
+      if (target) return target
+    }
+    return el.querySelector<HTMLElement>('[data-pending-tool-call-id]')
+  }
+
+  function resolvePendingPlanTarget(el: HTMLElement) {
+    const activePlan = el.querySelector<HTMLElement>('[data-plan-block-active="true"]')
+    if (activePlan) return activePlan
+    const allPlanBlocks = el.querySelectorAll<HTMLElement>('[data-plan-block]')
+    if (allPlanBlocks.length === 0) return null
+    return allPlanBlocks[allPlanBlocks.length - 1] ?? null
+  }
+
+  function alignActionTargetToTop(el: HTMLElement, target: HTMLElement) {
+    const scrollerRect = el.getBoundingClientRect()
+    const targetRect = target.getBoundingClientRect()
+    const nextTop = el.scrollTop + (targetRect.top - scrollerRect.top)
+    el.scrollTo({ top: Math.max(0, nextTop), behavior: 'smooth' })
+    autoStickToBottom.value = false
+  }
+
+  function canMeasureTarget(target: HTMLElement) {
+    const rect = target.getBoundingClientRect()
+    return rect.height > 0 && rect.width > 0
+  }
+
+  async function waitForTargetStable(target: HTMLElement) {
+    let stableFrames = 0
+    let prevTop = Number.NaN
+    let prevHeight = Number.NaN
+    for (let i = 0; i < ACTION_TARGET_STABILIZE_MAX_FRAMES; i += 1) {
+      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
+      if (!target.isConnected) return false
+      const rect = target.getBoundingClientRect()
+      if (rect.height <= 0 || rect.width <= 0) {
+        stableFrames = 0
+        continue
+      }
+      const sameTop = Math.abs(rect.top - prevTop) < 0.5
+      const sameHeight = Math.abs(rect.height - prevHeight) < 0.5
+      if (sameTop && sameHeight) {
+        stableFrames += 1
+      } else {
+        stableFrames = 0
+      }
+      prevTop = rect.top
+      prevHeight = rect.height
+      if (stableFrames >= ACTION_TARGET_STABILIZE_CONSECUTIVE_FRAMES) return true
+    }
+    return canMeasureTarget(target)
+  }
+
+  function scrollToActionTargetInContainer(el: HTMLElement, target: HTMLElement) {
+    if (!canMeasureTarget(target)) return false
+    alignActionTargetToTop(el, target)
+    return true
+  }
+
+  async function scrollToActionTarget() {
+    const el = messagesRef.value
+    if (!el) return false
+
+    const findTarget = () => {
+      const pendingToolTarget = resolvePendingToolCallTarget(el)
+      if (pendingToolTarget) return pendingToolTarget
+      if (getCurrentSessionPlanConfirmationId()) {
+        const pendingPlanTarget = resolvePendingPlanTarget(el)
+        if (pendingPlanTarget) return pendingPlanTarget
+      }
+      return null
+    }
+
+    await nextTick()
+    const initialTarget = findTarget()
+    if (!initialTarget) return false
+    const stabilized = await waitForTargetStable(initialTarget)
+    if (!stabilized) return false
+    const latestTarget = findTarget()
+    if (!latestTarget) return false
+    return scrollToActionTargetInContainer(el, latestTarget)
   }
 
   function getCurrentSessionPlanConfirmationId() {
@@ -333,7 +422,9 @@ export function useHomeScroll(options: {
     ],
     (next, previous) => {
       if (hasNewActionRequest(next, previous)) {
-        queueScrollMessagesToBottom(true)
+        void scrollToActionTarget().then((handled) => {
+          if (!handled) queueScrollMessagesToBottom(true)
+        })
       }
     },
   )

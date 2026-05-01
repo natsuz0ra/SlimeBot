@@ -152,7 +152,11 @@ function toggleSubagentTimeline() {
 <template>
   <div>
     <div v-if="showPreamble" class="inline-tool-preamble">{{ item.preamble }}</div>
-    <div class="inline-tool" :class="[`inline-tool--${item.status}`]">
+    <div
+      class="inline-tool"
+      :class="[`inline-tool--${item.status}`]"
+      :data-pending-tool-call-id="item.status === 'pending' && !isAskQuestions ? item.toolCallId : undefined"
+    >
       <button
         type="button"
         class="inline-tool-row"

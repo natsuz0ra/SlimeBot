@@ -6,9 +6,11 @@ import { renderMarkdown } from '@/utils/markdown'
 const props = withDefaults(defineProps<{
   content?: string
   generating?: boolean
+  activeTarget?: boolean
 }>(), {
   content: '',
   generating: false,
+  activeTarget: false,
 })
 
 const { t } = useI18n()
@@ -30,6 +32,8 @@ function toggleExpand() {
 <template>
   <section
     class="plan-block"
+    data-plan-block="true"
+    :data-plan-block-active="activeTarget ? 'true' : undefined"
     :class="{
       'plan-block--generating': generating,
       'plan-block--clickable': headerClickable,

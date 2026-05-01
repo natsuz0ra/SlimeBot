@@ -9,12 +9,14 @@ import { renderMarkdown } from '@/utils/markdown'
 import type { MessageItem } from '@/api/chat'
 import { useChatContext } from '@/composables/chat/useChatContext'
 import { getCollapsedReplyTimeline } from '@/utils/replyBatchBuilder'
+import { useChatStore } from '@/stores/chat'
 
 const props = defineProps<{
   item: MessageItem
 }>()
 
 const ctx = useChatContext()
+const store = useChatStore()
 const { t } = useI18n()
 const elapsedTick = ref(0)
 let elapsedTimer: ReturnType<typeof setInterval> | undefined
@@ -36,6 +38,19 @@ const pendingApprovalIds = computed(() => fullTimeline.value
   .map((tool) => tool!.toolCallId))
 const showBatchApprovalActions = computed(() => pendingApprovalIds.value.length > 1)
 const isTypingPlaceholder = computed(() => ctx.isEmptyPlaceholder(props.item.id) && ctx.waiting)
+const currentSessionHasPendingPlanConfirmation = computed(() => (
+  !!store.pendingPlanConfirmation &&
+  store.pendingPlanConfirmation.sessionId === store.currentSessionId
+))
+const lastReadyPlanIndex = computed(() => {
+  for (let index = renderedTimeline.value.length - 1; index >= 0; index -= 1) {
+    const entry = renderedTimeline.value[index]
+    if (entry?.kind !== 'plan') continue
+    if (entry.generating) continue
+    return index
+  }
+  return -1
+})
 const elapsedMs = computed(() => {
   elapsedTick.value
   return ctx.getReplyElapsedMs(props.item.id)
@@ -133,6 +148,7 @@ onUnmounted(() => {
             v-else-if="entry.kind === 'plan'"
             :content="entry.content"
             :generating="entry.generating ?? false"
+            :active-target="currentSessionHasPendingPlanConfirmation && index === lastReadyPlanIndex"
           />
 
           <ToolCallInline

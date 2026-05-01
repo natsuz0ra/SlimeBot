@@ -98,13 +98,26 @@ test('plan approval actions ignore confirmations from another session', () => {
   )
 })
 
-test('approval prompts force the message list to scroll to bottom', () => {
+test('approval and plan prompts align timeline targets before falling back to bottom', () => {
   const homeScrollSource = readFileSync(resolve(import.meta.dirname, '../src/composables/home/useHomeScroll.ts'), 'utf8')
+  const toolCallInlineSource = readFileSync(resolve(import.meta.dirname, '../src/components/chat/ToolCallInline.vue'), 'utf8')
+  const planBlockSource = readFileSync(resolve(import.meta.dirname, '../src/components/chat/PlanBlock.vue'), 'utf8')
+  const assistantBodySource = readFileSync(resolve(import.meta.dirname, '../src/components/chat/AssistantMessageBody.vue'), 'utf8')
 
   assert.match(homeScrollSource, /store\.pendingApprovalToolCallIds\.join\('\|'\)/)
   assert.match(homeScrollSource, /store\.pendingQuestions\?\.toolCallId/)
   assert.match(homeScrollSource, /pendingPlanConfirmation[\s\S]*sessionId === store\.currentSessionId/s)
-  assert.match(homeScrollSource, /queueScrollMessagesToBottom\(true\)/)
+  assert.match(homeScrollSource, /async function scrollToActionTarget\(\)/)
+  assert.match(homeScrollSource, /resolvePendingPlanTarget/)
+  assert.match(homeScrollSource, /alignActionTargetToTop/)
+  assert.match(homeScrollSource, /ACTION_TARGET_STABILIZE_MAX_FRAMES/)
+  assert.match(homeScrollSource, /async function waitForTargetStable/)
+  assert.doesNotMatch(homeScrollSource, /SMALL_ACTION_CARD_MAX_HEIGHT_PX/)
+  assert.doesNotMatch(homeScrollSource, /isSmallCard = targetHeight <= smallCardHeightLimit/)
+  assert.match(toolCallInlineSource, /data-pending-tool-call-id/)
+  assert.match(planBlockSource, /data-plan-block="true"/)
+  assert.match(planBlockSource, /:data-plan-block-active="activeTarget \? 'true' : undefined"/)
+  assert.match(assistantBodySource, /:active-target="currentSessionHasPendingPlanConfirmation && index === lastReadyPlanIndex"/)
 })
 
 test('chat socket done event forwards plan metadata while plan_body stays separate', () => {

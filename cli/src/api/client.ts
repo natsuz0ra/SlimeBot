@@ -111,6 +111,24 @@ export class APIClient {
     });
   }
 
+  updateLLMConfig(id: string, data: {
+    name: string;
+    provider: string;
+    baseUrl: string;
+    apiKey: string;
+    model: string;
+    contextSize?: number;
+  }): Promise<void> {
+    return this.request(`/api/llm-configs/${id}`, {
+      method: "PUT",
+      body: JSON.stringify(data),
+    }).then(() => {});
+  }
+
+  deleteLLMConfig(id: string): Promise<void> {
+    return this.request(`/api/llm-configs/${id}`, { method: "DELETE" }).then(() => {});
+  }
+
   // ===== MCP Configs =====
 
   listMCPConfigs(): Promise<MCPConfig[]> {

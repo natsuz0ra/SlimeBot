@@ -8,7 +8,7 @@ import (
 	"slimebot/internal/domain"
 )
 
-type LLMConfigCreateInput struct {
+type LLMConfigInput struct {
 	Name        string
 	Provider    string
 	BaseURL     string
@@ -16,6 +16,8 @@ type LLMConfigCreateInput struct {
 	Model       string
 	ContextSize int
 }
+
+type LLMConfigCreateInput = LLMConfigInput
 
 type LLMConfigService struct {
 	store              domain.LLMConfigStore
@@ -35,18 +37,26 @@ func (s *LLMConfigService) List(ctx context.Context) ([]domain.LLMConfig, error)
 }
 
 func (s *LLMConfigService) Create(ctx context.Context, input LLMConfigCreateInput) (*domain.LLMConfig, error) {
+	return s.store.CreateLLMConfig(ctx, s.buildConfig(input))
+}
+
+func (s *LLMConfigService) Update(ctx context.Context, id string, input LLMConfigInput) error {
+	return s.store.UpdateLLMConfig(ctx, id, s.buildConfig(input))
+}
+
+func (s *LLMConfigService) buildConfig(input LLMConfigInput) domain.LLMConfig {
 	provider := strings.TrimSpace(input.Provider)
 	if provider == "" {
 		provider = "openai"
 	}
-	return s.store.CreateLLMConfig(ctx, domain.LLMConfig{
+	return domain.LLMConfig{
 		Name:        strings.TrimSpace(input.Name),
 		Provider:    provider,
 		BaseURL:     strings.TrimSpace(input.BaseURL),
 		APIKey:      strings.TrimSpace(input.APIKey),
 		Model:       strings.TrimSpace(input.Model),
 		ContextSize: s.resolveContextSize(input.ContextSize),
-	})
+	}
 }
 
 func (s *LLMConfigService) Delete(ctx context.Context, id string) error {

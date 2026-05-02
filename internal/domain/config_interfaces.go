@@ -6,6 +6,7 @@ import "context"
 type LLMConfigStore interface {
 	ListLLMConfigs(ctx context.Context) ([]LLMConfig, error)
 	CreateLLMConfig(ctx context.Context, item LLMConfig) (*LLMConfig, error)
+	UpdateLLMConfig(ctx context.Context, id string, item LLMConfig) error
 	DeleteLLMConfig(ctx context.Context, id string) error
 }
 

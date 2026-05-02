@@ -12,6 +12,7 @@ import type {
   ModelProvider,
 } from "./types.js";
 import { estimateTokens } from "./utils/format.js";
+import { CONTEXT_SIZE_DEFAULT, clampContextSize } from "./utils/contextSize.js";
 
 function clearTurnStats() {
   return {
@@ -169,11 +170,13 @@ export function createInitialState(
     mcpEditorEnabled: true,
     mcpEditorFocusName: true,
     mcpTemplateCursor: 0,
+    modelEditorId: "",
     modelEditorName: "",
     modelEditorProvider: "openai" as ModelProvider,
     modelEditorBaseUrl: "",
     modelEditorApiKey: "",
     modelEditorModel: "",
+    modelEditorContextSize: String(CONTEXT_SIZE_DEFAULT),
     modelEditorFocusIndex: 0,
     modelEditorProviderSelect: false,
     approvalToolCallId: "",
@@ -488,11 +491,28 @@ export function reducer(state: AppState, action: AppAction): AppState {
       return {
         ...state,
         view: "model-editor",
+        modelEditorId: "",
         modelEditorName: "",
         modelEditorProvider: "openai" as ModelProvider,
         modelEditorBaseUrl: "",
         modelEditorApiKey: "",
         modelEditorModel: "",
+        modelEditorContextSize: String(CONTEXT_SIZE_DEFAULT),
+        modelEditorFocusIndex: 0,
+        modelEditorProviderSelect: false,
+      };
+
+    case "SET_MODEL_EDITOR":
+      return {
+        ...state,
+        view: "model-editor",
+        modelEditorId: action.config.id,
+        modelEditorName: action.config.name,
+        modelEditorProvider: (action.config.provider || "openai") as ModelProvider,
+        modelEditorBaseUrl: action.config.baseUrl,
+        modelEditorApiKey: action.config.apiKey,
+        modelEditorModel: action.config.model,
+        modelEditorContextSize: String(clampContextSize(action.config.contextSize)),
         modelEditorFocusIndex: 0,
         modelEditorProviderSelect: false,
       };
@@ -512,8 +532,11 @@ export function reducer(state: AppState, action: AppAction): AppState {
     case "SET_MODEL_EDITOR_MODEL":
       return { ...state, modelEditorModel: action.model };
 
+    case "SET_MODEL_EDITOR_CONTEXT_SIZE":
+      return { ...state, modelEditorContextSize: action.contextSize };
+
     case "MODEL_EDITOR_NEXT_FIELD": {
-      const maxIndex = 4;
+      const maxIndex = 5;
       const next = Math.min(maxIndex, state.modelEditorFocusIndex + 1);
       return { ...state, modelEditorFocusIndex: next, modelEditorProviderSelect: false };
     }

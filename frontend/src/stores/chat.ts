@@ -500,7 +500,7 @@ export const useChatStore = defineStore('chat', () => {
         // Handle ask_questions tool: parse questions and show Q&A drawer.
         if (data.toolName === 'ask_questions' && data.params?.questions) {
           try {
-            const questions = JSON.parse(data.params.questions) as QuestionItem[]
+            const questions = JSON.parse(String(data.params.questions)) as QuestionItem[]
             if (Array.isArray(questions) && questions.length > 0) {
               pendingQuestions.value = { toolCallId: data.toolCallId, questions }
             }

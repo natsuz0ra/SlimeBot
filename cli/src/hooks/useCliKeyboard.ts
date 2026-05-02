@@ -2,6 +2,7 @@ import { useInput } from "ink";
 import type { Key } from "ink";
 import type React from "react";
 import type { AppAction, AppState, MCPTemplate, MenuItem, ModelProvider } from "../types.js";
+import { adjustContextSize, clampContextSize } from "../utils/contextSize.js";
 import { MCP_TEMPLATES } from "../types.js";
 import type { CLISocket } from "../ws/socket.js";
 
@@ -330,6 +331,14 @@ export function useCliKeyboard({
       if (key.tab) {
         dispatch({ type: "MODEL_EDITOR_NEXT_FIELD" });
         return;
+      }
+      if (state.modelEditorFocusIndex === 5) {
+        if (key.leftArrow || key.rightArrow || key.upArrow || key.downArrow) {
+          const current = clampContextSize(state.modelEditorContextSize);
+          const delta = key.leftArrow ? -1_000 : key.rightArrow ? 1_000 : key.upArrow ? 32_000 : -32_000;
+          dispatch({ type: "SET_MODEL_EDITOR_CONTEXT_SIZE", contextSize: String(adjustContextSize(current, delta)) });
+          return;
+        }
       }
       if (key.escape) {
         void loadModels();

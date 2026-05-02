@@ -19,6 +19,7 @@ import { TextInput } from "./components/TextInput.js";
 import { Timeline } from "./components/Timeline.js";
 import { getChatFooterHint, handleChatShortcut, runCliCommand } from "./controllers/commands.js";
 import { useCliKeyboard } from "./hooks/useCliKeyboard.js";
+import { clampContextSize, formatContextSize } from "./utils/contextSize.js";
 import { useCliSocket } from "./hooks/useCliSocket.js";
 import { reducer, createInitialState } from "./reducer.js";
 import { completeCommand, isCommand } from "./utils/commands.js";
@@ -241,7 +242,7 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
       const configs = await apiRef.current.listLLMConfigs();
       const items: MenuItem[] = configs.map((c) => ({
         title: c.name,
-        desc: c.model,
+        desc: `${c.model} · ${formatContextSize(c.contextSize || 1_000_000)}`,
         data: c,
       }));
       dispatch({
@@ -249,7 +250,7 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
         kind: "model",
         title: "Model Menu",
         items,
-        hint: "Arrow keys to navigate | Enter to set default | A to add | D to delete | Esc to close",
+        hint: "Arrow keys to navigate | Enter to set default | A to add | E to edit | D to delete | Esc to close",
       } as AppAction);
     } catch (error) {
       appendSystem(`Failed to load models: ${(error as Error).message}`);
@@ -444,6 +445,12 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
         const mcp = item.data as MCPConfig;
         await apiRef.current.deleteMCPConfig(mcp.id);
         await loadMCPConfigs();
+        return;
+      }
+      if (state.menuKind === "model") {
+        const model = item.data as LLMConfig;
+        await apiRef.current.deleteLLMConfig(model.id);
+        await loadModels();
       }
     } catch (error) {
       appendSystem(`Delete failed: ${(error as Error).message}`);
@@ -459,7 +466,12 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
   }, [state.menuKind]);
 
   const handleMenuEdit = useCallback((item: MenuItem | undefined) => {
-    if (state.menuKind !== "mcp" || !item) return;
+    if (!item) return;
+    if (state.menuKind === "model") {
+      dispatch({ type: "SET_MODEL_EDITOR", config: item.data as LLMConfig } as AppAction);
+      return;
+    }
+    if (state.menuKind !== "mcp") return;
     const mcp = item.data as MCPConfig;
     dispatch({
       type: "SET_MCP_EDITOR",
@@ -497,14 +509,21 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
 
   const saveModelConfig = useCallback(async () => {
     try {
-      await apiRef.current.createLLMConfig({
+      const payload = {
         name: state.modelEditorName,
         provider: state.modelEditorProvider,
         baseUrl: state.modelEditorBaseUrl,
         apiKey: state.modelEditorApiKey,
         model: state.modelEditorModel,
-      });
-      appendSystem("Model config created.");
+        contextSize: clampContextSize(state.modelEditorContextSize),
+      };
+      if (state.modelEditorId) {
+        await apiRef.current.updateLLMConfig(state.modelEditorId, payload);
+        appendSystem("Model config updated.");
+      } else {
+        await apiRef.current.createLLMConfig(payload);
+        appendSystem("Model config created.");
+      }
       await loadModels();
     } catch (error) {
       appendSystem(`Failed to save model config: ${(error as Error).message}`);
@@ -517,6 +536,8 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
     state.modelEditorBaseUrl,
     state.modelEditorApiKey,
     state.modelEditorModel,
+    state.modelEditorContextSize,
+    state.modelEditorId,
   ]);
 
   const saveMCPConfig = useCallback(async () => {
@@ -903,6 +924,7 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
           baseUrl={state.modelEditorBaseUrl}
           apiKey={state.modelEditorApiKey}
           model={state.modelEditorModel}
+          contextSize={state.modelEditorContextSize}
           focusIndex={state.modelEditorFocusIndex}
           providerSelect={state.modelEditorProviderSelect}
           providerCursor={Math.max(0, MODEL_PROVIDER_ORDER.indexOf(state.modelEditorProvider))}
@@ -911,6 +933,7 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
           onBaseUrlChange={(url) => dispatch({ type: "SET_MODEL_EDITOR_BASE_URL", baseUrl: url } as AppAction)}
           onApiKeyChange={(k) => dispatch({ type: "SET_MODEL_EDITOR_API_KEY", apiKey: k } as AppAction)}
           onModelChange={(model) => dispatch({ type: "SET_MODEL_EDITOR_MODEL", model } as AppAction)}
+          onContextSizeChange={(contextSize) => dispatch({ type: "SET_MODEL_EDITOR_CONTEXT_SIZE", contextSize } as AppAction)}
         />
       )}
 

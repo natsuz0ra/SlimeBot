@@ -26,6 +26,7 @@ export interface LLMConfig {
   name: string;
   provider: string;
   baseUrl: string;
+  apiKey: string;
   model: string;
   contextSize?: number;
   createdAt: string;
@@ -345,11 +346,13 @@ export interface AppState {
   mcpTemplateCursor: number;
 
   // Model Editor
+  modelEditorId: string;
   modelEditorName: string;
   modelEditorProvider: ModelProvider;
   modelEditorBaseUrl: string;
   modelEditorApiKey: string;
   modelEditorModel: string;
+  modelEditorContextSize: string;
   modelEditorFocusIndex: number;
   modelEditorProviderSelect: boolean;
 
@@ -418,11 +421,13 @@ export type AppAction =
   | { type: "SET_MCP_TEMPLATE_VIEW" }
   | { type: "MCP_TEMPLATE_NAV"; delta: number }
   | { type: "SET_MODEL_EDITOR_VIEW" }
+  | { type: "SET_MODEL_EDITOR"; config: LLMConfig }
   | { type: "SET_MODEL_EDITOR_NAME"; name: string }
   | { type: "SET_MODEL_EDITOR_PROVIDER"; provider: ModelProvider }
   | { type: "SET_MODEL_EDITOR_BASE_URL"; baseUrl: string }
   | { type: "SET_MODEL_EDITOR_API_KEY"; apiKey: string }
   | { type: "SET_MODEL_EDITOR_MODEL"; model: string }
+  | { type: "SET_MODEL_EDITOR_CONTEXT_SIZE"; contextSize: string }
   | { type: "MODEL_EDITOR_NEXT_FIELD" }
   | { type: "MODEL_EDITOR_PREV_FIELD" }
   | { type: "TOGGLE_MODEL_EDITOR_PROVIDER_SELECT" }

@@ -38,6 +38,18 @@ func (r *Repository) CreateLLMConfig(ctx context.Context, item domain.LLMConfig)
 	return &item, nil
 }
 
+func (r *Repository) UpdateLLMConfig(ctx context.Context, id string, item domain.LLMConfig) error {
+	normalizeLLMConfig(&item)
+	return r.dbWithContext(ctx).Model(&domain.LLMConfig{}).Where("id = ?", id).Updates(domain.LLMConfig{
+		Name:        item.Name,
+		Provider:    item.Provider,
+		BaseURL:     item.BaseURL,
+		APIKey:      item.APIKey,
+		Model:       item.Model,
+		ContextSize: item.ContextSize,
+	}).Error
+}
+
 func (r *Repository) DeleteLLMConfig(ctx context.Context, id string) error {
 	return r.dbWithContext(ctx).Where("id = ?", id).Delete(&domain.LLMConfig{}).Error
 }

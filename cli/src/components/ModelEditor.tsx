@@ -1,6 +1,6 @@
 /**
  * ModelEditor — LLM configuration editor.
- * Five fields (name/provider/baseUrl/apiKey/model); Tab cycles fields.
+ * Six fields (name/provider/baseUrl/apiKey/model/contextSize); Tab cycles fields.
  * Keyboard events are dispatched by App; this component only renders and edits fields.
  */
 
@@ -8,9 +8,10 @@ import React from "react";
 import { Box, Text, useStdout } from "ink";
 import { TextInput } from "./TextInput.js";
 import type { ModelProvider } from "../types.js";
+import { clampContextSize, formatContextSize, renderContextSizeBar } from "../utils/contextSize.js";
 
-/** Field index map: 0=name, 1=provider, 2=baseUrl, 3=apiKey, 4=model */
-const FIELD_COUNT = 5;
+/** Field index map: 0=name, 1=provider, 2=baseUrl, 3=apiKey, 4=model, 5=contextSize */
+const FIELD_COUNT = 6;
 
 const PROVIDER_OPTIONS: { value: ModelProvider; label: string }[] = [
   { value: "openai", label: "OpenAI Compatible" },
@@ -24,6 +25,7 @@ interface ModelEditorProps {
   baseUrl: string;
   apiKey: string;
   model: string;
+  contextSize: string;
   focusIndex: number;
   providerSelect: boolean;
   providerCursor: number;
@@ -32,6 +34,7 @@ interface ModelEditorProps {
   onBaseUrlChange: (url: string) => void;
   onApiKeyChange: (key: string) => void;
   onModelChange: (model: string) => void;
+  onContextSizeChange: (contextSize: string) => void;
 }
 
 export function ModelEditor({
@@ -40,6 +43,7 @@ export function ModelEditor({
   baseUrl,
   apiKey,
   model,
+  contextSize,
   focusIndex,
   providerSelect,
   providerCursor,
@@ -48,6 +52,7 @@ export function ModelEditor({
   onBaseUrlChange,
   onApiKeyChange,
   onModelChange,
+  onContextSizeChange,
 }: ModelEditorProps): React.ReactElement {
   const { stdout } = useStdout();
   const columns = Math.max(20, (stdout?.columns || 80) - 12);
@@ -134,6 +139,46 @@ export function ModelEditor({
     );
   };
 
+  const renderContextSizeField = () => {
+    const active = focusIndex === 5 && !providerSelect;
+    const clamped = clampContextSize(contextSize);
+    const barWidth = Math.min(32, Math.max(12, columns - 24));
+    return (
+      <Box flexDirection="column">
+        <Box>
+          <Text color={active ? "white" : "gray"}>
+            {active ? "> " : "  "}
+          </Text>
+          <Text bold color={active ? "white" : "white"}>
+            Context Size
+          </Text>
+          <Text color="gray"> {"8K - 1M tokens"}</Text>
+        </Box>
+        <Box marginLeft={2}>
+          <Text color="cyan">[{renderContextSizeBar(clamped, barWidth)}]</Text>
+          <Text color="gray"> {formatContextSize(clamped)}</Text>
+        </Box>
+        {active ? (
+          <Box marginLeft={2}>
+            <TextInput
+              value={contextSize}
+              onChange={onContextSizeChange}
+              focus={true}
+              columns={columns}
+              multiline={false}
+              enableCtrlShortcuts={false}
+            />
+            <Text color="gray"> {"  ←/→ 1K  ↑/↓ 32K"}</Text>
+          </Box>
+        ) : (
+          <Box marginLeft={2}>
+            <Text color="gray">{String(clamped)}</Text>
+          </Box>
+        )}
+      </Box>
+    );
+  };
+
   const separator = (
     <Text color="gray" dimColor>
       {"  \u2500".repeat(20)}
@@ -163,6 +208,10 @@ export function ModelEditor({
       {separator}
       <Text> </Text>
       {renderField(4, "Model", model, onModelChange)}
+      <Text> </Text>
+      {separator}
+      <Text> </Text>
+      {renderContextSizeField()}
     </Box>
   );
 }

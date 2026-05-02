@@ -35,6 +35,7 @@ type settingsService interface {
 type llmConfigService interface {
 	List(ctx context.Context) ([]domain.LLMConfig, error)
 	Create(ctx context.Context, input configsvc.LLMConfigCreateInput) (*domain.LLMConfig, error)
+	Update(ctx context.Context, id string, input configsvc.LLMConfigInput) error
 	Delete(ctx context.Context, id string) error
 }
 

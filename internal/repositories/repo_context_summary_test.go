@@ -55,3 +55,43 @@ func TestSessionContextSummaryLifecycle(t *testing.T) {
 		t.Fatalf("unexpected updated summary: %+v", got)
 	}
 }
+
+func TestLLMConfigUpdatePersistsContextSize(t *testing.T) {
+	repo := New(NewSQLiteDBTest(t, "llm_config_update"))
+	ctx := context.Background()
+
+	item, err := repo.CreateLLMConfig(ctx, domain.LLMConfig{
+		Name:        "Old",
+		Provider:    "openai",
+		BaseURL:     "http://old",
+		APIKey:      "old-key",
+		Model:       "old-model",
+		ContextSize: 1_000_000,
+	})
+	if err != nil {
+		t.Fatalf("CreateLLMConfig failed: %v", err)
+	}
+
+	err = repo.UpdateLLMConfig(ctx, item.ID, domain.LLMConfig{
+		Name:        "New",
+		Provider:    "anthropic",
+		BaseURL:     "http://new",
+		APIKey:      "new-key",
+		Model:       "new-model",
+		ContextSize: 128_000,
+	})
+	if err != nil {
+		t.Fatalf("UpdateLLMConfig failed: %v", err)
+	}
+
+	got, err := repo.GetLLMConfigByID(ctx, item.ID)
+	if err != nil {
+		t.Fatalf("GetLLMConfigByID failed: %v", err)
+	}
+	if got.Name != "New" || got.Provider != "anthropic" || got.BaseURL != "http://new" || got.APIKey != "new-key" || got.Model != "new-model" {
+		t.Fatalf("unexpected updated config: %+v", got)
+	}
+	if got.ContextSize != 128_000 {
+		t.Fatalf("expected context size 128000, got %d", got.ContextSize)
+	}
+}

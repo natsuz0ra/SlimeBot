@@ -109,6 +109,37 @@ test("TOGGLE_TOOL_OUTPUT switches tool output expanded on and off", () => {
 	assert.equal(state.toolOutputExpanded, false);
 });
 
+test("SET_MODEL_EDITOR_VIEW initializes context size defaults", () => {
+	const state = reduce(initState(), { type: "SET_MODEL_EDITOR_VIEW" });
+
+	assert.equal(state.view, "model-editor");
+	assert.equal(state.modelEditorId, "");
+	assert.equal(state.modelEditorContextSize, "1000000");
+	assert.equal(state.modelEditorFocusIndex, 0);
+});
+
+test("SET_MODEL_EDITOR preloads existing model config for editing", () => {
+	const state = reduce(initState(), {
+		type: "SET_MODEL_EDITOR",
+		config: {
+			id: "model-1",
+			name: "Claude",
+			provider: "anthropic",
+			baseUrl: "https://api.anthropic.com",
+			apiKey: "secret",
+			model: "claude",
+			contextSize: 128_000,
+			createdAt: "",
+			updatedAt: "",
+		},
+	});
+
+	assert.equal(state.view, "model-editor");
+	assert.equal(state.modelEditorId, "model-1");
+	assert.equal(state.modelEditorProvider, "anthropic");
+	assert.equal(state.modelEditorContextSize, "128000");
+});
+
 test("THINKING_DONE stores a fixed thinking duration", () => {
 	const state: AppState = {
 		...initState(),

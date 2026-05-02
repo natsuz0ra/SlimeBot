@@ -876,24 +876,14 @@ func TestReadAttachmentExcerpt_SkipsUnsupportedBinaryFile(t *testing.T) {
 	}
 }
 
-func TestSystemPrompt_UsesStructuredMemoryProtocol(t *testing.T) {
+func TestSystemPrompt_DoesNotRequireLegacyMemoryProtocol(t *testing.T) {
 	content := prompts.SystemPrompt()
 	if strings.TrimSpace(content) == "" {
 		t.Fatal("embedded system prompt is empty")
 	}
-	if strings.Contains(content, `{"facts":[...]}`) {
-		t.Fatal(`system prompt must not instruct the model to emit {"facts":[...]}`)
-	}
-	required := []string{
-		`{"name":"...","description":"...","type":"...","content":"..."}`,
-		`<memory>`,
-		"`type` must be one of:",
-		"`user`",
-		"`project`",
-	}
-	for _, token := range required {
-		if !strings.Contains(content, token) {
-			t.Fatalf("system prompt missing memory protocol token %q", token)
+	for _, token := range []string{`<memory>`, `End your reply with <memory>`} {
+		if strings.Contains(content, token) {
+			t.Fatalf("system prompt should not require legacy memory token %q", token)
 		}
 	}
 }

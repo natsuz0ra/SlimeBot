@@ -40,11 +40,8 @@ func (s *ChatService) enqueueMemoryWriteJob(ctx context.Context, sessionID, assi
 	return jobStore.EnqueueMemoryWriteJob(ctx, job)
 }
 
-func (s *ChatService) maybeEnqueueMemoryAsync(ctx context.Context, sessionID, assistantMessageID, answer, fallbackMemoryPayload string) {
+func (s *ChatService) maybeEnqueueMemoryAsync(ctx context.Context, sessionID, assistantMessageID, answer string) {
 	if !s.memoryAsyncEnabled {
-		if s.memory != nil && strings.TrimSpace(fallbackMemoryPayload) != "" {
-			s.memory.EnqueueTurnMemory(sessionID, assistantMessageID, fallbackMemoryPayload)
-		}
 		return
 	}
 	if strings.TrimSpace(answer) == "" {
@@ -52,10 +49,6 @@ func (s *ChatService) maybeEnqueueMemoryAsync(ctx context.Context, sessionID, as
 	}
 	if err := s.enqueueMemoryWriteJob(ctx, sessionID, assistantMessageID, answer); err != nil {
 		logging.Warn("memory_async_enqueue_failed", "session", sessionID, "error", err)
-		if s.memory != nil && strings.TrimSpace(fallbackMemoryPayload) != "" {
-			s.memory.EnqueueTurnMemory(sessionID, assistantMessageID, fallbackMemoryPayload)
-			logging.Info("memory_enqueue_fallback_sync", "session", sessionID)
-		}
 		return
 	}
 	logging.Info("memory_async_enqueued", "session", sessionID)
@@ -123,9 +116,6 @@ func buildMemoryPayloadFromJob(job domain.MemoryWriteJob) (string, string) {
 	if content == "" {
 		return "", "empty_message"
 	}
-	if payload, ok := extractMemoryJSONFromContent(content); ok {
-		return payload, ""
-	}
 	compressed := compressMemoryContent(content)
 	if compressed == "" {
 		return "", "no_effective_increment"
@@ -143,17 +133,8 @@ func buildMemoryPayloadFromJob(job domain.MemoryWriteJob) (string, string) {
 	return string(raw), ""
 }
 
-func extractMemoryJSONFromContent(content string) (string, bool) {
-	start := strings.Index(content, "<memory>")
-	end := strings.Index(content, "</memory>")
-	if start < 0 || end <= start {
-		return "", false
-	}
-	payload := strings.TrimSpace(content[start+len("<memory>") : end])
-	return payload, payload != ""
-}
-
 func compressMemoryContent(content string) string {
+	content = stripLegacyMemoryBlocks(content)
 	lines := strings.Split(content, "\n")
 	kept := make([]string, 0, len(lines))
 	for _, line := range lines {
@@ -171,6 +152,23 @@ func compressMemoryContent(content string) string {
 		joined = string([]rune(joined)[:320])
 	}
 	return joined
+}
+
+func stripLegacyMemoryBlocks(content string) string {
+	startTag := "<memory>"
+	endTag := "</memory>"
+	for {
+		start := strings.Index(content, startTag)
+		if start < 0 {
+			return content
+		}
+		end := strings.Index(content[start+len(startTag):], endTag)
+		if end < 0 {
+			return content[:start]
+		}
+		endAbs := start + len(startTag) + end + len(endTag)
+		content = content[:start] + content[endAbs:]
+	}
 }
 
 func buildMemoryNameFromContent(content string) string {

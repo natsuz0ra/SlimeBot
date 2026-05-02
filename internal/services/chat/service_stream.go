@@ -230,8 +230,6 @@ func (s *ChatService) prepareChatTurn(
 	} else if strings.TrimSpace(displayContent) != "" {
 		overrideLatestUserTurn(contextMessages, userContentForLLM)
 	}
-	appendProtocolHintToLatestUser(contextMessages, time.Now())
-
 	return &chatTurnState{
 		session:           session,
 		modelConfig:       modelConfig,
@@ -252,7 +250,7 @@ func (s *ChatService) executeChatTurn(
 	planMode bool,
 	subagentModelID string,
 ) (*chatTurnResult, error) {
-	parser := newTitleStreamParser(true)
+	parser := newTitleStreamParser(false)
 	accumulator := &chatStreamAccumulator{}
 	streamStart := time.Now()
 	var firstTokenAt time.Time
@@ -532,13 +530,6 @@ func (s *ChatService) executeChatTurn(
 		}
 	}
 
-	memoryPayload := parser.Memory()
-	if parsedMemory, cleanBody := extractProtocolMetaAndBody(finalAnswer); parsedMemory != "" || cleanBody != finalAnswer {
-		if parsedMemory != "" {
-			memoryPayload = parsedMemory
-		}
-		finalAnswer = cleanBody
-	}
 	if strings.TrimSpace(finalAnswer) == "" && !interrupted {
 		finalAnswer = "The model returned no content."
 	}
@@ -547,7 +538,7 @@ func (s *ChatService) executeChatTurn(
 		answer:        finalAnswer,
 		interrupted:   interrupted,
 		planCompleted: planCompleted,
-		memoryPayload: memoryPayload,
+		memoryPayload: "",
 		pushErr:       accumulator.pushErr,
 		narration:     resultNarration,
 		planBody:      resultPlanBody,
@@ -596,7 +587,7 @@ func (s *ChatService) finalizeChatTurn(
 		Narration:         result.narration,
 		PlanBody:          result.planBody,
 	}
-	s.maybeEnqueueMemoryAsync(ctx, sessionID, assistantMessage.ID, result.answer, result.memoryPayload)
+	s.maybeEnqueueMemoryAsync(ctx, sessionID, assistantMessage.ID, result.answer)
 
 	if planMode && !result.interrupted && s.planService != nil && strings.TrimSpace(result.planBody) != "" {
 		if !result.planCompleted {

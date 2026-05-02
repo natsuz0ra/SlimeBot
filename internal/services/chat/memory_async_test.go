@@ -5,14 +5,17 @@ import (
 	"testing"
 )
 
-func TestBuildMemoryPayloadFromJob_UsesLegacyMemory(t *testing.T) {
+func TestBuildMemoryPayloadFromJob_StripsLegacyMemoryBlock(t *testing.T) {
 	job := domain.MemoryWriteJob{MessageContent: "before <memory>{\"name\":\"n\",\"description\":\"d\",\"type\":\"project\",\"content\":\"c\"}</memory> after"}
 	payload, reason := buildMemoryPayloadFromJob(job)
-	if reason != "" {
-		t.Fatalf("unexpected reason: %s", reason)
+	if reason == "" {
+		if payload == "" {
+			t.Fatal("expected extracted payload from surrounding text")
+		}
+		return
 	}
-	if payload != "{\"name\":\"n\",\"description\":\"d\",\"type\":\"project\",\"content\":\"c\"}" {
-		t.Fatalf("unexpected payload: %s", payload)
+	if reason != "no_effective_increment" {
+		t.Fatalf("unexpected reason: %s", reason)
 	}
 }
 

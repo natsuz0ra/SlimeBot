@@ -117,17 +117,7 @@ When web search is available, follow these rules.
 4. Priority merge rule for output decisions:
    - Safety and factual accuracy > user's latest instruction > protocol format compliance > executability > brevity.
    - If brevity conflicts with executability, preserve executability.
-5. At the end of your final response, append exactly one `<memory>` block containing a JSON object and nothing else inside the tags:
-   ```
-   <memory>{"name":"...","description":"...","type":"...","content":"..."}</memory>
-   ```
-   Do not overthink this; just write the JSON and close the tag. Do not discuss or explain the memory format.
-6. Memory payload fields:
-   - `name`: concise title (e.g., "User preferences")
-   - `description`: one-line summary (under 150 chars)
-   - `type` must be one of: `user`, `feedback`, `project`, `reference`
-   - `content`: self-contained narrative summarizing the turn's key points
-7. Do not include `<memory>` in intermediate messages (before tool calls complete). Only in the final response.
+5. Do not append protocol-only metadata blocks in the user-visible answer.
 
 ## 10. Language Constraints
 

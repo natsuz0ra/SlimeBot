@@ -246,7 +246,7 @@ export function getToolSummaryParamKeys(toolCall: ToolCallSummaryInput): string[
   if (toolName === 'exec' && command === 'run' && normalizedParam(params, 'description') !== '') {
     return ['description']
   }
-  if ((toolName === 'web_search' || toolName === 'search_memory') && normalizedParam(params, 'query') !== '') {
+  if (toolName === 'web_search' && normalizedParam(params, 'query') !== '') {
     return ['query']
   }
   if (toolName === 'run_subagent') {
@@ -278,7 +278,7 @@ export function buildToolCallSummary(toolCall: ToolCallSummaryInput): string {
   if (toolName === 'exec' && command === 'run') {
     return normalizedParam(params, 'description')
   }
-  if (toolName === 'web_search' || toolName === 'search_memory') {
+  if (toolName === 'web_search') {
     const query = normalizedParam(params, 'query')
     return query
   }

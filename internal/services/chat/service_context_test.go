@@ -2,6 +2,7 @@ package chat
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -273,7 +274,7 @@ func TestBuildContextMessages_ReusesExistingCompactSummary(t *testing.T) {
 		BaseURL:     "http://fake",
 		APIKey:      "key",
 		Model:       "fake-model",
-		ContextSize: 80,
+		ContextSize: 30,
 	})
 	if err != nil {
 		t.Fatalf("BuildContextMessages failed: %v", err)
@@ -291,6 +292,161 @@ func TestBuildContextMessages_ReusesExistingCompactSummary(t *testing.T) {
 	}
 }
 
+func TestBuildContextMessages_RollsExistingSummaryForwardWithNewHistory(t *testing.T) {
+	repo := newTestRepo(t)
+	ctx := context.Background()
+	session, err := repo.CreateSession(ctx, "compact-roll-forward")
+	if err != nil {
+		t.Fatalf("CreateSession failed: %v", err)
+	}
+	for i := 0; i < 24; i++ {
+		role := "assistant"
+		if i%2 == 0 {
+			role = "user"
+		}
+		if _, err := repo.AddMessageWithInput(ctx, domain.AddMessageInput{
+			SessionID: session.ID,
+			Role:      role,
+			Content:   fmt.Sprintf("message-%02d %s", i, strings.Repeat("新增上下文", 20)),
+		}); err != nil {
+			t.Fatalf("AddMessageWithInput failed at %d: %v", i, err)
+		}
+	}
+	if err := repo.UpsertSessionContextSummary(ctx, &domain.SessionContextSummary{
+		SessionID:               session.ID,
+		ModelConfigID:           "",
+		Summary:                 "旧摘要内容",
+		SummarizedUntilSeq:      4,
+		PreCompactTokenEstimate: 100,
+	}); err != nil {
+		t.Fatalf("UpsertSessionContextSummary failed: %v", err)
+	}
+
+	provider := &compactSummaryProvider{summary: "替换后的完整摘要"}
+	svc := NewChatService(repo, nil, llmsvc.NewFactory(provider), nil, nil)
+	svc.SetContextHistoryRounds(2)
+
+	msgs, err := svc.BuildContextMessages(ctx, session.ID, llmsvc.ModelRuntimeConfig{
+		Provider:    llmsvc.ProviderOpenAI,
+		BaseURL:     "http://fake",
+		APIKey:      "key",
+		Model:       "fake-model",
+		ContextSize: 30,
+	})
+	if err != nil {
+		t.Fatalf("BuildContextMessages failed: %v", err)
+	}
+
+	if provider.compactCalls != 1 {
+		t.Fatalf("expected one compact call, got %d", provider.compactCalls)
+	}
+	if !strings.Contains(provider.lastPrompt, "已有摘要") || !strings.Contains(provider.lastPrompt, "旧摘要内容") {
+		t.Fatalf("expected prior summary in compact prompt, got: %s", provider.lastPrompt)
+	}
+	if strings.Contains(provider.lastPrompt, "message-00") || strings.Contains(provider.lastPrompt, "message-03") {
+		t.Fatalf("already summarized messages should not be re-summarized, got: %s", provider.lastPrompt)
+	}
+	if !strings.Contains(provider.lastPrompt, "message-04") || !strings.Contains(provider.lastPrompt, "message-13") {
+		t.Fatalf("new messages after previous summary should be compacted, got: %s", provider.lastPrompt)
+	}
+	if strings.Contains(provider.lastPrompt, "message-14") || strings.Contains(provider.lastPrompt, "message-23") {
+		t.Fatalf("recent tail should stay outside compact prompt, got: %s", provider.lastPrompt)
+	}
+
+	joined := joinChatMessageContent(msgs)
+	if !strings.Contains(joined, "替换后的完整摘要") {
+		t.Fatalf("expected replacement summary in context, got: %s", joined)
+	}
+	if strings.Contains(joined, "旧摘要内容\n替换后的完整摘要") {
+		t.Fatalf("summary should be replaced, not appended: %s", joined)
+	}
+	if !strings.Contains(joined, "message-14") || !strings.Contains(joined, "message-23") {
+		t.Fatalf("recent tail should be preserved, got: %s", joined)
+	}
+
+	summary, err := repo.GetSessionContextSummary(ctx, session.ID, "")
+	if err != nil {
+		t.Fatalf("expected stored compact summary: %v", err)
+	}
+	if summary.Summary != "替换后的完整摘要" {
+		t.Fatalf("expected stored summary to be replaced, got %q", summary.Summary)
+	}
+	if summary.SummarizedUntilSeq != 14 {
+		t.Fatalf("expected summarizedUntilSeq=14, got %d", summary.SummarizedUntilSeq)
+	}
+}
+
+func TestBuildContextMessages_FallsBackToExistingSummaryAndRecentTailWhenRollForwardFails(t *testing.T) {
+	repo := newTestRepo(t)
+	ctx := context.Background()
+	session, err := repo.CreateSession(ctx, "compact-roll-forward-fail")
+	if err != nil {
+		t.Fatalf("CreateSession failed: %v", err)
+	}
+	for i := 0; i < 24; i++ {
+		role := "assistant"
+		if i%2 == 0 {
+			role = "user"
+		}
+		if _, err := repo.AddMessageWithInput(ctx, domain.AddMessageInput{
+			SessionID: session.ID,
+			Role:      role,
+			Content:   fmt.Sprintf("message-%02d %s", i, strings.Repeat("新增上下文", 20)),
+		}); err != nil {
+			t.Fatalf("AddMessageWithInput failed at %d: %v", i, err)
+		}
+	}
+	if err := repo.UpsertSessionContextSummary(ctx, &domain.SessionContextSummary{
+		SessionID:               session.ID,
+		ModelConfigID:           "",
+		Summary:                 "旧摘要内容",
+		SummarizedUntilSeq:      4,
+		PreCompactTokenEstimate: 100,
+	}); err != nil {
+		t.Fatalf("UpsertSessionContextSummary failed: %v", err)
+	}
+
+	provider := &compactSummaryProvider{err: errors.New("compact failed")}
+	svc := NewChatService(repo, nil, llmsvc.NewFactory(provider), nil, nil)
+	svc.SetContextHistoryRounds(2)
+
+	msgs, err := svc.BuildContextMessages(ctx, session.ID, llmsvc.ModelRuntimeConfig{
+		Provider:    llmsvc.ProviderOpenAI,
+		BaseURL:     "http://fake",
+		APIKey:      "key",
+		Model:       "fake-model",
+		ContextSize: 30,
+	})
+	if err != nil {
+		t.Fatalf("BuildContextMessages failed: %v", err)
+	}
+
+	if provider.compactCalls != 1 {
+		t.Fatalf("expected one compact call, got %d", provider.compactCalls)
+	}
+	joined := joinChatMessageContent(msgs)
+	if !strings.Contains(joined, "旧摘要内容") {
+		t.Fatalf("expected old summary fallback in context, got: %s", joined)
+	}
+	if strings.Contains(joined, "message-04") || strings.Contains(joined, "message-13") {
+		t.Fatalf("failed roll-forward should not include oversized middle history, got: %s", joined)
+	}
+	if !strings.Contains(joined, "message-14") || !strings.Contains(joined, "message-23") {
+		t.Fatalf("failed roll-forward should preserve recent tail, got: %s", joined)
+	}
+
+	summary, err := repo.GetSessionContextSummary(ctx, session.ID, "")
+	if err != nil {
+		t.Fatalf("expected stored compact summary: %v", err)
+	}
+	if summary.Summary != "旧摘要内容" {
+		t.Fatalf("expected stored summary to remain unchanged, got %q", summary.Summary)
+	}
+	if summary.SummarizedUntilSeq != 4 {
+		t.Fatalf("expected summarizedUntilSeq to remain 4, got %d", summary.SummarizedUntilSeq)
+	}
+}
+
 func joinChatMessageContent(msgs []llmsvc.ChatMessage) string {
 	var parts []string
 	for _, msg := range msgs {
@@ -302,6 +458,8 @@ func joinChatMessageContent(msgs []llmsvc.ChatMessage) string {
 type compactSummaryProvider struct {
 	summary      string
 	compactCalls int
+	lastPrompt   string
+	err          error
 }
 
 func (p *compactSummaryProvider) StreamChatWithTools(
@@ -316,6 +474,10 @@ func (p *compactSummaryProvider) StreamChatWithTools(
 	}
 	if len(messages) > 0 && strings.Contains(messages[len(messages)-1].Content, "压缩总结") {
 		p.compactCalls++
+		p.lastPrompt = messages[len(messages)-1].Content
+		if p.err != nil {
+			return nil, p.err
+		}
 		if callbacks.OnChunk != nil {
 			if err := callbacks.OnChunk(p.summary); err != nil {
 				return nil, err

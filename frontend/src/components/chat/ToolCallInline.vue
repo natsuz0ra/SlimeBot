@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { mdiBrain, mdiConsoleLine, mdiFileDocumentOutline, mdiFileEditOutline, mdiFilePlusOutline, mdiHelpCircleOutline, mdiSourceBranch, mdiWeb } from '@mdi/js'
+import { mdiConsoleLine, mdiFileDocumentOutline, mdiFileEditOutline, mdiFilePlusOutline, mdiHelpCircleOutline, mdiSourceBranch, mdiWeb } from '@mdi/js'
 import MdiIcon from '@/components/ui/MdiIcon.vue'
 import FileToolDisplay from '@/components/chat/FileToolDisplay.vue'
 import ThinkingBlock from '@/components/chat/ThinkingBlock.vue'
@@ -31,7 +31,6 @@ const toolIcon = computed(() => {
   if (props.item.toolName === 'exec') return mdiConsoleLine
   if (props.item.toolName === 'http_request') return mdiWeb
   if (props.item.toolName === 'web_search') return mdiWeb
-  if (props.item.toolName === 'search_memory') return mdiBrain
   if (props.item.toolName === 'ask_questions') return mdiHelpCircleOutline
   if (props.item.toolName === 'run_subagent') return mdiSourceBranch
   if (props.item.toolName === 'file_read') return mdiFileDocumentOutline
@@ -45,7 +44,6 @@ const toolLabel = computed(() => {
   if (props.item.toolName === 'http_request') return t('toolHttpRequest')
   if (props.item.toolName === 'web_search') return t('toolWebSearch')
   if (props.item.toolName === 'run_subagent') return t('toolRunSubagent')
-  if (props.item.toolName === 'search_memory') return t('toolSearchMemory')
   if (props.item.toolName === 'ask_questions') return t('toolAskQuestions')
   if (props.item.toolName === 'file_read') return 'file_read'
   if (props.item.toolName === 'file_edit') return 'file_edit'

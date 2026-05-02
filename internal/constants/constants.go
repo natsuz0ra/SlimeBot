@@ -24,12 +24,6 @@ const (
 	MaxSubagentDepth               = 1
 	AgentApprovalTimeout           = 120 * time.Second
 	MaxToolNameLen                 = 64
-	MemoryToolDefaultTopK          = 10
-	CompressedRecentHistoryLimit   = 10
-	MemorySearchTopK               = 5
-	MemoryContextTopK              = 10
-	MemoryContextBuildBudget       = 5 * time.Second
-	MemoryKeywordMaxCount          = 12
 	MaxSkillZipBytes               = 20 * 1024 * 1024
 	MaxSkillExtractedBytes         = 50 * 1024 * 1024
 	MaxSkillSingleFileSize         = 10 * 1024 * 1024

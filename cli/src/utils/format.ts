@@ -46,7 +46,7 @@ export function getToolSummaryParamKeys(
   if (tool === "exec" && cmd === "run" && normalizedParam(params, "description") !== "") {
     return ["description"];
   }
-  if ((tool === "web_search" || tool === "search_memory") && normalizedParam(params, "query") !== "") {
+  if (tool === "web_search" && normalizedParam(params, "query") !== "") {
     return ["query"];
   }
   if (tool === "run_subagent") {
@@ -89,7 +89,7 @@ export function formatToolCallSummary(
     if (!commandText) return "";
     return truncateText(commandText, 96);
   }
-  if (tool === "web_search" || tool === "search_memory") {
+  if (tool === "web_search") {
     const query = normalizedParam(params, "query");
     return query ? `query: ${query}` : "";
   }

@@ -119,6 +119,7 @@ func (s *ChatService) applyContextCompression(ctx context.Context, sessionID str
 		}
 		split := len(kept) - tailCount
 		if split > 0 {
+			tail := kept[split:]
 			summary, compactErr := s.generateContextSummary(ctx, modelConfig, kept[:split], existing.Summary)
 			if compactErr == nil && strings.TrimSpace(summary) != "" {
 				lastSeq := kept[split-1].Seq
@@ -131,11 +132,12 @@ func (s *ChatService) applyContextCompression(ctx context.Context, sessionID str
 				}); err != nil {
 					logging.Warn("context_summary_save_failed", "session", sessionID, "error", err)
 				}
-				return append([]llmsvc.ChatMessage{buildCompactSummaryMessage(summary)}, historyToChatMessages(kept[split:])...), true
+				return append([]llmsvc.ChatMessage{buildCompactSummaryMessage(summary)}, historyToChatMessages(tail)...), true
 			}
 			if compactErr != nil {
 				logging.Warn("context_summary_generate_failed", "session", sessionID, "error", compactErr)
 			}
+			return append([]llmsvc.ChatMessage{buildCompactSummaryMessage(existing.Summary)}, historyToChatMessages(tail)...), true
 		}
 		return withExisting, true
 	}

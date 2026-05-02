@@ -18,8 +18,6 @@ type Config struct {
 	JWTSecret        string
 	JWTExpireMinutes int
 
-	MemoryDir string
-
 	ContextHistoryRounds int
 	DefaultContextSize   int
 }
@@ -35,7 +33,6 @@ func Load() Config {
 		ChatUploadRoot:       getPathEnv("CHAT_UPLOAD_ROOT", filepath.Join(home, "storage", "chat_uploads")),
 		JWTSecret:            getEnv("JWT_SECRET", ""),
 		JWTExpireMinutes:     GetIntEnv("JWT_EXPIRE", 15*24*60),
-		MemoryDir:            getPathEnv("MEMORY_DIR", filepath.Join(home, "memory")),
 		ContextHistoryRounds: GetIntEnv("CONTEXT_HISTORY_ROUNDS", 20),
 		DefaultContextSize:   GetIntEnv("DEFAULT_CONTEXT_SIZE", 1_000_000),
 	}

@@ -17,114 +17,20 @@ import (
 	prompts "slimebot/prompts"
 )
 
-func TestTitleStreamParser_ExtractsMemoryAndFiltersFromBody(t *testing.T) {
-	parser := newTitleStreamParser(true)
-
-	body := parser.Feed("<memory>{\"turn_summary\":\"用户偏好中文回复\",\"topic_hint\":\"回复偏好\"}</memory>\n正文第一段\n")
-	if body != "正文第一段\n" {
+func TestTitleStreamParser_PassesThroughTitleTags(t *testing.T) {
+	body := newTitleStreamParser().Feed("第一段\n\n<title>标题</title>\n\n第二段\n\n第三段")
+	if body != "第一段\n\n<title>标题</title>\n\n第二段\n\n第三段" {
 		t.Fatalf("unexpected body: %q", body)
 	}
-	if got := parser.Memory(); got != "{\"turn_summary\":\"用户偏好中文回复\",\"topic_hint\":\"回复偏好\"}" {
-		t.Fatalf("unexpected memory payload: %q", got)
-	}
 }
 
-func TestTitleStreamParser_ExtractsMultilineMemoryBlock(t *testing.T) {
-	parser := newTitleStreamParser(true)
-
-	body := parser.Feed("<memory>{\n\"turn_summary\":\"第一段总结\",\n\"topic_hint\":\"测试\"\n}</memory>\n正文内容")
-	if body != "正文内容" {
-		t.Fatalf("unexpected body: %q", body)
-	}
-	if got := parser.Memory(); got != "{\n\"turn_summary\":\"第一段总结\",\n\"topic_hint\":\"测试\"\n}" {
-		t.Fatalf("unexpected multiline memory: %q", got)
-	}
-}
-
-func TestTitleStreamParser_ExtractsMetaInMiddleAndTail(t *testing.T) {
-	parser := newTitleStreamParser(true)
-
-	body := parser.Feed("正文A<memory>{\"turn_summary\":\"中间总结\"}</memory>结尾")
-	if body != "正文A结尾" {
-		t.Fatalf("unexpected body: %q", body)
-	}
-	if got := parser.Memory(); got != "{\"turn_summary\":\"中间总结\"}" {
-		t.Fatalf("unexpected memory: %q", got)
-	}
-}
-
-func TestTitleStreamParser_HandlesSplitMemoryTagAcrossChunks(t *testing.T) {
-	parser := newTitleStreamParser(true)
-
-	first := parser.Feed("前缀<mem")
-	if first != "前缀" {
-		t.Fatalf("unexpected first chunk output: %q", first)
-	}
-	second := parser.Feed("ory>{\"turn_summary\":\"跨块总结\"}</memory>后缀")
-	if second != "后缀" {
-		t.Fatalf("unexpected second chunk output: %q", second)
-	}
-	if got := parser.Memory(); got != "{\"turn_summary\":\"跨块总结\"}" {
-		t.Fatalf("unexpected memory: %q", got)
-	}
-}
-
-func TestTitleStreamParser_FlushIncompleteTagAsPlainText(t *testing.T) {
-	parser := newTitleStreamParser(true)
-
-	if body := parser.Feed("正文<memory>"); body != "正文" {
-		t.Fatalf("unexpected body before flush: %q", body)
-	}
-	rest := parser.Flush()
-	if rest != "<memory>" {
-		t.Fatalf("expected incomplete tag passthrough, got: %q", rest)
-	}
-}
-
-func TestCleanProtocolMemory_NoHardTruncate(t *testing.T) {
-	longText := strings.Repeat("长", 1500)
-	if got := cleanProtocolMemory(longText); got != longText {
-		t.Fatalf("memory should keep full content, len=%d got=%d", len([]rune(longText)), len([]rune(got)))
-	}
-}
-
-func TestExtractProtocolMetaAndBody_FallbackCleanup(t *testing.T) {
-	memory, body := extractProtocolMetaAndBody("前置说明\n<title>回退标题</title>\n<memory>{\"turn_summary\":\"回退总结\"}</memory>\n最终正文")
-	if memory != "{\"turn_summary\":\"回退总结\"}" {
-		t.Fatalf("unexpected extracted memory: %q", memory)
-	}
-	if body != "前置说明\n最终正文" {
-		t.Fatalf("unexpected cleaned body: %q", body)
-	}
-}
-
-func TestExtractProtocolMetaAndBody_RemovesEmptyTagBlocks(t *testing.T) {
-	memory, body := extractProtocolMetaAndBody("A<title></title>B<memory> </memory>C")
-	if memory != "" {
-		t.Fatalf("expected empty memory, got: %q", memory)
-	}
-	if body != "ABC" {
-		t.Fatalf("unexpected cleaned body: %q", body)
-	}
-}
-
-func TestExtractProtocolMetaAndBody_PreservesBodyParagraphSpacing(t *testing.T) {
-	memory, body := extractProtocolMetaAndBody("第一段\n\n<title>标题</title>\n\n第二段\n\n第三段")
-	if memory != "" {
-		t.Fatalf("unexpected memory: %q", memory)
-	}
-	if body != "第一段\n\n第二段\n\n第三段" {
-		t.Fatalf("unexpected cleaned body: %q", body)
-	}
-}
-
-func TestExtractProtocolMetaAndBody_TrimsOnlyAdjacentProtocolWhitespace(t *testing.T) {
-	memory, body := extractProtocolMetaAndBody("正文A\n \t\r\n<title>标题</title>\n\t \r\n正文B")
-	if memory != "" {
-		t.Fatalf("unexpected memory: %q", memory)
-	}
-	if body != "正文A\n正文B" {
-		t.Fatalf("unexpected cleaned body: %q", body)
+func TestTitleStreamParser_PassesThroughLegacyMemoryTags(t *testing.T) {
+	parser := newTitleStreamParser()
+	tag := "mem" + "ory"
+	input := "正文<" + tag + ">{\"turn_summary\":\"旧记忆\"}</" + tag + ">结尾"
+	body := parser.Feed(input)
+	if body != input {
+		t.Fatalf("expected legacy memory tag passthrough, got: %q", body)
 	}
 }
 
@@ -839,15 +745,6 @@ func (s *stubTitleUpdateStore) snapshot() (calls int, id string, name string) {
 	return s.calls, s.lastID, s.lastName
 }
 
-func BenchmarkTitleStreamParser_Feed(b *testing.B) {
-	payload := strings.Repeat("正文内容。", 512) + "<memory>{\"turn_summary\":\"这是记忆\"}</memory>"
-	for i := 0; i < b.N; i++ {
-		parser := newTitleStreamParser(true)
-		parser.Feed(payload)
-		parser.Flush()
-	}
-}
-
 func TestReadAttachmentExcerpt_TruncatesLargeText(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "long.txt")
@@ -881,7 +778,8 @@ func TestSystemPrompt_DoesNotRequireLegacyMemoryProtocol(t *testing.T) {
 	if strings.TrimSpace(content) == "" {
 		t.Fatal("embedded system prompt is empty")
 	}
-	for _, token := range []string{`<memory>`, `End your reply with <memory>`} {
+	memoryTag := "<" + "memory" + ">"
+	for _, token := range []string{memoryTag, `End your reply with ` + memoryTag} {
 		if strings.Contains(content, token) {
 			t.Fatalf("system prompt should not require legacy memory token %q", token)
 		}

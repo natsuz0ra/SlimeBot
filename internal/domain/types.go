@@ -1,9 +1,6 @@
 package domain
 
-import (
-	"context"
-	"time"
-)
+import "time"
 
 type AddMessageInput struct {
 	SessionID         string
@@ -61,22 +58,4 @@ type ThinkingFinishRecordInput struct {
 	RequestID  string
 	ThinkingID string
 	FinishedAt time.Time
-}
-
-type MemoryVectorStore interface {
-	UpsertSessionMemoryVector(ctx context.Context, input MemoryVectorUpsertInput) error
-	SearchMemoriesInSession(ctx context.Context, queryVector []float32, sessionID string, limit int) ([]MemoryVectorSearchHit, error)
-}
-
-type MemoryVectorUpsertInput struct {
-	MemoryID  string
-	SessionID string
-	Vector    []float32
-	Payload   map[string]any
-}
-
-type MemoryVectorSearchHit struct {
-	SessionID string
-	MemoryID  string
-	Score     float64
 }

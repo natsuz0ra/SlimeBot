@@ -251,7 +251,7 @@ func (s *ChatService) executeChatTurn(
 	planMode bool,
 	subagentModelID string,
 ) (*chatTurnResult, error) {
-	parser := newTitleStreamParser(false)
+	parser := newTitleStreamParser()
 	accumulator := &chatStreamAccumulator{}
 	streamStart := time.Now()
 	var firstTokenAt time.Time

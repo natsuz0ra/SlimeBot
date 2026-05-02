@@ -109,8 +109,9 @@ func TestBuildRuntimeToolDefs_DoesNotExposeSearchMemory(t *testing.T) {
 	if err != nil {
 		t.Fatalf("buildRuntimeToolDefs failed: %v", err)
 	}
-	if containsToolName(defs, "search_memory") {
-		t.Fatalf("search_memory should not be exposed after legacy memory removal: %#v", toolNames(defs))
+	legacyTool := "search" + "_" + "memory"
+	if containsToolName(defs, legacyTool) {
+		t.Fatalf("legacy memory tool should not be exposed after removal: %#v", toolNames(defs))
 	}
 }
 

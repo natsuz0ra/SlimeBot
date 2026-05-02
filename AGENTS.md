@@ -52,7 +52,6 @@ internal/
 │  ├─ chat/                  # Chat orchestration
 │  ├─ config/                # Config service logic
 │  ├─ llm/                   # LLM abstraction/service
-│  ├─ memory/                # Memory and retrieval logic
 │  ├─ openai/                # OpenAI provider integration
 │  ├─ plan/                  # Planning workflow logic
 │  ├─ session/               # Session lifecycle/state
@@ -103,7 +102,6 @@ Quick index (feature -> first place to inspect):
 - HTTP controller behavior: `internal/server/controller/`
 - WebSocket server flow: `internal/server/ws/`
 - LLM abstraction/provider wiring: `internal/services/llm/`, `internal/services/openai/`, `internal/services/anthropic/`
-- Memory logic: `internal/services/memory/`
 - Tool implementations: `internal/tools/`
 - Web settings page UI: `frontend/src/components/settings/`, `frontend/src/composables/settings/`, `frontend/src/pages/`
 - CLI interaction flow: `cli/src/controllers/`, `cli/src/components/`, `cli/src/ws/`
@@ -154,4 +152,4 @@ Recent history uses concise messages like `update: cli ui优化` and `update: �
 
 ## Security & Configuration Tips
 
-Runtime data defaults to `~/.slimebot`. Do not commit `.env`, SQLite data, uploads, memory indexes, API keys, JWT secrets, or local `.slimebot` directories. Server mode requires `JWT_SECRET`; CLI headless mode can generate one automatically.
+Runtime data defaults to `~/.slimebot`. Do not commit `.env`, SQLite data, uploads, API keys, JWT secrets, or local `.slimebot` directories. Server mode requires `JWT_SECRET`; CLI headless mode can generate one automatically.

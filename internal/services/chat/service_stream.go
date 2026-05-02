@@ -596,12 +596,7 @@ func (s *ChatService) finalizeChatTurn(
 		Narration:         result.narration,
 		PlanBody:          result.planBody,
 	}
-	if s.memory != nil && strings.TrimSpace(result.memoryPayload) != "" {
-		s.memory.EnqueueTurnMemory(sessionID, assistantMessage.ID, result.memoryPayload)
-		logging.Info("memory_enqueue_triggered", "session", sessionID)
-	} else if s.memory != nil {
-		logging.Info("memory_enqueue_skipped", "session", sessionID, "reason", "empty_or_unparsed")
-	}
+	s.maybeEnqueueMemoryAsync(ctx, sessionID, assistantMessage.ID, result.answer, result.memoryPayload)
 
 	if planMode && !result.interrupted && s.planService != nil && strings.TrimSpace(result.planBody) != "" {
 		if !result.planCompleted {

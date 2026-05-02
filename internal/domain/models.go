@@ -139,3 +139,20 @@ type Skill struct {
 	CreatedAt    time.Time `json:"createdAt"`
 	UpdatedAt    time.Time `json:"updatedAt"`
 }
+
+// MemoryWriteJob is one async memory extraction/persist task.
+type MemoryWriteJob struct {
+	ID                 string     `gorm:"primaryKey;size:36" json:"id"`
+	SessionID          string     `gorm:"size:36;index;not null" json:"sessionId"`
+	AssistantMessageID string     `gorm:"size:36;index;not null" json:"assistantMessageId"`
+	MessageContent     string     `gorm:"type:text;not null" json:"messageContent"`
+	HistoryDigest      string     `gorm:"type:text;not null;default:''" json:"historyDigest"`
+	Attempt            int        `gorm:"not null;default:0" json:"attempt"`
+	Status             string     `gorm:"size:24;index;not null;default:'pending'" json:"status"`
+	NextRetryAt        time.Time  `gorm:"index;not null" json:"nextRetryAt"`
+	LastError          string     `gorm:"type:text;not null;default:''" json:"lastError"`
+	ClaimedAt          *time.Time `gorm:"index" json:"claimedAt,omitempty"`
+	FinishedAt         *time.Time `gorm:"index" json:"finishedAt,omitempty"`
+	CreatedAt          time.Time  `gorm:"index" json:"createdAt"`
+	UpdatedAt          time.Time  `json:"updatedAt"`
+}

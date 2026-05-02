@@ -1,6 +1,7 @@
 package chat
 
 import (
+	"context"
 	"strings"
 	"sync"
 	"time"
@@ -39,6 +40,12 @@ type ChatService struct {
 	platformModelAt time.Time
 
 	contextHistoryRounds int
+
+	memoryAsyncEnabled           bool
+	memoryAsyncWorkerInterval    time.Duration
+	memoryAsyncMaxRetries        int
+	memoryAsyncWorkerCancel      context.CancelFunc
+	memoryAsyncWorkerCancelMutex sync.Mutex
 }
 
 // chatStreamAccumulator collects streamed text and the first push error, if any.
@@ -66,14 +73,17 @@ type ChatStreamResult struct {
 // NewChatService constructs ChatService with per-session skill activation maps.
 func NewChatService(store domain.ChatStore, settingsStore domain.SettingsStore, providerFactory *llmsvc.Factory, mcpManager *mcp.Manager, skillRuntime *skillsvc.SkillRuntimeService, memory *memsvc.MemoryService) *ChatService {
 	s := &ChatService{
-		store:                store,
-		settingsStore:        settingsStore,
-		skillRuntime:         skillRuntime,
-		memory:               memory,
-		titleGen:             newTitleGenerator(providerFactory, store),
-		skillsBySess:         make(map[string]map[string]struct{}),
-		skillTouchedAt:       make(map[string]time.Time),
-		contextHistoryRounds: constants.DefaultContextHistoryRounds,
+		store:                     store,
+		settingsStore:             settingsStore,
+		skillRuntime:              skillRuntime,
+		memory:                    memory,
+		titleGen:                  newTitleGenerator(providerFactory, store),
+		skillsBySess:              make(map[string]map[string]struct{}),
+		skillTouchedAt:            make(map[string]time.Time),
+		contextHistoryRounds:      constants.DefaultContextHistoryRounds,
+		memoryAsyncEnabled:        true,
+		memoryAsyncWorkerInterval: constants.DefaultMemoryAsyncWorkerInterval,
+		memoryAsyncMaxRetries:     constants.DefaultMemoryWriteMaxRetries,
 	}
 	s.agent = NewAgentService(providerFactory, mcpManager, skillRuntime, memory)
 	s.agent.SetSubagentHost(s)
@@ -89,6 +99,42 @@ func (s *ChatService) SetContextHistoryRounds(rounds int) {
 		rounds = constants.ContextHistoryRoundMax
 	}
 	s.contextHistoryRounds = rounds
+}
+
+func (s *ChatService) SetMemoryAsyncWriteOptions(enabled bool, workerInterval time.Duration, maxRetries int) {
+	s.memoryAsyncEnabled = enabled
+	if workerInterval <= 0 {
+		workerInterval = constants.DefaultMemoryAsyncWorkerInterval
+	}
+	s.memoryAsyncWorkerInterval = workerInterval
+	if maxRetries <= 0 {
+		maxRetries = constants.DefaultMemoryWriteMaxRetries
+	}
+	s.memoryAsyncMaxRetries = maxRetries
+}
+
+func (s *ChatService) StartMemoryAsyncWorker(parent context.Context) {
+	if !s.memoryAsyncEnabled {
+		return
+	}
+	workerCtx, cancel := context.WithCancel(parent)
+	s.memoryAsyncWorkerCancelMutex.Lock()
+	if s.memoryAsyncWorkerCancel != nil {
+		s.memoryAsyncWorkerCancel()
+	}
+	s.memoryAsyncWorkerCancel = cancel
+	s.memoryAsyncWorkerCancelMutex.Unlock()
+	go s.runMemoryAsyncWorker(workerCtx)
+}
+
+func (s *ChatService) StopMemoryAsyncWorker() {
+	s.memoryAsyncWorkerCancelMutex.Lock()
+	cancel := s.memoryAsyncWorkerCancel
+	s.memoryAsyncWorkerCancel = nil
+	s.memoryAsyncWorkerCancelMutex.Unlock()
+	if cancel != nil {
+		cancel()
+	}
 }
 
 // SetUploadService injects the upload staging service for one-turn consume/cleanup.

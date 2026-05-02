@@ -6,6 +6,8 @@ const (
 	DefaultContextHistoryRounds        = 20
 	ContextHistoryRoundMin             = 5
 	ContextHistoryRoundMax             = 50
+	DefaultMemoryAsyncWorkerInterval   = 2 * time.Second
+	DefaultMemoryWriteMaxRetries       = 5
 	MessagePlatformSessionID           = "im-platform-session"
 	MessagePlatformSessionName         = "Message Platform Session"
 	SettingLanguage                    = "language"

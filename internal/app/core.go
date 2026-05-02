@@ -96,6 +96,11 @@ func NewCore(cfg config.Config) (*Core, error) {
 	chatService := chatsvc.NewChatService(repo, repo, providerFactory, mcpManager, skillRuntime, memoryService)
 	chatService.SetUploadService(chatUpload)
 	chatService.SetContextHistoryRounds(cfg.ContextHistoryRounds)
+	chatService.SetMemoryAsyncWriteOptions(
+		cfg.MemoryAsyncWriteEnabled,
+		time.Duration(cfg.MemoryAsyncWorkerIntervalSec)*time.Second,
+		cfg.MemoryWriteMaxRetries,
+	)
 
 	memoryService.ConfigureAutoConsolidation(true, 10*time.Minute, 20)
 
@@ -147,6 +152,9 @@ func (c *Core) WarmupInBackground(ctx context.Context) {
 					logging.Info("memory_index_warmup_complete", "dir", c.Config.MemoryDir)
 				}
 			}
+			if c.ChatService != nil {
+				c.ChatService.StartMemoryAsyncWorker(ctx)
+			}
 		}()
 	})
 }
@@ -174,6 +182,9 @@ func (c *Core) Close(ctx context.Context) {
 		if err := c.MemoryService.Shutdown(ctx); err != nil {
 			logging.Warn("memory_shutdown", "err", err)
 		}
+	}
+	if c.ChatService != nil {
+		c.ChatService.StopMemoryAsyncWorker()
 	}
 	if c.MCPManager != nil {
 		c.MCPManager.CloseAll()

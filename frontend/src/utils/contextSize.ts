@@ -22,6 +22,41 @@ export function formatContextTokenCount(value: number): string {
   return `${(count / 1_000_000).toFixed(1).replace(/\.0$/, '')}M`
 }
 
+export type ContextUsageEstimate = {
+  usedTokens: number
+  totalTokens: number
+  usedPercent: number
+  availablePercent: number
+}
+
+export function estimateContextTextTokens(text: string): number {
+  const runes = Array.from(text || '').length
+  if (runes === 0) return 0
+  return Math.ceil(runes / 4)
+}
+
+export function estimateContextUsageWithText<T extends ContextUsageEstimate | null | undefined>(
+  usage: T,
+  text: string,
+): T {
+  if (!usage) return usage
+  const delta = estimateContextTextTokens(text)
+  if (delta <= 0) return usage
+  const total = Math.max(0, Math.round(usage.totalTokens))
+  const nextUsed = total > 0
+    ? Math.min(total, Math.max(0, Math.round(usage.usedTokens) + delta))
+    : Math.max(0, Math.round(usage.usedTokens) + delta)
+  const usedPercent = total > 0
+    ? Math.max(0, Math.min(100, Math.round((nextUsed / total) * 100)))
+    : 0
+  return {
+    ...usage,
+    usedTokens: nextUsed,
+    usedPercent,
+    availablePercent: 100 - usedPercent,
+  }
+}
+
 export type ContextUsageTone = 'normal' | 'warning' | 'danger'
 
 export function contextUsageTone(usedPercent: number): ContextUsageTone {

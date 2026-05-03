@@ -127,6 +127,30 @@ test("CONTEXT_USAGE stores latest usage", () => {
 	assert.equal(state.contextUsage?.totalTokens, 1_000_000);
 });
 
+test("STREAM_CHUNK increments context usage estimate", () => {
+	let state = reduce(initState(), {
+		type: "CONTEXT_USAGE",
+		usage: {
+			sessionId: "sid-1",
+			modelConfigId: "model-1",
+			usedTokens: 10,
+			totalTokens: 100,
+			usedPercent: 10,
+			availablePercent: 90,
+			isCompacted: false,
+		},
+	});
+
+	state = reduce(state, {
+		type: "STREAM_CHUNK",
+		chunk: "12345678",
+	});
+
+	assert.equal(state.contextUsage?.usedTokens, 12);
+	assert.equal(state.contextUsage?.usedPercent, 12);
+	assert.equal(state.contextUsage?.availablePercent, 88);
+});
+
 test("CONTEXT_COMPACTED stores usage and appends a system notice", () => {
 	const state = reduce(initState(), {
 		type: "CONTEXT_COMPACTED",

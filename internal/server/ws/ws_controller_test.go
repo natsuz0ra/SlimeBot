@@ -150,3 +150,47 @@ func TestBuildContextCompactedPayloadIncludesUsage(t *testing.T) {
 		t.Fatalf("unexpected usage: %+v", usage)
 	}
 }
+
+func TestBuildPostDoneContextUsagePayloadsAlwaysIncludesFinalUsage(t *testing.T) {
+	usage := chatsvc.ContextUsage{
+		SessionID:        "session-1",
+		ModelConfigID:    "model-1",
+		UsedTokens:       430_000,
+		TotalTokens:      1_000_000,
+		UsedPercent:      43,
+		AvailablePercent: 57,
+	}
+
+	payloads := buildPostDoneContextUsagePayloads("session-1", usage, false)
+
+	if len(payloads) != 1 {
+		t.Fatalf("expected only final usage payload, got %+v", payloads)
+	}
+	if payloads[0]["type"] != "context_usage" || payloads[0]["usedPercent"] != 43 {
+		t.Fatalf("unexpected final usage payload: %+v", payloads[0])
+	}
+}
+
+func TestBuildPostDoneContextUsagePayloadsIncludesCompactedEventWhenSummaryUpdated(t *testing.T) {
+	usage := chatsvc.ContextUsage{
+		SessionID:        "session-1",
+		ModelConfigID:    "model-1",
+		UsedTokens:       120_000,
+		TotalTokens:      500_000,
+		UsedPercent:      24,
+		AvailablePercent: 76,
+		IsCompacted:      true,
+	}
+
+	payloads := buildPostDoneContextUsagePayloads("session-1", usage, true)
+
+	if len(payloads) != 2 {
+		t.Fatalf("expected final usage and compacted payloads, got %+v", payloads)
+	}
+	if payloads[0]["type"] != "context_usage" {
+		t.Fatalf("expected context_usage first, got %+v", payloads[0])
+	}
+	if payloads[1]["type"] != "context_compacted" {
+		t.Fatalf("expected context_compacted second, got %+v", payloads[1])
+	}
+}

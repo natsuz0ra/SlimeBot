@@ -5,6 +5,7 @@ import {
   CONTEXT_SIZE_MAX,
   CONTEXT_SIZE_MIN,
   clampContextSize,
+  estimateContextUsageWithText,
   contextSizeToSlider,
   contextUsageTone,
   formatContextSize,
@@ -44,4 +45,39 @@ test('context size slider round trips through logarithmic mapping', () => {
 
   const roundTrip = sliderToContextSize(contextSizeToSlider(128_000))
   assert.ok(Math.abs(roundTrip - 128_000) < 8_000)
+})
+
+test('estimateContextUsageWithText increments tokens and percentages', () => {
+  const usage = estimateContextUsageWithText({
+    sessionId: 'sid-1',
+    modelConfigId: 'model-1',
+    usedTokens: 10,
+    totalTokens: 100,
+    usedPercent: 10,
+    availablePercent: 90,
+    isCompacted: false,
+  }, '12345678')
+
+  assert.equal(usage?.usedTokens, 12)
+  assert.equal(usage?.usedPercent, 12)
+  assert.equal(usage?.availablePercent, 88)
+})
+
+test('estimateContextUsageWithText clamps at full context and ignores empty state', () => {
+  assert.equal(estimateContextUsageWithText(null, '1234'), null)
+
+  const usage = estimateContextUsageWithText({
+    sessionId: 'sid-1',
+    modelConfigId: 'model-1',
+    usedTokens: 99,
+    totalTokens: 100,
+    usedPercent: 99,
+    availablePercent: 1,
+    isCompacted: true,
+  }, '123456789')
+
+  assert.equal(usage?.usedTokens, 100)
+  assert.equal(usage?.usedPercent, 100)
+  assert.equal(usage?.availablePercent, 0)
+  assert.equal(usage?.isCompacted, true)
 })

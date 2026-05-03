@@ -12,7 +12,7 @@ import type {
   ModelProvider,
 } from "./types.js";
 import { estimateTokens } from "./utils/format.js";
-import { CONTEXT_SIZE_DEFAULT, clampContextSize } from "./utils/contextSize.js";
+import { CONTEXT_SIZE_DEFAULT, clampContextSize, estimateContextUsageWithText } from "./utils/contextSize.js";
 
 function clearTurnStats() {
   return {
@@ -271,6 +271,7 @@ export function reducer(state: AppState, action: AppAction): AppState {
         assistantWaiting: false,
         liveAssistant,
         turnTokenEstimate: addTokenEstimate(state, action.chunk),
+        contextUsage: estimateContextUsageWithText(state.contextUsage, action.chunk),
       };
     }
 

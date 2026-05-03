@@ -60,11 +60,16 @@ func (s *ChatService) BuildContextUsage(ctx context.Context, sessionID string, m
 }
 
 func (s *ChatService) GetContextUsage(ctx context.Context, sessionID string, modelID string) (ContextUsage, error) {
+	usage, _, err := s.GetContextUsageDetailed(ctx, sessionID, modelID)
+	return usage, err
+}
+
+func (s *ChatService) GetContextUsageDetailed(ctx context.Context, sessionID string, modelID string) (ContextUsage, bool, error) {
 	llmConfig, err := s.ResolveLLMConfig(ctx, modelID)
 	if err != nil {
-		return ContextUsage{}, err
+		return ContextUsage{}, false, err
 	}
-	return s.BuildContextUsage(ctx, sessionID, llmsvc.ModelRuntimeConfig{
+	result, err := s.buildContextMessagesDetailed(ctx, sessionID, llmsvc.ModelRuntimeConfig{
 		ConfigID:    llmConfig.ID,
 		Provider:    llmConfig.Provider,
 		BaseURL:     llmConfig.BaseURL,
@@ -72,6 +77,10 @@ func (s *ChatService) GetContextUsage(ctx context.Context, sessionID string, mod
 		Model:       llmConfig.Model,
 		ContextSize: llmConfig.ContextSize,
 	})
+	if err != nil {
+		return ContextUsage{}, false, err
+	}
+	return result.usage, result.compactedNow, nil
 }
 
 const contextCompressionMaxMessages = 10000

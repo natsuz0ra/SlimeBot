@@ -6,6 +6,7 @@ import {
   CONTEXT_SIZE_MIN,
   adjustContextSize,
   clampContextSize,
+  estimateContextUsageWithText,
   formatContextUsageStatus,
   formatContextSize,
   formatContextTokenCount,
@@ -55,4 +56,39 @@ test("renderContextSizeBar returns stable width", () => {
   assert.equal(renderContextSizeBar(8_000, 10), "----------");
   assert.equal(renderContextSizeBar(1_000_000, 10), "==========");
   assert.equal(renderContextSizeBar(128_000, 10).length, 10);
+});
+
+test("estimateContextUsageWithText increments CLI context usage", () => {
+  const usage = estimateContextUsageWithText({
+    sessionId: "sid-1",
+    modelConfigId: "model-1",
+    usedTokens: 10,
+    totalTokens: 100,
+    usedPercent: 10,
+    availablePercent: 90,
+    isCompacted: false,
+  }, "12345678");
+
+  assert.equal(usage?.usedTokens, 12);
+  assert.equal(usage?.usedPercent, 12);
+  assert.equal(usage?.availablePercent, 88);
+});
+
+test("estimateContextUsageWithText clamps at full CLI context", () => {
+  assert.equal(estimateContextUsageWithText(null, "1234"), null);
+
+  const usage = estimateContextUsageWithText({
+    sessionId: "sid-1",
+    modelConfigId: "model-1",
+    usedTokens: 99,
+    totalTokens: 100,
+    usedPercent: 99,
+    availablePercent: 1,
+    isCompacted: true,
+  }, "123456789");
+
+  assert.equal(usage?.usedTokens, 100);
+  assert.equal(usage?.usedPercent, 100);
+  assert.equal(usage?.availablePercent, 0);
+  assert.equal(usage?.isCompacted, true);
 });

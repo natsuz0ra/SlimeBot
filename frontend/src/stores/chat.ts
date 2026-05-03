@@ -14,6 +14,7 @@ import {
   type AssistantReplyTimelineItem,
 } from '@/utils/replyBatchBuilder'
 import { hasContentMarkers, parseContentMarkers, stripContentMarkers } from '@/utils/contentMarkers'
+import { estimateContextUsageWithText } from '@/utils/contextSize'
 import { appendPlanBodyToBatch, appendPlanChunkToBatch, appendSubagentThinkingChunk, appendTextChunkToBatch, finalizeOpenReplyRuntimeState, finalizeReplyBatchTiming, finishOpenThinkingEntries, finishSubagentThinking, markLastThinkingDone, markToolCallError, startSubagentThinking } from '@/utils/liveReplyTimeline'
 import { getBatchApprovalToolCallIds, markToolApprovalDecision } from '@/utils/toolApprovals'
 import { materializeStoppedMessages } from '@/utils/chatMessages'
@@ -479,6 +480,7 @@ export const useChatStore = defineStore('chat', () => {
         if (!assistant) return
         assistant.content += chunk
         appendTextChunkToBatch(batch, chunk)
+        contextUsage.value = estimateContextUsageWithText(contextUsage.value, chunk)
         streamingStarted.value = true
       },
       onSessionTitle: (title, sessionId) => {

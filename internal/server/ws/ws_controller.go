@@ -417,6 +417,18 @@ func (w *Controller) handleChatIncoming(
 	if !enqueue(donePayload) {
 		return false
 	}
+	if strings.TrimSpace(incoming.ModelID) != "" {
+		usage, compactedNow, usageErr := w.chatService.GetContextUsageDetailed(sessionCtx, session.ID, incoming.ModelID)
+		if usageErr != nil {
+			logging.Warn("ws_context_usage_refresh_failed", "session", session.ID, "error", usageErr)
+		} else {
+			for _, payload := range buildPostDoneContextUsagePayloads(session.ID, usage, compactedNow) {
+				if !enqueue(payload) {
+					return false
+				}
+			}
+		}
+	}
 
 	startToFirstChunkMs := int64(-1)
 	firstChunkToDoneMs := int64(-1)
@@ -499,6 +511,14 @@ func buildContextCompactedPayload(sessionID string, usage chatsvc.ContextUsage) 
 		"sessionId": sessionID,
 		"usage":     usage,
 	}
+}
+
+func buildPostDoneContextUsagePayloads(sessionID string, usage chatsvc.ContextUsage, compactedNow bool) []map[string]any {
+	payloads := []map[string]any{buildContextUsagePayload(sessionID, usage)}
+	if compactedNow {
+		payloads = append(payloads, buildContextCompactedPayload(sessionID, usage))
+	}
+	return payloads
 }
 
 func truncateWSString(value string, maxRunes int) string {

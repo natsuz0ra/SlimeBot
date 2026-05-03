@@ -125,7 +125,10 @@ func (s *ChatService) buildContextMessagesDetailed(ctx context.Context, sessionI
 		msgs = append(msgs, llmsvc.ChatMessage{Role: "system", Content: runtimeEnvPrompt})
 	}
 
-	compression := s.applyContextCompression(ctx, sessionID, modelConfig, msgs, history)
+	compression, err := s.applyContextCompression(ctx, sessionID, modelConfig, msgs, history)
+	if err != nil {
+		return contextBuildResult{}, err
+	}
 	msgs = append(msgs, compression.messages...)
 	mode := "full_history"
 	if compression.compacted {
@@ -144,86 +147,89 @@ func (s *ChatService) buildContextMessagesDetailed(ctx context.Context, sessionI
 	return contextBuildResult{messages: msgs, usage: usage, compactedNow: compression.compactedNow}, nil
 }
 
-func (s *ChatService) applyContextCompression(ctx context.Context, sessionID string, modelConfig llmsvc.ModelRuntimeConfig, prefix []llmsvc.ChatMessage, history []domain.Message) contextCompressionResult {
+func (s *ChatService) applyContextCompression(ctx context.Context, sessionID string, modelConfig llmsvc.ModelRuntimeConfig, prefix []llmsvc.ChatMessage, history []domain.Message) (contextCompressionResult, error) {
 	historyMessages := historyToChatMessages(history)
 	if len(historyMessages) == 0 {
-		return contextCompressionResult{messages: historyMessages}
+		return contextCompressionResult{messages: historyMessages}, nil
 	}
 	contextSize := modelConfig.ContextSize
 	if contextSize <= 0 {
 		contextSize = constants.DefaultContextSize
 	}
-	if estimateChatMessagesTokens(append(append([]llmsvc.ChatMessage{}, prefix...), historyMessages...)) <= contextSize {
-		return contextCompressionResult{messages: historyMessages}
+	preserveLatestUser := history[len(history)-1].Role == "user"
+	if preserveLatestUser {
+		latest := historyToChatMessages(history[len(history)-1:])
+		if estimateChatMessagesTokens(append(append([]llmsvc.ChatMessage{}, prefix...), latest...)) > contextSize {
+			return contextCompressionResult{}, fmt.Errorf("最新输入超过模型上下文窗口，请缩短输入或调大上下文大小。")
+		}
 	}
 
 	modelConfigID := strings.TrimSpace(modelConfig.ConfigID)
 	existing, err := s.store.GetSessionContextSummary(ctx, sessionID, modelConfigID)
 	if err == nil && strings.TrimSpace(existing.Summary) != "" {
 		kept := messagesAfterSeq(history, existing.SummarizedUntilSeq)
-		withExisting := append([]llmsvc.ChatMessage{buildCompactSummaryMessage(existing.Summary)}, historyToChatMessages(kept)...)
-		tailCount := s.contextHistoryRounds * 2
-		if estimateChatMessagesTokens(append(append([]llmsvc.ChatMessage{}, prefix...), withExisting...)) <= contextSize || len(kept) <= tailCount {
-			return contextCompressionResult{messages: withExisting, compacted: true, compactedAt: existing.UpdatedAt.Format(time.RFC3339Nano)}
+		existingSummary := []llmsvc.ChatMessage{buildCompactSummaryMessage(existing.Summary)}
+		withExisting := append(append([]llmsvc.ChatMessage{}, existingSummary...), historyToChatMessages(kept)...)
+		if estimateChatMessagesTokens(append(append([]llmsvc.ChatMessage{}, prefix...), withExisting...)) <= contextSize {
+			return contextCompressionResult{messages: withExisting, compacted: true, compactedAt: existing.UpdatedAt.Format(time.RFC3339Nano)}, nil
 		}
-		split := len(kept) - tailCount
-		if split > 0 {
-			tail := kept[split:]
-			summary, compactErr := s.generateContextSummary(ctx, modelConfig, kept[:split], existing.Summary)
-			if compactErr == nil && strings.TrimSpace(summary) != "" {
-				lastSeq := kept[split-1].Seq
-				compactedAt := time.Now()
-				if err := s.store.UpsertSessionContextSummary(ctx, &domain.SessionContextSummary{
-					SessionID:               sessionID,
-					ModelConfigID:           modelConfigID,
-					Summary:                 summary,
-					SummarizedUntilSeq:      lastSeq,
-					PreCompactTokenEstimate: estimateChatMessagesTokens(historyToChatMessages(kept[:split])),
-					UpdatedAt:               compactedAt,
-				}); err != nil {
-					logging.Warn("context_summary_save_failed", "session", sessionID, "error", err)
-				}
-				return contextCompressionResult{
-					messages:     append([]llmsvc.ChatMessage{buildCompactSummaryMessage(summary)}, historyToChatMessages(tail)...),
-					compacted:    true,
-					compactedNow: true,
-					compactedAt:  compactedAt.Format(time.RFC3339Nano),
-				}
-			}
-			if compactErr != nil {
-				logging.Warn("context_summary_generate_failed", "session", sessionID, "error", compactErr)
-			}
-			return contextCompressionResult{
-				messages:    append([]llmsvc.ChatMessage{buildCompactSummaryMessage(existing.Summary)}, historyToChatMessages(tail)...),
-				compacted:   true,
-				compactedAt: existing.UpdatedAt.Format(time.RFC3339Nano),
-			}
+
+		if len(kept) == 0 {
+			return contextCompressionResult{}, fmt.Errorf("压缩摘要仍超过模型上下文窗口，请调大 context size 或新建会话。")
 		}
-		return contextCompressionResult{messages: withExisting, compacted: true, compactedAt: existing.UpdatedAt.Format(time.RFC3339Nano)}
+		summary, compactErr := s.generateContextSummary(ctx, modelConfig, kept, existing.Summary)
+		if compactErr != nil {
+			logging.Warn("context_summary_generate_failed", "session", sessionID, "error", compactErr)
+			return contextCompressionResult{}, fmt.Errorf("上下文压缩失败: %w", compactErr)
+		}
+		if strings.TrimSpace(summary) == "" {
+			return contextCompressionResult{}, fmt.Errorf("上下文压缩失败: 压缩摘要为空")
+		}
+		compactedMessages := []llmsvc.ChatMessage{buildCompactSummaryMessage(summary)}
+		if estimateChatMessagesTokens(append(append([]llmsvc.ChatMessage{}, prefix...), compactedMessages...)) > contextSize {
+			return contextCompressionResult{}, fmt.Errorf("压缩摘要仍超过模型上下文窗口，请调大 context size 或新建会话。")
+		}
+		lastSeq := kept[len(kept)-1].Seq
+		compactedAt := time.Now()
+		if err := s.store.UpsertSessionContextSummary(ctx, &domain.SessionContextSummary{
+			SessionID:               sessionID,
+			ModelConfigID:           modelConfigID,
+			Summary:                 summary,
+			SummarizedUntilSeq:      lastSeq,
+			PreCompactTokenEstimate: estimateChatMessagesTokens(historyToChatMessages(kept)),
+			UpdatedAt:               compactedAt,
+		}); err != nil {
+			logging.Warn("context_summary_save_failed", "session", sessionID, "error", err)
+		}
+		return contextCompressionResult{
+			messages:     compactedMessages,
+			compacted:    true,
+			compactedNow: true,
+			compactedAt:  compactedAt.Format(time.RFC3339Nano),
+		}, nil
 	}
 	if err != nil && !errors.Is(err, apperrors.ErrNotFound) {
 		logging.Warn("context_summary_load_failed", "session", sessionID, "error", err)
 	}
 
-	tailCount := s.contextHistoryRounds * 2
-	if tailCount < 2 {
-		tailCount = constants.DefaultContextHistoryRounds * 2
+	if estimateChatMessagesTokens(append(append([]llmsvc.ChatMessage{}, prefix...), historyMessages...)) <= contextSize {
+		return contextCompressionResult{messages: historyMessages}, nil
 	}
-	split := len(history) - tailCount
-	if split <= 0 {
-		return contextCompressionResult{messages: limitTailHistory(historyMessages, tailCount)}
-	}
-	toSummarize := history[:split]
-	tail := history[split:]
-	summary, compactErr := s.generateContextSummary(ctx, modelConfig, toSummarize, "")
+
+	summary, compactErr := s.generateContextSummary(ctx, modelConfig, history, "")
 	if compactErr != nil || strings.TrimSpace(summary) == "" {
 		if compactErr != nil {
 			logging.Warn("context_summary_generate_failed", "session", sessionID, "error", compactErr)
+			return contextCompressionResult{}, fmt.Errorf("上下文压缩失败: %w", compactErr)
 		}
-		return contextCompressionResult{messages: historyToChatMessages(tail)}
+		return contextCompressionResult{}, fmt.Errorf("上下文压缩失败: 压缩摘要为空")
 	}
-	lastSeq := toSummarize[len(toSummarize)-1].Seq
-	preCompactEstimate := estimateChatMessagesTokens(historyToChatMessages(toSummarize))
+	compactedMessages := []llmsvc.ChatMessage{buildCompactSummaryMessage(summary)}
+	if estimateChatMessagesTokens(append(append([]llmsvc.ChatMessage{}, prefix...), compactedMessages...)) > contextSize {
+		return contextCompressionResult{}, fmt.Errorf("压缩摘要仍超过模型上下文窗口，请调大 context size 或新建会话。")
+	}
+	lastSeq := history[len(history)-1].Seq
+	preCompactEstimate := estimateChatMessagesTokens(historyMessages)
 	compactedAt := time.Now()
 	if err := s.store.UpsertSessionContextSummary(ctx, &domain.SessionContextSummary{
 		SessionID:               sessionID,
@@ -236,11 +242,11 @@ func (s *ChatService) applyContextCompression(ctx context.Context, sessionID str
 		logging.Warn("context_summary_save_failed", "session", sessionID, "error", err)
 	}
 	return contextCompressionResult{
-		messages:     append([]llmsvc.ChatMessage{buildCompactSummaryMessage(summary)}, historyToChatMessages(tail)...),
+		messages:     compactedMessages,
 		compacted:    true,
 		compactedNow: true,
 		compactedAt:  compactedAt.Format(time.RFC3339Nano),
-	}
+	}, nil
 }
 
 func buildContextUsage(sessionID string, modelConfig llmsvc.ModelRuntimeConfig, messages []llmsvc.ChatMessage, compacted bool, compactedAt string) ContextUsage {
@@ -336,13 +342,6 @@ func messagesAfterSeq(history []domain.Message, seq int64) []domain.Message {
 		}
 	}
 	return kept
-}
-
-func limitTailHistory(msgs []llmsvc.ChatMessage, limit int) []llmsvc.ChatMessage {
-	if limit <= 0 || len(msgs) <= limit {
-		return msgs
-	}
-	return msgs[len(msgs)-limit:]
 }
 
 func estimateChatMessagesTokens(msgs []llmsvc.ChatMessage) int {

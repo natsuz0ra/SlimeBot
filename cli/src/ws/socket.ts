@@ -53,6 +53,7 @@ interface WSIncoming {
   preamble?: string;
   status?: string;
   output?: string;
+  metadata?: unknown;
   isInterrupted?: boolean;
   isStopPlaceholder?: boolean;
   parentToolCallId?: string;

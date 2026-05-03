@@ -92,7 +92,7 @@ export function formatToolOutputLines(entry: TimelineEntry, maxWidth: number, ex
     ? formatToolExecutionCompactOutput(entry.toolName || "", entry.command || "", raw || "")
     : formatToolExecutionOutput(entry.toolName || "", entry.command || "", raw || "");
   const { lines: rawLines } = useExecCompact
-    ? { lines: formatted.split("\n"), totalLines: formatted.split("\n").length }
+    ? { lines: formatted.split("\n") }
     : formatCollapsedLines(formatted, TOOL_OUTPUT_PREVIEW_LINES, expanded);
   const result: string[] = [];
   for (const line of rawLines) {

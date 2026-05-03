@@ -69,7 +69,6 @@ const (
 	PlanStatusPending  = "pending"
 	PlanStatusApproved = "approved"
 	PlanStatusRejected = "rejected"
-	PlanStatusExecuted = "executed"
 
 	// WebSocket
 	WSChatTimeout     = 600 * time.Second

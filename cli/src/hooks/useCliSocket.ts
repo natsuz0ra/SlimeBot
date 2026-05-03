@@ -102,9 +102,10 @@ export function useCliSocket({
         });
 
         if (!data.requiresApproval) return;
-        if (data.toolName === "ask_questions" && data.params?.questions) {
+        const questionsRaw = data.params?.questions;
+        if (data.toolName === "ask_questions" && typeof questionsRaw === "string") {
           try {
-            const questions = JSON.parse(data.params.questions);
+            const questions = JSON.parse(questionsRaw);
             if (Array.isArray(questions) && questions.length > 0) {
               dispatch({
                 type: "SET_QA",

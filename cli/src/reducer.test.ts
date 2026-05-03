@@ -109,6 +109,43 @@ test("TOGGLE_TOOL_OUTPUT switches tool output expanded on and off", () => {
 	assert.equal(state.toolOutputExpanded, false);
 });
 
+test("CONTEXT_USAGE stores latest usage", () => {
+	const state = reduce(initState(), {
+		type: "CONTEXT_USAGE",
+		usage: {
+			sessionId: "sid-1",
+			modelConfigId: "model-1",
+			usedTokens: 420_000,
+			totalTokens: 1_000_000,
+			usedPercent: 42,
+			availablePercent: 58,
+			isCompacted: false,
+		},
+	});
+
+	assert.equal(state.contextUsage?.usedPercent, 42);
+	assert.equal(state.contextUsage?.totalTokens, 1_000_000);
+});
+
+test("CONTEXT_COMPACTED stores usage and appends a system notice", () => {
+	const state = reduce(initState(), {
+		type: "CONTEXT_COMPACTED",
+		usage: {
+			sessionId: "sid-1",
+			modelConfigId: "model-1",
+			usedTokens: 120_000,
+			totalTokens: 500_000,
+			usedPercent: 24,
+			availablePercent: 76,
+			isCompacted: true,
+		},
+	});
+
+	assert.equal(state.contextUsage?.isCompacted, true);
+	assert.equal(state.timeline.at(-1)?.kind, "system");
+	assert.match(state.timeline.at(-1)?.content || "", /Context compacted/);
+});
+
 test("SET_MODEL_EDITOR_VIEW initializes context size defaults", () => {
 	const state = reduce(initState(), { type: "SET_MODEL_EDITOR_VIEW" });
 

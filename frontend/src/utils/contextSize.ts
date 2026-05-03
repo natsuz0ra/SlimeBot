@@ -15,6 +15,21 @@ export function formatContextSize(value: number): string {
   return clamped.toLocaleString()
 }
 
+export function formatContextTokenCount(value: number): string {
+  const count = Math.max(0, Math.round(value))
+  if (count < 1_000) return String(count)
+  if (count < 1_000_000) return `${(count / 1_000).toFixed(1).replace(/\.0$/, '')}K`
+  return `${(count / 1_000_000).toFixed(1).replace(/\.0$/, '')}M`
+}
+
+export type ContextUsageTone = 'normal' | 'warning' | 'danger'
+
+export function contextUsageTone(usedPercent: number): ContextUsageTone {
+  if (usedPercent >= 90) return 'danger'
+  if (usedPercent >= 70) return 'warning'
+  return 'normal'
+}
+
 export function contextSizeToSlider(value: number): number {
   const clamped = clampContextSize(value)
   const min = Math.log(CONTEXT_SIZE_MIN)

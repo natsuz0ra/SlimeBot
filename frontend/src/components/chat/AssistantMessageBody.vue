@@ -144,6 +144,10 @@ onUnmounted(() => {
 
           <div v-else-if="entry.kind === 'text'" class="bubble-markdown sb-text-primary" v-html="renderMarkdown(entry.content)" />
 
+          <div v-else-if="entry.kind === 'notice'" class="assistant-context-notice">
+            {{ entry.content }}
+          </div>
+
           <PlanBlock
             v-else-if="entry.kind === 'plan'"
             :content="entry.content"
@@ -313,8 +317,22 @@ onUnmounted(() => {
 
 .assistant-reply-segment--thinking,
 .assistant-reply-segment--tool_start,
+.assistant-reply-segment--notice,
 .assistant-reply-segment--plan {
   max-width: min(100%, 680px);
+}
+
+.assistant-context-notice {
+  display: inline-flex;
+  max-width: 100%;
+  border: 1px solid var(--tool-section-border);
+  border-radius: 8px;
+  background: var(--tool-section-bg);
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 560;
+  line-height: 1.35;
+  padding: 6px 9px;
 }
 
 .reply-segment-enter-active,

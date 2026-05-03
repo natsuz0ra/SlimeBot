@@ -37,6 +37,8 @@ type chatTurnState struct {
 	session           *domain.Session
 	modelConfig       llmsvc.ModelRuntimeConfig
 	contextMessages   []llmsvc.ChatMessage
+	contextUsage      ContextUsage
+	contextCompacted  bool
 	enabledMCPConfigs []domain.MCPConfig
 	attachments       []UploadedAttachment
 	userContent       string
@@ -109,6 +111,16 @@ func (s *ChatService) handleChatStreamWithReceivedAt(
 		return nil, err
 	}
 	defer s.cleanupTurnAttachments(state.attachments)
+	if callbacks.OnContextUsage != nil {
+		if err := callbacks.OnContextUsage(state.contextUsage); err != nil {
+			return nil, err
+		}
+	}
+	if state.contextCompacted && callbacks.OnContextCompacted != nil {
+		if err := callbacks.OnContextCompacted(state.contextUsage); err != nil {
+			return nil, err
+		}
+	}
 	s.maybeGenerateTitleAsync(state.session, state.modelConfig, state.userContent, callbacks.OnTitleGenerated)
 
 	if planMode {
@@ -199,7 +211,7 @@ func (s *ChatService) prepareChatTurn(
 
 	// Build context messages and enabled MCP configs in parallel to reduce turn latency.
 	var (
-		contextMessages   []llmsvc.ChatMessage
+		contextResult     contextBuildResult
 		enabledMCPConfigs []domain.MCPConfig
 		contextErr        error
 		mcpErr            error
@@ -208,7 +220,7 @@ func (s *ChatService) prepareChatTurn(
 	prepareWG.Add(2)
 	go func() {
 		defer prepareWG.Done()
-		contextMessages, contextErr = s.BuildContextMessages(ctx, sessionID, modelConfig)
+		contextResult, contextErr = s.buildContextMessagesDetailed(ctx, sessionID, modelConfig)
 	}()
 	go func() {
 		defer prepareWG.Done()
@@ -224,17 +236,19 @@ func (s *ChatService) prepareChatTurn(
 
 	if len(attachments) > 0 {
 		if len(userMessageParts) > 0 {
-			overrideLatestUserTurnWithParts(contextMessages, userContentForLLM, userMessageParts)
+			overrideLatestUserTurnWithParts(contextResult.messages, userContentForLLM, userMessageParts)
 		} else {
-			overrideLatestUserTurn(contextMessages, userContentForLLM)
+			overrideLatestUserTurn(contextResult.messages, userContentForLLM)
 		}
 	} else if strings.TrimSpace(displayContent) != "" {
-		overrideLatestUserTurn(contextMessages, userContentForLLM)
+		overrideLatestUserTurn(contextResult.messages, userContentForLLM)
 	}
 	return &chatTurnState{
 		session:           session,
 		modelConfig:       modelConfig,
-		contextMessages:   contextMessages,
+		contextMessages:   contextResult.messages,
+		contextUsage:      contextResult.usage,
+		contextCompacted:  contextResult.compactedNow,
 		enabledMCPConfigs: enabledMCPConfigs,
 		attachments:       attachments,
 		userContent:       userContentForLLM,

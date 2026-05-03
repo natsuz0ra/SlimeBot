@@ -58,6 +58,7 @@ func New(cfg config.Config) (*App, error) {
 		core.ChatUpload,
 		tokenManager,
 	)
+	httpController.SetChatContextUsageService(core.ChatService)
 	wsController := ws.NewController(core.ChatService, core.PlanService)
 	subDist, err := fs.Sub(web.DistFS, "dist")
 	if err != nil {
@@ -118,6 +119,7 @@ func NewHeadless(cfg config.Config) (*App, error) {
 		core.ChatUpload,
 		tokenManager,
 	)
+	httpController.SetChatContextUsageService(core.ChatService)
 	wsController := ws.NewController(core.ChatService, core.PlanService)
 	subDist, _ := fs.Sub(web.DistFS, "dist") // fs required by router; unused in headless UI
 	engine := router.New(cfg, tokenManager, httpController, wsController, subDist,

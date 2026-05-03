@@ -168,6 +168,17 @@ export interface TodoUpdateData {
   updatedAt?: string;
 }
 
+export interface ContextUsage {
+  sessionId: string;
+  modelConfigId: string;
+  usedTokens: number;
+  totalTokens: number;
+  usedPercent: number;
+  availablePercent: number;
+  isCompacted: boolean;
+  compactedAt?: string;
+}
+
 // ===== UI state types =====
 
 export type ViewMode = "chat" | "menu" | "mcp-editor" | "mcp-template" | "model-editor" | "approval" | "thinking-detail" | "plan-confirm" | "question-answer";
@@ -317,6 +328,7 @@ export interface AppState {
   turnElapsedMs: number;
   turnTokenEstimate: number;
   turnThoughtDurationMs?: number;
+  contextUsage: ContextUsage | null;
   runtimeTodos: RuntimeTodoItem[];
   runtimeTodosNote: string;
   runtimeTodosUpdatedAt?: number;
@@ -400,6 +412,8 @@ export type AppAction =
   | { type: "STREAM_START"; startedAt?: number }
   | { type: "STREAM_CHUNK"; chunk: string }
   | { type: "STREAM_DONE"; error: string | null }
+  | { type: "CONTEXT_USAGE"; usage: ContextUsage }
+  | { type: "CONTEXT_COMPACTED"; usage: ContextUsage }
   | { type: "TURN_STATS_TICK"; now?: number }
   | { type: "TOGGLE_COMPACT" }
   | { type: "TOGGLE_TOOL_OUTPUT" }

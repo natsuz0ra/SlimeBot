@@ -206,3 +206,66 @@ test("dispatchWSMessage routes subagent_done with error", () => {
     error: "context canceled",
   }]);
 });
+
+test("dispatchWSMessage routes context usage events", () => {
+  const calls: Array<{ sessionId?: string; usedPercent: number; isCompacted: boolean }> = [];
+  const handlers: WSHandlers = {
+    onSession: () => {},
+    onStart: () => {},
+    onChunk: () => {},
+    onDone: () => {},
+    onError: () => {},
+    onContextUsage: (usage, sessionId) => {
+      calls.push({ sessionId, usedPercent: usage.usedPercent, isCompacted: usage.isCompacted });
+    },
+  };
+
+  dispatchWSMessage(
+    JSON.stringify({
+      type: "context_usage",
+      sessionId: "sid-context",
+      modelConfigId: "model-1",
+      usedTokens: 420000,
+      totalTokens: 1000000,
+      usedPercent: 42,
+      availablePercent: 58,
+      isCompacted: true,
+    }),
+    handlers,
+  );
+
+  assert.deepEqual(calls, [{ sessionId: "sid-context", usedPercent: 42, isCompacted: true }]);
+});
+
+test("dispatchWSMessage routes context compacted events", () => {
+  const calls: Array<{ sessionId?: string; usedTokens: number }> = [];
+  const handlers: WSHandlers = {
+    onSession: () => {},
+    onStart: () => {},
+    onChunk: () => {},
+    onDone: () => {},
+    onError: () => {},
+    onContextCompacted: (usage, sessionId) => {
+      calls.push({ sessionId, usedTokens: usage.usedTokens });
+    },
+  };
+
+  dispatchWSMessage(
+    JSON.stringify({
+      type: "context_compacted",
+      sessionId: "sid-context",
+      usage: {
+        sessionId: "sid-context",
+        modelConfigId: "model-1",
+        usedTokens: 120000,
+        totalTokens: 500000,
+        usedPercent: 24,
+        availablePercent: 76,
+        isCompacted: true,
+      },
+    }),
+    handlers,
+  );
+
+  assert.deepEqual(calls, [{ sessionId: "sid-context", usedTokens: 120000 }]);
+});

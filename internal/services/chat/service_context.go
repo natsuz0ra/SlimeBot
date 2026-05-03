@@ -29,15 +29,63 @@ type RunContext struct {
 	IsCLI bool
 }
 
+type contextCompressionResult struct {
+	messages     []llmsvc.ChatMessage
+	compacted    bool
+	compactedNow bool
+	compactedAt  string
+}
+
+type contextBuildResult struct {
+	messages     []llmsvc.ChatMessage
+	usage        ContextUsage
+	compactedNow bool
+}
+
 // BuildContextMessages builds the full message list for the model.
 func (s *ChatService) BuildContextMessages(ctx context.Context, sessionID string, modelConfig llmsvc.ModelRuntimeConfig) ([]llmsvc.ChatMessage, error) {
-	return s.buildContextMessages(ctx, sessionID, modelConfig)
+	result, err := s.buildContextMessagesDetailed(ctx, sessionID, modelConfig)
+	if err != nil {
+		return nil, err
+	}
+	return result.messages, nil
+}
+
+func (s *ChatService) BuildContextUsage(ctx context.Context, sessionID string, modelConfig llmsvc.ModelRuntimeConfig) (ContextUsage, error) {
+	result, err := s.buildContextMessagesDetailed(ctx, sessionID, modelConfig)
+	if err != nil {
+		return ContextUsage{}, err
+	}
+	return result.usage, nil
+}
+
+func (s *ChatService) GetContextUsage(ctx context.Context, sessionID string, modelID string) (ContextUsage, error) {
+	llmConfig, err := s.ResolveLLMConfig(ctx, modelID)
+	if err != nil {
+		return ContextUsage{}, err
+	}
+	return s.BuildContextUsage(ctx, sessionID, llmsvc.ModelRuntimeConfig{
+		ConfigID:    llmConfig.ID,
+		Provider:    llmConfig.Provider,
+		BaseURL:     llmConfig.BaseURL,
+		APIKey:      llmConfig.APIKey,
+		Model:       llmConfig.Model,
+		ContextSize: llmConfig.ContextSize,
+	})
 }
 
 const contextCompressionMaxMessages = 10000
 
 // buildContextMessages loads system prompt and history in parallel, then orders system -> optional compact summary -> history.
 func (s *ChatService) buildContextMessages(ctx context.Context, sessionID string, modelConfig llmsvc.ModelRuntimeConfig) ([]llmsvc.ChatMessage, error) {
+	result, err := s.buildContextMessagesDetailed(ctx, sessionID, modelConfig)
+	if err != nil {
+		return nil, err
+	}
+	return result.messages, nil
+}
+
+func (s *ChatService) buildContextMessagesDetailed(ctx context.Context, sessionID string, modelConfig llmsvc.ModelRuntimeConfig) (contextBuildResult, error) {
 	buildStart := time.Now()
 	parallelStart := time.Now()
 	var (
@@ -66,10 +114,10 @@ func (s *ChatService) buildContextMessages(ctx context.Context, sessionID string
 	wg.Wait()
 	logging.Span("context_parallel_system_history", parallelStart)
 	if loadErr != nil {
-		return nil, loadErr
+		return contextBuildResult{}, loadErr
 	}
 	if histErr != nil {
-		return nil, histErr
+		return contextBuildResult{}, histErr
 	}
 
 	msgs := []llmsvc.ChatMessage{{Role: "system", Content: systemPrompt}}
@@ -77,12 +125,13 @@ func (s *ChatService) buildContextMessages(ctx context.Context, sessionID string
 		msgs = append(msgs, llmsvc.ChatMessage{Role: "system", Content: runtimeEnvPrompt})
 	}
 
-	contextHistory, compacted := s.applyContextCompression(ctx, sessionID, modelConfig, msgs, history)
-	msgs = append(msgs, contextHistory...)
+	compression := s.applyContextCompression(ctx, sessionID, modelConfig, msgs, history)
+	msgs = append(msgs, compression.messages...)
 	mode := "full_history"
-	if compacted {
+	if compression.compacted {
 		mode = "compact_summary_plus_recent"
 	}
+	usage := buildContextUsage(sessionID, modelConfig, msgs, compression.compacted, compression.compactedAt)
 	logging.Info(
 		"chat_context_ready",
 		"session", sessionID,
@@ -92,20 +141,20 @@ func (s *ChatService) buildContextMessages(ctx context.Context, sessionID string
 		"cost_ms", time.Since(buildStart).Milliseconds(),
 	)
 	logging.Span("context_build_total", buildStart)
-	return msgs, nil
+	return contextBuildResult{messages: msgs, usage: usage, compactedNow: compression.compactedNow}, nil
 }
 
-func (s *ChatService) applyContextCompression(ctx context.Context, sessionID string, modelConfig llmsvc.ModelRuntimeConfig, prefix []llmsvc.ChatMessage, history []domain.Message) ([]llmsvc.ChatMessage, bool) {
+func (s *ChatService) applyContextCompression(ctx context.Context, sessionID string, modelConfig llmsvc.ModelRuntimeConfig, prefix []llmsvc.ChatMessage, history []domain.Message) contextCompressionResult {
 	historyMessages := historyToChatMessages(history)
 	if len(historyMessages) == 0 {
-		return historyMessages, false
+		return contextCompressionResult{messages: historyMessages}
 	}
 	contextSize := modelConfig.ContextSize
 	if contextSize <= 0 {
 		contextSize = constants.DefaultContextSize
 	}
 	if estimateChatMessagesTokens(append(append([]llmsvc.ChatMessage{}, prefix...), historyMessages...)) <= contextSize {
-		return historyMessages, false
+		return contextCompressionResult{messages: historyMessages}
 	}
 
 	modelConfigID := strings.TrimSpace(modelConfig.ConfigID)
@@ -115,7 +164,7 @@ func (s *ChatService) applyContextCompression(ctx context.Context, sessionID str
 		withExisting := append([]llmsvc.ChatMessage{buildCompactSummaryMessage(existing.Summary)}, historyToChatMessages(kept)...)
 		tailCount := s.contextHistoryRounds * 2
 		if estimateChatMessagesTokens(append(append([]llmsvc.ChatMessage{}, prefix...), withExisting...)) <= contextSize || len(kept) <= tailCount {
-			return withExisting, true
+			return contextCompressionResult{messages: withExisting, compacted: true, compactedAt: existing.UpdatedAt.Format(time.RFC3339Nano)}
 		}
 		split := len(kept) - tailCount
 		if split > 0 {
@@ -123,23 +172,34 @@ func (s *ChatService) applyContextCompression(ctx context.Context, sessionID str
 			summary, compactErr := s.generateContextSummary(ctx, modelConfig, kept[:split], existing.Summary)
 			if compactErr == nil && strings.TrimSpace(summary) != "" {
 				lastSeq := kept[split-1].Seq
+				compactedAt := time.Now()
 				if err := s.store.UpsertSessionContextSummary(ctx, &domain.SessionContextSummary{
 					SessionID:               sessionID,
 					ModelConfigID:           modelConfigID,
 					Summary:                 summary,
 					SummarizedUntilSeq:      lastSeq,
 					PreCompactTokenEstimate: estimateChatMessagesTokens(historyToChatMessages(kept[:split])),
+					UpdatedAt:               compactedAt,
 				}); err != nil {
 					logging.Warn("context_summary_save_failed", "session", sessionID, "error", err)
 				}
-				return append([]llmsvc.ChatMessage{buildCompactSummaryMessage(summary)}, historyToChatMessages(tail)...), true
+				return contextCompressionResult{
+					messages:     append([]llmsvc.ChatMessage{buildCompactSummaryMessage(summary)}, historyToChatMessages(tail)...),
+					compacted:    true,
+					compactedNow: true,
+					compactedAt:  compactedAt.Format(time.RFC3339Nano),
+				}
 			}
 			if compactErr != nil {
 				logging.Warn("context_summary_generate_failed", "session", sessionID, "error", compactErr)
 			}
-			return append([]llmsvc.ChatMessage{buildCompactSummaryMessage(existing.Summary)}, historyToChatMessages(tail)...), true
+			return contextCompressionResult{
+				messages:    append([]llmsvc.ChatMessage{buildCompactSummaryMessage(existing.Summary)}, historyToChatMessages(tail)...),
+				compacted:   true,
+				compactedAt: existing.UpdatedAt.Format(time.RFC3339Nano),
+			}
 		}
-		return withExisting, true
+		return contextCompressionResult{messages: withExisting, compacted: true, compactedAt: existing.UpdatedAt.Format(time.RFC3339Nano)}
 	}
 	if err != nil && !errors.Is(err, apperrors.ErrNotFound) {
 		logging.Warn("context_summary_load_failed", "session", sessionID, "error", err)
@@ -151,7 +211,7 @@ func (s *ChatService) applyContextCompression(ctx context.Context, sessionID str
 	}
 	split := len(history) - tailCount
 	if split <= 0 {
-		return limitTailHistory(historyMessages, tailCount), false
+		return contextCompressionResult{messages: limitTailHistory(historyMessages, tailCount)}
 	}
 	toSummarize := history[:split]
 	tail := history[split:]
@@ -160,20 +220,55 @@ func (s *ChatService) applyContextCompression(ctx context.Context, sessionID str
 		if compactErr != nil {
 			logging.Warn("context_summary_generate_failed", "session", sessionID, "error", compactErr)
 		}
-		return historyToChatMessages(tail), false
+		return contextCompressionResult{messages: historyToChatMessages(tail)}
 	}
 	lastSeq := toSummarize[len(toSummarize)-1].Seq
 	preCompactEstimate := estimateChatMessagesTokens(historyToChatMessages(toSummarize))
+	compactedAt := time.Now()
 	if err := s.store.UpsertSessionContextSummary(ctx, &domain.SessionContextSummary{
 		SessionID:               sessionID,
 		ModelConfigID:           modelConfigID,
 		Summary:                 summary,
 		SummarizedUntilSeq:      lastSeq,
 		PreCompactTokenEstimate: preCompactEstimate,
+		UpdatedAt:               compactedAt,
 	}); err != nil {
 		logging.Warn("context_summary_save_failed", "session", sessionID, "error", err)
 	}
-	return append([]llmsvc.ChatMessage{buildCompactSummaryMessage(summary)}, historyToChatMessages(tail)...), true
+	return contextCompressionResult{
+		messages:     append([]llmsvc.ChatMessage{buildCompactSummaryMessage(summary)}, historyToChatMessages(tail)...),
+		compacted:    true,
+		compactedNow: true,
+		compactedAt:  compactedAt.Format(time.RFC3339Nano),
+	}
+}
+
+func buildContextUsage(sessionID string, modelConfig llmsvc.ModelRuntimeConfig, messages []llmsvc.ChatMessage, compacted bool, compactedAt string) ContextUsage {
+	total := modelConfig.ContextSize
+	if total <= 0 {
+		total = constants.DefaultContextSize
+	}
+	used := estimateChatMessagesTokens(messages)
+	usedPercent := 0
+	if total > 0 {
+		usedPercent = int(float64(used)*100/float64(total) + 0.5)
+	}
+	if usedPercent < 0 {
+		usedPercent = 0
+	}
+	if usedPercent > 100 {
+		usedPercent = 100
+	}
+	return ContextUsage{
+		SessionID:        sessionID,
+		ModelConfigID:    strings.TrimSpace(modelConfig.ConfigID),
+		UsedTokens:       used,
+		TotalTokens:      total,
+		UsedPercent:      usedPercent,
+		AvailablePercent: 100 - usedPercent,
+		IsCompacted:      compacted,
+		CompactedAt:      compactedAt,
+	}
 }
 
 func (s *ChatService) generateContextSummary(ctx context.Context, modelConfig llmsvc.ModelRuntimeConfig, history []domain.Message, priorSummary string) (string, error) {

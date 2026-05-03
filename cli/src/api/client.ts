@@ -11,6 +11,7 @@ import type {
   MCPConfig,
   Skill,
   Settings,
+  ContextUsage,
 } from "../types.js";
 
 export class APIClient {
@@ -76,6 +77,11 @@ export class APIClient {
 
   getSessionMessages(id: string, limit = 500): Promise<SessionHistoryPayload> {
     return this.request(`/api/sessions/${id}/messages?limit=${limit}`);
+  }
+
+  getContextUsage(id: string, modelId: string): Promise<ContextUsage> {
+    const params = new URLSearchParams({ modelId });
+    return this.request(`/api/sessions/${id}/context-usage?${params}`);
   }
 
   // ===== Settings =====

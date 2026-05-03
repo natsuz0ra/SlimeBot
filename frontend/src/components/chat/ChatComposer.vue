@@ -7,6 +7,8 @@ import MdiIcon from '@/components/ui/MdiIcon.vue'
 import TruncationTooltip from '@/components/ui/TruncationTooltip.vue'
 import type { SelectOption } from '@/components/ui/AppSelect.vue'
 import { formatSize } from '@/utils/format'
+import { contextUsageTone, formatContextTokenCount } from '@/utils/contextSize'
+import type { ContextUsageData } from '@/api/chatSocket'
 
 const props = defineProps<{
   modelValue: string
@@ -24,6 +26,7 @@ const props = defineProps<{
   placeholder: string
   planMode: boolean
   planConfirmationVisible?: boolean
+  contextUsage?: ContextUsageData | null
 }>()
 
 const emit = defineEmits<{
@@ -111,6 +114,15 @@ const currentSubagentModelLabel = computed(() => {
   const found = props.subagentModelSelectOptions.find((o) => o.value === props.selectedSubagentModelId)
   return found?.label || props.selectedSubagentModelId
 })
+
+const contextTone = computed(() => contextUsageTone(props.contextUsage?.usedPercent ?? 0))
+const contextCircleStyle = computed(() => {
+  const usage = Math.max(0, Math.min(100, props.contextUsage?.usedPercent ?? 0))
+  return { '--context-usage-deg': `${usage * 3.6}deg` }
+})
+const contextUsedLabel = computed(() => formatContextTokenCount(props.contextUsage?.usedTokens ?? 0))
+const contextTotalLabel = computed(() => formatContextTokenCount(props.contextUsage?.totalTokens ?? 0))
+const contextStatusLabel = computed(() => props.contextUsage?.isCompacted ? t('contextStatusCompacted') : t('contextStatusFull'))
 
 function calcMenuStyle() {
   if (!menuTriggerRef.value) return
@@ -274,6 +286,35 @@ onUnmounted(() => {
         </button>
       </div>
       <div class="flex items-center gap-2">
+        <div v-if="contextUsage" class="relative z-[120] group/context-tip">
+          <div
+            class="context-usage-indicator"
+            :class="`context-usage-indicator--${contextTone}`"
+            :style="contextCircleStyle"
+            :aria-label="t('contextUsageLabel')"
+          >
+            <span class="context-usage-core" />
+          </div>
+          <div
+            class="pointer-events-none absolute bottom-full right-0 mb-2 w-[260px] rounded-lg px-3 py-2 text-sm leading-5 text-white bg-black/78 opacity-0 translate-y-1 transition-all duration-150 shadow-lg group-hover/context-tip:opacity-100 group-hover/context-tip:translate-y-0 group-focus-within/context-tip:opacity-100 group-focus-within/context-tip:translate-y-0"
+          >
+            <div class="font-semibold">{{ t('contextUsageLabel') }}</div>
+            <div class="mt-1 opacity-90">{{ currentModelLabel }}</div>
+            <div class="mt-2 grid grid-cols-2 gap-x-3 gap-y-1 text-xs">
+              <span class="opacity-75">{{ t('contextUsedPercent') }}</span>
+              <span class="text-right">{{ contextUsage.usedPercent }}%</span>
+              <span class="opacity-75">{{ t('contextAvailablePercent') }}</span>
+              <span class="text-right">{{ contextUsage.availablePercent }}%</span>
+              <span class="opacity-75">{{ t('contextUsedTokens') }}</span>
+              <span class="text-right">{{ contextUsedLabel }}</span>
+              <span class="opacity-75">{{ t('contextTotalTokens') }}</span>
+              <span class="text-right">{{ contextTotalLabel }}</span>
+              <span class="opacity-75">{{ t('contextStatus') }}</span>
+              <span class="text-right">{{ contextStatusLabel }}</span>
+            </div>
+            <div class="absolute -bottom-1 right-3 h-2 w-2 rotate-45 bg-black/78" />
+          </div>
+        </div>
         <div class="relative z-[120] group/upload-tip">
           <button
             type="button"
@@ -532,6 +573,37 @@ onUnmounted(() => {
 .composer-settings-btn:hover {
   background: var(--primary-alpha-08);
   color: var(--text-primary);
+}
+
+.context-usage-indicator {
+  --context-usage-color: #22c55e;
+  --context-usage-bg: color-mix(in srgb, var(--context-usage-color) 18%, transparent);
+  width: 26px;
+  height: 26px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background:
+    conic-gradient(var(--context-usage-color) var(--context-usage-deg, 0deg), rgba(148, 163, 184, 0.28) 0),
+    var(--context-usage-bg);
+  box-shadow: inset 0 0 0 1px rgba(148, 163, 184, 0.22);
+}
+
+.context-usage-indicator--warning {
+  --context-usage-color: #f59e0b;
+}
+
+.context-usage-indicator--danger {
+  --context-usage-color: #ef4444;
+}
+
+.context-usage-core {
+  width: 14px;
+  height: 14px;
+  border-radius: 999px;
+  background: var(--input-bg);
+  box-shadow: inset 0 0 0 1px rgba(148, 163, 184, 0.16);
 }
 
 .composer-plan-chip {

@@ -2,6 +2,7 @@ export type ToolCallStatus = 'pending' | 'rejected' | 'executing' | 'completed' 
 
 export type ReplyTimelineEntry =
   | { id: string; kind: 'text'; content: string }
+  | { id: string; kind: 'notice'; content: string }
   | { id: string; kind: 'plan'; content: string; generating?: boolean }
   | { id: string; kind: 'tool_start'; toolCallId: string }
   | { id: string; kind: 'tool_result'; toolCallId: string }

@@ -19,7 +19,7 @@ import { TextInput } from "./components/TextInput.js";
 import { Timeline } from "./components/Timeline.js";
 import { getChatFooterHint, handleChatShortcut, runCliCommand } from "./controllers/commands.js";
 import { useCliKeyboard } from "./hooks/useCliKeyboard.js";
-import { clampContextSize, formatContextSize } from "./utils/contextSize.js";
+import { clampContextSize, formatContextSize, formatContextUsageStatus } from "./utils/contextSize.js";
 import { useCliSocket } from "./hooks/useCliSocket.js";
 import { reducer, createInitialState } from "./reducer.js";
 import { completeCommand, isCommand } from "./utils/commands.js";
@@ -90,6 +90,18 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
 
   const appendSystem = useCallback((content: string) => {
     dispatch({ type: "APPEND_ENTRY", entry: { kind: "system", content } } as AppAction);
+  }, []);
+
+  const refreshContextUsage = useCallback(async (sessionId: string, modelId: string) => {
+    if (!sessionId || !modelId) return;
+    try {
+      const usage = await apiRef.current.getContextUsage(sessionId, modelId);
+      if (sessionRef.current.id === sessionId) {
+        dispatch({ type: "CONTEXT_USAGE", usage } as AppAction);
+      }
+    } catch {
+      // Context usage is informational; keep chat usable if it cannot be loaded.
+    }
   }, []);
 
   const applyTerminalTitle = useCallback((sessionName = "") => {
@@ -341,6 +353,7 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
   }, []);
 
   const switchSession = useCallback(async (session: Session) => {
+    sessionRef.current = { id: session.id, name: session.name };
     dispatch({ type: "SET_SESSION", sessionId: session.id, sessionName: session.name } as AppAction);
     dispatch({ type: "CLOSE_MENU" } as AppAction);
     applyTerminalTitle(session.name);
@@ -355,10 +368,11 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
           history.thinkingByAssistantMessageId || {},
         ),
       } as AppAction);
+      await refreshContextUsage(session.id, state.modelId);
     } catch (error) {
       appendSystem(`Failed to load session history: ${(error as Error).message}`);
     }
-  }, [appendSystem, applyTerminalTitle, clearScreenDeferred]);
+  }, [appendSystem, applyTerminalTitle, clearScreenDeferred, refreshContextUsage, state.modelId]);
 
   const handleMenuSelect = useCallback(async (item: MenuItem | undefined) => {
     if (!item || !state.menuKind) return;
@@ -378,6 +392,9 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
         } as AppAction);
         dispatch({ type: "CLOSE_MENU" } as AppAction);
         appendSystem(`Model switched to ${model.name}.`);
+        if (state.sessionId) {
+          await refreshContextUsage(state.sessionId, model.id);
+        }
         return;
       }
       if (state.menuKind === "subagent_model") {
@@ -418,7 +435,7 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
     } catch (error) {
       appendSystem(`Menu action failed: ${(error as Error).message}`);
     }
-  }, [appendSystem, state.menuKind, switchSession]);
+  }, [appendSystem, refreshContextUsage, state.menuKind, state.sessionId, switchSession]);
 
   const handleMenuDelete = useCallback(async (item: MenuItem | undefined) => {
     if (!item || !state.menuKind) return;
@@ -743,6 +760,11 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
           />
           <Text> </Text>
         </>
+      )}
+      {state.contextUsage && (
+        <Text color={state.contextUsage.usedPercent >= 90 ? "red" : state.contextUsage.usedPercent >= 70 ? "yellow" : "green"}>
+          {formatContextUsageStatus(state.contextUsage, width)}
+        </Text>
       )}
       <Text color="white">{border}</Text>
 

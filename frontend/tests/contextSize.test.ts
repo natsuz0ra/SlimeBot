@@ -6,7 +6,9 @@ import {
   CONTEXT_SIZE_MIN,
   clampContextSize,
   contextSizeToSlider,
+  contextUsageTone,
   formatContextSize,
+  formatContextTokenCount,
   sliderToContextSize,
 } from '../src/utils/contextSize'
 
@@ -21,6 +23,19 @@ test('formatContextSize renders compact labels', () => {
   assert.equal(formatContextSize(8_000), '8K')
   assert.equal(formatContextSize(128_000), '128K')
   assert.equal(formatContextSize(1_000_000), '1M')
+})
+
+test('formatContextTokenCount renders K and M units', () => {
+  assert.equal(formatContextTokenCount(987), '987')
+  assert.equal(formatContextTokenCount(23_700), '23.7K')
+  assert.equal(formatContextTokenCount(1_240_000), '1.2M')
+})
+
+test('contextUsageTone maps usage percent to visual states', () => {
+  assert.equal(contextUsageTone(69), 'normal')
+  assert.equal(contextUsageTone(70), 'warning')
+  assert.equal(contextUsageTone(89), 'warning')
+  assert.equal(contextUsageTone(90), 'danger')
 })
 
 test('context size slider round trips through logarithmic mapping', () => {

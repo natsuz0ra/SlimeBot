@@ -479,6 +479,28 @@ func buildTodoUpdatePayload(sessionID string, update chatsvc.TodoUpdate, updated
 	return payload
 }
 
+func buildContextUsagePayload(sessionID string, usage chatsvc.ContextUsage) map[string]any {
+	return map[string]any{
+		"type":             "context_usage",
+		"sessionId":        sessionID,
+		"modelConfigId":    usage.ModelConfigID,
+		"usedTokens":       usage.UsedTokens,
+		"totalTokens":      usage.TotalTokens,
+		"usedPercent":      usage.UsedPercent,
+		"availablePercent": usage.AvailablePercent,
+		"isCompacted":      usage.IsCompacted,
+		"compactedAt":      usage.CompactedAt,
+	}
+}
+
+func buildContextCompactedPayload(sessionID string, usage chatsvc.ContextUsage) map[string]any {
+	return map[string]any{
+		"type":      "context_compacted",
+		"sessionId": sessionID,
+		"usage":     usage,
+	}
+}
+
 func truncateWSString(value string, maxRunes int) string {
 	trimmed := strings.TrimSpace(value)
 	runes := []rune(trimmed)
@@ -515,6 +537,18 @@ func (w *Controller) buildCallbacks(
 				*firstChunkSentAt = time.Now()
 			}
 			if !enqueueWSChunk(enqueue, sessionID, chunk) {
+				return context.Canceled
+			}
+			return nil
+		},
+		OnContextUsage: func(usage chatsvc.ContextUsage) error {
+			if !enqueue(buildContextUsagePayload(sessionID, usage)) {
+				return context.Canceled
+			}
+			return nil
+		},
+		OnContextCompacted: func(usage chatsvc.ContextUsage) error {
+			if !enqueue(buildContextCompactedPayload(sessionID, usage)) {
 				return context.Canceled
 			}
 			return nil

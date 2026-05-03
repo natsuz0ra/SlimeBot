@@ -15,6 +15,30 @@ export function formatContextSize(value: number): string {
   return clamped.toLocaleString("en-US");
 }
 
+export function formatContextTokenCount(tokens: number): string {
+  const count = Math.max(0, Math.round(tokens));
+  if (count < 1_000) return `${count} tokens`;
+  if (count < 1_000_000) return `${(count / 1_000).toFixed(1)}k tokens`;
+  return `${(count / 1_000_000).toFixed(1)}m tokens`;
+}
+
+export function formatContextUsageStatus(
+  usage: {
+    usedTokens: number;
+    totalTokens: number;
+    usedPercent: number;
+    isCompacted?: boolean;
+  } | null | undefined,
+  width: number,
+): string {
+  if (!usage) return "";
+  const base = `CTX ${Math.max(0, Math.min(100, Math.round(usage.usedPercent)))}%`;
+  if (width < 24) return base;
+  const full = `${base} · ${formatContextTokenCount(usage.usedTokens)}/${formatContextTokenCount(usage.totalTokens)}${usage.isCompacted ? " · compacted" : ""}`;
+  if (width < full.length + 4) return base;
+  return full;
+}
+
 export function adjustContextSize(value: number, delta: number): number {
   return clampContextSize(value + delta);
 }

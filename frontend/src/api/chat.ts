@@ -78,6 +78,17 @@ export interface SessionHistoryPayload {
   hasMore: boolean
 }
 
+export interface ContextUsageData {
+  sessionId: string
+  modelConfigId: string
+  usedTokens: number
+  totalTokens: number
+  usedPercent: number
+  availablePercent: number
+  isCompacted: boolean
+  compactedAt?: string
+}
+
 export interface SessionHistoryQuery {
   limit?: number
   before?: string
@@ -145,6 +156,12 @@ export const sessionAPI = {
     (
       await apiClient.get<SessionHistoryPayload>(`/api/sessions/${id}/messages`, {
         params: query,
+      })
+    ).data,
+  contextUsage: async (id: string, modelId: string) =>
+    (
+      await apiClient.get<ContextUsageData>(`/api/sessions/${id}/context-usage`, {
+        params: { modelId },
       })
     ).data,
   uploadAttachments: async (id: string, files: File[]) => {

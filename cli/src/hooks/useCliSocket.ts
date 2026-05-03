@@ -211,6 +211,12 @@ export function useCliSocket({
           updatedAt: data.updatedAt ? Date.parse(data.updatedAt) : undefined,
         });
       },
+      onContextUsage: (usage) => {
+        dispatch({ type: "CONTEXT_USAGE", usage });
+      },
+      onContextCompacted: (usage) => {
+        dispatch({ type: "CONTEXT_COMPACTED", usage });
+      },
       onPlanBody: (content: string) => {
         dispatch({ type: "PLAN_BODY", planBody: content });
       },

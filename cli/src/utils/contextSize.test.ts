@@ -6,7 +6,9 @@ import {
   CONTEXT_SIZE_MIN,
   adjustContextSize,
   clampContextSize,
+  formatContextUsageStatus,
   formatContextSize,
+  formatContextTokenCount,
   renderContextSizeBar,
 } from "./contextSize";
 
@@ -21,6 +23,27 @@ test("formatContextSize renders compact CLI labels", () => {
   assert.equal(formatContextSize(8_000), "8K");
   assert.equal(formatContextSize(128_000), "128K");
   assert.equal(formatContextSize(1_000_000), "1M");
+});
+
+test("formatContextTokenCount uses token, k, and m units", () => {
+  assert.equal(formatContextTokenCount(987), "987 tokens");
+  assert.equal(formatContextTokenCount(23_700), "23.7k tokens");
+  assert.equal(formatContextTokenCount(1_240_000), "1.2m tokens");
+});
+
+test("formatContextUsageStatus degrades for narrow terminals", () => {
+  const usage = {
+    sessionId: "sid-1",
+    modelConfigId: "model-1",
+    usedTokens: 420_000,
+    totalTokens: 1_000_000,
+    usedPercent: 42,
+    availablePercent: 58,
+    isCompacted: true,
+  };
+
+  assert.equal(formatContextUsageStatus(usage, 80), "CTX 42% · 420.0k tokens/1.0m tokens · compacted");
+  assert.equal(formatContextUsageStatus(usage, 18), "CTX 42%");
 });
 
 test("adjustContextSize clamps keyboard deltas", () => {

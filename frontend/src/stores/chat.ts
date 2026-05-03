@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 
-import { ChatSocket, type ConnectionStatus, type RuntimeTodoItem, type TodoUpdateData } from '@/api/chatSocket'
+import { ChatSocket, type ConnectionStatus, type ContextUsageData, type RuntimeTodoItem, type TodoUpdateData } from '@/api/chatSocket'
 import { MESSAGE_PLATFORM_SESSION_ID, sessionAPI } from '@/api/chat'
 import type { MessageAttachmentItem, MessageItem, SessionHistoryPayload, SessionHistoryThinkingItem, SessionItem, UploadedAttachmentItem } from '@/api/chat'
 import { i18n } from '@/i18n'
@@ -44,6 +44,7 @@ export const useChatStore = defineStore('chat', () => {
   const runtimeTodoNote = ref('')
   const runtimeTodoUpdatedAt = ref<number>()
   const todoPanelOpen = ref(false)
+  const contextUsage = ref<ContextUsageData | null>(null)
 
   const replyBatches = ref<AssistantReplyBatch[]>([])
   const currentBatchId = ref<string>('')
@@ -69,6 +70,46 @@ export const useChatStore = defineStore('chat', () => {
     failedUserMessageIds.value.clear()
     pendingQuestions.value = null
     clearRuntimeTodos()
+  }
+
+  function clearContextUsage() {
+    contextUsage.value = null
+  }
+
+  function applyContextUsage(usage: ContextUsageData, sessionId?: string) {
+    const targetSessionId = sessionId || usage.sessionId
+    if (!targetSessionId || targetSessionId !== currentSessionId.value) return
+    contextUsage.value = { ...usage, sessionId: targetSessionId }
+  }
+
+  function appendContextCompactedNotice(sessionId?: string) {
+    if (!sessionId || sessionId !== currentSessionId.value) return
+    const batch = getCurrentBatch()
+    if (!batch) return
+    const content = i18n.global.t('contextCompactedNotice') as string
+    const lastNotice = [...batch.timeline].reverse().find((entry) => entry.kind === 'notice')
+    if (lastNotice?.kind === 'notice' && lastNotice.content === content) return
+    batch.timeline.push({
+      id: crypto.randomUUID(),
+      kind: 'notice',
+      content,
+    })
+  }
+
+  async function refreshContextUsage(modelId: string) {
+    const sessionId = currentSessionId.value
+    if (!sessionId || !modelId || sessionId === MESSAGE_PLATFORM_SESSION_ID) {
+      clearContextUsage()
+      return
+    }
+    try {
+      const usage = await sessionAPI.contextUsage(sessionId, modelId)
+      if (currentSessionId.value === sessionId) {
+        contextUsage.value = usage
+      }
+    } catch {
+      clearContextUsage()
+    }
   }
 
   function clearRuntimeTodos() {
@@ -317,6 +358,7 @@ export const useChatStore = defineStore('chat', () => {
   function resetToNewSession() {
     currentSessionId.value = undefined
     messages.value = []
+    clearContextUsage()
     resetSessionRuntimeState()
     resetHistoryState()
   }
@@ -326,6 +368,7 @@ export const useChatStore = defineStore('chat', () => {
     currentSessionId.value = item.id
     sessions.value = [item, ...sessions.value]
     messages.value = []
+    clearContextUsage()
     resetSessionRuntimeState()
     resetHistoryState()
   }
@@ -335,6 +378,7 @@ export const useChatStore = defineStore('chat', () => {
       const history = await sessionAPI.history(id, { limit: HISTORY_PAGE_SIZE })
       currentSessionId.value = id
       messages.value = materializeMessages(history.messages)
+      clearContextUsage()
       resetHistoryState()
       hasMoreHistory.value = history.hasMore
       resetSessionRuntimeState()
@@ -344,6 +388,7 @@ export const useChatStore = defineStore('chat', () => {
       if (id === MESSAGE_PLATFORM_SESSION_ID) {
         currentSessionId.value = id
         messages.value = []
+        clearContextUsage()
         resetSessionRuntimeState()
         resetHistoryState()
         return
@@ -634,6 +679,13 @@ export const useChatStore = defineStore('chat', () => {
         batch.timeline = markLastThinkingDone(batch.timeline, parseSocketTimestamp(data.finishedAt))
       },
       onTodoUpdate: applyRuntimeTodoUpdate,
+      onContextUsage: (usage, sessionId) => {
+        applyContextUsage(usage, sessionId)
+      },
+      onContextCompacted: (usage, sessionId) => {
+        applyContextUsage(usage, sessionId)
+        appendContextCompactedNotice(sessionId)
+      },
       onPlanStart: (sessionId) => {
         if (!sessionId || sessionId !== currentSessionId.value) return
         const batch = getCurrentBatch()
@@ -921,6 +973,8 @@ export const useChatStore = defineStore('chat', () => {
     runtimeTodoNote,
     runtimeTodoUpdatedAt,
     todoPanelOpen,
+    contextUsage,
+    refreshContextUsage,
     applyRuntimeTodoUpdate,
     clearRuntimeTodos,
     toggleTodoPanel,

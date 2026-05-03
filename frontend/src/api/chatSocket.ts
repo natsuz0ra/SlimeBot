@@ -1,4 +1,4 @@
-import { getAuthToken } from '@/utils/authStorage'
+import { getAuthToken } from '../utils/authStorage'
 import type { ToolCallStatus } from '@/types/chat'
 
 export type ChatSocketHandlers = {
@@ -20,6 +20,8 @@ export type ChatSocketHandlers = {
   onPlanChunk?: (chunk: string, sessionId?: string) => void
   onPlanBody?: (content: string, sessionId?: string) => void
   onTodoUpdate?: (data: TodoUpdateData, sessionId?: string) => void
+  onContextUsage?: (data: ContextUsageData, sessionId?: string) => void
+  onContextCompacted?: (data: ContextUsageData, sessionId?: string) => void
   onOpen?: () => void
   onClose?: () => void
   onSocketError?: (error: string) => void
@@ -95,6 +97,17 @@ export interface TodoUpdateData {
   updatedAt?: string
 }
 
+export interface ContextUsageData {
+  sessionId: string
+  modelConfigId: string
+  usedTokens: number
+  totalTokens: number
+  usedPercent: number
+  availablePercent: number
+  isCompacted: boolean
+  compactedAt?: string
+}
+
 type WSIncoming = {
   type: string
   sessionId?: string
@@ -124,6 +137,38 @@ type WSIncoming = {
   planBody?: string
   items?: RuntimeTodoItem[]
   note?: string
+  usage?: ContextUsageData
+  modelConfigId?: string
+  usedTokens?: number
+  totalTokens?: number
+  usedPercent?: number
+  availablePercent?: number
+  isCompacted?: boolean
+  compactedAt?: string
+}
+
+function normalizeContextUsage(data: WSIncoming | ContextUsageData | undefined, fallbackSessionId?: string): ContextUsageData | null {
+  if (!data) return null
+  const source = 'usage' in data && data.usage ? data.usage : data
+  const totalTokens = Number(source.totalTokens)
+  const usedTokens = Number(source.usedTokens)
+  if (!Number.isFinite(totalTokens) || totalTokens <= 0 || !Number.isFinite(usedTokens)) return null
+  const usedPercent = Number.isFinite(Number(source.usedPercent))
+    ? Number(source.usedPercent)
+    : Math.round((usedTokens / totalTokens) * 100)
+  const availablePercent = Number.isFinite(Number(source.availablePercent))
+    ? Number(source.availablePercent)
+    : Math.max(0, 100 - usedPercent)
+  return {
+    sessionId: String(source.sessionId || fallbackSessionId || ''),
+    modelConfigId: String(source.modelConfigId || ''),
+    usedTokens: Math.max(0, Math.round(usedTokens)),
+    totalTokens: Math.max(1, Math.round(totalTokens)),
+    usedPercent: Math.max(0, Math.min(100, Math.round(usedPercent))),
+    availablePercent: Math.max(0, Math.min(100, Math.round(availablePercent))),
+    isCompacted: !!source.isCompacted,
+    compactedAt: source.compactedAt,
+  }
 }
 
 export function dispatchChatSocketMessage(raw: string, handlers: ChatSocketHandlers | null): boolean {
@@ -231,6 +276,14 @@ export function dispatchChatSocketMessage(raw: string, handlers: ChatSocketHandl
   if (data.type === 'plan_start') handlers?.onPlanStart?.(data.sessionId)
   if (data.type === 'plan_chunk') handlers?.onPlanChunk?.(data.content || '', data.sessionId)
   if (data.type === 'plan_body') handlers?.onPlanBody?.(data.content || '', data.sessionId)
+  if (data.type === 'context_usage') {
+    const usage = normalizeContextUsage(data, data.sessionId)
+    if (usage) handlers?.onContextUsage?.(usage, data.sessionId)
+  }
+  if (data.type === 'context_compacted') {
+    const usage = normalizeContextUsage(data.usage, data.sessionId)
+    if (usage) handlers?.onContextCompacted?.(usage, data.sessionId)
+  }
 
   return true
 }

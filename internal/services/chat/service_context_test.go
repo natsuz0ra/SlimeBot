@@ -176,6 +176,94 @@ func TestBuildContextMessages_IncludesFullHistoryBelowContextSize(t *testing.T) 
 	}
 }
 
+func TestBuildContextUsageReportsActualContextBelowThreshold(t *testing.T) {
+	repo := newTestRepo(t)
+	ctx := context.Background()
+	session, err := repo.CreateSession(ctx, "usage")
+	if err != nil {
+		t.Fatalf("CreateSession failed: %v", err)
+	}
+	for i := 0; i < 4; i++ {
+		role := "assistant"
+		if i%2 == 0 {
+			role = "user"
+		}
+		if _, err := repo.AddMessageWithInput(ctx, domain.AddMessageInput{
+			SessionID: session.ID,
+			Role:      role,
+			Content:   fmt.Sprintf("message-%d", i),
+		}); err != nil {
+			t.Fatalf("AddMessageWithInput failed at %d: %v", i, err)
+		}
+	}
+
+	svc := NewChatService(repo, nil, nil, nil, nil)
+	usage, err := svc.BuildContextUsage(ctx, session.ID, llmsvc.ModelRuntimeConfig{
+		ConfigID:    "model-1",
+		ContextSize: 128_000,
+	})
+	if err != nil {
+		t.Fatalf("BuildContextUsage failed: %v", err)
+	}
+	if usage.SessionID != session.ID || usage.ModelConfigID != "model-1" {
+		t.Fatalf("unexpected usage identity: %+v", usage)
+	}
+	if usage.UsedTokens <= 0 || usage.TotalTokens != 128_000 {
+		t.Fatalf("unexpected token counts: %+v", usage)
+	}
+	if usage.UsedPercent <= 0 || usage.AvailablePercent >= 100 {
+		t.Fatalf("unexpected percentages: %+v", usage)
+	}
+	if usage.IsCompacted {
+		t.Fatalf("usage below threshold should not be compacted: %+v", usage)
+	}
+}
+
+func TestBuildContextUsageReportsCompactedActualContextWhenExceeded(t *testing.T) {
+	repo := newTestRepo(t)
+	ctx := context.Background()
+	session, err := repo.CreateSession(ctx, "usage-compact")
+	if err != nil {
+		t.Fatalf("CreateSession failed: %v", err)
+	}
+	for i := 0; i < 12; i++ {
+		role := "assistant"
+		if i%2 == 0 {
+			role = "user"
+		}
+		if _, err := repo.AddMessageWithInput(ctx, domain.AddMessageInput{
+			SessionID: session.ID,
+			Role:      role,
+			Content:   fmt.Sprintf("message-%02d %s", i, strings.Repeat("长上下文", 220)),
+		}); err != nil {
+			t.Fatalf("AddMessageWithInput failed at %d: %v", i, err)
+		}
+	}
+
+	provider := &compactSummaryProvider{summary: "压缩摘要"}
+	svc := NewChatService(repo, nil, llmsvc.NewFactory(provider), nil, nil)
+	svc.SetContextHistoryRounds(2)
+	usage, err := svc.BuildContextUsage(ctx, session.ID, llmsvc.ModelRuntimeConfig{
+		Provider:    llmsvc.ProviderOpenAI,
+		BaseURL:     "http://fake",
+		APIKey:      "key",
+		Model:       "fake-model",
+		ContextSize: 5_000,
+	})
+	if err != nil {
+		t.Fatalf("BuildContextUsage failed: %v", err)
+	}
+	if provider.compactCalls != 1 {
+		t.Fatalf("expected one compact call, got %d", provider.compactCalls)
+	}
+	if !usage.IsCompacted || usage.CompactedAt == "" {
+		t.Fatalf("expected compacted usage with timestamp, got %+v", usage)
+	}
+	if usage.UsedTokens <= 0 || usage.UsedTokens >= usage.TotalTokens {
+		t.Fatalf("expected actual compacted context below total, got %+v", usage)
+	}
+}
+
 func TestBuildContextMessages_CompactsWhenContextSizeExceeded(t *testing.T) {
 	repo := newTestRepo(t)
 	ctx := context.Background()

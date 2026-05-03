@@ -153,6 +153,7 @@ export function createInitialState(
     turnElapsedMs: 0,
     turnTokenEstimate: 0,
     turnThoughtDurationMs: undefined,
+    contextUsage: null,
     runtimeTodos: [],
     runtimeTodosNote: "",
     runtimeTodosUpdatedAt: undefined,
@@ -233,6 +234,7 @@ export function reducer(state: AppState, action: AppAction): AppState {
         sessionName: action.sessionName !== undefined
           ? action.sessionName
           : (action.sessionId !== state.sessionId ? "" : state.sessionName),
+        contextUsage: action.sessionId !== state.sessionId ? null : state.contextUsage,
       };
 
     case "SET_SESSION_NAME":
@@ -271,6 +273,25 @@ export function reducer(state: AppState, action: AppAction): AppState {
         turnTokenEstimate: addTokenEstimate(state, action.chunk),
       };
     }
+
+    case "CONTEXT_USAGE":
+      return {
+        ...state,
+        contextUsage: { ...action.usage },
+      };
+
+    case "CONTEXT_COMPACTED":
+      return {
+        ...state,
+        contextUsage: { ...action.usage, isCompacted: true },
+        timeline: [
+          ...state.timeline,
+          {
+            kind: "system",
+            content: "Context compacted; continuing with summary + recent messages.",
+          },
+        ],
+      };
 
     case "STREAM_DONE": {
       let entries = finalizeOpenRuntimeEntries([...state.timeline], action.error || "Execution cancelled.");
@@ -405,6 +426,7 @@ export function reducer(state: AppState, action: AppAction): AppState {
         planReceived: false,
         ...clearTurnStats(),
         ...clearRuntimeTodos(),
+        contextUsage: null,
         thinkingDetailContent: "",
         view: "chat",
         pendingApprovals: [],

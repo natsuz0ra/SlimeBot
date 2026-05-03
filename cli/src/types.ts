@@ -393,6 +393,7 @@ export interface AppState {
   qaCursor: number;
   qaCustomInput: string;
   qaCustomInputKey: number;
+  qaEditingFromConfirm: boolean;
 
   // Connection
   apiURL: string;
@@ -470,11 +471,13 @@ export type AppAction =
   | { type: "VIEW_THINKING_DETAIL"; content: string }
   | { type: "SET_QA"; toolCallId: string; questions: QAQuestion[] }
   | { type: "QA_NAV"; delta: number }
+  | { type: "QA_NAV_TO"; cursor: number }
   | { type: "QA_SELECT"; optionIndex: number }
   | { type: "QA_SET_CUSTOM_INPUT"; value: string }
   | { type: "QA_SUBMIT_CUSTOM"; value: string }
   | { type: "QA_NEXT_QUESTION" }
   | { type: "QA_PREV_QUESTION" }
+  | { type: "QA_EDIT_QUESTION"; index: number }
   | { type: "QA_STEP_CONFIRM" }
   | { type: "QA_STEP_BACK" }
   | { type: "QA_CONFIRM_NAV"; delta: number }

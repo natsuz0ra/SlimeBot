@@ -201,6 +201,21 @@ test("SET_MODEL_EDITOR preloads existing model config for editing", () => {
 	assert.equal(state.modelEditorContextSize, "128000");
 });
 
+test("MODEL_EDITOR field navigation wraps in both directions", () => {
+	let state = reduce(initState(), { type: "SET_MODEL_EDITOR_VIEW" });
+
+	for (let i = 0; i < 5; i += 1) {
+		state = reduce(state, { type: "MODEL_EDITOR_NEXT_FIELD" });
+	}
+	assert.equal(state.modelEditorFocusIndex, 5);
+
+	state = reduce(state, { type: "MODEL_EDITOR_NEXT_FIELD" });
+	assert.equal(state.modelEditorFocusIndex, 0);
+
+	state = reduce(state, { type: "MODEL_EDITOR_PREV_FIELD" });
+	assert.equal(state.modelEditorFocusIndex, 5);
+});
+
 test("THINKING_DONE stores a fixed thinking duration", () => {
 	const state: AppState = {
 		...initState(),
@@ -407,6 +422,47 @@ test("QA_SELECT on preset option clears custom answer", () => {
 	assert.equal(state.qaAnswers[0]?.selectedOption, 0);
 	assert.equal(state.qaAnswers[0]?.customAnswer, "");
 	assert.equal(state.qaCustomInput, "");
+});
+
+test("QA_EDIT_QUESTION returns from confirm to a preset answer with cursor restored", () => {
+	let state = initState();
+	state = reduce(state, {
+		type: "SET_QA",
+		toolCallId: "tool-1",
+		questions: [
+			{ id: "q1", question: "Pick", options: ["A", "B"] },
+			{ id: "q2", question: "Choose", options: ["C", "D"] },
+		],
+	});
+	state = reduce(state, { type: "QA_SELECT", optionIndex: 1 });
+	state = reduce(state, { type: "QA_NEXT_QUESTION" });
+	state = reduce(state, { type: "QA_SELECT", optionIndex: 0 });
+	state = reduce(state, { type: "QA_STEP_CONFIRM" });
+
+	state = reduce(state, { type: "QA_EDIT_QUESTION", index: 0 });
+
+	assert.equal(state.qaStep, "questions");
+	assert.equal(state.qaCurrentIndex, 0);
+	assert.equal(state.qaCursor, 1);
+	assert.equal(state.qaCustomInput, "");
+});
+
+test("QA_EDIT_QUESTION returns from confirm to a custom answer with input restored", () => {
+	let state = initState();
+	state = reduce(state, {
+		type: "SET_QA",
+		toolCallId: "tool-1",
+		questions: [{ id: "q1", question: "Pick", options: ["A", "B"] }],
+	});
+	state = reduce(state, { type: "QA_SUBMIT_CUSTOM", value: "custom answer" });
+	state = reduce(state, { type: "QA_STEP_CONFIRM" });
+
+	state = reduce(state, { type: "QA_EDIT_QUESTION", index: 0 });
+
+	assert.equal(state.qaStep, "questions");
+	assert.equal(state.qaCurrentIndex, 0);
+	assert.equal(state.qaCursor, 2);
+	assert.equal(state.qaCustomInput, "custom answer");
 });
 
 test("THINKING_DONE stores top-level duration for waiting stats", () => {

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, reactive, watch, nextTick, onMounted, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { isMaskSelfEvent, shouldCloseOnMaskInteraction } from '@/utils/dialogMask'
 
 interface QuestionItem {
   id: string
@@ -30,6 +31,7 @@ const { t } = useI18n()
 const step = ref<'questions' | 'confirm'>('questions')
 const answers = ref<Answer[]>([])
 const submitBtnRef = ref<HTMLButtonElement | null>(null)
+const pointerDownStartedOnMask = ref(false)
 
 const tooltipState = reactive({
   visible: false,
@@ -124,6 +126,22 @@ function handleCancel() {
   emit('cancel', props.toolCallId)
 }
 
+function onMaskPointerDown(e: PointerEvent) {
+  pointerDownStartedOnMask.value = isMaskSelfEvent(e)
+}
+
+function onMaskClick(e: MouseEvent) {
+  if (shouldCloseOnMaskInteraction({
+    closeOnMask: true,
+    pointerDownStartedOnMask: pointerDownStartedOnMask.value,
+    eventTarget: e.target,
+    eventCurrentTarget: e.currentTarget,
+  })) {
+    handleCancel()
+  }
+  pointerDownStartedOnMask.value = false
+}
+
 function onKeydown(e: KeyboardEvent) {
   if (!props.visible) return
   if (e.key === 'Escape') {
@@ -143,7 +161,7 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown))
 <template>
   <Teleport to="body">
     <Transition name="drawer-slide">
-      <div v-if="visible" class="drawer-overlay" @click.self="handleCancel">
+      <div v-if="visible" class="drawer-overlay" @pointerdown="onMaskPointerDown" @click="onMaskClick">
         <div class="drawer-panel" role="dialog" aria-modal="true" :aria-label="t('qaTitle')">
           <header class="drawer-header">
             <h3 class="drawer-title">{{ t('qaTitle') }}</h3>

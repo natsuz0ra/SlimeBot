@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { mdiClose } from '@mdi/js'
 import MdiIcon from '@/components/ui/MdiIcon.vue'
 import LoadingSpinner from '@/components/ui/LoadingSpinner.vue'
+import { isMaskSelfEvent, shouldCloseOnMaskInteraction } from '@/utils/dialogMask'
 
 const { t } = useI18n()
 
@@ -50,6 +51,7 @@ const emit = defineEmits<{
 }>()
 
 const titleId = `dialog-title-${Math.random().toString(36).slice(2, 10)}`
+const pointerDownStartedOnMask = ref(false)
 
 function close() {
   emit('update:visible', false)
@@ -64,6 +66,22 @@ function onKeydown(e: KeyboardEvent) {
   if (e.key === 'Escape' && props.visible && props.closeOnEsc) close()
 }
 
+function onMaskPointerDown(e: PointerEvent) {
+  pointerDownStartedOnMask.value = isMaskSelfEvent(e)
+}
+
+function onMaskClick(e: MouseEvent) {
+  if (shouldCloseOnMaskInteraction({
+    closeOnMask: props.closeOnMask,
+    pointerDownStartedOnMask: pointerDownStartedOnMask.value,
+    eventTarget: e.target,
+    eventCurrentTarget: e.currentTarget,
+  })) {
+    close()
+  }
+  pointerDownStartedOnMask.value = false
+}
+
 onMounted(() => document.addEventListener('keydown', onKeydown))
 onUnmounted(() => document.removeEventListener('keydown', onKeydown))
 </script>
@@ -75,7 +93,8 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown))
         v-if="visible"
         class="fixed inset-0 z-[200] flex items-center justify-center p-4"
         style="background: rgba(0, 0, 0, 0.45); backdrop-filter: blur(4px)"
-        @click.self="props.closeOnMask ? close() : null"
+        @pointerdown="onMaskPointerDown"
+        @click="onMaskClick"
       >
         <div
           class="dialog-panel relative flex flex-col overflow-hidden rounded-2xl"

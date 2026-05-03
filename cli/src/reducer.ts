@@ -59,6 +59,19 @@ function addTokenEstimate(state: AppState, chunk: string): number {
   return Math.max(0, state.turnTokenEstimate + estimateTokens(chunk));
 }
 
+function restoreQuestionCursor(state: AppState, index: number): Pick<AppState, "qaCurrentIndex" | "qaCursor" | "qaCustomInput"> {
+  const safeIndex = Math.max(0, Math.min(index, Math.max(0, state.qaQuestions.length - 1)));
+  const question = state.qaQuestions[safeIndex];
+  const answer = state.qaAnswers[safeIndex];
+  const customCursor = question?.options.length ?? 0;
+  const selectedOption = answer?.selectedOption ?? -2;
+  return {
+    qaCurrentIndex: safeIndex,
+    qaCursor: selectedOption >= 0 ? Math.min(selectedOption, Math.max(0, customCursor)) : customCursor,
+    qaCustomInput: selectedOption === -1 ? answer?.customAnswer ?? "" : "",
+  };
+}
+
 function isOpenToolStatus(status?: string): boolean {
   return status === "pending" || status === "executing";
 }
@@ -201,6 +214,7 @@ export function createInitialState(
     qaCursor: 0,
     qaCustomInput: "",
     qaCustomInputKey: 0,
+    qaEditingFromConfirm: false,
 
     apiURL,
     cliToken,
@@ -559,12 +573,13 @@ export function reducer(state: AppState, action: AppAction): AppState {
 
     case "MODEL_EDITOR_NEXT_FIELD": {
       const maxIndex = 5;
-      const next = Math.min(maxIndex, state.modelEditorFocusIndex + 1);
+      const next = state.modelEditorFocusIndex >= maxIndex ? 0 : state.modelEditorFocusIndex + 1;
       return { ...state, modelEditorFocusIndex: next, modelEditorProviderSelect: false };
     }
 
     case "MODEL_EDITOR_PREV_FIELD": {
-      const prev = Math.max(0, state.modelEditorFocusIndex - 1);
+      const maxIndex = 5;
+      const prev = state.modelEditorFocusIndex <= 0 ? maxIndex : state.modelEditorFocusIndex - 1;
       return { ...state, modelEditorFocusIndex: prev, modelEditorProviderSelect: false };
     }
 
@@ -905,6 +920,7 @@ export function reducer(state: AppState, action: AppAction): AppState {
         qaCursor: 0,
         qaCustomInput: "",
         qaCustomInputKey: 0,
+        qaEditingFromConfirm: false,
       };
     }
 
@@ -914,6 +930,15 @@ export function reducer(state: AppState, action: AppAction): AppState {
       return {
         ...state,
         qaCursor: Math.max(0, Math.min(state.qaCursor + action.delta, maxIdx)),
+      };
+    }
+
+    case "QA_NAV_TO": {
+      const q = state.qaQuestions[state.qaCurrentIndex];
+      const maxIdx = q ? q.options.length : 0; // options + custom
+      return {
+        ...state,
+        qaCursor: Math.max(0, Math.min(action.cursor, maxIdx)),
       };
     }
 
@@ -951,9 +976,18 @@ export function reducer(state: AppState, action: AppAction): AppState {
     }
 
     case "QA_NEXT_QUESTION": {
+      if (state.qaEditingFromConfirm) {
+        return {
+          ...state,
+          qaStep: "confirm",
+          qaCursor: state.qaQuestions.length,
+          qaCustomInput: "",
+          qaEditingFromConfirm: false,
+        };
+      }
       const nextIdx = state.qaCurrentIndex + 1;
       if (nextIdx >= state.qaQuestions.length) {
-        return { ...state, qaStep: "confirm", qaCursor: 0 };
+        return { ...state, qaStep: "confirm", qaCursor: state.qaQuestions.length };
       }
       return { ...state, qaCurrentIndex: nextIdx, qaCursor: 0, qaCustomInput: "" };
     }
@@ -963,14 +997,27 @@ export function reducer(state: AppState, action: AppAction): AppState {
       return { ...state, qaCurrentIndex: state.qaCurrentIndex - 1, qaCursor: 0, qaCustomInput: "" };
     }
 
+    case "QA_EDIT_QUESTION":
+      return {
+        ...state,
+        ...restoreQuestionCursor(state, action.index),
+        qaStep: "questions",
+        qaEditingFromConfirm: true,
+      };
+
     case "QA_STEP_CONFIRM":
-      return { ...state, qaStep: "confirm", qaCursor: 0 };
+      return { ...state, qaStep: "confirm", qaCursor: state.qaQuestions.length, qaEditingFromConfirm: false };
 
     case "QA_STEP_BACK":
-      return { ...state, qaStep: "questions", qaCursor: 0 };
+      return {
+        ...state,
+        ...restoreQuestionCursor(state, Math.max(0, state.qaQuestions.length - 1)),
+        qaStep: "questions",
+        qaEditingFromConfirm: false,
+      };
 
     case "QA_CONFIRM_NAV":
-      return { ...state, qaCursor: Math.max(0, Math.min(state.qaCursor + action.delta, 1)) };
+      return { ...state, qaCursor: Math.max(0, Math.min(state.qaCursor + action.delta, state.qaQuestions.length)) };
 
     case "CLEAR_QA":
       return {
@@ -983,6 +1030,7 @@ export function reducer(state: AppState, action: AppAction): AppState {
         qaStep: "questions",
         qaCursor: 0,
         qaCustomInput: "",
+        qaEditingFromConfirm: false,
       };
 
     case "FLUSH_AND_WAIT": {

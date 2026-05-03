@@ -55,6 +55,61 @@ export function shouldLetQuestionAnswerViewHandleInput(state: AppState, input: s
   return Boolean(input);
 }
 
+export function getModelEditorFieldNavigationAction(state: AppState, key: Key): AppAction | null {
+  if (state.view !== "model-editor" || state.modelEditorProviderSelect || !key.tab) {
+    return null;
+  }
+  return key.shift ? { type: "MODEL_EDITOR_PREV_FIELD" } : { type: "MODEL_EDITOR_NEXT_FIELD" };
+}
+
+export function getQuestionAnswerConfirmEnterAction(state: AppState): AppAction | "submit" | null {
+  if (state.view !== "question-answer" || state.qaStep !== "confirm") {
+    return null;
+  }
+  return state.qaCursor < state.qaQuestions.length
+    ? { type: "QA_EDIT_QUESTION", index: state.qaCursor }
+    : "submit";
+}
+
+function getQuestionAnswerAdvanceAction(state: AppState): AppAction {
+  return state.qaCurrentIndex < state.qaQuestions.length - 1
+    ? { type: "QA_NEXT_QUESTION" }
+    : { type: "QA_STEP_CONFIRM" };
+}
+
+export function getQuestionAnswerQuestionKeyActions(state: AppState, input: string, key: Key): AppAction[] | null {
+  if (state.view !== "question-answer" || state.qaStep !== "questions") {
+    return null;
+  }
+  const q = state.qaQuestions[state.qaCurrentIndex];
+  if (!q) {
+    return null;
+  }
+
+  if (key.leftArrow) {
+    return [{ type: "QA_PREV_QUESTION" }];
+  }
+  if (key.rightArrow || key.tab) {
+    return [getQuestionAnswerAdvanceAction(state)];
+  }
+  if (input === "c" || input === "C") {
+    return [
+      { type: "QA_NAV_TO", cursor: q.options.length },
+      { type: "QA_SELECT", optionIndex: -1 },
+    ];
+  }
+  if (/^[1-5]$/.test(input)) {
+    const optionIndex = Number(input) - 1;
+    if (optionIndex < q.options.length) {
+      return [
+        { type: "QA_SELECT", optionIndex },
+        getQuestionAnswerAdvanceAction(state),
+      ];
+    }
+  }
+  return null;
+}
+
 export function useCliKeyboard({
   state,
   dispatch,
@@ -183,6 +238,13 @@ export function useCliKeyboard({
         return;
       }
       if (state.qaStep === "questions") {
+        const questionActions = getQuestionAnswerQuestionKeyActions(state, input, key);
+        if (questionActions) {
+          for (const action of questionActions) {
+            dispatch(action);
+          }
+          return;
+        }
         if (key.upArrow) {
           dispatch({ type: "QA_NAV", delta: -1 });
           return;
@@ -204,9 +266,7 @@ export function useCliKeyboard({
           return;
         }
         if (key.tab) {
-          dispatch(state.qaCurrentIndex < state.qaQuestions.length - 1
-            ? { type: "QA_NEXT_QUESTION" }
-            : { type: "QA_STEP_CONFIRM" });
+          dispatch(getQuestionAnswerAdvanceAction(state));
           return;
         }
       } else {
@@ -214,12 +274,17 @@ export function useCliKeyboard({
           dispatch({ type: "QA_CONFIRM_NAV", delta: key.upArrow ? -1 : 1 });
           return;
         }
-        if (key.return && state.qaCursor === 0) {
-          socketRef.current?.sendToolApproval(state.qaToolCallId, true, JSON.stringify(state.qaAnswers));
-          dispatch({ type: "CLEAR_QA" });
+        if (key.return) {
+          const action = getQuestionAnswerConfirmEnterAction(state);
+          if (action === "submit") {
+            socketRef.current?.sendToolApproval(state.qaToolCallId, true, JSON.stringify(state.qaAnswers));
+            dispatch({ type: "CLEAR_QA" });
+          } else if (action) {
+            dispatch(action);
+          }
           return;
         }
-        if (key.return && state.qaCursor === 1) {
+        if (key.escape) {
           dispatch({ type: "QA_STEP_BACK" });
           return;
         }
@@ -328,8 +393,9 @@ export function useCliKeyboard({
         }
         return;
       }
-      if (key.tab) {
-        dispatch({ type: "MODEL_EDITOR_NEXT_FIELD" });
+      const fieldNavigationAction = getModelEditorFieldNavigationAction(state, key);
+      if (fieldNavigationAction) {
+        dispatch(fieldNavigationAction);
         return;
       }
       if (state.modelEditorFocusIndex === 5) {

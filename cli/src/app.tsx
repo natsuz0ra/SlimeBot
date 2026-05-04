@@ -22,7 +22,7 @@ import { useCliKeyboard } from "./hooks/useCliKeyboard.js";
 import { clampContextSize, formatContextSize, formatContextUsageStatus } from "./utils/contextSize.js";
 import { useCliSocket } from "./hooks/useCliSocket.js";
 import { reducer, createInitialState } from "./reducer.js";
-import { completeCommand, isCommand } from "./utils/commands.js";
+import { completeCommand, isCommand, matchCommandHints, moveCommandHintCursor } from "./utils/commands.js";
 import { formatTimestamp, formatWaitingStatsSuffix } from "./utils/format.js";
 import { mapHistoryMessages } from "./utils/history.js";
 import { clearScreen, setTerminalTitle } from "./utils/terminal.js";
@@ -69,6 +69,7 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
   const { exit } = useApp();
   const { stdout } = useStdout();
   const [width, setWidth] = React.useState(() => Math.max(20, stdout?.columns || 80));
+  const [commandHintCursor, setCommandHintCursor] = React.useState(0);
   const border = "─".repeat(width);
 
   const [state, dispatch] = useReducer(
@@ -84,6 +85,11 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
   const planModeRef = useRef(false);
   const planStartedRef = useRef(false);
   const preambleShownRef = useRef("");
+  const commandHints = React.useMemo(() => matchCommandHints(state.inputValue), [state.inputValue]);
+  const hasCommandHints = state.view === "chat" && !state.streaming && commandHints.length > 0;
+  const selectedCommandHintIndex = commandHints.length > 0
+    ? Math.max(0, Math.min(commandHints.length - 1, commandHintCursor))
+    : 0;
   const clearScreenDeferred = useCallback(() => {
     setImmediate(() => clearScreen());
   }, []);
@@ -119,6 +125,10 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
   useEffect(() => {
     planModeRef.current = state.planMode;
   }, [state.planMode]);
+
+  useEffect(() => {
+    setCommandHintCursor(0);
+  }, [state.inputValue]);
 
   const refreshSessionName = useCallback(async (sessionId: string) => {
     if (!sessionId) {
@@ -802,7 +812,7 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
               }
             }}
             onTab={() => {
-              const completed = completeCommand(state.inputValue);
+              const completed = completeCommand(state.inputValue, selectedCommandHintIndex);
               if (!completed) return undefined;
               const next = `${completed} `;
               dispatch({
@@ -815,6 +825,25 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
               if (state.inputValue) {
                 dispatch({ type: "SET_INPUT", value: "" } as AppAction);
               }
+            }}
+            onBeforeInput={(_, key) => {
+              if (!hasCommandHints) return false;
+              if (key.upArrow || key.downArrow) {
+                setCommandHintCursor((current) => (
+                  moveCommandHintCursor(current, key.upArrow ? -1 : 1, commandHints.length)
+                ));
+                return true;
+              }
+              if (key.return) {
+                const completed = completeCommand(state.inputValue, selectedCommandHintIndex);
+                if (!completed) return false;
+                dispatch({
+                  type: "SET_INPUT_WITH_KEY",
+                  value: `${completed} `,
+                } as AppAction);
+                return true;
+              }
+              return false;
             }}
             onUnhandledInput={(input, key) => {
               if (state.view !== "chat" || state.streaming) return;
@@ -970,16 +999,16 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
         </Text>
       )}
 
-      {state.view === "chat" && !state.streaming && state.inputValue.startsWith("/") && (
+      {hasCommandHints && (
         <Box flexDirection="column">
-          <CommandHints input={state.inputValue} />
+          <CommandHints input={state.inputValue} selectedIndex={selectedCommandHintIndex} />
           <Text color="gray" dimColor>
-            Tab to autocomplete | Enter to run | Esc to clear
+            ↑↓ to select | Enter/Tab to fill | Esc to clear
           </Text>
         </Box>
       )}
 
-      {state.view === "chat" && !state.streaming && !state.inputValue.startsWith("/") && (
+      {state.view === "chat" && !state.streaming && !hasCommandHints && (
         <Box justifyContent="space-between">
           <Text color="#64748b">
             {getChatFooterHint(state.planMode, state.approvalMode)}

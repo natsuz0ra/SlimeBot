@@ -17,6 +17,7 @@ export interface TextInputProps {
   enableCtrlShortcuts?: boolean;
   mask?: string;
   cursorChar?: string;
+  onBeforeInput?: (input: string, key: Key) => boolean;
   onUnhandledInput?: (input: string, key: Key) => void;
 }
 
@@ -32,6 +33,7 @@ export function TextInput({
   enableCtrlShortcuts = true,
   mask,
   cursorChar: cursorCharProp,
+  onBeforeInput,
   onUnhandledInput,
 }: TextInputProps): React.ReactElement {
   const inputState = useTextInput({
@@ -50,6 +52,9 @@ export function TextInput({
   });
 
   useInput((input, key) => {
+    if (onBeforeInput?.(input, key)) {
+      return;
+    }
     inputState.onInput(input, key);
   }, { isActive: focus });
 

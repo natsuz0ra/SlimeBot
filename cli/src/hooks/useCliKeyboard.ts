@@ -2,8 +2,14 @@ import { useInput } from "ink";
 import type { Key } from "ink";
 import type React from "react";
 import type { AppAction, AppState, MCPTemplate, MenuItem, ModelProvider } from "../types.js";
+import { adjustContextSize, clampContextSize } from "../utils/contextSize.js";
 import { MCP_TEMPLATES } from "../types.js";
 import type { CLISocket } from "../ws/socket.js";
+
+export type ApprovalKeyAction =
+  | { kind: "nav"; delta: number }
+  | { kind: "mark"; toolCallId: string }
+  | { kind: "settle"; items: Array<{ toolCallId: string; approved: boolean }> };
 
 interface UseCliKeyboardProps {
   state: AppState;
@@ -54,6 +60,100 @@ export function shouldLetQuestionAnswerViewHandleInput(state: AppState, input: s
   return Boolean(input);
 }
 
+export function getModelEditorFieldNavigationAction(state: AppState, key: Key): AppAction | null {
+  if (state.view !== "model-editor" || state.modelEditorProviderSelect || !key.tab) {
+    return null;
+  }
+  return key.shift ? { type: "MODEL_EDITOR_PREV_FIELD" } : { type: "MODEL_EDITOR_NEXT_FIELD" };
+}
+
+export function getQuestionAnswerConfirmEnterAction(state: AppState): AppAction | "submit" | null {
+  if (state.view !== "question-answer" || state.qaStep !== "confirm") {
+    return null;
+  }
+  return state.qaCursor < state.qaQuestions.length
+    ? { type: "QA_EDIT_QUESTION", index: state.qaCursor }
+    : "submit";
+}
+
+function getQuestionAnswerAdvanceAction(state: AppState): AppAction {
+  return state.qaCurrentIndex < state.qaQuestions.length - 1
+    ? { type: "QA_NEXT_QUESTION" }
+    : { type: "QA_STEP_CONFIRM" };
+}
+
+export function getQuestionAnswerQuestionKeyActions(state: AppState, input: string, key: Key): AppAction[] | null {
+  if (state.view !== "question-answer" || state.qaStep !== "questions") {
+    return null;
+  }
+  const q = state.qaQuestions[state.qaCurrentIndex];
+  if (!q) {
+    return null;
+  }
+
+  if (key.leftArrow) {
+    return [{ type: "QA_PREV_QUESTION" }];
+  }
+  if (key.rightArrow || key.tab) {
+    return [getQuestionAnswerAdvanceAction(state)];
+  }
+  if (input === "c" || input === "C") {
+    return [
+      { type: "QA_NAV_TO", cursor: q.options.length },
+      { type: "QA_SELECT", optionIndex: -1 },
+    ];
+  }
+  if (/^[1-5]$/.test(input)) {
+    const optionIndex = Number(input) - 1;
+    if (optionIndex < q.options.length) {
+      return [
+        { type: "QA_SELECT", optionIndex },
+        getQuestionAnswerAdvanceAction(state),
+      ];
+    }
+  }
+  return null;
+}
+
+function currentApprovalId(state: AppState): string {
+  return (state.pendingApprovals[state.approvalCursor]?.toolCallId || state.approvalToolCallId || "").trim();
+}
+
+function approvalBatchItems(state: AppState, approved: boolean): Array<{ toolCallId: string; approved: boolean }> {
+  return state.pendingApprovals
+    .map((item) => ({ toolCallId: item.toolCallId, approved }))
+    .filter((item) => item.toolCallId);
+}
+
+export function getApprovalKeyAction(state: AppState, input: string, key: Key): ApprovalKeyAction | null {
+  if (state.view !== "approval") {
+    return null;
+  }
+  if (key.upArrow) {
+    return { kind: "nav", delta: -1 };
+  }
+  if (key.downArrow) {
+    return { kind: "nav", delta: 1 };
+  }
+
+  const toolCallId = currentApprovalId(state);
+  if (input === "y" || input === "Y") {
+    return toolCallId ? { kind: "settle", items: [{ toolCallId, approved: true }] } : null;
+  }
+  if (input === "n" || input === "N") {
+    return toolCallId ? { kind: "settle", items: [{ toolCallId, approved: false }] } : null;
+  }
+  if (input === "a" || input === "A") {
+    const items = approvalBatchItems(state, true);
+    return items.length > 0 ? { kind: "settle", items } : null;
+  }
+  if (input === "r" || input === "R") {
+    const items = approvalBatchItems(state, false);
+    return items.length > 0 ? { kind: "settle", items } : null;
+  }
+  return null;
+}
+
 export function useCliKeyboard({
   state,
   dispatch,
@@ -91,12 +191,6 @@ export function useCliKeyboard({
     }
 
     if (state.view === "approval") {
-      const currentApproval = state.pendingApprovals[state.approvalCursor] ?? {
-        toolCallId: state.approvalToolCallId,
-        toolName: state.approvalToolName,
-        command: state.approvalCommand,
-        params: state.approvalParams,
-      };
       const settleApproval = (toolCallId: string, approved: boolean) => {
         socketRef.current?.sendToolApproval(toolCallId, approved);
         dispatch({
@@ -109,34 +203,17 @@ export function useCliKeyboard({
             content: "",
           },
         });
-        dispatch({ type: "REMOVE_PENDING_APPROVAL", toolCallId });
+        dispatch({ type: "REMOVE_PENDING_APPROVAL", toolCallId, approved });
       };
-      if (key.upArrow) {
-        dispatch({ type: "APPROVAL_NAV", delta: -1 });
-        return;
-      }
-      if (key.downArrow) {
-        dispatch({ type: "APPROVAL_NAV", delta: 1 });
-        return;
-      }
-      if (input === "a" || input === "A") {
-        for (const item of state.pendingApprovals) {
-          settleApproval(item.toolCallId, true);
+      const action = getApprovalKeyAction(state, input, key);
+      if (action?.kind === "nav") {
+        dispatch({ type: "APPROVAL_NAV", delta: action.delta });
+      } else if (action?.kind === "mark") {
+        dispatch({ type: "TOGGLE_APPROVAL_MARK", toolCallId: action.toolCallId });
+      } else if (action?.kind === "settle") {
+        for (const item of action.items) {
+          settleApproval(item.toolCallId, item.approved);
         }
-        dispatch({ type: "CLEAR_PENDING_APPROVALS" });
-        return;
-      }
-      if (input === "r" || input === "R") {
-        for (const item of state.pendingApprovals) {
-          settleApproval(item.toolCallId, false);
-        }
-        dispatch({ type: "CLEAR_PENDING_APPROVALS" });
-        return;
-      }
-      if (input === "y" || input === "Y") {
-        settleApproval(currentApproval.toolCallId, true);
-      } else if (input === "n" || input === "N" || key.escape) {
-        settleApproval(currentApproval.toolCallId, false);
       }
       return;
     }
@@ -182,6 +259,13 @@ export function useCliKeyboard({
         return;
       }
       if (state.qaStep === "questions") {
+        const questionActions = getQuestionAnswerQuestionKeyActions(state, input, key);
+        if (questionActions) {
+          for (const action of questionActions) {
+            dispatch(action);
+          }
+          return;
+        }
         if (key.upArrow) {
           dispatch({ type: "QA_NAV", delta: -1 });
           return;
@@ -203,9 +287,7 @@ export function useCliKeyboard({
           return;
         }
         if (key.tab) {
-          dispatch(state.qaCurrentIndex < state.qaQuestions.length - 1
-            ? { type: "QA_NEXT_QUESTION" }
-            : { type: "QA_STEP_CONFIRM" });
+          dispatch(getQuestionAnswerAdvanceAction(state));
           return;
         }
       } else {
@@ -213,12 +295,17 @@ export function useCliKeyboard({
           dispatch({ type: "QA_CONFIRM_NAV", delta: key.upArrow ? -1 : 1 });
           return;
         }
-        if (key.return && state.qaCursor === 0) {
-          socketRef.current?.sendToolApproval(state.qaToolCallId, true, JSON.stringify(state.qaAnswers));
-          dispatch({ type: "CLEAR_QA" });
+        if (key.return) {
+          const action = getQuestionAnswerConfirmEnterAction(state);
+          if (action === "submit") {
+            socketRef.current?.sendToolApproval(state.qaToolCallId, true, JSON.stringify(state.qaAnswers));
+            dispatch({ type: "CLEAR_QA" });
+          } else if (action) {
+            dispatch(action);
+          }
           return;
         }
-        if (key.return && state.qaCursor === 1) {
+        if (key.escape) {
           dispatch({ type: "QA_STEP_BACK" });
           return;
         }
@@ -327,9 +414,18 @@ export function useCliKeyboard({
         }
         return;
       }
-      if (key.tab) {
-        dispatch({ type: "MODEL_EDITOR_NEXT_FIELD" });
+      const fieldNavigationAction = getModelEditorFieldNavigationAction(state, key);
+      if (fieldNavigationAction) {
+        dispatch(fieldNavigationAction);
         return;
+      }
+      if (state.modelEditorFocusIndex === 5) {
+        if (key.leftArrow || key.rightArrow || key.upArrow || key.downArrow) {
+          const current = clampContextSize(state.modelEditorContextSize);
+          const delta = key.leftArrow ? -1_000 : key.rightArrow ? 1_000 : key.upArrow ? 32_000 : -32_000;
+          dispatch({ type: "SET_MODEL_EDITOR_CONTEXT_SIZE", contextSize: String(adjustContextSize(current, delta)) });
+          return;
+        }
       }
       if (key.escape) {
         void loadModels();

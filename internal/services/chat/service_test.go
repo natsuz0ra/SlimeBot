@@ -17,114 +17,20 @@ import (
 	prompts "slimebot/prompts"
 )
 
-func TestTitleStreamParser_ExtractsMemoryAndFiltersFromBody(t *testing.T) {
-	parser := newTitleStreamParser(true)
-
-	body := parser.Feed("<memory>{\"turn_summary\":\"用户偏好中文回复\",\"topic_hint\":\"回复偏好\"}</memory>\n正文第一段\n")
-	if body != "正文第一段\n" {
+func TestTitleStreamParser_PassesThroughTitleTags(t *testing.T) {
+	body := newTitleStreamParser().Feed("第一段\n\n<title>标题</title>\n\n第二段\n\n第三段")
+	if body != "第一段\n\n<title>标题</title>\n\n第二段\n\n第三段" {
 		t.Fatalf("unexpected body: %q", body)
 	}
-	if got := parser.Memory(); got != "{\"turn_summary\":\"用户偏好中文回复\",\"topic_hint\":\"回复偏好\"}" {
-		t.Fatalf("unexpected memory payload: %q", got)
-	}
 }
 
-func TestTitleStreamParser_ExtractsMultilineMemoryBlock(t *testing.T) {
-	parser := newTitleStreamParser(true)
-
-	body := parser.Feed("<memory>{\n\"turn_summary\":\"第一段总结\",\n\"topic_hint\":\"测试\"\n}</memory>\n正文内容")
-	if body != "正文内容" {
-		t.Fatalf("unexpected body: %q", body)
-	}
-	if got := parser.Memory(); got != "{\n\"turn_summary\":\"第一段总结\",\n\"topic_hint\":\"测试\"\n}" {
-		t.Fatalf("unexpected multiline memory: %q", got)
-	}
-}
-
-func TestTitleStreamParser_ExtractsMetaInMiddleAndTail(t *testing.T) {
-	parser := newTitleStreamParser(true)
-
-	body := parser.Feed("正文A<memory>{\"turn_summary\":\"中间总结\"}</memory>结尾")
-	if body != "正文A结尾" {
-		t.Fatalf("unexpected body: %q", body)
-	}
-	if got := parser.Memory(); got != "{\"turn_summary\":\"中间总结\"}" {
-		t.Fatalf("unexpected memory: %q", got)
-	}
-}
-
-func TestTitleStreamParser_HandlesSplitMemoryTagAcrossChunks(t *testing.T) {
-	parser := newTitleStreamParser(true)
-
-	first := parser.Feed("前缀<mem")
-	if first != "前缀" {
-		t.Fatalf("unexpected first chunk output: %q", first)
-	}
-	second := parser.Feed("ory>{\"turn_summary\":\"跨块总结\"}</memory>后缀")
-	if second != "后缀" {
-		t.Fatalf("unexpected second chunk output: %q", second)
-	}
-	if got := parser.Memory(); got != "{\"turn_summary\":\"跨块总结\"}" {
-		t.Fatalf("unexpected memory: %q", got)
-	}
-}
-
-func TestTitleStreamParser_FlushIncompleteTagAsPlainText(t *testing.T) {
-	parser := newTitleStreamParser(true)
-
-	if body := parser.Feed("正文<memory>"); body != "正文" {
-		t.Fatalf("unexpected body before flush: %q", body)
-	}
-	rest := parser.Flush()
-	if rest != "<memory>" {
-		t.Fatalf("expected incomplete tag passthrough, got: %q", rest)
-	}
-}
-
-func TestCleanProtocolMemory_NoHardTruncate(t *testing.T) {
-	longText := strings.Repeat("长", 1500)
-	if got := cleanProtocolMemory(longText); got != longText {
-		t.Fatalf("memory should keep full content, len=%d got=%d", len([]rune(longText)), len([]rune(got)))
-	}
-}
-
-func TestExtractProtocolMetaAndBody_FallbackCleanup(t *testing.T) {
-	memory, body := extractProtocolMetaAndBody("前置说明\n<title>回退标题</title>\n<memory>{\"turn_summary\":\"回退总结\"}</memory>\n最终正文")
-	if memory != "{\"turn_summary\":\"回退总结\"}" {
-		t.Fatalf("unexpected extracted memory: %q", memory)
-	}
-	if body != "前置说明\n最终正文" {
-		t.Fatalf("unexpected cleaned body: %q", body)
-	}
-}
-
-func TestExtractProtocolMetaAndBody_RemovesEmptyTagBlocks(t *testing.T) {
-	memory, body := extractProtocolMetaAndBody("A<title></title>B<memory> </memory>C")
-	if memory != "" {
-		t.Fatalf("expected empty memory, got: %q", memory)
-	}
-	if body != "ABC" {
-		t.Fatalf("unexpected cleaned body: %q", body)
-	}
-}
-
-func TestExtractProtocolMetaAndBody_PreservesBodyParagraphSpacing(t *testing.T) {
-	memory, body := extractProtocolMetaAndBody("第一段\n\n<title>标题</title>\n\n第二段\n\n第三段")
-	if memory != "" {
-		t.Fatalf("unexpected memory: %q", memory)
-	}
-	if body != "第一段\n\n第二段\n\n第三段" {
-		t.Fatalf("unexpected cleaned body: %q", body)
-	}
-}
-
-func TestExtractProtocolMetaAndBody_TrimsOnlyAdjacentProtocolWhitespace(t *testing.T) {
-	memory, body := extractProtocolMetaAndBody("正文A\n \t\r\n<title>标题</title>\n\t \r\n正文B")
-	if memory != "" {
-		t.Fatalf("unexpected memory: %q", memory)
-	}
-	if body != "正文A\n正文B" {
-		t.Fatalf("unexpected cleaned body: %q", body)
+func TestTitleStreamParser_PassesThroughLegacyMemoryTags(t *testing.T) {
+	parser := newTitleStreamParser()
+	tag := "mem" + "ory"
+	input := "正文<" + tag + ">{\"turn_summary\":\"旧记忆\"}</" + tag + ">结尾"
+	body := parser.Feed(input)
+	if body != input {
+		t.Fatalf("expected legacy memory tag passthrough, got: %q", body)
 	}
 }
 
@@ -146,7 +52,7 @@ func TestHandleChatStream_PersistsThinkingHistory(t *testing.T) {
 		t.Fatalf("create model failed: %v", err)
 	}
 	provider := &fakeThinkingProvider{}
-	svc := NewChatService(repo, nil, llmsvc.NewFactory(provider), nil, nil, nil)
+	svc := NewChatService(repo, nil, llmsvc.NewFactory(provider), nil, nil)
 
 	result, err := svc.HandleChatStream(ctx, session.ID, "request-1", "hello", "", model.ID, nil, "high", false, "", AgentCallbacks{
 		OnChunk: func(string) error { return nil },
@@ -204,7 +110,7 @@ func TestHandleChatStream_FinishesThinkingBeforeAnswerChunk(t *testing.T) {
 		t.Fatalf("create model failed: %v", err)
 	}
 	provider := &fakeThinkingProvider{}
-	svc := NewChatService(repo, nil, llmsvc.NewFactory(provider), nil, nil, nil)
+	svc := NewChatService(repo, nil, llmsvc.NewFactory(provider), nil, nil)
 
 	var events []string
 	_, err = svc.HandleChatStream(ctx, session.ID, "request-1", "hello", "", model.ID, nil, "high", false, "", AgentCallbacks{
@@ -253,7 +159,7 @@ func TestHandleChatStream_UsesDisplayContentForStoredUserMessage(t *testing.T) {
 		t.Fatalf("create model failed: %v", err)
 	}
 	provider := &captureMessagesProvider{}
-	svc := NewChatService(repo, nil, llmsvc.NewFactory(provider), nil, nil, nil)
+	svc := NewChatService(repo, nil, llmsvc.NewFactory(provider), nil, nil)
 
 	internalPrompt := "Execute the following approved plan:\n\n# Plan"
 	displayContent := "Execute this plan"
@@ -313,7 +219,7 @@ func TestHandleChatStream_PlanModeSavesOnlyPlanBody(t *testing.T) {
 		t.Fatalf("create plan service failed: %v", err)
 	}
 	provider := &fakePlanModeProvider{}
-	svc := NewChatService(repo, nil, llmsvc.NewFactory(provider), nil, nil, nil)
+	svc := NewChatService(repo, nil, llmsvc.NewFactory(provider), nil, nil)
 	svc.SetPlanService(planService)
 
 	result, err := svc.HandleChatStream(ctx, session.ID, "request-1", "make a plan", "", model.ID, nil, "high", true, "", AgentCallbacks{
@@ -378,7 +284,7 @@ func TestHandleChatStream_PlanModeDoesNotSavePlanBodyWithoutSubmitTool(t *testin
 		t.Fatalf("create plan service failed: %v", err)
 	}
 	provider := &fakePlanTextProvider{}
-	svc := NewChatService(repo, nil, llmsvc.NewFactory(provider), nil, nil, nil)
+	svc := NewChatService(repo, nil, llmsvc.NewFactory(provider), nil, nil)
 	svc.SetPlanService(planService)
 
 	result, err := svc.HandleChatStream(ctx, session.ID, "request-1", "make a plan", "", model.ID, nil, "high", true, "", AgentCallbacks{
@@ -425,7 +331,7 @@ func TestHandleChatStream_StartsTitleGenerationBeforeAssistantChunk(t *testing.T
 	}
 
 	provider := &earlyTitleProvider{titleStarted: make(chan struct{})}
-	svc := NewChatService(repo, nil, llmsvc.NewFactory(provider), nil, nil, nil)
+	svc := NewChatService(repo, nil, llmsvc.NewFactory(provider), nil, nil)
 
 	_, err = svc.HandleChatStream(ctx, session.ID, "request-1", "用户消息", "", model.ID, nil, "off", false, "", AgentCallbacks{
 		OnChunk: func(string) error { return nil },
@@ -442,9 +348,106 @@ func TestHandleChatStream_StartsTitleGenerationBeforeAssistantChunk(t *testing.T
 	}
 }
 
+func TestHandleChatStreamPushesAuthoritativeContextUsageOnly(t *testing.T) {
+	repo := newTestRepo(t)
+	ctx := context.Background()
+	session, err := repo.CreateSession(ctx, "usage-stream")
+	if err != nil {
+		t.Fatalf("create session failed: %v", err)
+	}
+	model, err := repo.CreateLLMConfig(context.Background(), domain.LLMConfig{
+		Name:        "fake",
+		Provider:    llmsvc.ProviderOpenAI,
+		BaseURL:     "http://fake",
+		APIKey:      "key",
+		Model:       "fake-model",
+		ContextSize: 100_000,
+	})
+	if err != nil {
+		t.Fatalf("create model failed: %v", err)
+	}
+	provider := &contextUsageStreamingProvider{}
+	svc := NewChatService(repo, nil, llmsvc.NewFactory(provider), nil, nil)
+
+	var usages []ContextUsage
+	_, err = svc.HandleChatStream(ctx, session.ID, "request-usage-stream", "hello", "", model.ID, nil, "off", false, "", AgentCallbacks{
+		OnChunk: func(string) error { return nil },
+		OnContextUsage: func(usage ContextUsage) error {
+			usages = append(usages, usage)
+			return nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("HandleChatStream failed: %v", err)
+	}
+	if len(usages) != 3 {
+		t.Fatalf("expected initial and provider usage updates only, got %d: %+v", len(usages), usages)
+	}
+	if usages[1].UsedTokens != 20_000 || usages[1].UsedPercent != 20 || usages[1].AvailablePercent != 80 {
+		t.Fatalf("expected first provider usage calibration, got %+v", usages[1])
+	}
+	if usages[2].UsedTokens != 45_000 || usages[2].UsedPercent != 45 || usages[2].AvailablePercent != 55 {
+		t.Fatalf("expected final provider usage calibration, got %+v", usages[2])
+	}
+	finalUsage, err := svc.GetContextUsage(ctx, session.ID, model.ID)
+	if err != nil {
+		t.Fatalf("GetContextUsage failed: %v", err)
+	}
+	if finalUsage.UsedTokens != usages[2].UsedTokens || finalUsage.UsedPercent != usages[2].UsedPercent || finalUsage.AvailablePercent != usages[2].AvailablePercent {
+		t.Fatalf("expected saved context usage to match final provider usage, final=%+v streamed=%+v", finalUsage, usages[2])
+	}
+}
+
+func TestHandleChatStreamContextUsageDoesNotSpikeFromToolCallOutputTokens(t *testing.T) {
+	repo := newTestRepo(t)
+	ctx := context.Background()
+	session, err := repo.CreateSession(ctx, "usage-no-tool-spike")
+	if err != nil {
+		t.Fatalf("create session failed: %v", err)
+	}
+	model, err := repo.CreateLLMConfig(context.Background(), domain.LLMConfig{
+		Name:        "fake",
+		Provider:    llmsvc.ProviderOpenAI,
+		BaseURL:     "http://fake",
+		APIKey:      "key",
+		Model:       "fake-model",
+		ContextSize: 100_000,
+	})
+	if err != nil {
+		t.Fatalf("create model failed: %v", err)
+	}
+	provider := &contextUsageSpikeProvider{}
+	svc := NewChatService(repo, nil, llmsvc.NewFactory(provider), nil, nil)
+
+	var usages []ContextUsage
+	_, err = svc.HandleChatStream(ctx, session.ID, "request-usage-spike", "hello", "", model.ID, nil, "off", false, "", AgentCallbacks{
+		OnChunk: func(string) error { return nil },
+		OnContextUsage: func(usage ContextUsage) error {
+			usages = append(usages, usage)
+			return nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("HandleChatStream failed: %v", err)
+	}
+	if len(usages) != 3 {
+		t.Fatalf("expected initial and provider usage updates, got %d: %+v", len(usages), usages)
+	}
+	if usages[1].UsedPercent >= 20 {
+		t.Fatalf("tool-call output tokens should not spike context usage, got %+v", usages[1])
+	}
+	finalUsage, err := svc.GetContextUsage(ctx, session.ID, model.ID)
+	if err != nil {
+		t.Fatalf("GetContextUsage failed: %v", err)
+	}
+	if finalUsage.UsedTokens != usages[2].UsedTokens || finalUsage.UsedPercent != usages[2].UsedPercent {
+		t.Fatalf("expected final usage to match streamed final provider usage, final=%+v streamed=%+v", finalUsage, usages[2])
+	}
+}
+
 func TestRunAgentLoopPreservesThinkingBlocksAcrossToolIterations(t *testing.T) {
 	provider := &thinkingToolIterationProvider{}
-	agent := NewAgentService(llmsvc.NewFactory(provider), nil, nil, nil)
+	agent := NewAgentService(llmsvc.NewFactory(provider), nil, nil)
 
 	answer, err := agent.RunAgentLoop(
 		context.Background(),
@@ -476,7 +479,7 @@ func TestRunAgentLoopPreservesThinkingBlocksAcrossToolIterations(t *testing.T) {
 
 func TestRunAgentLoopPreservesReasoningContentAcrossToolIterations(t *testing.T) {
 	provider := &reasoningToolIterationProvider{}
-	agent := NewAgentService(llmsvc.NewFactory(provider), nil, nil, nil)
+	agent := NewAgentService(llmsvc.NewFactory(provider), nil, nil)
 
 	answer, err := agent.RunAgentLoop(
 		context.Background(),
@@ -552,6 +555,94 @@ type thinkingToolIterationProvider struct {
 type reasoningToolIterationProvider struct {
 	call                int
 	secondCallAssistant *llmsvc.ChatMessage
+}
+
+type contextUsageStreamingProvider struct {
+	call int
+}
+
+type contextUsageSpikeProvider struct {
+	call int
+}
+
+func (p *contextUsageStreamingProvider) StreamChatWithTools(
+	_ context.Context,
+	_ llmsvc.ModelRuntimeConfig,
+	_ []llmsvc.ChatMessage,
+	_ []llmsvc.ToolDef,
+	callbacks llmsvc.StreamCallbacks,
+) (*llmsvc.StreamResult, error) {
+	p.call++
+	switch p.call {
+	case 1:
+		return &llmsvc.StreamResult{
+			Type:       llmsvc.StreamResultToolCalls,
+			TokenUsage: &llmsvc.TokenUsage{InputTokens: 20_000, OutputTokens: 1_000},
+			ToolCalls: []llmsvc.ToolCallInfo{{
+				ID:        "plan-start-call",
+				Name:      constants.PlanStartTool,
+				Arguments: `{"note":"` + strings.Repeat("tool payload ", 80) + `"}`,
+			}},
+			AssistantMessage: llmsvc.ChatMessage{
+				Role: "assistant",
+				ToolCalls: []llmsvc.ToolCallInfo{{
+					ID:        "plan-start-call",
+					Name:      constants.PlanStartTool,
+					Arguments: `{"note":"` + strings.Repeat("tool payload ", 80) + `"}`,
+				}},
+			},
+		}, nil
+	default:
+		if callbacks.OnChunk != nil {
+			if err := callbacks.OnChunk(strings.Repeat("streamed answer ", 40)); err != nil {
+				return nil, err
+			}
+		}
+		return &llmsvc.StreamResult{
+			Type:       llmsvc.StreamResultText,
+			TokenUsage: &llmsvc.TokenUsage{InputTokens: 45_000, OutputTokens: 5_000},
+		}, nil
+	}
+}
+
+func (p *contextUsageSpikeProvider) StreamChatWithTools(
+	_ context.Context,
+	_ llmsvc.ModelRuntimeConfig,
+	_ []llmsvc.ChatMessage,
+	_ []llmsvc.ToolDef,
+	callbacks llmsvc.StreamCallbacks,
+) (*llmsvc.StreamResult, error) {
+	p.call++
+	switch p.call {
+	case 1:
+		return &llmsvc.StreamResult{
+			Type:       llmsvc.StreamResultToolCalls,
+			TokenUsage: &llmsvc.TokenUsage{InputTokens: 10_000, OutputTokens: 25_000},
+			ToolCalls: []llmsvc.ToolCallInfo{{
+				ID:        "plan-start-call",
+				Name:      constants.PlanStartTool,
+				Arguments: `{}`,
+			}},
+			AssistantMessage: llmsvc.ChatMessage{
+				Role: "assistant",
+				ToolCalls: []llmsvc.ToolCallInfo{{
+					ID:        "plan-start-call",
+					Name:      constants.PlanStartTool,
+					Arguments: `{}`,
+				}},
+			},
+		}, nil
+	default:
+		if callbacks.OnChunk != nil {
+			if err := callbacks.OnChunk("done"); err != nil {
+				return nil, err
+			}
+		}
+		return &llmsvc.StreamResult{
+			Type:       llmsvc.StreamResultText,
+			TokenUsage: &llmsvc.TokenUsage{InputTokens: 11_000, OutputTokens: 1_000},
+		}, nil
+	}
 }
 
 func (p *reasoningToolIterationProvider) StreamChatWithTools(
@@ -839,15 +930,6 @@ func (s *stubTitleUpdateStore) snapshot() (calls int, id string, name string) {
 	return s.calls, s.lastID, s.lastName
 }
 
-func BenchmarkTitleStreamParser_Feed(b *testing.B) {
-	payload := strings.Repeat("正文内容。", 512) + "<memory>{\"turn_summary\":\"这是记忆\"}</memory>"
-	for i := 0; i < b.N; i++ {
-		parser := newTitleStreamParser(true)
-		parser.Feed(payload)
-		parser.Flush()
-	}
-}
-
 func TestReadAttachmentExcerpt_TruncatesLargeText(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "long.txt")
@@ -876,24 +958,15 @@ func TestReadAttachmentExcerpt_SkipsUnsupportedBinaryFile(t *testing.T) {
 	}
 }
 
-func TestSystemPrompt_UsesStructuredMemoryProtocol(t *testing.T) {
+func TestSystemPrompt_DoesNotRequireLegacyMemoryProtocol(t *testing.T) {
 	content := prompts.SystemPrompt()
 	if strings.TrimSpace(content) == "" {
 		t.Fatal("embedded system prompt is empty")
 	}
-	if strings.Contains(content, `{"facts":[...]}`) {
-		t.Fatal(`system prompt must not instruct the model to emit {"facts":[...]}`)
-	}
-	required := []string{
-		`{"name":"...","description":"...","type":"...","content":"..."}`,
-		`<memory>`,
-		"`type` must be one of:",
-		"`user`",
-		"`project`",
-	}
-	for _, token := range required {
-		if !strings.Contains(content, token) {
-			t.Fatalf("system prompt missing memory protocol token %q", token)
+	memoryTag := "<" + "memory" + ">"
+	for _, token := range []string{memoryTag, `End your reply with ` + memoryTag} {
+		if strings.Contains(content, token) {
+			t.Fatalf("system prompt should not require legacy memory token %q", token)
 		}
 	}
 }

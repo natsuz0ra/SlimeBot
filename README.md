@@ -29,10 +29,10 @@ A personal AI agent demo: an extensible foundation for conversational AI apps. I
   - Plan lifecycle: generate, approve/reject, modify-and-regenerate, execute
   - Thinking level controls (`off` / `low` / `medium` / `high`) for model reasoning depth
   - Thinking stream events and timeline rendering in both web UI and CLI
-- **Memory**
-  - Rolling session summaries
-  - Long-context compression with recent-message backfill
-  - Cross-session retrieval
+- **Memory & context compression**
+  - Hidden compact summaries per session and model config
+  - Automatic history compaction when a model `contextSize` would be exceeded
+  - Context usage and compaction status in the web UI and CLI
 - **Configuration & extensions**
   - MCP configuration management
   - Skills: upload, list, delete, runtime activation
@@ -72,8 +72,8 @@ A personal AI agent demo: an extensible foundation for conversational AI apps. I
 
 - **Production**: one Go binary serves REST/WebSocket and embeds the web UI from `web/dist` (`go:embed`).
 - **Development**: `npm run dev` runs the Go server and Vite; Vite proxies `/api` and `/ws` to port `8080`.
-- **Data**: SQLite by default at `~/.slimebot/storage/data.db`.
-- **Memory**: markdown files under `~/.slimebot/memory` with a local full-text index for search and prompt injection.
+- **Data**: SQLite by default at `~/.slimebot/storage/data.db`; compacted context summaries are stored there too.
+- **Memory**: currently session-scoped context compression. When needed, SlimeBot injects a hidden `<context_summary>` together with the latest conversation context.
 
 **Stack (high level):** Go backend · Vue 3 web app · React + Ink CLI.
 
@@ -162,26 +162,25 @@ make compose-down
 ~/.slimebot/
   .env
   skills/
-  memory/
-    MEMORY.md
-    index.bleve/
-    *.md
   storage/
     data.db
     chat_uploads/
 ```
 
 - `.env` — configuration
-- `memory/` — markdown memory entries, manifest (`MEMORY.md`), and full-text index data under `index.bleve/`
 - `storage/data.db` — SQLite
 - `storage/chat_uploads` — chat attachments
 - `skills/` — installed skills
 
-## Memory storage (how it works)
+## Memory model
 
-- Each memory is a Markdown file with YAML frontmatter under `MEMORY_DIR` (default `~/.slimebot/memory`).
-- A Bleve full-text index under `memory/index.bleve/` powers search and cross-session recall.
-- On startup the server rebuilds the index from disk (see `Core.WarmupInBackground`).
+- Memory is not a separate Markdown file store or search index. It is a SQLite-backed compact summary for each chat session.
+- If the full history, system prompt, runtime environment, and tool replay fit under the selected model config’s `contextSize`, SlimeBot sends the full history.
+- If the estimated context exceeds `contextSize`, SlimeBot asks the current model to generate a compact summary, stores it in `session_context_summaries`, and injects it later as a hidden `<context_summary>`.
+- Summaries are keyed by `sessionId + modelConfigId`, so different model configs can keep separate compacted prefixes for the same session.
+- Existing summaries are reused. If new messages after the summary exceed the window again, the previous summary and new messages are rolled into an updated summary.
+- The latest user message is protected. If that message alone cannot fit in the context window, the request fails and asks you to shorten the input or increase context size.
+- Web and CLI clients receive `context_usage` / `context_compacted` events with used tokens, available percentage, and compaction state.
 
 ## Configuration (`~/.slimebot/.env`)
 
@@ -191,7 +190,8 @@ Variables read by the server (defaults shown where applicable):
 - `DB_PATH` — SQLite path (default `~/.slimebot/storage/data.db`)
 - `SKILLS_ROOT` — skills root (default `~/.slimebot/skills`)
 - `CHAT_UPLOAD_ROOT` — uploads (default `~/.slimebot/storage/chat_uploads`)
-- `MEMORY_DIR` — memory markdown + index root (default `~/.slimebot/memory`)
+- `CONTEXT_HISTORY_ROUNDS` — retained history-round setting (default `20`, clamped to `5`–`50`)
+- `DEFAULT_CONTEXT_SIZE` — default context size for new model configs (default `1000000`)
 - `FRONTEND_ORIGIN` — set to `http://localhost:5173` when using Vite; empty for same-origin production
 - `WEB_SEARCH_API_KEY` — Tavily API key for `web_search`
 - `JWT_SECRET` — **required in server mode**; server fails to start if unset (CLI headless mode can auto-generate one)
@@ -208,10 +208,12 @@ SERVER_PORT=8080
 DB_PATH=~/.slimebot/storage/data.db
 SKILLS_ROOT=~/.slimebot/skills
 CHAT_UPLOAD_ROOT=~/.slimebot/storage/chat_uploads
-MEMORY_DIR=~/.slimebot/memory
 WEB_SEARCH_API_KEY=YOUR_TAVILY_API_KEY
 JWT_SECRET=CHANGE_ME_TO_A_RANDOM_SECRET
 JWT_EXPIRE=21600
+
+# CONTEXT_HISTORY_ROUNDS=20
+# DEFAULT_CONTEXT_SIZE=1000000
 
 # FRONTEND_ORIGIN=http://localhost:5173
 ```
@@ -238,7 +240,7 @@ VITE_WS_URL=ws://localhost:8080
 - Thinking level controls (`off` / `low` / `medium` / `high`) with streamed reasoning display
 - Subagent / nested agent (`run_subagent`), nested tool UI, and persisted parent linkage in tool-call history
 - MCP and skills
-- File-backed persistent memory with full-text search and prompt injection
+- SQLite-backed compact session summaries and context usage tracking
 - Telegram integration
 - Multimodal chat
 - JWT auth and default admin bootstrap

@@ -241,6 +241,15 @@ export function useHomeSessionActions(options: {
     { immediate: true },
   )
 
+  watch(
+    [() => store.currentSessionId, () => modelState.selectedModelId.value],
+    ([sessionId, modelId]) => {
+      if (!sessionId || !modelId || sessionId === MESSAGE_PLATFORM_SESSION_ID) return
+      void store.refreshContextUsage(modelId)
+    },
+    { immediate: true },
+  )
+
   onUnmounted(() => {
     stopMessagePlatformPolling()
     store.disconnectSocket()

@@ -5,37 +5,39 @@ import (
 	"sync"
 	"time"
 
+	"slimebot/internal/constants"
 	"slimebot/internal/domain"
 	"slimebot/internal/mcp"
 	llmsvc "slimebot/internal/services/llm"
-	memsvc "slimebot/internal/services/memory"
 	plansvc "slimebot/internal/services/plan"
 	skillsvc "slimebot/internal/services/skill"
 )
 
 // ChatService orchestrates the chat flow: context, agent, uploads, and per-session skills.
 type ChatService struct {
-	store          domain.ChatStore
-	settingsStore  domain.SettingsStore
-	agent          *AgentService
-	skillRuntime   *skillsvc.SkillRuntimeService
-	memory         *memsvc.MemoryService
-	planService    *plansvc.PlanService
-	uploads        *ChatUploadService
-	titleGen       *titleGenerator
-	skillsMu       sync.Mutex
-	skillsBySess   map[string]map[string]struct{}
-	skillTouchedAt map[string]time.Time
-	promptMu       sync.RWMutex
-	systemPrompt   string
-	stablePrompt   string
-	stableCatalog  string
+	store           domain.ChatStore
+	settingsStore   domain.SettingsStore
+	providerFactory *llmsvc.Factory
+	agent           *AgentService
+	skillRuntime    *skillsvc.SkillRuntimeService
+	planService     *plansvc.PlanService
+	uploads         *ChatUploadService
+	titleGen        *titleGenerator
+	skillsMu        sync.Mutex
+	skillsBySess    map[string]map[string]struct{}
+	skillTouchedAt  map[string]time.Time
+	promptMu        sync.RWMutex
+	systemPrompt    string
+	stablePrompt    string
+	stableCatalog   string
 
 	runContext RunContext
 
 	platformModelMu sync.Mutex
 	platformModelID string
 	platformModelAt time.Time
+
+	contextHistoryRounds int
 }
 
 // chatStreamAccumulator collects streamed text and the first push error, if any.
@@ -61,19 +63,31 @@ type ChatStreamResult struct {
 }
 
 // NewChatService constructs ChatService with per-session skill activation maps.
-func NewChatService(store domain.ChatStore, settingsStore domain.SettingsStore, providerFactory *llmsvc.Factory, mcpManager *mcp.Manager, skillRuntime *skillsvc.SkillRuntimeService, memory *memsvc.MemoryService) *ChatService {
+func NewChatService(store domain.ChatStore, settingsStore domain.SettingsStore, providerFactory *llmsvc.Factory, mcpManager *mcp.Manager, skillRuntime *skillsvc.SkillRuntimeService) *ChatService {
 	s := &ChatService{
-		store:          store,
-		settingsStore:  settingsStore,
-		skillRuntime:   skillRuntime,
-		memory:         memory,
-		titleGen:       newTitleGenerator(providerFactory, store),
-		skillsBySess:   make(map[string]map[string]struct{}),
-		skillTouchedAt: make(map[string]time.Time),
+		store:                store,
+		settingsStore:        settingsStore,
+		providerFactory:      providerFactory,
+		skillRuntime:         skillRuntime,
+		titleGen:             newTitleGenerator(providerFactory, store),
+		skillsBySess:         make(map[string]map[string]struct{}),
+		skillTouchedAt:       make(map[string]time.Time),
+		contextHistoryRounds: constants.DefaultContextHistoryRounds,
 	}
-	s.agent = NewAgentService(providerFactory, mcpManager, skillRuntime, memory)
+	s.agent = NewAgentService(providerFactory, mcpManager, skillRuntime)
 	s.agent.SetSubagentHost(s)
 	return s
+}
+
+// SetContextHistoryRounds sets conversation history size in rounds (one round=user+assistant).
+func (s *ChatService) SetContextHistoryRounds(rounds int) {
+	if rounds < constants.ContextHistoryRoundMin {
+		rounds = constants.ContextHistoryRoundMin
+	}
+	if rounds > constants.ContextHistoryRoundMax {
+		rounds = constants.ContextHistoryRoundMax
+	}
+	s.contextHistoryRounds = rounds
 }
 
 // SetUploadService injects the upload staging service for one-turn consume/cleanup.

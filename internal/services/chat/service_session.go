@@ -146,5 +146,8 @@ func (s *ChatService) ResolveLLMConfig(ctx context.Context, modelID string) (*do
 	if strings.TrimSpace(config.BaseURL) == "" || strings.TrimSpace(config.APIKey) == "" || strings.TrimSpace(config.Model) == "" {
 		return nil, fmt.Errorf("Model config is incomplete: %s.", config.Name)
 	}
+	if config.ContextSize <= 0 {
+		config.ContextSize = constants.DefaultContextSize
+	}
 	return config, nil
 }

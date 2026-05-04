@@ -194,3 +194,22 @@ func (h *HTTPController) ListMessages(c WebContext) {
 	})
 	logging.Span("http_list_messages", listStart)
 }
+
+func (h *HTTPController) GetContextUsage(c WebContext) {
+	if h.chatUsage == nil {
+		jsonError(c, http.StatusServiceUnavailable, "Context usage service is unavailable.")
+		return
+	}
+	sessionID := c.Param("id")
+	modelID := strings.TrimSpace(c.Query("modelId"))
+	if modelID == "" {
+		jsonError(c, http.StatusBadRequest, "modelId is required.")
+		return
+	}
+	usage, err := h.chatUsage.GetContextUsage(c.Request().Context(), sessionID, modelID)
+	if err != nil {
+		jsonInternalError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, usage)
+}

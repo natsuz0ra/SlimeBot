@@ -86,9 +86,13 @@ const { approvalMode, onApprovalModeChange } = useSettingsApprovalMode({ toast, 
 
 const {
   llmForm,
+  llmDialogTitleKey,
+  llmContextSizeDisplay,
+  llmContextSizeSlider,
   llmRows,
   openLLMDialog,
-  addLLM,
+  openLLMEditDialog,
+  saveLLM,
   deleteLLM: removeLLM,
 } = useSettingsLLM({
   llmList,
@@ -278,7 +282,7 @@ onMounted(loadData)
           @approval-mode-change="onApprovalModeChange"
         />
 
-        <SettingsLLMTab v-if="tab === 'llm'" :llm-rows="llmRows" @add="openLLMDialog" @delete="deleteLLM" />
+        <SettingsLLMTab v-if="tab === 'llm'" :llm-rows="llmRows" @add="openLLMDialog" @edit="openLLMEditDialog" @delete="deleteLLM" />
 
         <SettingsMCPTab
           v-if="tab === 'mcp'"
@@ -331,12 +335,12 @@ onMounted(loadData)
 
   <AppDialog
     v-model:visible="llmDialogVisible"
-    :title="t('addModel')"
+    :title="t(llmDialogTitleKey)"
     :confirm-text="t('confirm')"
     :cancel-text="t('cancel')"
     :confirm-loading="llmSubmitting"
     width="440px"
-    @confirm="addLLM"
+    @confirm="saveLLM"
   >
     <div class="flex flex-col gap-4">
       <div class="flex flex-col gap-1.5">
@@ -371,6 +375,31 @@ onMounted(loadData)
       <div class="flex flex-col gap-1.5">
         <label class="text-xs font-medium sb-text-muted">{{ t('apiKey') }}</label>
         <AppPasswordInput v-model="llmForm.apiKey" />
+      </div>
+      <div class="flex flex-col gap-2">
+        <div class="flex items-center justify-between gap-3">
+          <label class="text-xs font-medium sb-text-muted">{{ t('contextSize') }}</label>
+          <span class="text-xs settings-item-meta">{{ llmContextSizeDisplay }}</span>
+        </div>
+        <input
+          v-model.number="llmContextSizeSlider"
+          type="range"
+          min="0"
+          max="100"
+          step="1"
+          class="context-size-slider"
+        />
+        <div class="flex items-center gap-2">
+          <input
+            v-model.number="llmForm.contextSize"
+            type="number"
+            min="8000"
+            max="1000000"
+            step="1000"
+            class="context-size-input"
+          />
+          <span class="text-xs sb-text-muted">{{ t('contextSizeHint') }}</span>
+        </div>
       </div>
     </div>
   </AppDialog>

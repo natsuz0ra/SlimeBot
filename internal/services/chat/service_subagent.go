@@ -4,7 +4,6 @@ import (
 	"context"
 	"strings"
 
-	"slimebot/internal/constants"
 	llmsvc "slimebot/internal/services/llm"
 )
 
@@ -21,14 +20,15 @@ func (s *ChatService) ResolveModelRuntimeConfig(ctx context.Context, modelID str
 		return llmsvc.ModelRuntimeConfig{}, err
 	}
 	return llmsvc.ModelRuntimeConfig{
-		Provider: cfg.Provider,
-		BaseURL:  cfg.BaseURL,
-		APIKey:   cfg.APIKey,
-		Model:    cfg.Model,
+		Provider:    cfg.Provider,
+		BaseURL:     cfg.BaseURL,
+		APIKey:      cfg.APIKey,
+		Model:       cfg.Model,
+		ContextSize: cfg.ContextSize,
 	}, nil
 }
 
-// BuildSubagentMessages builds an isolated message list: system prompts + memory (no chat history) + the delegated task.
+// BuildSubagentMessages builds an isolated message list: system prompts + the delegated task.
 func (s *ChatService) BuildSubagentMessages(ctx context.Context, sessionID, task, parentContext string) ([]llmsvc.ChatMessage, error) {
 	systemPrompt, err := s.loadStableSystemPrompt()
 	if err != nil {
@@ -39,20 +39,6 @@ func (s *ChatService) BuildSubagentMessages(ctx context.Context, sessionID, task
 	msgs = append(msgs, llmsvc.ChatMessage{Role: "system", Content: subagentConstraintSystemBlock()})
 	if runtimeEnvPrompt := s.buildRuntimeEnvironmentPrompt(); runtimeEnvPrompt != "" {
 		msgs = append(msgs, llmsvc.ChatMessage{Role: "system", Content: runtimeEnvPrompt})
-	}
-	if s.memory != nil {
-		memCtx, cancel := context.WithTimeout(ctx, constants.MemoryContextBuildBudget)
-		memoryContext := s.memory.BuildSessionMemoryContextForPrompt(memCtx, sessionID, nil)
-		cancel()
-		if memoryContext != "" {
-			msgs = append(msgs, llmsvc.ChatMessage{
-				Role: "system",
-				Content: "The following memory_context is provided by the system. Use it primarily to understand historical preferences, constraints, and long-term tasks; " +
-					"if it conflicts with the delegated task, follow the delegated task.\n\n<memory_context>\n" +
-					memoryContext +
-					"\n</memory_context>",
-			})
-		}
 	}
 
 	var userBody strings.Builder

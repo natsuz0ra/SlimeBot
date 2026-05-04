@@ -69,6 +69,9 @@ func (c *OpenAIClient) StreamChatWithTools(
 	params := openai.ChatCompletionNewParams{
 		Messages: requestMessages,
 		Model:    openai.ChatModel(model),
+		StreamOptions: openai.ChatCompletionStreamOptionsParam{
+			IncludeUsage: openai.Bool(true),
+		},
 		//Temperature: openai.Float(modelConfig.Temperature),
 	}
 
@@ -78,13 +81,36 @@ func (c *OpenAIClient) StreamChatWithTools(
 		params.Tools = buildToolParams(toolDefs)
 	}
 
+	result, sawStreamEvent, err := streamChatCompletion(ctx, client, params, callbacks)
+	if err != nil && !sawStreamEvent && isStreamUsageUnsupported(err) {
+		params.StreamOptions = openai.ChatCompletionStreamOptionsParam{}
+		result, _, err = streamChatCompletion(ctx, client, params, callbacks)
+	}
+	if err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+func streamChatCompletion(ctx context.Context, client openai.Client, params openai.ChatCompletionNewParams, callbacks llmsvc.StreamCallbacks) (*llmsvc.StreamResult, bool, error) {
 	stream := client.Chat.Completions.NewStreaming(ctx, params)
 	acc := openai.ChatCompletionAccumulator{}
 	var reasoningBuf strings.Builder
+	var tokenUsage llmsvc.TokenUsage
+	sawStreamEvent := false
 
 	for stream.Next() {
+		sawStreamEvent = true
 		chunk := stream.Current()
 		acc.AddChunk(chunk)
+		if chunk.Usage.TotalTokens > 0 || chunk.Usage.PromptTokens > 0 || chunk.Usage.CompletionTokens > 0 {
+			tokenUsage = tokenUsageFromOpenAIChunkUsage(
+				chunk.Usage.PromptTokens,
+				chunk.Usage.PromptTokensDetails.CachedTokens,
+				chunk.Usage.CompletionTokens,
+				chunk.Usage.TotalTokens,
+			)
+		}
 
 		if len(chunk.Choices) > 0 {
 			delta := chunk.Choices[0].Delta
@@ -94,24 +120,24 @@ func (c *OpenAIClient) StreamChatWithTools(
 				reasoningBuf.WriteString(reasoning)
 				if callbacks.OnThinkingChunk != nil {
 					if err := callbacks.OnThinkingChunk(reasoning); err != nil {
-						return nil, err
+						return nil, sawStreamEvent, err
 					}
 				}
 			}
 
 			if delta.Content != "" {
 				if err := callbacks.OnChunk(delta.Content); err != nil {
-					return nil, err
+					return nil, sawStreamEvent, err
 				}
 			}
 		}
 	}
 	if err := stream.Err(); err != nil {
-		return nil, fmt.Errorf("Model request failed: %w", err)
+		return nil, sawStreamEvent, fmt.Errorf("Model request failed: %w", err)
 	}
 
 	if len(acc.Choices) == 0 {
-		return &llmsvc.StreamResult{Type: llmsvc.StreamResultText}, nil
+		return &llmsvc.StreamResult{Type: llmsvc.StreamResultText}, sawStreamEvent, nil
 	}
 
 	choice := acc.Choices[0]
@@ -125,18 +151,43 @@ func (c *OpenAIClient) StreamChatWithTools(
 			})
 		}
 		return &llmsvc.StreamResult{
-			Type:      llmsvc.StreamResultToolCalls,
-			ToolCalls: calls,
+			Type:       llmsvc.StreamResultToolCalls,
+			TokenUsage: nonZeroUsage(tokenUsage),
+			ToolCalls:  calls,
 			AssistantMessage: llmsvc.ChatMessage{
 				Role:             "assistant",
 				Content:          choice.Message.Content,
 				ToolCalls:        calls,
 				ReasoningContent: reasoningBuf.String(),
 			},
-		}, nil
+		}, sawStreamEvent, nil
 	}
 
-	return &llmsvc.StreamResult{Type: llmsvc.StreamResultText}, nil
+	return &llmsvc.StreamResult{Type: llmsvc.StreamResultText, TokenUsage: nonZeroUsage(tokenUsage)}, sawStreamEvent, nil
+}
+
+func tokenUsageFromOpenAIChunkUsage(promptTokens, cachedTokens, completionTokens, totalTokens int64) llmsvc.TokenUsage {
+	return llmsvc.TokenUsage{
+		InputTokens:          int(promptTokens),
+		OutputTokens:         int(completionTokens),
+		CacheReadInputTokens: int(cachedTokens),
+		TotalTokens:          int(totalTokens),
+	}
+}
+
+func nonZeroUsage(usage llmsvc.TokenUsage) *llmsvc.TokenUsage {
+	if usage.IsZero() {
+		return nil
+	}
+	return &usage
+}
+
+func isStreamUsageUnsupported(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "stream_options") || strings.Contains(msg, "include_usage")
 }
 
 func applyThinkingParams(params *openai.ChatCompletionNewParams, modelConfig llmsvc.ModelRuntimeConfig) {

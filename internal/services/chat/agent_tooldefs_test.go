@@ -11,7 +11,7 @@ import (
 
 func TestBuildRuntimeToolDefs_IncludesRunSubagentAtDepth0Only(t *testing.T) {
 	ctx := context.Background()
-	agent := NewAgentService(nil, nil, nil, nil)
+	agent := NewAgentService(nil, nil, nil)
 
 	defs0, _, err := agent.buildRuntimeToolDefs(ctx, nil, 0)
 	if err != nil {
@@ -101,10 +101,23 @@ func TestRunSubagentToolDef_EncouragesBoundedDelegationWithIsolation(t *testing.
 	}
 }
 
+func TestBuildRuntimeToolDefs_DoesNotExposeSearchMemory(t *testing.T) {
+	ctx := context.Background()
+	agent := NewAgentService(nil, nil, nil)
+
+	defs, _, err := agent.buildRuntimeToolDefs(ctx, nil, 0)
+	if err != nil {
+		t.Fatalf("buildRuntimeToolDefs failed: %v", err)
+	}
+	legacyTool := "search" + "_" + "memory"
+	if containsToolName(defs, legacyTool) {
+		t.Fatalf("legacy memory tool should not be exposed after removal: %#v", toolNames(defs))
+	}
+}
+
 func TestFilterPlanModeToolDefs_KeepsRunSubagentAndReadOnlyTools(t *testing.T) {
 	defs := []llmsvc.ToolDef{
 		{Name: constants.RunSubagentTool},
-		{Name: constants.SearchMemoryTool},
 		{Name: "file_read__read"},
 		{Name: "file_edit__edit"},
 		{Name: "file_write__write"},
@@ -119,7 +132,6 @@ func TestFilterPlanModeToolDefs_KeepsRunSubagentAndReadOnlyTools(t *testing.T) {
 
 	for _, name := range []string{
 		constants.RunSubagentTool,
-		constants.SearchMemoryTool,
 		"file_read__read",
 		"web_search__search",
 		constants.PlanStartTool,

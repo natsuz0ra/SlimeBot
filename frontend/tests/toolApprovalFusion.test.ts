@@ -92,10 +92,7 @@ test('plan approval actions ignore confirmations from another session', () => {
     chatStoreSource,
     /function rejectPlan[\s\S]*if \(pendingPlanConfirmation\.value\.sessionId !== sessionId\) return/s,
   )
-  assert.match(
-    chatStoreSource,
-    /function modifyPlan[\s\S]*if \(pendingPlanConfirmation\.value\.sessionId !== sessionId\) return/s,
-  )
+  assert.doesNotMatch(chatStoreSource, /function modifyPlan/)
 })
 
 test('approval and plan prompts align timeline targets before falling back to bottom', () => {

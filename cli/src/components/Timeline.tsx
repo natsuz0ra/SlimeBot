@@ -261,7 +261,7 @@ function TimelineBlock({
     }
   } else if (isAskQuestions && (status === "pending" || status === "executing")) {
     const questionsRaw = entry.params?.questions;
-    if (questionsRaw) qaDisplayLines = formatAskQuestionsPending(questionsRaw);
+    if (typeof questionsRaw === "string") qaDisplayLines = formatAskQuestionsPending(questionsRaw);
   }
   const isFileTool = isFileToolEntry(entry);
   const paramLines = qaDisplayLines || isRunSubagent || isFileTool ? [] : formatToolParamLines(entry, maxWidth, toolOutputExpanded);

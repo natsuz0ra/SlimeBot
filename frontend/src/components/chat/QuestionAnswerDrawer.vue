@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, reactive, watch, nextTick, onMounted, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { isMaskSelfEvent, shouldCloseOnMaskInteraction } from '@/utils/dialogMask'
 
 interface QuestionItem {
   id: string
@@ -30,6 +31,7 @@ const { t } = useI18n()
 const step = ref<'questions' | 'confirm'>('questions')
 const answers = ref<Answer[]>([])
 const submitBtnRef = ref<HTMLButtonElement | null>(null)
+const pointerDownStartedOnMask = ref(false)
 
 const tooltipState = reactive({
   visible: false,
@@ -124,6 +126,22 @@ function handleCancel() {
   emit('cancel', props.toolCallId)
 }
 
+function onMaskPointerDown(e: PointerEvent) {
+  pointerDownStartedOnMask.value = isMaskSelfEvent(e)
+}
+
+function onMaskClick(e: MouseEvent) {
+  if (shouldCloseOnMaskInteraction({
+    closeOnMask: true,
+    pointerDownStartedOnMask: pointerDownStartedOnMask.value,
+    eventTarget: e.target,
+    eventCurrentTarget: e.currentTarget,
+  })) {
+    handleCancel()
+  }
+  pointerDownStartedOnMask.value = false
+}
+
 function onKeydown(e: KeyboardEvent) {
   if (!props.visible) return
   if (e.key === 'Escape') {
@@ -143,7 +161,7 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown))
 <template>
   <Teleport to="body">
     <Transition name="drawer-slide">
-      <div v-if="visible" class="drawer-overlay" @click.self="handleCancel">
+      <div v-if="visible" class="drawer-overlay" @pointerdown="onMaskPointerDown" @click="onMaskClick">
         <div class="drawer-panel" role="dialog" aria-modal="true" :aria-label="t('qaTitle')">
           <header class="drawer-header">
             <h3 class="drawer-title">{{ t('qaTitle') }}</h3>
@@ -250,7 +268,6 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown))
         :style="{ left: tooltipState.x + 'px', top: tooltipState.y + 'px' }"
       >
         {{ tooltipState.text }}
-        <span class="qa-desc-floating-arrow" />
       </div>
     </Transition>
   </Teleport>
@@ -591,16 +608,6 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown))
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
   z-index: 99999;
   pointer-events: none;
-}
-
-.qa-desc-floating-arrow {
-  position: absolute;
-  bottom: -4px;
-  left: 50%;
-  transform: translateX(-50%) rotate(45deg);
-  width: 8px;
-  height: 8px;
-  background: rgba(0, 0, 0, 0.78);
 }
 
 .tooltip-fade-enter-active,

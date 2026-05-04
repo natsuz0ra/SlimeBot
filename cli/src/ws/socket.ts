@@ -4,7 +4,7 @@
  */
 
 import WebSocket from "ws";
-import type { SubagentChunkData, SubagentDoneData, SubagentStartData, TodoUpdateData, ToolCallStartData, ToolCallResultData } from "../types.js";
+import type { ContextUsage, SubagentChunkData, SubagentDoneData, SubagentStartData, TodoUpdateData, ToolCallStartData, ToolCallResultData } from "../types.js";
 
 export interface ThinkingEventData {
   content?: string;
@@ -31,6 +31,8 @@ export interface WSHandlers {
   onThinkingChunk?: (data: ThinkingEventData) => void;
   onThinkingDone?: (data: ThinkingEventData) => void;
   onTodoUpdate?: (data: TodoUpdateData, sessionId?: string) => void;
+  onContextUsage?: (data: ContextUsage, sessionId?: string) => void;
+  onContextCompacted?: (data: ContextUsage, sessionId?: string) => void;
   onPlanBody?: (content: string, sessionId?: string) => void;
   onPlanChunk?: (chunk: string, sessionId?: string) => void;
   onPlanStart?: () => void;
@@ -51,6 +53,7 @@ interface WSIncoming {
   preamble?: string;
   status?: string;
   output?: string;
+  metadata?: unknown;
   isInterrupted?: boolean;
   isStopPlaceholder?: boolean;
   parentToolCallId?: string;
@@ -62,6 +65,38 @@ interface WSIncoming {
   items?: TodoUpdateData["items"];
   note?: string;
   updatedAt?: string;
+  usage?: ContextUsage;
+  modelConfigId?: string;
+  usedTokens?: number;
+  totalTokens?: number;
+  usedPercent?: number;
+  availablePercent?: number;
+  isCompacted?: boolean;
+  compactedAt?: string;
+}
+
+function normalizeContextUsage(msg: WSIncoming | ContextUsage | undefined, fallbackSessionId?: string): ContextUsage | null {
+  if (!msg) return null;
+  const source = "usage" in msg && msg.usage ? msg.usage : msg;
+  const totalTokens = Number(source.totalTokens);
+  const usedTokens = Number(source.usedTokens);
+  if (!Number.isFinite(totalTokens) || totalTokens <= 0 || !Number.isFinite(usedTokens)) return null;
+  const usedPercent = Number.isFinite(Number(source.usedPercent))
+    ? Number(source.usedPercent)
+    : Math.round((usedTokens / totalTokens) * 100);
+  const availablePercent = Number.isFinite(Number(source.availablePercent))
+    ? Number(source.availablePercent)
+    : Math.max(0, 100 - usedPercent);
+  return {
+    sessionId: String(source.sessionId || fallbackSessionId || ""),
+    modelConfigId: String(source.modelConfigId || ""),
+    usedTokens: Math.max(0, Math.round(usedTokens)),
+    totalTokens: Math.max(1, Math.round(totalTokens)),
+    usedPercent: Math.max(0, Math.min(100, Math.round(usedPercent))),
+    availablePercent: Math.max(0, Math.min(100, Math.round(availablePercent))),
+    isCompacted: !!source.isCompacted,
+    compactedAt: source.compactedAt,
+  };
 }
 
 export class CLISocket {
@@ -307,6 +342,16 @@ export function dispatchWSMessage(raw: string, handlers: WSHandlers | null): voi
       },
       msg.sessionId,
     );
+  }
+
+  if (msg.type === "context_usage") {
+    const usage = normalizeContextUsage(msg, msg.sessionId);
+    if (usage) handlers?.onContextUsage?.(usage, msg.sessionId);
+  }
+
+  if (msg.type === "context_compacted") {
+    const usage = normalizeContextUsage(msg.usage, msg.sessionId);
+    if (usage) handlers?.onContextCompacted?.(usage, msg.sessionId);
   }
 
   if (msg.type === "plan_body") {

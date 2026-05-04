@@ -46,7 +46,7 @@ export function getToolSummaryParamKeys(
   if (tool === "exec" && cmd === "run" && normalizedParam(params, "description") !== "") {
     return ["description"];
   }
-  if ((tool === "web_search" || tool === "search_memory") && normalizedParam(params, "query") !== "") {
+  if (tool === "web_search" && normalizedParam(params, "query") !== "") {
     return ["query"];
   }
   if (tool === "run_subagent") {
@@ -89,7 +89,7 @@ export function formatToolCallSummary(
     if (!commandText) return "";
     return truncateText(commandText, 96);
   }
-  if (tool === "web_search" || tool === "search_memory") {
+  if (tool === "web_search") {
     const query = normalizedParam(params, "query");
     return query ? `query: ${query}` : "";
   }
@@ -168,8 +168,9 @@ function decodeCommonEscapes(raw: string): string {
 }
 
 /** Formats one tool text value, attempting JSON pretty-print and common escape decoding. */
-export function formatToolTextValue(raw: string): string {
-  const parsed = tryParseJSON(raw);
+export function formatToolTextValue(raw: unknown): string {
+  const text = typeof raw === "string" ? raw : JSON.stringify(raw ?? "");
+  const parsed = tryParseJSON(text);
   if (parsed !== null) {
     if (typeof parsed === "string") {
       return decodeCommonEscapes(parsed);
@@ -177,10 +178,10 @@ export function formatToolTextValue(raw: string): string {
     try {
       return JSON.stringify(parsed as JSONValue, null, 2);
     } catch {
-      return raw;
+      return text;
     }
   }
-  const decoded = decodeCommonEscapes(raw);
+  const decoded = decodeCommonEscapes(text);
   // Filter consecutive empty lines in display only
   return decoded.replace(/\n{2,}/g, "\n").trim();
 }

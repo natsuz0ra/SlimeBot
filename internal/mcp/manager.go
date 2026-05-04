@@ -129,7 +129,7 @@ func (m *Manager) LoadTools(ctx context.Context, configs []domain.MCPConfig) ([]
 			var lm []ToolMeta
 			var ld []map[string]any
 			for _, tool := range tools {
-				funcName := buildMCPFuncName(entry.alias, tool.Name)
+				funcName := BuildFuncName(entry.alias, tool.Name)
 				inputSchema := tool.InputSchema
 				if inputSchema == nil {
 					inputSchema = map[string]any{
@@ -267,8 +267,8 @@ func sanitizeToken(input string) string {
 	return out
 }
 
-// buildMCPFuncName builds a server__tool name; truncates long parts and appends a SHA1 suffix for length/conflict control.
-func buildMCPFuncName(serverAlias, toolName string) string {
+// BuildFuncName builds a server__tool name; truncates long parts and appends a SHA1 suffix for length/conflict control.
+func BuildFuncName(serverAlias, toolName string) string {
 	serverToken := sanitizeToken(serverAlias)
 	toolToken := sanitizeToken(toolName)
 	full := serverToken + "__" + toolToken

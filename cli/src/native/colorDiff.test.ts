@@ -61,6 +61,22 @@ test("renderColorDiff returns ANSI lines with plain content intact", () => {
   assert.ok(lines.some((line) => /\x1b\[/.test(line)));
 });
 
+test("renderColorDiffRows fallback uses whole-line backgrounds without word highlights", () => {
+  setNativeColorDiffForTest(null);
+  const rows = renderColorDiffRows({
+    filePath: "src/example.ts",
+    width: 80,
+    lines: [
+      { kind: "removed", oldLine: 1, text: "const oldName = 1" },
+      { kind: "added", newLine: 1, text: "const newName = 1" },
+    ],
+  });
+
+  assert.ok(rows[0]!.content.includes("\x1b[48;5;52m"));
+  assert.ok(rows[1]!.content.includes("\x1b[48;5;22m"));
+  assert.doesNotMatch(rows.map((row) => row.content).join("\n"), /\x1b\[48;5;(28|88)m/);
+});
+
 test("renderColorDiffRows keeps compact marker and line-number gutters", () => {
   setNativeColorDiffForTest(null);
   const rows = renderColorDiffRows({

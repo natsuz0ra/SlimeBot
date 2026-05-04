@@ -3,7 +3,10 @@ package constants
 import "time"
 
 const (
-	ContextHistoryLimit                = 10
+	DefaultContextHistoryRounds        = 20
+	DefaultContextSize                 = 1_000_000
+	ContextHistoryRoundMin             = 5
+	ContextHistoryRoundMax             = 50
 	MessagePlatformSessionID           = "im-platform-session"
 	MessagePlatformSessionName         = "Message Platform Session"
 	SettingLanguage                    = "language"
@@ -21,12 +24,6 @@ const (
 	MaxSubagentDepth               = 1
 	AgentApprovalTimeout           = 120 * time.Second
 	MaxToolNameLen                 = 64
-	MemoryToolDefaultTopK          = 10
-	CompressedRecentHistoryLimit   = 10
-	MemorySearchTopK               = 5
-	MemoryContextTopK              = 10
-	MemoryContextBuildBudget       = 5 * time.Second
-	MemoryKeywordMaxCount          = 12
 	MaxSkillZipBytes               = 20 * 1024 * 1024
 	MaxSkillExtractedBytes         = 50 * 1024 * 1024
 	MaxSkillSingleFileSize         = 10 * 1024 * 1024
@@ -50,7 +47,6 @@ const (
 	TodoUpdateTool                 = "todo_update"
 	ActivateSkillTool              = "activate_skill"
 	RunSubagentTool                = "run_subagent"
-	SearchMemoryTool               = "search_memory"
 	HTTPRequestTimeout             = 30 * time.Second
 	HTTPMaxResponseBytes           = 128 * 1024
 	WebSearchBaseURL               = "https://api.tavily.com"
@@ -73,7 +69,6 @@ const (
 	PlanStatusPending  = "pending"
 	PlanStatusApproved = "approved"
 	PlanStatusRejected = "rejected"
-	PlanStatusExecuted = "executed"
 
 	// WebSocket
 	WSChatTimeout     = 600 * time.Second

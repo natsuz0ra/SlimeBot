@@ -30,15 +30,6 @@ func resolveToolInvocation(tc llmsvc.ToolCallInfo, mcpToolMeta map[string]mcp.To
 			requiresApproval: false,
 		}, nil
 	}
-	if tc.Name == constants.SearchMemoryTool {
-		// Memory search uses the built-in tool path; no approval.
-		return resolvedToolInvocation{
-			toolName:         constants.SearchMemoryTool,
-			command:          "query",
-			isMCP:            false,
-			requiresApproval: false,
-		}, nil
-	}
 	if tc.Name == constants.RunSubagentTool {
 		return resolvedToolInvocation{
 			toolName:         constants.RunSubagentTool,
@@ -112,7 +103,7 @@ func waitApprovalIfNeeded(
 	return true, "", approval.Answers
 }
 
-// executeInvocation dispatches to MCP, memory, or built-in tool execution.
+// executeInvocation dispatches to MCP or built-in tool execution.
 func (a *AgentService) executeInvocation(
 	ctx context.Context,
 	tc llmsvc.ToolCallInfo,
@@ -120,8 +111,8 @@ func (a *AgentService) executeInvocation(
 	params map[string]any,
 	sessionID string,
 	mcpConfigs []domain.MCPConfig,
-	memoryToolUsed *bool,
 ) *tools.ExecuteResult {
+	_ = sessionID
 	if invocation.isMCP {
 		argsAny, parseErr := parseToolCallArgsAny(tc.Arguments)
 		if parseErr != nil {
@@ -134,22 +125,6 @@ func (a *AgentService) executeInvocation(
 		return &tools.ExecuteResult{Output: callResult.Output, Error: callResult.Error}
 	}
 
-	if (invocation.toolName == "memory" && invocation.command == "query") ||
-		(invocation.toolName == constants.SearchMemoryTool && invocation.command == "query") {
-		// Allow at most one memory tool call per assistant turn to avoid duplicate context noise.
-		if *memoryToolUsed {
-			return &tools.ExecuteResult{Error: "search_memory can be called at most once per response."}
-		}
-		if a.memory == nil {
-			return &tools.ExecuteResult{Error: "Memory service is not enabled."}
-		}
-		*memoryToolUsed = true
-		queryResult, queryErr := a.memory.QueryForAgent(ctx, sessionID, fmt.Sprintf("%v", params["query"]), constants.MemoryToolDefaultTopK)
-		if queryErr != nil {
-			return &tools.ExecuteResult{Output: queryResult.Output, Error: queryErr.Error()}
-		}
-		return &tools.ExecuteResult{Output: queryResult.Output}
-	}
 	return executeToolCall(ctx, invocation.toolName, invocation.command, params)
 }
 

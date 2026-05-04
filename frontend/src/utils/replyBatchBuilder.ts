@@ -20,6 +20,11 @@ export type AssistantReplyTimelineItem =
     }
   | {
       id: string
+      kind: 'notice'
+      content: string
+    }
+  | {
+      id: string
       kind: 'plan'
       content: string
       generating?: boolean
@@ -107,7 +112,7 @@ export function getCollapsedReplyTimeline(timeline: AssistantReplyTimelineItem[]
     }
   }
 
-  return timeline.filter((entry, index) => entry.kind === 'plan' || index === lastTextIndex)
+  return timeline.filter((entry, index) => entry.kind === 'plan' || entry.kind === 'notice' || index === lastTextIndex)
 }
 
 export function hasCollapsibleReplyContent(timeline: AssistantReplyTimelineItem[], toolCalls: ToolCallItem[]) {

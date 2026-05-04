@@ -283,3 +283,14 @@ func truncateForTitleContext(input string, maxRunes int) string {
 	}
 	return string(runes[len(runes)-maxRunes:])
 }
+
+func truncateRunes(input string, maxRunes int) string {
+	if maxRunes <= 0 {
+		return ""
+	}
+	runes := []rune(input)
+	if len(runes) <= maxRunes {
+		return input
+	}
+	return string(runes[:maxRunes])
+}

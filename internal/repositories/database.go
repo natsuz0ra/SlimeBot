@@ -31,6 +31,7 @@ func NewSQLite(dbPath string) (*gorm.DB, error) {
 		&domain.ThinkingRecord{},
 		&domain.AppSetting{},
 		&domain.LLMConfig{},
+		&domain.SessionContextSummary{},
 		&domain.MCPConfig{},
 		&domain.MessagePlatformConfig{},
 	); err != nil {

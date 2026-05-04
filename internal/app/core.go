@@ -18,7 +18,6 @@ import (
 	chatsvc "slimebot/internal/services/chat"
 	configsvc "slimebot/internal/services/config"
 	llmsvc "slimebot/internal/services/llm"
-	memsvc "slimebot/internal/services/memory"
 	oaisvc "slimebot/internal/services/openai"
 	plansvc "slimebot/internal/services/plan"
 	sessionsvc "slimebot/internal/services/session"
@@ -43,7 +42,6 @@ type Core struct {
 	SkillRuntime     *skillsvc.SkillRuntimeService
 	ChatUpload       *chatsvc.ChatUploadService
 	MCPManager       *mcp.Manager
-	MemoryService    *memsvc.MemoryService
 	PlanService      *plansvc.PlanService
 
 	warmupOnce    sync.Once
@@ -79,7 +77,7 @@ func NewCore(cfg config.Config) (*Core, error) {
 	mcpManager := mcp.NewManager()
 	settingsService := settingssvc.NewSettingsService(repo)
 	sessionService := sessionsvc.NewSessionService(repo)
-	llmConfigService := configsvc.NewLLMConfigService(repo)
+	llmConfigService := configsvc.NewLLMConfigService(repo, cfg.DefaultContextSize)
 	mcpConfigService := configsvc.NewMCPConfigService(repo)
 	platformService := configsvc.NewMessagePlatformConfigService(repo)
 
@@ -87,14 +85,10 @@ func NewCore(cfg config.Config) (*Core, error) {
 	skillPackage := skillsvc.NewSkillPackageService(skillStore, cfg.SkillsRoot)
 	skillRuntime := skillsvc.NewSkillRuntimeService(skillStore, cfg.SkillsRoot)
 
-	memoryService, err := memsvc.NewMemoryService(cfg.MemoryDir)
-	if err != nil {
-		return nil, err
-	}
-
 	chatUpload := chatsvc.NewChatUploadService(cfg.ChatUploadRoot)
-	chatService := chatsvc.NewChatService(repo, repo, providerFactory, mcpManager, skillRuntime, memoryService)
+	chatService := chatsvc.NewChatService(repo, repo, providerFactory, mcpManager, skillRuntime)
 	chatService.SetUploadService(chatUpload)
+	chatService.SetContextHistoryRounds(cfg.ContextHistoryRounds)
 
 	planService, err := plansvc.NewPlanService()
 	if err != nil {
@@ -117,13 +111,12 @@ func NewCore(cfg config.Config) (*Core, error) {
 		SkillRuntime:     skillRuntime,
 		ChatUpload:       chatUpload,
 		MCPManager:       mcpManager,
-		MemoryService:    memoryService,
 		PlanService:      planService,
 		warmupDone:       make(chan struct{}),
 	}, nil
 }
 
-// WarmupInBackground starts a goroutine to warm up the memory index.
+// WarmupInBackground starts lightweight background warmup work.
 func (c *Core) WarmupInBackground(ctx context.Context) {
 	if c == nil {
 		return
@@ -136,14 +129,7 @@ func (c *Core) WarmupInBackground(ctx context.Context) {
 		go func() {
 			defer close(c.warmupDone)
 
-			// Rebuild memory index on startup.
-			if c.MemoryService != nil && c.MemoryService.Store() != nil {
-				if err := c.MemoryService.Store().RebuildIndex(); err != nil {
-					logging.Warn("memory_index_warmup_failed", "err", err)
-				} else {
-					logging.Info("memory_index_warmup_complete", "dir", c.Config.MemoryDir)
-				}
-			}
+			logging.Info("warmup_complete")
 		}()
 	})
 }
@@ -167,11 +153,6 @@ func (c *Core) Close(ctx context.Context) {
 		}
 	}
 
-	if c.MemoryService != nil {
-		if err := c.MemoryService.Shutdown(ctx); err != nil {
-			logging.Warn("memory_shutdown", "err", err)
-		}
-	}
 	if c.MCPManager != nil {
 		c.MCPManager.CloseAll()
 	}

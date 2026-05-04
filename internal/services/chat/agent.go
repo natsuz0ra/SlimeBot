@@ -14,7 +14,6 @@ import (
 	"slimebot/internal/constants"
 	"slimebot/internal/mcp"
 	llmsvc "slimebot/internal/services/llm"
-	memsvc "slimebot/internal/services/memory"
 	skillsvc "slimebot/internal/services/skill"
 	"slimebot/internal/tools"
 )
@@ -24,7 +23,6 @@ type AgentService struct {
 	providerFactory *llmsvc.Factory
 	mcp             *mcp.Manager
 	skillRuntime    *skillsvc.SkillRuntimeService
-	memory          *memsvc.MemoryService
 	subagentHost    SubagentHost
 	toolCacheMu     sync.Mutex
 	toolCache       map[string]cachedToolDefs
@@ -41,12 +39,11 @@ type cachedToolDefs struct {
 }
 
 // NewAgentService constructs an AgentService.
-func NewAgentService(providerFactory *llmsvc.Factory, mcpManager *mcp.Manager, skillRuntime *skillsvc.SkillRuntimeService, memory *memsvc.MemoryService) *AgentService {
+func NewAgentService(providerFactory *llmsvc.Factory, mcpManager *mcp.Manager, skillRuntime *skillsvc.SkillRuntimeService) *AgentService {
 	return &AgentService{
 		providerFactory: providerFactory,
 		mcp:             mcpManager,
 		skillRuntime:    skillRuntime,
-		memory:          memory,
 		toolCache:       make(map[string]cachedToolDefs),
 		readFilesBySess: make(map[string]*tools.ReadFileState),
 		readFilesAt:     make(map[string]time.Time),
@@ -253,29 +250,6 @@ func (a *AgentService) buildRuntimeToolDefs(ctx context.Context, configs []domai
 	}
 	defs := BuildToolDefs()
 	metaByFunc := make(map[string]mcp.ToolMeta)
-	if a.memory != nil {
-		defs = append(defs, llmsvc.ToolDef{
-			Name:        constants.SearchMemoryTool,
-			Description: "[memory] Search historical memory on demand. Use only when the response depends on past preferences, decisions, or cross-session constraints.",
-			Parameters: map[string]any{
-				"type": "object",
-				"properties": map[string]any{
-					"query": map[string]any{
-						"type":        "string",
-						"description": "Memory topic or question to retrieve for this turn.",
-					},
-					"top_k": map[string]any{
-						"type":        "integer",
-						"description": "Number of results to return, default 3, max 5.",
-						"default":     constants.MemoryToolDefaultTopK,
-						"minimum":     1,
-						"maximum":     5,
-					},
-				},
-				"required": []string{"query"},
-			},
-		})
-	}
 	if a.skillRuntime != nil {
 		skills, err := a.skillRuntime.ListSkills()
 		if err != nil {
@@ -407,7 +381,6 @@ func (a *AgentService) RunAgentLoop(
 	copy(messages, contextMessages)
 
 	var finalAnswer strings.Builder
-	memoryToolUsed := false
 	readFileState := a.getSessionReadFileState(sessionID)
 
 	provider := a.providerFactory.GetProvider(modelConfig.Provider)
@@ -465,6 +438,16 @@ func (a *AgentService) RunAgentLoop(
 		if err != nil {
 			return "", fmt.Errorf("agent LLM call failed at iteration %d: %w", i+1, err)
 		}
+		if result != nil && result.TokenUsage != nil && !result.TokenUsage.IsZero() {
+			if opts.LatestUsage != nil {
+				*opts.LatestUsage = *result.TokenUsage
+			}
+			if opts.OnProviderUsage != nil {
+				if err := opts.OnProviderUsage(*result.TokenUsage); err != nil {
+					return "", fmt.Errorf("OnProviderUsage callback failed: %w", err)
+				}
+			}
+		}
 
 		if thinkingStarted && !thinkingDone {
 			if err := finishThinking(); err != nil {
@@ -481,7 +464,6 @@ func (a *AgentService) RunAgentLoop(
 		messages = append(messages, result.AssistantMessage)
 		//preamble := strings.TrimSpace(result.AssistantMessage.Content)
 
-		var memoryMu sync.Mutex
 		var activatedSkillsMu sync.Mutex
 		var parallelJobs []parallelToolJob
 		flushParallelJobs := func() {
@@ -542,7 +524,7 @@ func (a *AgentService) RunAgentLoop(
 			// Plan mode: block non-read-only tools.
 			if opts.PlanMode && !isPlanModeAllowedTool(tc.Name) {
 				flushParallelJobs()
-				messages = appendToolMessage(messages, tc.ID, "This tool is blocked in plan mode. Only read-only tools (web_search, search_memory) are allowed.")
+				messages = appendToolMessage(messages, tc.ID, "This tool is blocked in plan mode. Only read-only tools (web_search, file_read) are allowed.")
 				continue
 			}
 
@@ -660,13 +642,8 @@ func (a *AgentService) RunAgentLoop(
 						}
 						return execResult
 					}
-					if (invocationCopy.toolName == "memory" && invocationCopy.command == "query") ||
-						(invocationCopy.toolName == constants.SearchMemoryTool && invocationCopy.command == "query") {
-						memoryMu.Lock()
-						defer memoryMu.Unlock()
-					}
 					execCtx = tools.WithReadFileState(execCtx, readFileState)
-					return a.executeInvocation(execCtx, tcCopy, invocationCopy, paramsCopy, sessionID, mcpConfigs, &memoryToolUsed)
+					return a.executeInvocation(execCtx, tcCopy, invocationCopy, paramsCopy, sessionID, mcpConfigs)
 				},
 			})
 		}
@@ -683,9 +660,9 @@ func (a *AgentService) RunAgentLoop(
 
 // isPlanModeAllowedTool returns true if the tool function name is allowed in plan mode.
 func isPlanModeAllowedTool(funcName string) bool {
-	// Handle tools without __ separator (e.g. search_memory, plan_start).
+	// Handle tools without __ separator (e.g. plan_start).
 	switch funcName {
-	case "search_memory", "plan_start", constants.RunSubagentTool, constants.TodoUpdateTool:
+	case "plan_start", constants.RunSubagentTool, constants.TodoUpdateTool:
 		return true
 	}
 	// Handle tools with __ separator (e.g. web_search__search, file_read__read, plan_complete__submit).

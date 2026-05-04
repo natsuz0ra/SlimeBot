@@ -16,6 +16,7 @@ export interface LLMConfig {
   baseUrl: string
   apiKey: string
   model: string
+  contextSize?: number
 }
 
 export interface MCPConfig {

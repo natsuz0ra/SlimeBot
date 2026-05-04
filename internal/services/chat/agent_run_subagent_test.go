@@ -15,7 +15,7 @@ import (
 
 func TestHandleRunSubagentTool_PlanModeChildKeepsReadOnlyToolFilter(t *testing.T) {
 	provider := &captureToolDefsProvider{}
-	agent := NewAgentService(llmsvc.NewFactory(provider), nil, nil, nil)
+	agent := NewAgentService(llmsvc.NewFactory(provider), nil, nil)
 	agent.SetSubagentHost(&stubSubagentHost{})
 
 	messages := []llmsvc.ChatMessage{{Role: "user", Content: "make a plan"}}
@@ -96,7 +96,7 @@ func TestWrapSubagentCallbacksTagsThinkingEvents(t *testing.T) {
 
 func TestHandleRunSubagentTool_EmitsNormalizedSubagentTitle(t *testing.T) {
 	provider := &captureToolDefsProvider{}
-	agent := NewAgentService(llmsvc.NewFactory(provider), nil, nil, nil)
+	agent := NewAgentService(llmsvc.NewFactory(provider), nil, nil)
 	agent.SetSubagentHost(&stubSubagentHost{})
 
 	var gotTitle string
@@ -139,7 +139,7 @@ func TestHandleRunSubagentTool_EmitsNormalizedSubagentTitle(t *testing.T) {
 
 func TestHandleRunSubagentTool_FallsBackTitleToTask(t *testing.T) {
 	provider := &captureToolDefsProvider{}
-	agent := NewAgentService(llmsvc.NewFactory(provider), nil, nil, nil)
+	agent := NewAgentService(llmsvc.NewFactory(provider), nil, nil)
 	agent.SetSubagentHost(&stubSubagentHost{})
 
 	var gotTitle string
@@ -178,7 +178,7 @@ func TestHandleRunSubagentTool_FallsBackTitleToTask(t *testing.T) {
 
 func TestRunAgentLoop_HandlesTodoUpdateWithoutRegularToolCallback(t *testing.T) {
 	provider := &todoUpdateProvider{}
-	agent := NewAgentService(llmsvc.NewFactory(provider), nil, nil, nil)
+	agent := NewAgentService(llmsvc.NewFactory(provider), nil, nil)
 	var updates []TodoUpdate
 	var toolStarts int
 
@@ -305,7 +305,7 @@ func TestHandleRunSubagentTool_InheritsParentModelForEmptyOrDefaultModelID(t *te
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			provider := &captureToolDefsProvider{}
-			agent := NewAgentService(llmsvc.NewFactory(provider), nil, nil, nil)
+			agent := NewAgentService(llmsvc.NewFactory(provider), nil, nil)
 			host := &stubSubagentHost{}
 			agent.SetSubagentHost(host)
 
@@ -350,7 +350,7 @@ func TestHandleRunSubagentTool_InheritsParentModelForEmptyOrDefaultModelID(t *te
 
 func TestHandleRunSubagentTool_UserConfiguredModelKeepsParentThinkingLevel(t *testing.T) {
 	provider := &captureToolDefsProvider{}
-	agent := NewAgentService(llmsvc.NewFactory(provider), nil, nil, nil)
+	agent := NewAgentService(llmsvc.NewFactory(provider), nil, nil)
 	host := &stubSubagentHost{
 		resolved: llmsvc.ModelRuntimeConfig{
 			Provider: llmsvc.ProviderAnthropic,
@@ -401,7 +401,7 @@ func TestHandleRunSubagentTool_UserConfiguredModelKeepsParentThinkingLevel(t *te
 
 func TestHandleRunSubagentTool_PreservesChildReasoningAcrossToolIterations(t *testing.T) {
 	provider := &subagentReasoningIterationProvider{}
-	agent := NewAgentService(llmsvc.NewFactory(provider), nil, nil, nil)
+	agent := NewAgentService(llmsvc.NewFactory(provider), nil, nil)
 	agent.SetSubagentHost(&stubSubagentHost{})
 
 	messages := []llmsvc.ChatMessage{{Role: "user", Content: "delegate"}}
@@ -433,7 +433,7 @@ func TestHandleRunSubagentTool_PreservesChildReasoningAcrossToolIterations(t *te
 
 func TestRunAgentLoop_SubagentCanRunBeyondFormerThirtyIterationCap(t *testing.T) {
 	provider := &loopUntilTextProvider{textAtCall: 31}
-	agent := NewAgentService(llmsvc.NewFactory(provider), nil, nil, nil)
+	agent := NewAgentService(llmsvc.NewFactory(provider), nil, nil)
 
 	answer, err := agent.RunAgentLoop(
 		context.Background(),
@@ -458,7 +458,7 @@ func TestRunAgentLoop_SubagentCanRunBeyondFormerThirtyIterationCap(t *testing.T)
 
 func TestRunAgentLoop_MainAgentStillStopsAtMaxIterations(t *testing.T) {
 	provider := &loopUntilTextProvider{textAtCall: constants.AgentMaxIterations + 1}
-	agent := NewAgentService(llmsvc.NewFactory(provider), nil, nil, nil)
+	agent := NewAgentService(llmsvc.NewFactory(provider), nil, nil)
 
 	_, err := agent.RunAgentLoop(
 		context.Background(),
@@ -483,7 +483,7 @@ func TestRunAgentLoop_MainAgentStillStopsAtMaxIterations(t *testing.T) {
 
 func TestRunAgentLoop_RunSubagentToolCallsExecuteConcurrentlyAndPreserveMessageOrder(t *testing.T) {
 	provider := newParallelSubagentProvider(false)
-	agent := NewAgentService(llmsvc.NewFactory(provider), nil, nil, nil)
+	agent := NewAgentService(llmsvc.NewFactory(provider), nil, nil)
 	agent.SetSubagentHost(&stubSubagentHost{})
 
 	var startMu sync.Mutex
@@ -557,7 +557,7 @@ func TestRunAgentLoop_RunSubagentToolCallsExecuteConcurrentlyAndPreserveMessageO
 
 func TestRunAgentLoop_CancelledSubagentEmitsDoneAndParentToolError(t *testing.T) {
 	provider := &cancelSubagentProvider{started: make(chan struct{})}
-	agent := NewAgentService(llmsvc.NewFactory(provider), nil, nil, nil)
+	agent := NewAgentService(llmsvc.NewFactory(provider), nil, nil)
 	agent.SetSubagentHost(&stubSubagentHost{})
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -649,7 +649,7 @@ func TestHandleChatStream_ParallelSubagentThinkingRecordsKeepSeparateScopes(t *t
 	}
 
 	provider := newParallelSubagentProvider(true)
-	svc := NewChatService(repo, nil, llmsvc.NewFactory(provider), nil, nil, nil)
+	svc := NewChatService(repo, nil, llmsvc.NewFactory(provider), nil, nil)
 
 	done := make(chan error, 1)
 	go func() {

@@ -11,6 +11,7 @@ import type {
   MCPConfig,
   Skill,
   Settings,
+  ContextUsage,
 } from "../types.js";
 
 export class APIClient {
@@ -78,6 +79,11 @@ export class APIClient {
     return this.request(`/api/sessions/${id}/messages?limit=${limit}`);
   }
 
+  getContextUsage(id: string, modelId: string): Promise<ContextUsage> {
+    const params = new URLSearchParams({ modelId });
+    return this.request(`/api/sessions/${id}/context-usage?${params}`);
+  }
+
   // ===== Settings =====
 
   getSettings(): Promise<Settings> {
@@ -103,11 +109,30 @@ export class APIClient {
     baseUrl: string;
     apiKey: string;
     model: string;
+    contextSize?: number;
   }): Promise<LLMConfig> {
     return this.request("/api/llm-configs", {
       method: "POST",
       body: JSON.stringify(data),
     });
+  }
+
+  updateLLMConfig(id: string, data: {
+    name: string;
+    provider: string;
+    baseUrl: string;
+    apiKey: string;
+    model: string;
+    contextSize?: number;
+  }): Promise<void> {
+    return this.request(`/api/llm-configs/${id}`, {
+      method: "PUT",
+      body: JSON.stringify(data),
+    }).then(() => {});
+  }
+
+  deleteLLMConfig(id: string): Promise<void> {
+    return this.request(`/api/llm-configs/${id}`, { method: "DELETE" }).then(() => {});
   }
 
   // ===== MCP Configs =====

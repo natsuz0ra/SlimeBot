@@ -93,6 +93,7 @@ func (c *AnthropicClient) StreamChatWithTools(
 		toolUseBlocks     []pendingToolUse
 		currentToolUseIdx = -1
 		inThinkingBlock   = false
+		tokenUsage        llmsvc.TokenUsage
 	)
 
 	finishThinkingBlock := func() {
@@ -175,6 +176,10 @@ func (c *AnthropicClient) StreamChatWithTools(
 		case "content_block_stop":
 			finishThinkingBlock()
 			currentToolUseIdx = -1
+		case "message_start":
+			mergeAnthropicUsage(&tokenUsage, event.Message.Usage.InputTokens, event.Message.Usage.OutputTokens, event.Message.Usage.CacheCreationInputTokens, event.Message.Usage.CacheReadInputTokens)
+		case "message_delta":
+			mergeAnthropicUsage(&tokenUsage, event.Usage.InputTokens, event.Usage.OutputTokens, event.Usage.CacheCreationInputTokens, event.Usage.CacheReadInputTokens)
 		}
 	}
 	finishThinkingBlock()
@@ -214,12 +219,38 @@ func (c *AnthropicClient) StreamChatWithTools(
 		}
 		return &llmsvc.StreamResult{
 			Type:             llmsvc.StreamResultToolCalls,
+			TokenUsage:       nonZeroUsage(tokenUsage),
 			ToolCalls:        calls,
 			AssistantMessage: assistantMsg,
 		}, nil
 	}
 
-	return &llmsvc.StreamResult{Type: llmsvc.StreamResultText}, nil
+	return &llmsvc.StreamResult{Type: llmsvc.StreamResultText, TokenUsage: nonZeroUsage(tokenUsage)}, nil
+}
+
+func mergeAnthropicUsage(target *llmsvc.TokenUsage, inputTokens, outputTokens, cacheCreationInputTokens, cacheReadInputTokens int64) {
+	if target == nil {
+		return
+	}
+	if inputTokens > 0 {
+		target.InputTokens = int(inputTokens)
+	}
+	if outputTokens > 0 {
+		target.OutputTokens = int(outputTokens)
+	}
+	if cacheCreationInputTokens > 0 {
+		target.CacheCreationInputTokens = int(cacheCreationInputTokens)
+	}
+	if cacheReadInputTokens > 0 {
+		target.CacheReadInputTokens = int(cacheReadInputTokens)
+	}
+}
+
+func nonZeroUsage(usage llmsvc.TokenUsage) *llmsvc.TokenUsage {
+	if usage.IsZero() {
+		return nil
+	}
+	return &usage
 }
 
 // pendingToolUse accumulates parameters from streaming tool_use events.

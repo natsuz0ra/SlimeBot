@@ -35,6 +35,7 @@ type settingsService interface {
 type llmConfigService interface {
 	List(ctx context.Context) ([]domain.LLMConfig, error)
 	Create(ctx context.Context, input configsvc.LLMConfigCreateInput) (*domain.LLMConfig, error)
+	Update(ctx context.Context, id string, input configsvc.LLMConfigInput) error
 	Delete(ctx context.Context, id string) error
 }
 
@@ -66,6 +67,10 @@ type chatUploadService interface {
 	SaveFiles(sessionID string, files []*multipart.FileHeader) ([]chatsvc.UploadedAttachment, error)
 }
 
+type chatContextUsageService interface {
+	GetContextUsage(ctx context.Context, sessionID string, modelID string) (chatsvc.ContextUsage, error)
+}
+
 // HTTPController wires REST handlers and request/response shaping.
 type HTTPController struct {
 	skillPackage skillPackageService
@@ -78,6 +83,7 @@ type HTTPController struct {
 	mcpConfigs   mcpConfigService
 	platforms    messagePlatformConfigService
 	plans        planService
+	chatUsage    chatContextUsageService
 	tokenManager *auth.TokenManager
 }
 
@@ -108,4 +114,8 @@ func NewHTTPController(
 		plans:        plansService,
 		tokenManager: tokenManager,
 	}
+}
+
+func (h *HTTPController) SetChatContextUsageService(service chatContextUsageService) {
+	h.chatUsage = service
 }

@@ -5,7 +5,7 @@ import (
 	"strings"
 )
 
-const fileDiffContextLines = 3
+const fileDiffContextLines = 2
 
 type FileDiffLine struct {
 	Kind    string `json:"kind"`

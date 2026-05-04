@@ -205,10 +205,10 @@ func TestFileEditMetadataIncludesNearbyContext(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected file metadata, got %#v", res.Metadata)
 	}
-	if len(metadata.DiffLines) != 8 {
-		t.Fatalf("expected 3 context lines around one change, got %+v", metadata.DiffLines)
+	if len(metadata.DiffLines) != 6 {
+		t.Fatalf("expected 2 context lines around one change, got %+v", metadata.DiffLines)
 	}
-	if metadata.DiffLines[0].Text != "line 2" || metadata.DiffLines[len(metadata.DiffLines)-1].Text != "line 8" {
+	if metadata.DiffLines[0].Text != "line 3" || metadata.DiffLines[len(metadata.DiffLines)-1].Text != "line 7" {
 		t.Fatalf("unexpected context window: %+v", metadata.DiffLines)
 	}
 	if !hasDiffLine(metadata.DiffLines, "removed", 5, 0, "line 5") || !hasDiffLine(metadata.DiffLines, "added", 0, 5, "changed 5") {

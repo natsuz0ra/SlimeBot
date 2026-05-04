@@ -1,14 +1,16 @@
 <script setup lang="ts">
 import { useI18n } from 'vue-i18n'
-import { mdiDeleteOutline, mdiPlus } from '@mdi/js'
+import { mdiDeleteOutline, mdiPencilOutline, mdiPlus } from '@mdi/js'
 import MdiIcon from '@/components/ui/MdiIcon.vue'
+import { formatContextSize } from '@/utils/contextSize'
 
 defineProps<{
-  llmRows: { id: string; name: string; model: string; baseUrl: string; provider?: string }[] | any[]
+  llmRows: { id: string; name: string; model: string; baseUrl: string; provider?: string; contextSize?: number }[] | any[]
 }>()
 
 const emit = defineEmits<{
   add: []
+  edit: [item: any]
   delete: [id: string]
 }>()
 
@@ -33,8 +35,11 @@ const { t } = useI18n()
             <span v-if="item.provider === 'anthropic'" class="inline-block ml-1 px-1.5 py-0.5 text-[10px] font-medium rounded-md" style="background: rgba(217,119,6,0.15); color: #d97706;">Anthropic</span>
             <span v-else-if="item.provider === 'deepseek'" class="inline-block ml-1 px-1.5 py-0.5 text-[10px] font-medium rounded-md" style="background: rgba(20,184,166,0.15); color: #0f766e;">DeepSeek</span>
           </div>
-          <div class="text-xs settings-item-sub truncate mt-0.5">{{ item.baseUrl }}</div>
+          <div class="text-xs settings-item-sub truncate mt-0.5">{{ item.baseUrl }} · {{ t('contextSize') }} {{ formatContextSize(item.contextSize || 1_000_000) }}</div>
         </div>
+        <button type="button" class="flex-shrink-0 w-7 h-7 flex items-center justify-center rounded-lg transition-all duration-150 cursor-pointer action-icon-btn" @click="emit('edit', item)">
+          <MdiIcon :path="mdiPencilOutline" :size="15" />
+        </button>
         <button type="button" class="flex-shrink-0 w-7 h-7 flex items-center justify-center rounded-lg transition-all duration-150 cursor-pointer delete-btn" @click="emit('delete', item.id)">
           <MdiIcon :path="mdiDeleteOutline" :size="15" />
         </button>

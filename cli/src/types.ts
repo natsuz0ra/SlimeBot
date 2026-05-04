@@ -26,7 +26,9 @@ export interface LLMConfig {
   name: string;
   provider: string;
   baseUrl: string;
+  apiKey: string;
   model: string;
+  contextSize?: number;
   createdAt: string;
   updatedAt: string;
 }
@@ -166,6 +168,17 @@ export interface TodoUpdateData {
   updatedAt?: string;
 }
 
+export interface ContextUsage {
+  sessionId: string;
+  modelConfigId: string;
+  usedTokens: number;
+  totalTokens: number;
+  usedPercent: number;
+  availablePercent: number;
+  isCompacted: boolean;
+  compactedAt?: string;
+}
+
 // ===== UI state types =====
 
 export type ViewMode = "chat" | "menu" | "mcp-editor" | "mcp-template" | "model-editor" | "approval" | "thinking-detail" | "plan-confirm" | "question-answer";
@@ -254,6 +267,12 @@ export interface PendingApprovalItem {
   params: Record<string, unknown>;
 }
 
+export type ApprovalReviewStatus = "pending" | "approved" | "rejected";
+
+export interface ApprovalReviewItem extends PendingApprovalItem {
+  approvalStatus: ApprovalReviewStatus;
+}
+
 export interface MenuItem {
   title: string;
   desc: string;
@@ -315,6 +334,7 @@ export interface AppState {
   turnElapsedMs: number;
   turnTokenEstimate: number;
   turnThoughtDurationMs?: number;
+  contextUsage: ContextUsage | null;
   runtimeTodos: RuntimeTodoItem[];
   runtimeTodosNote: string;
   runtimeTodosUpdatedAt?: number;
@@ -344,11 +364,13 @@ export interface AppState {
   mcpTemplateCursor: number;
 
   // Model Editor
+  modelEditorId: string;
   modelEditorName: string;
   modelEditorProvider: ModelProvider;
   modelEditorBaseUrl: string;
   modelEditorApiKey: string;
   modelEditorModel: string;
+  modelEditorContextSize: string;
   modelEditorFocusIndex: number;
   modelEditorProviderSelect: boolean;
 
@@ -359,7 +381,9 @@ export interface AppState {
   approvalParams: Record<string, unknown>;
   approvalReplyCh: ((approved: boolean) => void) | null;
   pendingApprovals: PendingApprovalItem[];
+  approvalReviewItems: ApprovalReviewItem[];
   approvalCursor: number;
+  markedApprovalIds: string[];
 
   // Plan confirmation
   pendingPlanId: string;
@@ -377,6 +401,7 @@ export interface AppState {
   qaCursor: number;
   qaCustomInput: string;
   qaCustomInputKey: number;
+  qaEditingFromConfirm: boolean;
 
   // Connection
   apiURL: string;
@@ -396,6 +421,8 @@ export type AppAction =
   | { type: "STREAM_START"; startedAt?: number }
   | { type: "STREAM_CHUNK"; chunk: string }
   | { type: "STREAM_DONE"; error: string | null }
+  | { type: "CONTEXT_USAGE"; usage: ContextUsage }
+  | { type: "CONTEXT_COMPACTED"; usage: ContextUsage }
   | { type: "TURN_STATS_TICK"; now?: number }
   | { type: "TOGGLE_COMPACT" }
   | { type: "TOGGLE_TOOL_OUTPUT" }
@@ -417,20 +444,23 @@ export type AppAction =
   | { type: "SET_MCP_TEMPLATE_VIEW" }
   | { type: "MCP_TEMPLATE_NAV"; delta: number }
   | { type: "SET_MODEL_EDITOR_VIEW" }
+  | { type: "SET_MODEL_EDITOR"; config: LLMConfig }
   | { type: "SET_MODEL_EDITOR_NAME"; name: string }
   | { type: "SET_MODEL_EDITOR_PROVIDER"; provider: ModelProvider }
   | { type: "SET_MODEL_EDITOR_BASE_URL"; baseUrl: string }
   | { type: "SET_MODEL_EDITOR_API_KEY"; apiKey: string }
   | { type: "SET_MODEL_EDITOR_MODEL"; model: string }
+  | { type: "SET_MODEL_EDITOR_CONTEXT_SIZE"; contextSize: string }
   | { type: "MODEL_EDITOR_NEXT_FIELD" }
   | { type: "MODEL_EDITOR_PREV_FIELD" }
   | { type: "TOGGLE_MODEL_EDITOR_PROVIDER_SELECT" }
   | { type: "SET_APPROVAL"; toolCallId: string; toolName: string; command: string; params: Record<string, unknown>; replyCh: (approved: boolean) => void }
   | { type: "CLEAR_APPROVAL" }
   | { type: "ADD_PENDING_APPROVAL"; item: PendingApprovalItem }
-  | { type: "REMOVE_PENDING_APPROVAL"; toolCallId: string }
+  | { type: "REMOVE_PENDING_APPROVAL"; toolCallId: string; approved?: boolean }
   | { type: "CLEAR_PENDING_APPROVALS" }
   | { type: "APPROVAL_NAV"; delta: number }
+  | { type: "TOGGLE_APPROVAL_MARK"; toolCallId: string }
   | { type: "SET_APPROVAL_MODE"; mode: ApprovalMode }
   | { type: "SET_THINKING_LEVEL"; level: ThinkingLevel }
   | { type: "SET_SUBAGENT_MODEL"; modelId: string; modelName: string }
@@ -450,11 +480,13 @@ export type AppAction =
   | { type: "VIEW_THINKING_DETAIL"; content: string }
   | { type: "SET_QA"; toolCallId: string; questions: QAQuestion[] }
   | { type: "QA_NAV"; delta: number }
+  | { type: "QA_NAV_TO"; cursor: number }
   | { type: "QA_SELECT"; optionIndex: number }
   | { type: "QA_SET_CUSTOM_INPUT"; value: string }
   | { type: "QA_SUBMIT_CUSTOM"; value: string }
   | { type: "QA_NEXT_QUESTION" }
   | { type: "QA_PREV_QUESTION" }
+  | { type: "QA_EDIT_QUESTION"; index: number }
   | { type: "QA_STEP_CONFIRM" }
   | { type: "QA_STEP_BACK" }
   | { type: "QA_CONFIRM_NAV"; delta: number }

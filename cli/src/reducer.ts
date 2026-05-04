@@ -12,6 +12,7 @@ import type {
   ModelProvider,
 } from "./types.js";
 import { estimateTokens } from "./utils/format.js";
+import { CONTEXT_SIZE_DEFAULT, clampContextSize } from "./utils/contextSize.js";
 
 function clearTurnStats() {
   return {
@@ -56,6 +57,19 @@ function estimateTurnTokens(state: AppState, entries = state.timeline, liveAssis
 
 function addTokenEstimate(state: AppState, chunk: string): number {
   return Math.max(0, state.turnTokenEstimate + estimateTokens(chunk));
+}
+
+function restoreQuestionCursor(state: AppState, index: number): Pick<AppState, "qaCurrentIndex" | "qaCursor" | "qaCustomInput"> {
+  const safeIndex = Math.max(0, Math.min(index, Math.max(0, state.qaQuestions.length - 1)));
+  const question = state.qaQuestions[safeIndex];
+  const answer = state.qaAnswers[safeIndex];
+  const customCursor = question?.options.length ?? 0;
+  const selectedOption = answer?.selectedOption ?? -2;
+  return {
+    qaCurrentIndex: safeIndex,
+    qaCursor: selectedOption >= 0 ? Math.min(selectedOption, Math.max(0, customCursor)) : customCursor,
+    qaCustomInput: selectedOption === -1 ? answer?.customAnswer ?? "" : "",
+  };
 }
 
 function isOpenToolStatus(status?: string): boolean {
@@ -152,6 +166,7 @@ export function createInitialState(
     turnElapsedMs: 0,
     turnTokenEstimate: 0,
     turnThoughtDurationMs: undefined,
+    contextUsage: null,
     runtimeTodos: [],
     runtimeTodosNote: "",
     runtimeTodosUpdatedAt: undefined,
@@ -169,11 +184,13 @@ export function createInitialState(
     mcpEditorEnabled: true,
     mcpEditorFocusName: true,
     mcpTemplateCursor: 0,
+    modelEditorId: "",
     modelEditorName: "",
     modelEditorProvider: "openai" as ModelProvider,
     modelEditorBaseUrl: "",
     modelEditorApiKey: "",
     modelEditorModel: "",
+    modelEditorContextSize: String(CONTEXT_SIZE_DEFAULT),
     modelEditorFocusIndex: 0,
     modelEditorProviderSelect: false,
     approvalToolCallId: "",
@@ -182,7 +199,9 @@ export function createInitialState(
     approvalParams: {},
     approvalReplyCh: null,
     pendingApprovals: [],
+    approvalReviewItems: [],
     approvalCursor: 0,
+    markedApprovalIds: [],
     pendingPlanId: "",
     pendingPlanContent: "",
     planConfirmCursor: 0,
@@ -197,6 +216,7 @@ export function createInitialState(
     qaCursor: 0,
     qaCustomInput: "",
     qaCustomInputKey: 0,
+    qaEditingFromConfirm: false,
 
     apiURL,
     cliToken,
@@ -230,6 +250,7 @@ export function reducer(state: AppState, action: AppAction): AppState {
         sessionName: action.sessionName !== undefined
           ? action.sessionName
           : (action.sessionId !== state.sessionId ? "" : state.sessionName),
+        contextUsage: action.sessionId !== state.sessionId ? null : state.contextUsage,
       };
 
     case "SET_SESSION_NAME":
@@ -268,6 +289,25 @@ export function reducer(state: AppState, action: AppAction): AppState {
         turnTokenEstimate: addTokenEstimate(state, action.chunk),
       };
     }
+
+    case "CONTEXT_USAGE":
+      return {
+        ...state,
+        contextUsage: { ...action.usage },
+      };
+
+    case "CONTEXT_COMPACTED":
+      return {
+        ...state,
+        contextUsage: { ...action.usage, isCompacted: true },
+        timeline: [
+          ...state.timeline,
+          {
+            kind: "system",
+            content: "Context compacted; continuing with summary + recent messages.",
+          },
+        ],
+      };
 
     case "STREAM_DONE": {
       let entries = finalizeOpenRuntimeEntries([...state.timeline], action.error || "Execution cancelled.");
@@ -402,10 +442,12 @@ export function reducer(state: AppState, action: AppAction): AppState {
         planReceived: false,
         ...clearTurnStats(),
         ...clearRuntimeTodos(),
+        contextUsage: null,
         thinkingDetailContent: "",
         view: "chat",
         pendingApprovals: [],
         approvalCursor: 0,
+        markedApprovalIds: [],
         menuKind: null,
         menuTitle: "",
         menuItems: [],
@@ -488,11 +530,28 @@ export function reducer(state: AppState, action: AppAction): AppState {
       return {
         ...state,
         view: "model-editor",
+        modelEditorId: "",
         modelEditorName: "",
         modelEditorProvider: "openai" as ModelProvider,
         modelEditorBaseUrl: "",
         modelEditorApiKey: "",
         modelEditorModel: "",
+        modelEditorContextSize: String(CONTEXT_SIZE_DEFAULT),
+        modelEditorFocusIndex: 0,
+        modelEditorProviderSelect: false,
+      };
+
+    case "SET_MODEL_EDITOR":
+      return {
+        ...state,
+        view: "model-editor",
+        modelEditorId: action.config.id,
+        modelEditorName: action.config.name,
+        modelEditorProvider: (action.config.provider || "openai") as ModelProvider,
+        modelEditorBaseUrl: action.config.baseUrl,
+        modelEditorApiKey: action.config.apiKey,
+        modelEditorModel: action.config.model,
+        modelEditorContextSize: String(clampContextSize(action.config.contextSize)),
         modelEditorFocusIndex: 0,
         modelEditorProviderSelect: false,
       };
@@ -512,14 +571,18 @@ export function reducer(state: AppState, action: AppAction): AppState {
     case "SET_MODEL_EDITOR_MODEL":
       return { ...state, modelEditorModel: action.model };
 
+    case "SET_MODEL_EDITOR_CONTEXT_SIZE":
+      return { ...state, modelEditorContextSize: action.contextSize };
+
     case "MODEL_EDITOR_NEXT_FIELD": {
-      const maxIndex = 4;
-      const next = Math.min(maxIndex, state.modelEditorFocusIndex + 1);
+      const maxIndex = 5;
+      const next = state.modelEditorFocusIndex >= maxIndex ? 0 : state.modelEditorFocusIndex + 1;
       return { ...state, modelEditorFocusIndex: next, modelEditorProviderSelect: false };
     }
 
     case "MODEL_EDITOR_PREV_FIELD": {
-      const prev = Math.max(0, state.modelEditorFocusIndex - 1);
+      const maxIndex = 5;
+      const prev = state.modelEditorFocusIndex <= 0 ? maxIndex : state.modelEditorFocusIndex - 1;
       return { ...state, modelEditorFocusIndex: prev, modelEditorProviderSelect: false };
     }
 
@@ -553,10 +616,19 @@ export function reducer(state: AppState, action: AppAction): AppState {
       const pendingApprovals = existing
         ? state.pendingApprovals.map((item) => item.toolCallId === action.item.toolCallId ? action.item : item)
         : [...state.pendingApprovals, action.item];
+      const existingReview = state.approvalReviewItems.find((item) => item.toolCallId === action.item.toolCallId);
+      const approvalReviewItems = existingReview
+        ? state.approvalReviewItems.map((item) =>
+            item.toolCallId === action.item.toolCallId
+              ? { ...action.item, approvalStatus: item.approvalStatus }
+              : item
+          )
+        : [...state.approvalReviewItems, { ...action.item, approvalStatus: "pending" as const }];
       return {
         ...state,
         view: "approval",
         pendingApprovals,
+        approvalReviewItems,
         approvalCursor: Math.min(state.approvalCursor, Math.max(0, pendingApprovals.length - 1)),
         approvalToolCallId: action.item.toolCallId,
         approvalToolName: action.item.toolName,
@@ -567,10 +639,22 @@ export function reducer(state: AppState, action: AppAction): AppState {
 
     case "REMOVE_PENDING_APPROVAL": {
       const pendingApprovals = state.pendingApprovals.filter((item) => item.toolCallId !== action.toolCallId);
+      const settledStatus = action.approved === undefined
+        ? undefined
+        : action.approved ? "approved" as const : "rejected" as const;
+      const approvalReviewItems = settledStatus
+        ? state.approvalReviewItems.map((item) =>
+            item.toolCallId === action.toolCallId
+              ? { ...item, approvalStatus: settledStatus }
+              : item
+          )
+        : state.approvalReviewItems;
       return {
         ...state,
         view: pendingApprovals.length > 0 ? "approval" : "chat",
         pendingApprovals,
+        approvalReviewItems: pendingApprovals.length > 0 ? approvalReviewItems : [],
+        markedApprovalIds: state.markedApprovalIds.filter((id) => id !== action.toolCallId),
         approvalCursor: Math.min(state.approvalCursor, Math.max(0, pendingApprovals.length - 1)),
         ...(pendingApprovals.length === 0
           ? {
@@ -589,7 +673,9 @@ export function reducer(state: AppState, action: AppAction): AppState {
         ...state,
         view: "chat",
         pendingApprovals: [],
+        approvalReviewItems: [],
         approvalCursor: 0,
+        markedApprovalIds: [],
         approvalToolCallId: "",
         approvalToolName: "",
         approvalCommand: "",
@@ -602,6 +688,17 @@ export function reducer(state: AppState, action: AppAction): AppState {
       return {
         ...state,
         approvalCursor: Math.max(0, Math.min(maxIndex, state.approvalCursor + action.delta)),
+      };
+    }
+
+    case "TOGGLE_APPROVAL_MARK": {
+      if (!action.toolCallId) return state;
+      const exists = state.markedApprovalIds.includes(action.toolCallId);
+      return {
+        ...state,
+        markedApprovalIds: exists
+          ? state.markedApprovalIds.filter((id) => id !== action.toolCallId)
+          : [...state.markedApprovalIds, action.toolCallId],
       };
     }
 
@@ -860,6 +957,7 @@ export function reducer(state: AppState, action: AppAction): AppState {
         qaCursor: 0,
         qaCustomInput: "",
         qaCustomInputKey: 0,
+        qaEditingFromConfirm: false,
       };
     }
 
@@ -869,6 +967,15 @@ export function reducer(state: AppState, action: AppAction): AppState {
       return {
         ...state,
         qaCursor: Math.max(0, Math.min(state.qaCursor + action.delta, maxIdx)),
+      };
+    }
+
+    case "QA_NAV_TO": {
+      const q = state.qaQuestions[state.qaCurrentIndex];
+      const maxIdx = q ? q.options.length : 0; // options + custom
+      return {
+        ...state,
+        qaCursor: Math.max(0, Math.min(action.cursor, maxIdx)),
       };
     }
 
@@ -906,9 +1013,18 @@ export function reducer(state: AppState, action: AppAction): AppState {
     }
 
     case "QA_NEXT_QUESTION": {
+      if (state.qaEditingFromConfirm) {
+        return {
+          ...state,
+          qaStep: "confirm",
+          qaCursor: state.qaQuestions.length,
+          qaCustomInput: "",
+          qaEditingFromConfirm: false,
+        };
+      }
       const nextIdx = state.qaCurrentIndex + 1;
       if (nextIdx >= state.qaQuestions.length) {
-        return { ...state, qaStep: "confirm", qaCursor: 0 };
+        return { ...state, qaStep: "confirm", qaCursor: state.qaQuestions.length };
       }
       return { ...state, qaCurrentIndex: nextIdx, qaCursor: 0, qaCustomInput: "" };
     }
@@ -918,14 +1034,27 @@ export function reducer(state: AppState, action: AppAction): AppState {
       return { ...state, qaCurrentIndex: state.qaCurrentIndex - 1, qaCursor: 0, qaCustomInput: "" };
     }
 
+    case "QA_EDIT_QUESTION":
+      return {
+        ...state,
+        ...restoreQuestionCursor(state, action.index),
+        qaStep: "questions",
+        qaEditingFromConfirm: true,
+      };
+
     case "QA_STEP_CONFIRM":
-      return { ...state, qaStep: "confirm", qaCursor: 0 };
+      return { ...state, qaStep: "confirm", qaCursor: state.qaQuestions.length, qaEditingFromConfirm: false };
 
     case "QA_STEP_BACK":
-      return { ...state, qaStep: "questions", qaCursor: 0 };
+      return {
+        ...state,
+        ...restoreQuestionCursor(state, Math.max(0, state.qaQuestions.length - 1)),
+        qaStep: "questions",
+        qaEditingFromConfirm: false,
+      };
 
     case "QA_CONFIRM_NAV":
-      return { ...state, qaCursor: Math.max(0, Math.min(state.qaCursor + action.delta, 1)) };
+      return { ...state, qaCursor: Math.max(0, Math.min(state.qaCursor + action.delta, state.qaQuestions.length)) };
 
     case "CLEAR_QA":
       return {
@@ -938,6 +1067,7 @@ export function reducer(state: AppState, action: AppAction): AppState {
         qaStep: "questions",
         qaCursor: 0,
         qaCustomInput: "",
+        qaEditingFromConfirm: false,
       };
 
     case "FLUSH_AND_WAIT": {

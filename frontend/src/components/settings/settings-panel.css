@@ -89,6 +89,14 @@ button.edit-btn:hover {
   color: var(--sb-brand);
 }
 
+button.action-icon-btn {
+  color: var(--text-muted);
+}
+button.action-icon-btn:hover {
+  background: var(--primary-alpha-10);
+  color: var(--sb-brand);
+}
+
 button.delete-btn {
   color: var(--text-muted);
 }
@@ -127,6 +135,28 @@ button.account-edit-btn:hover {
 .drop-zone {
   border: 1.5px dashed var(--card-border);
   color: var(--text-muted);
+}
+
+.context-size-slider {
+  width: 100%;
+  accent-color: var(--sb-brand);
+  cursor: pointer;
+}
+
+.context-size-input {
+  width: 132px;
+  height: 34px;
+  padding: 0 10px;
+  border-radius: 8px;
+  border: 1px solid var(--input-border);
+  background: var(--input-bg);
+  color: var(--text-primary);
+  font-size: 13px;
+  outline: none;
+}
+
+.context-size-input:focus {
+  border-color: var(--sb-brand);
 }
 .drop-zone-idle:hover {
   border-color: var(--primary-alpha-40);

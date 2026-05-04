@@ -54,7 +54,7 @@ func TestRunCLIHeadless_StaysReachableUntilClose(t *testing.T) {
 }
 
 // testConfig returns a config pointing at a temp dir so tests don't clash with
-// the real ~/.slimebot (especially the bleve/bbolt file lock).
+// the real ~/.slimebot.
 func testConfig(t *testing.T) config.Config {
 	t.Helper()
 	tmp := t.TempDir()
@@ -63,7 +63,6 @@ func testConfig(t *testing.T) config.Config {
 		DBPath:           filepath.Join(tmp, "data.db"),
 		SkillsRoot:       filepath.Join(tmp, "skills"),
 		ChatUploadRoot:   filepath.Join(tmp, "uploads"),
-		MemoryDir:        filepath.Join(tmp, "memory"),
 		JWTSecret:        "test-secret",
 		JWTExpireMinutes: 60,
 	}

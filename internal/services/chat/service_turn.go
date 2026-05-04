@@ -70,20 +70,6 @@ func buildHistoryMessageWithAttachments(userText string, attachments []domain.Me
 	return strings.TrimSpace(builder.String())
 }
 
-const protocolHintFmt = "\n\n<|sys_hint|>End your reply with <memory>{\"name\":\"...\",\"description\":\"...\",\"type\":\"user|feedback|project|reference\",\"content\":\"...\"}</memory>. Turn time: %s.<|/sys_hint|>"
-
-// appendProtocolHintToLatestUser appends memory protocol hint to the latest user message.
-func appendProtocolHintToLatestUser(messages []llmsvc.ChatMessage, turnTime time.Time) {
-	hint := fmt.Sprintf(protocolHintFmt, turnTime.Local().Format(time.RFC3339))
-	for i := len(messages) - 1; i >= 0; i-- {
-		if messages[i].Role != "user" {
-			continue
-		}
-		messages[i].Content += hint
-		return
-	}
-}
-
 // overrideLatestUserTurn replaces the latest user message text with what was sent to the model.
 func overrideLatestUserTurn(messages []llmsvc.ChatMessage, content string) {
 	if strings.TrimSpace(content) == "" {

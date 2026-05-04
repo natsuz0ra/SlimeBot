@@ -7,7 +7,6 @@ const VIEWPORT_MARGIN_PX = 8
 const TOOLTIP_GAP_PX = 8
 const TOOLTIP_MAX_WIDTH_PX = 360
 const TOOLTIP_Z_INDEX = 9999
-const ARROW_EDGE_PADDING_PX = 14
 
 const props = withDefaults(
   defineProps<{
@@ -28,14 +27,10 @@ const lineRef = ref<HTMLElement | null>(null)
 const tooltipRef = ref<HTMLElement | null>(null)
 const overflow = ref(false)
 const visible = ref(false)
-const placement = ref<'top' | 'bottom'>('top')
 const tooltipStyle = ref<CSSProperties>({
   left: '0px',
   top: '0px',
   maxWidth: `${TOOLTIP_MAX_WIDTH_PX}px`,
-})
-const arrowStyle = ref<CSSProperties>({
-  left: '50%',
 })
 
 let hoverTimer: ReturnType<typeof setTimeout> | null = null
@@ -114,26 +109,17 @@ function updatePosition() {
   const canPlaceTop = topCandidate >= VIEWPORT_MARGIN_PX
   const canPlaceBottom = bottomCandidate + tooltipRect.height <= window.innerHeight - VIEWPORT_MARGIN_PX
 
-  placement.value = canPlaceTop || !canPlaceBottom ? 'top' : 'bottom'
+  const placement = canPlaceTop || !canPlaceBottom ? 'top' : 'bottom'
 
   const top =
-    placement.value === 'top'
+    placement === 'top'
       ? Math.max(VIEWPORT_MARGIN_PX, topCandidate)
       : Math.min(bottomCandidate, window.innerHeight - VIEWPORT_MARGIN_PX - tooltipRect.height)
-
-  const anchorCenterX = anchorRect.left + anchorRect.width / 2
-  const arrowLeft = Math.max(
-    ARROW_EDGE_PADDING_PX,
-    Math.min(anchorCenterX - left, tooltipRect.width - ARROW_EDGE_PADDING_PX),
-  )
 
   tooltipStyle.value = {
     left: `${Math.round(left)}px`,
     top: `${Math.round(top)}px`,
     maxWidth: `${Math.round(maxWidth)}px`,
-  }
-  arrowStyle.value = {
-    left: `${Math.round(arrowLeft)}px`,
   }
 }
 
@@ -281,11 +267,6 @@ onBeforeUnmount(() => {
       :style="{ ...tooltipStyle, zIndex: TOOLTIP_Z_INDEX }"
     >
       <span class="break-words">{{ text }}</span>
-      <div
-        class="absolute h-2 w-2 -translate-x-1/2 rotate-45 bg-black/78"
-        :class="placement === 'top' ? '-bottom-1' : '-top-1'"
-        :style="arrowStyle"
-      />
     </div>
   </Teleport>
 </template>

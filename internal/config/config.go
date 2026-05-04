@@ -18,21 +18,23 @@ type Config struct {
 	JWTSecret        string
 	JWTExpireMinutes int
 
-	MemoryDir string
+	ContextHistoryRounds int
+	DefaultContextSize   int
 }
 
 func Load() Config {
 	home := runtime.SlimeBotHomeDir()
 
 	return Config{
-		ServerPort:       getEnv("SERVER_PORT", "8080"),
-		DBPath:           getPathEnv("DB_PATH", filepath.Join(home, "storage", "data.db")),
-		Frontend:         getEnv("FRONTEND_ORIGIN", ""),
-		SkillsRoot:       getPathEnv("SKILLS_ROOT", filepath.Join(home, "skills")),
-		ChatUploadRoot:   getPathEnv("CHAT_UPLOAD_ROOT", filepath.Join(home, "storage", "chat_uploads")),
-		JWTSecret:        getEnv("JWT_SECRET", ""),
-		JWTExpireMinutes: GetIntEnv("JWT_EXPIRE", 15*24*60),
-		MemoryDir:        getPathEnv("MEMORY_DIR", filepath.Join(home, "memory")),
+		ServerPort:           getEnv("SERVER_PORT", "8080"),
+		DBPath:               getPathEnv("DB_PATH", filepath.Join(home, "storage", "data.db")),
+		Frontend:             getEnv("FRONTEND_ORIGIN", ""),
+		SkillsRoot:           getPathEnv("SKILLS_ROOT", filepath.Join(home, "skills")),
+		ChatUploadRoot:       getPathEnv("CHAT_UPLOAD_ROOT", filepath.Join(home, "storage", "chat_uploads")),
+		JWTSecret:            getEnv("JWT_SECRET", ""),
+		JWTExpireMinutes:     GetIntEnv("JWT_EXPIRE", 15*24*60),
+		ContextHistoryRounds: GetIntEnv("CONTEXT_HISTORY_ROUNDS", 20),
+		DefaultContextSize:   GetIntEnv("DEFAULT_CONTEXT_SIZE", 1_000_000),
 	}
 }
 

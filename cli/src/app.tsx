@@ -19,9 +19,10 @@ import { TextInput } from "./components/TextInput.js";
 import { Timeline } from "./components/Timeline.js";
 import { getChatFooterHint, handleChatShortcut, runCliCommand } from "./controllers/commands.js";
 import { useCliKeyboard } from "./hooks/useCliKeyboard.js";
+import { clampContextSize, formatContextSize, formatContextUsageStatus } from "./utils/contextSize.js";
 import { useCliSocket } from "./hooks/useCliSocket.js";
 import { reducer, createInitialState } from "./reducer.js";
-import { completeCommand, isCommand } from "./utils/commands.js";
+import { completeCommand, isCommand, matchCommandHints, moveCommandHintCursor } from "./utils/commands.js";
 import { formatTimestamp, formatWaitingStatsSuffix } from "./utils/format.js";
 import { mapHistoryMessages } from "./utils/history.js";
 import { clearScreen, setTerminalTitle } from "./utils/terminal.js";
@@ -68,6 +69,7 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
   const { exit } = useApp();
   const { stdout } = useStdout();
   const [width, setWidth] = React.useState(() => Math.max(20, stdout?.columns || 80));
+  const [commandHintCursor, setCommandHintCursor] = React.useState(0);
   const border = "─".repeat(width);
 
   const [state, dispatch] = useReducer(
@@ -83,12 +85,29 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
   const planModeRef = useRef(false);
   const planStartedRef = useRef(false);
   const preambleShownRef = useRef("");
+  const commandHints = React.useMemo(() => matchCommandHints(state.inputValue), [state.inputValue]);
+  const hasCommandHints = state.view === "chat" && !state.streaming && commandHints.length > 0;
+  const selectedCommandHintIndex = commandHints.length > 0
+    ? Math.max(0, Math.min(commandHints.length - 1, commandHintCursor))
+    : 0;
   const clearScreenDeferred = useCallback(() => {
     setImmediate(() => clearScreen());
   }, []);
 
   const appendSystem = useCallback((content: string) => {
     dispatch({ type: "APPEND_ENTRY", entry: { kind: "system", content } } as AppAction);
+  }, []);
+
+  const refreshContextUsage = useCallback(async (sessionId: string, modelId: string) => {
+    if (!sessionId || !modelId) return;
+    try {
+      const usage = await apiRef.current.getContextUsage(sessionId, modelId);
+      if (sessionRef.current.id === sessionId) {
+        dispatch({ type: "CONTEXT_USAGE", usage } as AppAction);
+      }
+    } catch {
+      // Context usage is informational; keep chat usable if it cannot be loaded.
+    }
   }, []);
 
   const applyTerminalTitle = useCallback((sessionName = "") => {
@@ -106,6 +125,10 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
   useEffect(() => {
     planModeRef.current = state.planMode;
   }, [state.planMode]);
+
+  useEffect(() => {
+    setCommandHintCursor(0);
+  }, [state.inputValue]);
 
   const refreshSessionName = useCallback(async (sessionId: string) => {
     if (!sessionId) {
@@ -241,7 +264,7 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
       const configs = await apiRef.current.listLLMConfigs();
       const items: MenuItem[] = configs.map((c) => ({
         title: c.name,
-        desc: c.model,
+        desc: `${c.model} · ${formatContextSize(c.contextSize || 1_000_000)}`,
         data: c,
       }));
       dispatch({
@@ -249,7 +272,7 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
         kind: "model",
         title: "Model Menu",
         items,
-        hint: "Arrow keys to navigate | Enter to set default | A to add | D to delete | Esc to close",
+        hint: "Arrow keys to navigate | Enter to set default | A to add | E to edit | D to delete | Esc to close",
       } as AppAction);
     } catch (error) {
       appendSystem(`Failed to load models: ${(error as Error).message}`);
@@ -340,6 +363,7 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
   }, []);
 
   const switchSession = useCallback(async (session: Session) => {
+    sessionRef.current = { id: session.id, name: session.name };
     dispatch({ type: "SET_SESSION", sessionId: session.id, sessionName: session.name } as AppAction);
     dispatch({ type: "CLOSE_MENU" } as AppAction);
     applyTerminalTitle(session.name);
@@ -354,10 +378,11 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
           history.thinkingByAssistantMessageId || {},
         ),
       } as AppAction);
+      await refreshContextUsage(session.id, state.modelId);
     } catch (error) {
       appendSystem(`Failed to load session history: ${(error as Error).message}`);
     }
-  }, [appendSystem, applyTerminalTitle, clearScreenDeferred]);
+  }, [appendSystem, applyTerminalTitle, clearScreenDeferred, refreshContextUsage, state.modelId]);
 
   const handleMenuSelect = useCallback(async (item: MenuItem | undefined) => {
     if (!item || !state.menuKind) return;
@@ -377,6 +402,9 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
         } as AppAction);
         dispatch({ type: "CLOSE_MENU" } as AppAction);
         appendSystem(`Model switched to ${model.name}.`);
+        if (state.sessionId) {
+          await refreshContextUsage(state.sessionId, model.id);
+        }
         return;
       }
       if (state.menuKind === "subagent_model") {
@@ -417,7 +445,7 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
     } catch (error) {
       appendSystem(`Menu action failed: ${(error as Error).message}`);
     }
-  }, [appendSystem, state.menuKind, switchSession]);
+  }, [appendSystem, refreshContextUsage, state.menuKind, state.sessionId, switchSession]);
 
   const handleMenuDelete = useCallback(async (item: MenuItem | undefined) => {
     if (!item || !state.menuKind) return;
@@ -444,6 +472,12 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
         const mcp = item.data as MCPConfig;
         await apiRef.current.deleteMCPConfig(mcp.id);
         await loadMCPConfigs();
+        return;
+      }
+      if (state.menuKind === "model") {
+        const model = item.data as LLMConfig;
+        await apiRef.current.deleteLLMConfig(model.id);
+        await loadModels();
       }
     } catch (error) {
       appendSystem(`Delete failed: ${(error as Error).message}`);
@@ -459,7 +493,12 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
   }, [state.menuKind]);
 
   const handleMenuEdit = useCallback((item: MenuItem | undefined) => {
-    if (state.menuKind !== "mcp" || !item) return;
+    if (!item) return;
+    if (state.menuKind === "model") {
+      dispatch({ type: "SET_MODEL_EDITOR", config: item.data as LLMConfig } as AppAction);
+      return;
+    }
+    if (state.menuKind !== "mcp") return;
     const mcp = item.data as MCPConfig;
     dispatch({
       type: "SET_MCP_EDITOR",
@@ -497,14 +536,21 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
 
   const saveModelConfig = useCallback(async () => {
     try {
-      await apiRef.current.createLLMConfig({
+      const payload = {
         name: state.modelEditorName,
         provider: state.modelEditorProvider,
         baseUrl: state.modelEditorBaseUrl,
         apiKey: state.modelEditorApiKey,
         model: state.modelEditorModel,
-      });
-      appendSystem("Model config created.");
+        contextSize: clampContextSize(state.modelEditorContextSize),
+      };
+      if (state.modelEditorId) {
+        await apiRef.current.updateLLMConfig(state.modelEditorId, payload);
+        appendSystem("Model config updated.");
+      } else {
+        await apiRef.current.createLLMConfig(payload);
+        appendSystem("Model config created.");
+      }
       await loadModels();
     } catch (error) {
       appendSystem(`Failed to save model config: ${(error as Error).message}`);
@@ -517,6 +563,8 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
     state.modelEditorBaseUrl,
     state.modelEditorApiKey,
     state.modelEditorModel,
+    state.modelEditorContextSize,
+    state.modelEditorId,
   ]);
 
   const saveMCPConfig = useCallback(async () => {
@@ -723,6 +771,11 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
           <Text> </Text>
         </>
       )}
+      {state.contextUsage && (
+        <Text color={state.contextUsage.usedPercent >= 90 ? "red" : state.contextUsage.usedPercent >= 70 ? "yellow" : "green"}>
+          {formatContextUsageStatus(state.contextUsage, width)}
+        </Text>
+      )}
       <Text color="white">{border}</Text>
 
       {state.view === "chat" && (
@@ -759,7 +812,7 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
               }
             }}
             onTab={() => {
-              const completed = completeCommand(state.inputValue);
+              const completed = completeCommand(state.inputValue, selectedCommandHintIndex);
               if (!completed) return undefined;
               const next = `${completed} `;
               dispatch({
@@ -772,6 +825,25 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
               if (state.inputValue) {
                 dispatch({ type: "SET_INPUT", value: "" } as AppAction);
               }
+            }}
+            onBeforeInput={(_, key) => {
+              if (!hasCommandHints) return false;
+              if (key.upArrow || key.downArrow) {
+                setCommandHintCursor((current) => (
+                  moveCommandHintCursor(current, key.upArrow ? -1 : 1, commandHints.length)
+                ));
+                return true;
+              }
+              if (key.return) {
+                const completed = completeCommand(state.inputValue, selectedCommandHintIndex);
+                if (!completed) return false;
+                dispatch({
+                  type: "SET_INPUT_WITH_KEY",
+                  value: `${completed} `,
+                } as AppAction);
+                return true;
+              }
+              return false;
             }}
             onUnhandledInput={(input, key) => {
               if (state.view !== "chat" || state.streaming) return;
@@ -798,7 +870,9 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
           command={state.approvalCommand}
           params={state.approvalParams}
           items={state.pendingApprovals}
+          approvalReviewItems={state.approvalReviewItems}
           cursor={state.approvalCursor}
+          columns={width}
         />
       )}
 
@@ -871,6 +945,7 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
 
       {state.view === "mcp-editor" && (
         <MCPEditor
+          id={state.mcpEditorId}
           name={state.mcpEditorName}
           config={state.mcpEditorConfig}
           enabled={state.mcpEditorEnabled}
@@ -903,6 +978,7 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
           baseUrl={state.modelEditorBaseUrl}
           apiKey={state.modelEditorApiKey}
           model={state.modelEditorModel}
+          contextSize={state.modelEditorContextSize}
           focusIndex={state.modelEditorFocusIndex}
           providerSelect={state.modelEditorProviderSelect}
           providerCursor={Math.max(0, MODEL_PROVIDER_ORDER.indexOf(state.modelEditorProvider))}
@@ -911,6 +987,7 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
           onBaseUrlChange={(url) => dispatch({ type: "SET_MODEL_EDITOR_BASE_URL", baseUrl: url } as AppAction)}
           onApiKeyChange={(k) => dispatch({ type: "SET_MODEL_EDITOR_API_KEY", apiKey: k } as AppAction)}
           onModelChange={(model) => dispatch({ type: "SET_MODEL_EDITOR_MODEL", model } as AppAction)}
+          onContextSizeChange={(contextSize) => dispatch({ type: "SET_MODEL_EDITOR_CONTEXT_SIZE", contextSize } as AppAction)}
         />
       )}
 
@@ -922,16 +999,16 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
         </Text>
       )}
 
-      {state.view === "chat" && !state.streaming && state.inputValue.startsWith("/") && (
+      {hasCommandHints && (
         <Box flexDirection="column">
-          <CommandHints input={state.inputValue} />
+          <CommandHints input={state.inputValue} selectedIndex={selectedCommandHintIndex} />
           <Text color="gray" dimColor>
-            Tab to autocomplete | Enter to run | Esc to clear
+            ↑↓ to select | Enter/Tab to fill | Esc to clear
           </Text>
         </Box>
       )}
 
-      {state.view === "chat" && !state.streaming && !state.inputValue.startsWith("/") && (
+      {state.view === "chat" && !state.streaming && !hasCommandHints && (
         <Box justifyContent="space-between">
           <Text color="#64748b">
             {getChatFooterHint(state.planMode, state.approvalMode)}
@@ -945,7 +1022,7 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
 
       {state.view === "approval" && (
         <Text color="gray" dimColor>
-          ↑/↓ select | Y approve | N/Esc reject | A approve all | R reject all
+          ↑/↓ switch | Y approve | N reject | A approve all | R reject all
         </Text>
       )}
 

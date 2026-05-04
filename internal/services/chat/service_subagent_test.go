@@ -8,7 +8,7 @@ import (
 
 func TestBuildSubagentMessages_IncludesLanguageAndToolDiscipline(t *testing.T) {
 	repo := newTestRepo(t)
-	svc := NewChatService(repo, nil, nil, nil, nil, nil)
+	svc := NewChatService(repo, nil, nil, nil, nil)
 
 	msgs, err := svc.BuildSubagentMessages(context.Background(), "session-1", "用中文检查提示词", "父级上下文")
 	if err != nil {
@@ -42,7 +42,7 @@ func TestBuildSubagentMessages_IncludesLanguageAndToolDiscipline(t *testing.T) {
 
 func TestBuildSubagentMessages_PreservesTaskAndParentContextSections(t *testing.T) {
 	repo := newTestRepo(t)
-	svc := NewChatService(repo, nil, nil, nil, nil, nil)
+	svc := NewChatService(repo, nil, nil, nil, nil)
 
 	msgs, err := svc.BuildSubagentMessages(context.Background(), "session-1", "Inspect prompt language rules", "Parent state summary")
 	if err != nil {

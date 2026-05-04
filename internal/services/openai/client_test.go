@@ -2,6 +2,7 @@ package openai
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -112,6 +113,38 @@ func TestApplyThinkingParamsOpenAIDoesNotSendDeepSeekThinking(t *testing.T) {
 	}
 	if !strings.Contains(got, `"reasoning_effort":"high"`) {
 		t.Fatalf("expected generic reasoning_effort in payload, got: %s", got)
+	}
+}
+
+func TestChatCompletionParamsRequestStreamUsage(t *testing.T) {
+	params := openai.ChatCompletionNewParams{
+		Model: openai.ChatModel("test-model"),
+		StreamOptions: openai.ChatCompletionStreamOptionsParam{
+			IncludeUsage: openai.Bool(true),
+		},
+	}
+	raw, err := json.Marshal(params)
+	if err != nil {
+		t.Fatalf("marshal params failed: %v", err)
+	}
+	if !strings.Contains(string(raw), `"stream_options":{"include_usage":true}`) {
+		t.Fatalf("expected stream usage request in payload, got: %s", raw)
+	}
+}
+
+func TestIsStreamUsageUnsupported(t *testing.T) {
+	if !isStreamUsageUnsupported(fmt.Errorf("unsupported parameter: stream_options.include_usage")) {
+		t.Fatal("expected stream_options include_usage error to be recognized")
+	}
+	if isStreamUsageUnsupported(fmt.Errorf("connection reset")) {
+		t.Fatal("generic stream errors should not be treated as usage-option incompatibility")
+	}
+}
+
+func TestMergeOpenAIStreamUsagePreservesTotalTokens(t *testing.T) {
+	usage := tokenUsageFromOpenAIChunkUsage(123, 12, 45, 180)
+	if usage.InputTokens != 123 || usage.CacheReadInputTokens != 12 || usage.OutputTokens != 45 || usage.TotalTokens != 180 {
+		t.Fatalf("unexpected usage: %+v", usage)
 	}
 }
 

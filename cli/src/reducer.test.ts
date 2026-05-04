@@ -109,6 +109,113 @@ test("TOGGLE_TOOL_OUTPUT switches tool output expanded on and off", () => {
 	assert.equal(state.toolOutputExpanded, false);
 });
 
+test("CONTEXT_USAGE stores latest usage", () => {
+	const state = reduce(initState(), {
+		type: "CONTEXT_USAGE",
+		usage: {
+			sessionId: "sid-1",
+			modelConfigId: "model-1",
+			usedTokens: 420_000,
+			totalTokens: 1_000_000,
+			usedPercent: 42,
+			availablePercent: 58,
+			isCompacted: false,
+		},
+	});
+
+	assert.equal(state.contextUsage?.usedPercent, 42);
+	assert.equal(state.contextUsage?.totalTokens, 1_000_000);
+});
+
+test("STREAM_CHUNK leaves context usage unchanged until server usage arrives", () => {
+	let state = reduce(initState(), {
+		type: "CONTEXT_USAGE",
+		usage: {
+			sessionId: "sid-1",
+			modelConfigId: "model-1",
+			usedTokens: 10,
+			totalTokens: 100,
+			usedPercent: 10,
+			availablePercent: 90,
+			isCompacted: false,
+		},
+	});
+
+	state = reduce(state, {
+		type: "STREAM_CHUNK",
+		chunk: "12345678",
+	});
+
+	assert.equal(state.contextUsage?.usedTokens, 10);
+	assert.equal(state.contextUsage?.usedPercent, 10);
+	assert.equal(state.contextUsage?.availablePercent, 90);
+});
+
+test("CONTEXT_COMPACTED stores usage and appends a system notice", () => {
+	const state = reduce(initState(), {
+		type: "CONTEXT_COMPACTED",
+		usage: {
+			sessionId: "sid-1",
+			modelConfigId: "model-1",
+			usedTokens: 120_000,
+			totalTokens: 500_000,
+			usedPercent: 24,
+			availablePercent: 76,
+			isCompacted: true,
+		},
+	});
+
+	assert.equal(state.contextUsage?.isCompacted, true);
+	assert.equal(state.timeline.at(-1)?.kind, "system");
+	assert.match(state.timeline.at(-1)?.content || "", /Context compacted/);
+});
+
+test("SET_MODEL_EDITOR_VIEW initializes context size defaults", () => {
+	const state = reduce(initState(), { type: "SET_MODEL_EDITOR_VIEW" });
+
+	assert.equal(state.view, "model-editor");
+	assert.equal(state.modelEditorId, "");
+	assert.equal(state.modelEditorContextSize, "1000000");
+	assert.equal(state.modelEditorFocusIndex, 0);
+});
+
+test("SET_MODEL_EDITOR preloads existing model config for editing", () => {
+	const state = reduce(initState(), {
+		type: "SET_MODEL_EDITOR",
+		config: {
+			id: "model-1",
+			name: "Claude",
+			provider: "anthropic",
+			baseUrl: "https://api.anthropic.com",
+			apiKey: "secret",
+			model: "claude",
+			contextSize: 128_000,
+			createdAt: "",
+			updatedAt: "",
+		},
+	});
+
+	assert.equal(state.view, "model-editor");
+	assert.equal(state.modelEditorId, "model-1");
+	assert.equal(state.modelEditorProvider, "anthropic");
+	assert.equal(state.modelEditorContextSize, "128000");
+});
+
+test("MODEL_EDITOR field navigation wraps in both directions", () => {
+	let state = reduce(initState(), { type: "SET_MODEL_EDITOR_VIEW" });
+
+	for (let i = 0; i < 5; i += 1) {
+		state = reduce(state, { type: "MODEL_EDITOR_NEXT_FIELD" });
+	}
+	assert.equal(state.modelEditorFocusIndex, 5);
+
+	state = reduce(state, { type: "MODEL_EDITOR_NEXT_FIELD" });
+	assert.equal(state.modelEditorFocusIndex, 0);
+
+	state = reduce(state, { type: "MODEL_EDITOR_PREV_FIELD" });
+	assert.equal(state.modelEditorFocusIndex, 5);
+});
+
 test("THINKING_DONE stores a fixed thinking duration", () => {
 	const state: AppState = {
 		...initState(),
@@ -184,6 +291,48 @@ test("approval queue supports multiple pending approvals and cursor bounds", () 
 	state = reduce(state, { type: "REMOVE_PENDING_APPROVAL", toolCallId: "call-a" });
 	assert.equal(state.view, "chat");
 	assert.deepEqual(state.pendingApprovals, []);
+});
+
+test("approval queue marks and unmarks pending approvals", () => {
+	let state = initState();
+	state = reduce(state, {
+		type: "ADD_PENDING_APPROVAL",
+		item: {
+			toolCallId: "call-a",
+			toolName: "exec",
+			command: "run",
+			params: { command: "npm test" },
+		},
+	});
+
+	state = reduce(state, { type: "TOGGLE_APPROVAL_MARK", toolCallId: "call-a" });
+	assert.deepEqual(state.markedApprovalIds, ["call-a"]);
+
+	state = reduce(state, { type: "TOGGLE_APPROVAL_MARK", toolCallId: "call-a" });
+	assert.deepEqual(state.markedApprovalIds, []);
+});
+
+test("approval queue clears marks when approvals are removed or cleared", () => {
+	let state = initState();
+	for (const id of ["call-a", "call-b"]) {
+		state = reduce(state, {
+			type: "ADD_PENDING_APPROVAL",
+			item: {
+				toolCallId: id,
+				toolName: "exec",
+				command: "run",
+				params: { command: id },
+			},
+		});
+		state = reduce(state, { type: "TOGGLE_APPROVAL_MARK", toolCallId: id });
+	}
+
+	state = reduce(state, { type: "REMOVE_PENDING_APPROVAL", toolCallId: "call-a" });
+	assert.deepEqual(state.markedApprovalIds, ["call-b"]);
+
+	state = reduce(state, { type: "CLEAR_PENDING_APPROVALS" });
+	assert.deepEqual(state.pendingApprovals, []);
+	assert.deepEqual(state.markedApprovalIds, []);
 });
 
 test("CLEAR_PENDING_APPROVALS returns to chat view", () => {
@@ -315,6 +464,47 @@ test("QA_SELECT on preset option clears custom answer", () => {
 	assert.equal(state.qaAnswers[0]?.selectedOption, 0);
 	assert.equal(state.qaAnswers[0]?.customAnswer, "");
 	assert.equal(state.qaCustomInput, "");
+});
+
+test("QA_EDIT_QUESTION returns from confirm to a preset answer with cursor restored", () => {
+	let state = initState();
+	state = reduce(state, {
+		type: "SET_QA",
+		toolCallId: "tool-1",
+		questions: [
+			{ id: "q1", question: "Pick", options: ["A", "B"] },
+			{ id: "q2", question: "Choose", options: ["C", "D"] },
+		],
+	});
+	state = reduce(state, { type: "QA_SELECT", optionIndex: 1 });
+	state = reduce(state, { type: "QA_NEXT_QUESTION" });
+	state = reduce(state, { type: "QA_SELECT", optionIndex: 0 });
+	state = reduce(state, { type: "QA_STEP_CONFIRM" });
+
+	state = reduce(state, { type: "QA_EDIT_QUESTION", index: 0 });
+
+	assert.equal(state.qaStep, "questions");
+	assert.equal(state.qaCurrentIndex, 0);
+	assert.equal(state.qaCursor, 1);
+	assert.equal(state.qaCustomInput, "");
+});
+
+test("QA_EDIT_QUESTION returns from confirm to a custom answer with input restored", () => {
+	let state = initState();
+	state = reduce(state, {
+		type: "SET_QA",
+		toolCallId: "tool-1",
+		questions: [{ id: "q1", question: "Pick", options: ["A", "B"] }],
+	});
+	state = reduce(state, { type: "QA_SUBMIT_CUSTOM", value: "custom answer" });
+	state = reduce(state, { type: "QA_STEP_CONFIRM" });
+
+	state = reduce(state, { type: "QA_EDIT_QUESTION", index: 0 });
+
+	assert.equal(state.qaStep, "questions");
+	assert.equal(state.qaCurrentIndex, 0);
+	assert.equal(state.qaCursor, 2);
+	assert.equal(state.qaCustomInput, "custom answer");
 });
 
 test("THINKING_DONE stores top-level duration for waiting stats", () => {

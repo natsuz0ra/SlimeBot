@@ -37,6 +37,8 @@ type chatTurnState struct {
 	session           *domain.Session
 	modelConfig       llmsvc.ModelRuntimeConfig
 	contextMessages   []llmsvc.ChatMessage
+	contextUsage      ContextUsage
+	contextCompacted  bool
 	enabledMCPConfigs []domain.MCPConfig
 	attachments       []UploadedAttachment
 	userContent       string
@@ -47,10 +49,10 @@ type chatTurnResult struct {
 	answer        string
 	interrupted   bool
 	planCompleted bool
-	memoryPayload string
 	pushErr       error
 	narration     string
 	planBody      string
+	tokenUsage    *llmsvc.TokenUsage
 }
 
 // HandleChatStream runs one full turn: persist user message, build context, run agent, save assistant.
@@ -110,6 +112,16 @@ func (s *ChatService) handleChatStreamWithReceivedAt(
 		return nil, err
 	}
 	defer s.cleanupTurnAttachments(state.attachments)
+	if callbacks.OnContextUsage != nil {
+		if err := callbacks.OnContextUsage(state.contextUsage); err != nil {
+			return nil, err
+		}
+	}
+	if state.contextCompacted && callbacks.OnContextCompacted != nil {
+		if err := callbacks.OnContextCompacted(state.contextUsage); err != nil {
+			return nil, err
+		}
+	}
 	s.maybeGenerateTitleAsync(state.session, state.modelConfig, state.userContent, callbacks.OnTitleGenerated)
 
 	if planMode {
@@ -148,10 +160,12 @@ func (s *ChatService) prepareChatTurn(
 		return nil, err
 	}
 	modelConfig := llmsvc.ModelRuntimeConfig{
+		ConfigID:      llmConfig.ID,
 		Provider:      llmConfig.Provider,
 		BaseURL:       llmConfig.BaseURL,
 		APIKey:        llmConfig.APIKey,
 		Model:         llmConfig.Model,
+		ContextSize:   llmConfig.ContextSize,
 		ThinkingLevel: thinkingLevel,
 	}
 
@@ -198,7 +212,7 @@ func (s *ChatService) prepareChatTurn(
 
 	// Build context messages and enabled MCP configs in parallel to reduce turn latency.
 	var (
-		contextMessages   []llmsvc.ChatMessage
+		contextResult     contextBuildResult
 		enabledMCPConfigs []domain.MCPConfig
 		contextErr        error
 		mcpErr            error
@@ -207,7 +221,7 @@ func (s *ChatService) prepareChatTurn(
 	prepareWG.Add(2)
 	go func() {
 		defer prepareWG.Done()
-		contextMessages, contextErr = s.BuildContextMessages(ctx, sessionID, modelConfig)
+		contextResult, contextErr = s.buildContextMessagesDetailed(ctx, sessionID, modelConfig)
 	}()
 	go func() {
 		defer prepareWG.Done()
@@ -223,19 +237,19 @@ func (s *ChatService) prepareChatTurn(
 
 	if len(attachments) > 0 {
 		if len(userMessageParts) > 0 {
-			overrideLatestUserTurnWithParts(contextMessages, userContentForLLM, userMessageParts)
+			overrideLatestUserTurnWithParts(contextResult.messages, userContentForLLM, userMessageParts)
 		} else {
-			overrideLatestUserTurn(contextMessages, userContentForLLM)
+			overrideLatestUserTurn(contextResult.messages, userContentForLLM)
 		}
 	} else if strings.TrimSpace(displayContent) != "" {
-		overrideLatestUserTurn(contextMessages, userContentForLLM)
+		overrideLatestUserTurn(contextResult.messages, userContentForLLM)
 	}
-	appendProtocolHintToLatestUser(contextMessages, time.Now())
-
 	return &chatTurnState{
 		session:           session,
 		modelConfig:       modelConfig,
-		contextMessages:   contextMessages,
+		contextMessages:   contextResult.messages,
+		contextUsage:      contextResult.usage,
+		contextCompacted:  contextResult.compactedNow,
 		enabledMCPConfigs: enabledMCPConfigs,
 		attachments:       attachments,
 		userContent:       userContentForLLM,
@@ -252,8 +266,9 @@ func (s *ChatService) executeChatTurn(
 	planMode bool,
 	subagentModelID string,
 ) (*chatTurnResult, error) {
-	parser := newTitleStreamParser(true)
+	parser := newTitleStreamParser()
 	accumulator := &chatStreamAccumulator{}
+	usageTracker := newContextUsageTracker(state.contextUsage, callbacks.OnContextUsage)
 	streamStart := time.Now()
 	var firstTokenAt time.Time
 	var callbackMu sync.Mutex
@@ -326,7 +341,11 @@ func (s *ChatService) executeChatTurn(
 			if chunk != "" && firstTokenAt.IsZero() {
 				firstTokenAt = time.Now()
 			}
-			return pushBodyLocked(parser.Feed(chunk))
+			body := parser.Feed(chunk)
+			if err := pushBodyLocked(body); err != nil {
+				return err
+			}
+			return nil
 		},
 		OnToolCallStart: func(req ApprovalRequest) error {
 			callbackMu.Lock()
@@ -472,7 +491,15 @@ func (s *ChatService) executeChatTurn(
 
 	agentStart := time.Now()
 	var planCompleted bool
-	answer, err := s.agent.RunAgentLoop(ctx, state.modelConfig, sessionID, state.contextMessages, state.enabledMCPConfigs, activatedSkills, agentCallbacks, AgentLoopOptions{ApprovalMode: approvalMode, PlanMode: planMode, PlanComplete: &planCompleted, SubagentModelID: subagentModelID})
+	var latestUsage llmsvc.TokenUsage
+	answer, err := s.agent.RunAgentLoop(ctx, state.modelConfig, sessionID, state.contextMessages, state.enabledMCPConfigs, activatedSkills, agentCallbacks, AgentLoopOptions{
+		ApprovalMode:    approvalMode,
+		PlanMode:        planMode,
+		PlanComplete:    &planCompleted,
+		SubagentModelID: subagentModelID,
+		LatestUsage:     &latestUsage,
+		OnProviderUsage: usageTracker.calibrateProviderUsage,
+	})
 	logging.Span("agent_loop", agentStart)
 	s.mergeSessionActivatedSkills(sessionID, activatedSkills)
 	if finishErr := finishAllActiveThinkings(time.Now()); finishErr != nil && err == nil {
@@ -491,7 +518,8 @@ func (s *ChatService) executeChatTurn(
 	logging.Info("chat_stream_done", "session", sessionID, "first_token_ms", firstTokenMs, "total_stream_ms", time.Since(streamStart).Milliseconds())
 
 	callbackMu.Lock()
-	flushErr := pushBodyLocked(parser.Flush())
+	flushed := parser.Flush()
+	flushErr := pushBodyLocked(flushed)
 	callbackMu.Unlock()
 	if flushErr != nil && !interrupted {
 		return nil, flushErr
@@ -532,13 +560,6 @@ func (s *ChatService) executeChatTurn(
 		}
 	}
 
-	memoryPayload := parser.Memory()
-	if parsedMemory, cleanBody := extractProtocolMetaAndBody(finalAnswer); parsedMemory != "" || cleanBody != finalAnswer {
-		if parsedMemory != "" {
-			memoryPayload = parsedMemory
-		}
-		finalAnswer = cleanBody
-	}
 	if strings.TrimSpace(finalAnswer) == "" && !interrupted {
 		finalAnswer = "The model returned no content."
 	}
@@ -547,14 +568,14 @@ func (s *ChatService) executeChatTurn(
 		answer:        finalAnswer,
 		interrupted:   interrupted,
 		planCompleted: planCompleted,
-		memoryPayload: memoryPayload,
 		pushErr:       accumulator.pushErr,
 		narration:     resultNarration,
 		planBody:      resultPlanBody,
+		tokenUsage:    nonZeroTokenUsage(latestUsage),
 	}, nil
 }
 
-// finalizeChatTurn persists assistant message, enqueues memory, and saves plan if applicable.
+// finalizeChatTurn persists assistant message and saves plan if applicable.
 func (s *ChatService) finalizeChatTurn(
 	ctx context.Context,
 	sessionID string,
@@ -570,6 +591,7 @@ func (s *ChatService) finalizeChatTurn(
 		Content:           result.answer,
 		IsInterrupted:     result.interrupted,
 		IsStopPlaceholder: result.interrupted && strings.TrimSpace(result.answer) == "",
+		TokenUsage:        result.tokenUsage,
 	})
 	if err != nil {
 		return nil, err
@@ -595,12 +617,6 @@ func (s *ChatService) finalizeChatTurn(
 		IsStopPlaceholder: result.interrupted && strings.TrimSpace(result.answer) == "",
 		Narration:         result.narration,
 		PlanBody:          result.planBody,
-	}
-	if s.memory != nil && strings.TrimSpace(result.memoryPayload) != "" {
-		s.memory.EnqueueTurnMemory(sessionID, assistantMessage.ID, result.memoryPayload)
-		logging.Info("memory_enqueue_triggered", "session", sessionID)
-	} else if s.memory != nil {
-		logging.Info("memory_enqueue_skipped", "session", sessionID, "reason", "empty_or_unparsed")
 	}
 
 	if planMode && !result.interrupted && s.planService != nil && strings.TrimSpace(result.planBody) != "" {
@@ -655,7 +671,7 @@ Analyze the user's request and create a detailed implementation plan.
 
 ## Workflow
 
-1. **Research** — Use read-only tools (file_read, web_search, search_memory) ONLY to gather information.
+1. **Research** — Use read-only tools (file_read, web_search) ONLY to gather information.
 2. **Analyze** — Assess the current state and identify what needs to change.
 3. **Begin Plan** — Call the plan_start tool when you are ready to begin writing your plan. All text output BEFORE this call will appear as narration; all text AFTER will be the plan body. You MUST call this before writing your plan.
 4. **Plan** — Create a structured markdown plan with:
@@ -673,4 +689,4 @@ Analyze the user's request and create a detailed implementation plan.
 - Be specific: include file paths, function names, and concrete actions in each step.
 - You MUST call plan_start before writing your plan.
 - You MUST call plan_complete__submit when your plan is complete.
-- Only file_read, web_search, search_memory, plan_start, and plan_complete__submit tools are available.`
+- Only file_read, web_search, plan_start, and plan_complete__submit tools are available.`

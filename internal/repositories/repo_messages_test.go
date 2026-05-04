@@ -3,6 +3,7 @@ package repositories
 import (
 	"context"
 	"slimebot/internal/domain"
+	llmsvc "slimebot/internal/services/llm"
 	"testing"
 	"time"
 )
@@ -48,6 +49,40 @@ func TestAddMessageWithInput_PersistsFlagsAndAttachments(t *testing.T) {
 	}
 	if len(got.Attachments) != 1 || got.Attachments[0].Name != "a.txt" {
 		t.Fatalf("unexpected attachments payload: %+v", got.Attachments)
+	}
+}
+
+func TestAddMessageWithInput_PersistsTokenUsage(t *testing.T) {
+	repo := New(NewSQLiteDBTest(t, "repo_messages_usage_test"))
+	session, err := repo.CreateSession(context.Background(), "s")
+	if err != nil {
+		t.Fatalf("create session failed: %v", err)
+	}
+
+	_, err = repo.AddMessageWithInput(context.Background(), domain.AddMessageInput{
+		SessionID: session.ID,
+		Role:      "assistant",
+		Content:   "answer",
+		TokenUsage: &llmsvc.TokenUsage{
+			InputTokens:              100,
+			OutputTokens:             20,
+			CacheCreationInputTokens: 3,
+			CacheReadInputTokens:     4,
+		},
+	})
+	if err != nil {
+		t.Fatalf("add message failed: %v", err)
+	}
+
+	items, _, listErr := repo.ListSessionMessagesPage(context.Background(), session.ID, 100, nil, nil, nil, nil)
+	if listErr != nil {
+		t.Fatalf("list messages failed: %v", listErr)
+	}
+	if len(items) != 1 || items[0].TokenUsage == nil {
+		t.Fatalf("expected token usage to round-trip, got %+v", items)
+	}
+	if got := items[0].TokenUsage; got.InputTokens != 100 || got.OutputTokens != 20 || got.CacheCreationInputTokens != 3 || got.CacheReadInputTokens != 4 {
+		t.Fatalf("unexpected token usage: %+v", got)
 	}
 }
 

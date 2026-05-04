@@ -1,7 +1,7 @@
 package domain
 
 import (
-	"context"
+	llmsvc "slimebot/internal/services/llm"
 	"time"
 )
 
@@ -12,6 +12,7 @@ type AddMessageInput struct {
 	IsInterrupted     bool
 	IsStopPlaceholder bool
 	Attachments       []MessageAttachment
+	TokenUsage        *llmsvc.TokenUsage
 	CreatedAt         time.Time
 }
 
@@ -61,22 +62,4 @@ type ThinkingFinishRecordInput struct {
 	RequestID  string
 	ThinkingID string
 	FinishedAt time.Time
-}
-
-type MemoryVectorStore interface {
-	UpsertSessionMemoryVector(ctx context.Context, input MemoryVectorUpsertInput) error
-	SearchMemoriesInSession(ctx context.Context, queryVector []float32, sessionID string, limit int) ([]MemoryVectorSearchHit, error)
-}
-
-type MemoryVectorUpsertInput struct {
-	MemoryID  string
-	SessionID string
-	Vector    []float32
-	Payload   map[string]any
-}
-
-type MemoryVectorSearchHit struct {
-	SessionID string
-	MemoryID  string
-	Score     float64
 }

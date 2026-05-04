@@ -30,9 +30,9 @@
   - 思考等级控制（`off` / `low` / `medium` / `high`）
   - Web 与 CLI 均支持思考流式事件展示与时间线呈现
 - **记忆能力**
-  - 会话摘要自动更新
-  - 长会话上下文压缩与最近消息回补
-  - 跨会话检索
+  - 按会话与模型配置保存隐藏压缩摘要
+  - 上下文超出模型 `contextSize` 时自动压缩历史
+  - Web 与 CLI 展示上下文用量和压缩状态
 - **配置与扩展**
   - MCP 配置管理
   - Skills 上传安装、列表、删除与运行时激活
@@ -72,8 +72,8 @@
 
 - **生产**：Go 进程同时提供 REST/WebSocket，并通过 `go:embed` 嵌入 `web/dist` 静态资源，单一可执行文件交付。
 - **开发**：`npm run dev` 同时启动 Go 与 Vite；Vite 将 `/api`、`/ws` 代理到 `8080`。
-- **数据**：默认 SQLite，路径 `~/.slimebot/storage/data.db`。
-- **记忆**：`~/.slimebot/memory` 下的 Markdown 记忆文件 + 本地全文索引，用于检索与写入提示词上下文。
+- **数据**：默认 SQLite，路径 `~/.slimebot/storage/data.db`，会话压缩摘要也持久化在其中。
+- **记忆**：当前为会话内上下文压缩记忆。系统在需要时生成隐藏 `<context_summary>`，并与最新消息一起注入模型上下文。
 
 **技术栈（概览）：** Go 后端 · Vue 3 Web 前端 · React + Ink CLI。
 
@@ -164,26 +164,26 @@ make compose-down
 ~/.slimebot/
   .env
   skills/
-  memory/
-    MEMORY.md
-    index.bleve/
-    *.md
   storage/
     data.db
     chat_uploads/
 ```
 
 - `.env`：配置文件
-- `memory/`：Markdown 记忆条目、清单文件 `MEMORY.md`，以及 `index.bleve/` 下的全文索引数据
 - `storage/data.db`：SQLite 主数据库
 - `storage/chat_uploads`：聊天附件
 - `skills`：Skills 存储目录
 
 ## 记忆存储（工作机制）
 
-- 每条记忆为带 YAML frontmatter 的 Markdown 文件，根目录由 `MEMORY_DIR` 指定（默认 `~/.slimebot/memory`）。
-- `memory/index.bleve/` 下为 Bleve 全文索引，用于搜索与跨会话召回。
-- 服务启动时会异步重建索引（见 `Core.WarmupInBackground`）。
+- 记忆不是独立的 Markdown 文件或全文索引，而是存储在 SQLite 中的会话压缩摘要。
+- 当完整历史、系统提示词、运行环境信息和工具回放估算后仍低于模型配置的 `contextSize` 时，会直接发送完整历史。
+- 当上下文超过 `contextSize` 时，系统调用当前模型生成压缩摘要，写入 `session_context_summaries`，并在后续请求中以隐藏 `<context_summary>` 形式注入。
+- 摘要按 `sessionId + modelConfigId` 区分；同一会话切换不同模型配置时会使用对应配置的摘要。
+- 已有摘要可复用；如果摘要后的新消息再次超窗，会把旧摘要与新增消息滚动压缩成新的摘要。
+- 压缩摘要仅作为同一会话的连续性上下文使用；如果与新的用户输入冲突，系统提示要求优先遵循新消息。
+- 最新一条用户输入会被保护：若它单独就超过上下文窗口，会直接报错，提示缩短输入或调大上下文大小。
+- Web 与 CLI 会通过 `context_usage` / `context_compacted` 事件展示已用 token、可用比例和是否已压缩。
 
 ## 配置文件（`~/.slimebot/.env`）
 
@@ -193,7 +193,8 @@ make compose-down
 - `DB_PATH`：SQLite 文件路径，默认 `~/.slimebot/storage/data.db`
 - `SKILLS_ROOT`：Skills 根目录，默认 `~/.slimebot/skills`
 - `CHAT_UPLOAD_ROOT`：聊天附件目录，默认 `~/.slimebot/storage/chat_uploads`
-- `MEMORY_DIR`：记忆 Markdown 与索引根目录，默认 `~/.slimebot/memory`
+- `CONTEXT_HISTORY_ROUNDS`：历史轮数配置保留项，默认 `20`，内部限制为 `5` 到 `50`
+- `DEFAULT_CONTEXT_SIZE`：新建模型配置的默认上下文大小，默认 `1000000`
 - `FRONTEND_ORIGIN`：与 Vite 联调时设为 `http://localhost:5173`；生产同源可留空
 - `WEB_SEARCH_API_KEY`：Tavily API Key，供 `web_search` 使用
 - `JWT_SECRET`：**服务端模式必填**，未配置将启动失败（CLI 无头模式可自动生成）
@@ -210,10 +211,12 @@ SERVER_PORT=8080
 DB_PATH=~/.slimebot/storage/data.db
 SKILLS_ROOT=~/.slimebot/skills
 CHAT_UPLOAD_ROOT=~/.slimebot/storage/chat_uploads
-MEMORY_DIR=~/.slimebot/memory
 WEB_SEARCH_API_KEY=YOUR_TAVILY_API_KEY
 JWT_SECRET=CHANGE_ME_TO_A_RANDOM_SECRET
 JWT_EXPIRE=21600
+
+# CONTEXT_HISTORY_ROUNDS=20
+# DEFAULT_CONTEXT_SIZE=1000000
 
 # FRONTEND_ORIGIN=http://localhost:5173
 ```
@@ -240,7 +243,7 @@ VITE_WS_URL=ws://localhost:8080
 - 思考等级控制（`off` / `low` / `medium` / `high`）与流式思考展示
 - 子代理 / 嵌套 Agent（`run_subagent`）、嵌套工具 UI，以及工具历史中的父子关联持久化
 - MCP 与 Skills
-- 基于文件与全文索引的持久化记忆及上下文注入
+- 基于 SQLite 的会话压缩摘要、上下文用量统计与隐藏上下文注入
 - Telegram 集成
 - 多模态支持
 - JWT 认证与默认管理员种子

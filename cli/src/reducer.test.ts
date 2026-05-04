@@ -293,6 +293,48 @@ test("approval queue supports multiple pending approvals and cursor bounds", () 
 	assert.deepEqual(state.pendingApprovals, []);
 });
 
+test("approval queue marks and unmarks pending approvals", () => {
+	let state = initState();
+	state = reduce(state, {
+		type: "ADD_PENDING_APPROVAL",
+		item: {
+			toolCallId: "call-a",
+			toolName: "exec",
+			command: "run",
+			params: { command: "npm test" },
+		},
+	});
+
+	state = reduce(state, { type: "TOGGLE_APPROVAL_MARK", toolCallId: "call-a" });
+	assert.deepEqual(state.markedApprovalIds, ["call-a"]);
+
+	state = reduce(state, { type: "TOGGLE_APPROVAL_MARK", toolCallId: "call-a" });
+	assert.deepEqual(state.markedApprovalIds, []);
+});
+
+test("approval queue clears marks when approvals are removed or cleared", () => {
+	let state = initState();
+	for (const id of ["call-a", "call-b"]) {
+		state = reduce(state, {
+			type: "ADD_PENDING_APPROVAL",
+			item: {
+				toolCallId: id,
+				toolName: "exec",
+				command: "run",
+				params: { command: id },
+			},
+		});
+		state = reduce(state, { type: "TOGGLE_APPROVAL_MARK", toolCallId: id });
+	}
+
+	state = reduce(state, { type: "REMOVE_PENDING_APPROVAL", toolCallId: "call-a" });
+	assert.deepEqual(state.markedApprovalIds, ["call-b"]);
+
+	state = reduce(state, { type: "CLEAR_PENDING_APPROVALS" });
+	assert.deepEqual(state.pendingApprovals, []);
+	assert.deepEqual(state.markedApprovalIds, []);
+});
+
 test("CLEAR_PENDING_APPROVALS returns to chat view", () => {
 	let state = reduce(initState(), {
 		type: "ADD_PENDING_APPROVAL",

@@ -54,7 +54,7 @@ export function getQuestionAnswerProgress(currentIndex: number, totalQuestions: 
 
 export function getQuestionAnswerViewHints(step: "questions" | "confirm"): string {
   if (step === "confirm") {
-    return "↑/↓ select | Enter edit/send | Esc back to questions";
+    return "↑/↓ select | Enter edit/send | Esc back";
   }
   return "Enter select & next | ←/→ prev/next | C custom | Esc cancel";
 }
@@ -123,7 +123,6 @@ export default function QuestionAnswerView({
                   <Text bold color={active ? QUESTION_ANSWER_COLORS.warning : QUESTION_ANSWER_COLORS.inactiveText}>
                     {i + 1}. {q.question}
                   </Text>
-                  {active && <Text color={QUESTION_ANSWER_COLORS.hint}>  Enter to edit</Text>}
                 </Text>
                 <Text color={QUESTION_ANSWER_COLORS.activeText}>     {getDisplayAnswer(q, answers[i])}</Text>
               </Box>

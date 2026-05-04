@@ -21,6 +21,6 @@ test("question answer hints include custom and review actions", () => {
   );
   assert.equal(
     getQuestionAnswerViewHints("confirm"),
-    "↑/↓ select | Enter edit/send | Esc back to questions",
+    "↑/↓ select | Enter edit/send | Esc back",
   );
 });

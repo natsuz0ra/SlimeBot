@@ -199,7 +199,9 @@ export function createInitialState(
     approvalParams: {},
     approvalReplyCh: null,
     pendingApprovals: [],
+    approvalReviewItems: [],
     approvalCursor: 0,
+    markedApprovalIds: [],
     pendingPlanId: "",
     pendingPlanContent: "",
     planConfirmCursor: 0,
@@ -445,6 +447,7 @@ export function reducer(state: AppState, action: AppAction): AppState {
         view: "chat",
         pendingApprovals: [],
         approvalCursor: 0,
+        markedApprovalIds: [],
         menuKind: null,
         menuTitle: "",
         menuItems: [],
@@ -613,10 +616,19 @@ export function reducer(state: AppState, action: AppAction): AppState {
       const pendingApprovals = existing
         ? state.pendingApprovals.map((item) => item.toolCallId === action.item.toolCallId ? action.item : item)
         : [...state.pendingApprovals, action.item];
+      const existingReview = state.approvalReviewItems.find((item) => item.toolCallId === action.item.toolCallId);
+      const approvalReviewItems = existingReview
+        ? state.approvalReviewItems.map((item) =>
+            item.toolCallId === action.item.toolCallId
+              ? { ...action.item, approvalStatus: item.approvalStatus }
+              : item
+          )
+        : [...state.approvalReviewItems, { ...action.item, approvalStatus: "pending" as const }];
       return {
         ...state,
         view: "approval",
         pendingApprovals,
+        approvalReviewItems,
         approvalCursor: Math.min(state.approvalCursor, Math.max(0, pendingApprovals.length - 1)),
         approvalToolCallId: action.item.toolCallId,
         approvalToolName: action.item.toolName,
@@ -627,10 +639,22 @@ export function reducer(state: AppState, action: AppAction): AppState {
 
     case "REMOVE_PENDING_APPROVAL": {
       const pendingApprovals = state.pendingApprovals.filter((item) => item.toolCallId !== action.toolCallId);
+      const settledStatus = action.approved === undefined
+        ? undefined
+        : action.approved ? "approved" as const : "rejected" as const;
+      const approvalReviewItems = settledStatus
+        ? state.approvalReviewItems.map((item) =>
+            item.toolCallId === action.toolCallId
+              ? { ...item, approvalStatus: settledStatus }
+              : item
+          )
+        : state.approvalReviewItems;
       return {
         ...state,
         view: pendingApprovals.length > 0 ? "approval" : "chat",
         pendingApprovals,
+        approvalReviewItems: pendingApprovals.length > 0 ? approvalReviewItems : [],
+        markedApprovalIds: state.markedApprovalIds.filter((id) => id !== action.toolCallId),
         approvalCursor: Math.min(state.approvalCursor, Math.max(0, pendingApprovals.length - 1)),
         ...(pendingApprovals.length === 0
           ? {
@@ -649,7 +673,9 @@ export function reducer(state: AppState, action: AppAction): AppState {
         ...state,
         view: "chat",
         pendingApprovals: [],
+        approvalReviewItems: [],
         approvalCursor: 0,
+        markedApprovalIds: [],
         approvalToolCallId: "",
         approvalToolName: "",
         approvalCommand: "",
@@ -662,6 +688,17 @@ export function reducer(state: AppState, action: AppAction): AppState {
       return {
         ...state,
         approvalCursor: Math.max(0, Math.min(maxIndex, state.approvalCursor + action.delta)),
+      };
+    }
+
+    case "TOGGLE_APPROVAL_MARK": {
+      if (!action.toolCallId) return state;
+      const exists = state.markedApprovalIds.includes(action.toolCallId);
+      return {
+        ...state,
+        markedApprovalIds: exists
+          ? state.markedApprovalIds.filter((id) => id !== action.toolCallId)
+          : [...state.markedApprovalIds, action.toolCallId],
       };
     }
 

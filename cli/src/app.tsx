@@ -841,7 +841,9 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
           command={state.approvalCommand}
           params={state.approvalParams}
           items={state.pendingApprovals}
+          approvalReviewItems={state.approvalReviewItems}
           cursor={state.approvalCursor}
+          columns={width}
         />
       )}
 
@@ -990,7 +992,7 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
 
       {state.view === "approval" && (
         <Text color="gray" dimColor>
-          ↑/↓ select | Y approve | N/Esc reject | A approve all | R reject all
+          ↑/↓ switch | Y approve | N reject | A approve all | R reject all
         </Text>
       )}
 

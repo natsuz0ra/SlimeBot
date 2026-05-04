@@ -267,6 +267,12 @@ export interface PendingApprovalItem {
   params: Record<string, unknown>;
 }
 
+export type ApprovalReviewStatus = "pending" | "approved" | "rejected";
+
+export interface ApprovalReviewItem extends PendingApprovalItem {
+  approvalStatus: ApprovalReviewStatus;
+}
+
 export interface MenuItem {
   title: string;
   desc: string;
@@ -375,7 +381,9 @@ export interface AppState {
   approvalParams: Record<string, unknown>;
   approvalReplyCh: ((approved: boolean) => void) | null;
   pendingApprovals: PendingApprovalItem[];
+  approvalReviewItems: ApprovalReviewItem[];
   approvalCursor: number;
+  markedApprovalIds: string[];
 
   // Plan confirmation
   pendingPlanId: string;
@@ -449,9 +457,10 @@ export type AppAction =
   | { type: "SET_APPROVAL"; toolCallId: string; toolName: string; command: string; params: Record<string, unknown>; replyCh: (approved: boolean) => void }
   | { type: "CLEAR_APPROVAL" }
   | { type: "ADD_PENDING_APPROVAL"; item: PendingApprovalItem }
-  | { type: "REMOVE_PENDING_APPROVAL"; toolCallId: string }
+  | { type: "REMOVE_PENDING_APPROVAL"; toolCallId: string; approved?: boolean }
   | { type: "CLEAR_PENDING_APPROVALS" }
   | { type: "APPROVAL_NAV"; delta: number }
+  | { type: "TOGGLE_APPROVAL_MARK"; toolCallId: string }
   | { type: "SET_APPROVAL_MODE"; mode: ApprovalMode }
   | { type: "SET_THINKING_LEVEL"; level: ThinkingLevel }
   | { type: "SET_SUBAGENT_MODEL"; modelId: string; modelName: string }

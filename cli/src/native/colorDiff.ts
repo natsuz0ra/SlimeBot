@@ -1,6 +1,5 @@
 import { createRequire } from "node:module";
 import { basename, extname } from "node:path";
-import { diffWordsWithSpace } from "diff";
 import hljs from "highlight.js";
 import type { FileDiffLine } from "../utils/fileToolDisplay.js";
 import { stringWidth } from "../utils/stringWidth.js";
@@ -36,8 +35,6 @@ const FG_DEL = "\x1b[38;5;203m";
 const FG_CONTEXT = "\x1b[38;5;250m";
 const BG_ADD = "\x1b[48;5;22m";
 const BG_DEL = "\x1b[48;5;52m";
-const BG_ADD_WORD = "\x1b[48;5;28m";
-const BG_DEL_WORD = "\x1b[48;5;88m";
 
 const SCOPE_COLORS: Record<string, string> = {
   keyword: "\x1b[38;5;204m",
@@ -100,20 +97,17 @@ function renderColorDiffRowsFallback(input: RenderColorDiffInput): RenderedColor
   const language = languageForFile(input.filePath);
   const gutterWidth = computeGutterWidth(input.lines);
   const contentWidth = Math.max(8, input.width - gutterWidth - 1);
-  const pairedChanges = wordChangeMap(input.lines);
 
-  return input.lines.map((line, index) => {
+  return input.lines.map((line) => {
     const marker = markerForKind(line.kind);
     const lineNo = line.kind === "added" ? line.newLine : line.oldLine ?? line.newLine;
     const gutterText = `${marker} ${lineNo === undefined ? "" : String(lineNo).padStart(gutterWidth - 2, " ")}`;
     const markerColor = line.kind === "added" ? FG_ADD : line.kind === "removed" ? FG_DEL : FG_DIM;
     const bg = line.kind === "added" ? BG_ADD : line.kind === "removed" ? BG_DEL : "";
     const content = highlightLine(line.text || " ", language, line.kind);
-    const changedRanges = pairedChanges.get(index);
-    const emphasized = changedRanges ? applyWordBackground(content, changedRanges, line.kind) : content;
     return {
       gutter: `${markerColor}${gutterText}${RESET}`,
-      content: `${bg}${truncateAnsi(emphasized, contentWidth)}${RESET}`,
+      content: `${bg}${truncateAnsi(content, contentWidth)}${RESET}`,
     };
   });
 }
@@ -225,65 +219,6 @@ function decodeHtmlEntity(token: string): string {
 
 function escapeAnsiText(text: string): string {
   return text.replace(/\x1b/g, "");
-}
-
-function wordChangeMap(lines: ColorDiffLine[]): Map<number, Array<[number, number]>> {
-  const ranges = new Map<number, Array<[number, number]>>();
-  for (let i = 0; i < lines.length - 1; i++) {
-    const current = lines[i]!;
-    const next = lines[i + 1]!;
-    if (current.kind !== "removed" || next.kind !== "added") continue;
-    const diff = diffWordsWithSpace(current.text, next.text);
-    let oldPos = 0;
-    let newPos = 0;
-    const oldRanges: Array<[number, number]> = [];
-    const newRanges: Array<[number, number]> = [];
-    for (const part of diff) {
-      const len = part.value.length;
-      if (part.removed) {
-        oldRanges.push([oldPos, oldPos + len]);
-        oldPos += len;
-      } else if (part.added) {
-        newRanges.push([newPos, newPos + len]);
-        newPos += len;
-      } else {
-        oldPos += len;
-        newPos += len;
-      }
-    }
-    if (oldRanges.length > 0) ranges.set(i, oldRanges);
-    if (newRanges.length > 0) ranges.set(i + 1, newRanges);
-  }
-  return ranges;
-}
-
-function applyWordBackground(ansiText: string, ranges: Array<[number, number]>, kind: ColorDiffLine["kind"]): string {
-  const plain = stripAnsi(ansiText);
-  if (plain.length === 0) return ansiText;
-  const bg = kind === "removed" ? BG_DEL_WORD : BG_ADD_WORD;
-  let visible = 0;
-  let out = "";
-  let active = false;
-  for (let i = 0; i < ansiText.length; i++) {
-    if (ansiText[i] === "\x1b") {
-      const end = ansiText.indexOf("m", i);
-      if (end >= 0) {
-        out += ansiText.slice(i, end + 1);
-        if (active) out += bg;
-        i = end;
-        continue;
-      }
-    }
-    const shouldBeActive = ranges.some(([start, end]) => visible >= start && visible < end);
-    if (shouldBeActive !== active) {
-      out += shouldBeActive ? bg : RESET;
-      active = shouldBeActive;
-    }
-    out += ansiText[i];
-    visible++;
-  }
-  if (active) out += RESET;
-  return out;
 }
 
 function truncateAnsi(input: string, maxWidth: number): string {

@@ -1,6 +1,5 @@
 use napi_derive::napi;
 use serde::{Deserialize, Serialize};
-use similar::{ChangeTag, TextDiff};
 use syntect::easy::HighlightLines;
 use syntect::highlighting::ThemeSet;
 use syntect::parsing::SyntaxSet;
@@ -36,8 +35,6 @@ const FG_ADD: &str = "\x1b[38;5;114m";
 const FG_DEL: &str = "\x1b[38;5;203m";
 const BG_ADD: &str = "\x1b[48;5;22m";
 const BG_DEL: &str = "\x1b[48;5;52m";
-const BG_ADD_WORD: &str = "\x1b[48;5;28m";
-const BG_DEL_WORD: &str = "\x1b[48;5;88m";
 
 #[napi(js_name = "renderColorDiffJson")]
 pub fn render_color_diff_json(input: String) -> napi::Result<String> {
@@ -62,13 +59,11 @@ fn render_rows(input: &RenderInput) -> Vec<RenderedLine> {
         .unwrap_or_else(|| ps.find_syntax_plain_text());
     let gutter_width = gutter_width(&input.lines);
     let content_width = input.width.saturating_sub(gutter_width + 1).max(8);
-    let word_ranges = word_ranges(&input.lines);
 
     input
         .lines
         .iter()
-        .enumerate()
-        .map(|(idx, line)| {
+        .map(|line| {
             let marker = marker(&line.kind);
             let line_no = if line.kind == "added" {
                 line.new_line
@@ -83,14 +78,11 @@ fn render_rows(input: &RenderInput) -> Vec<RenderedLine> {
                 RESET,
                 width = gutter_width.saturating_sub(2)
             );
-            let mut content = if let Some(theme) = theme {
+            let content = if let Some(theme) = theme {
                 highlighted_line(&ps, theme, syntax, &line.text, &line.kind)
             } else {
                 fallback_line(&line.text, &line.kind)
             };
-            if let Some(ranges) = word_ranges.get(idx).and_then(|r| r.as_ref()) {
-                content = apply_word_background(&content, ranges, &line.kind);
-            }
             RenderedLine {
                 gutter,
                 content: format!("{}{}{}", line_bg(&line.kind), truncate_plain(&content, content_width), RESET),
@@ -162,82 +154,6 @@ fn fallback_line(text: &str, kind: &str) -> String {
         _ => "\x1b[38;5;250m",
     };
     format!("{fg}{text}")
-}
-
-fn word_ranges(lines: &[DiffLine]) -> Vec<Option<Vec<(usize, usize)>>> {
-    let mut ranges = vec![None; lines.len()];
-    for idx in 0..lines.len().saturating_sub(1) {
-        let old = &lines[idx];
-        let new = &lines[idx + 1];
-        if old.kind != "removed" || new.kind != "added" {
-            continue;
-        }
-        let diff = TextDiff::from_words(&old.text, &new.text);
-        let mut old_pos = 0;
-        let mut new_pos = 0;
-        let mut old_ranges = Vec::new();
-        let mut new_ranges = Vec::new();
-        for change in diff.iter_all_changes() {
-            let value = change.value();
-            let len = value.chars().count();
-            match change.tag() {
-                ChangeTag::Delete => {
-                    old_ranges.push((old_pos, old_pos + len));
-                    old_pos += len;
-                }
-                ChangeTag::Insert => {
-                    new_ranges.push((new_pos, new_pos + len));
-                    new_pos += len;
-                }
-                ChangeTag::Equal => {
-                    old_pos += len;
-                    new_pos += len;
-                }
-            }
-        }
-        if !old_ranges.is_empty() {
-            ranges[idx] = Some(old_ranges);
-        }
-        if !new_ranges.is_empty() {
-            ranges[idx + 1] = Some(new_ranges);
-        }
-    }
-    ranges
-}
-
-fn apply_word_background(input: &str, ranges: &[(usize, usize)], kind: &str) -> String {
-    let bg = if kind == "removed" { BG_DEL_WORD } else { BG_ADD_WORD };
-    let mut out = String::new();
-    let mut visible = 0;
-    let mut active = false;
-    let mut chars = input.chars().peekable();
-    while let Some(ch) = chars.next() {
-        if ch == '\x1b' {
-            out.push(ch);
-            for next in chars.by_ref() {
-                out.push(next);
-                if next == 'm' {
-                    if active {
-                        out.push_str(bg);
-                    }
-                    break;
-                }
-            }
-            continue;
-        }
-
-        let should_activate = ranges.iter().any(|(start, end)| visible >= *start && visible < *end);
-        if should_activate != active {
-            out.push_str(if should_activate { bg } else { RESET });
-            active = should_activate;
-        }
-        out.push(ch);
-        visible += 1;
-    }
-    if active {
-        out.push_str(RESET);
-    }
-    out
 }
 
 fn truncate_plain(input: &str, max_width: usize) -> String {

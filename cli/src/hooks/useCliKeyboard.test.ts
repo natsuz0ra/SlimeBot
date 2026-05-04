@@ -3,6 +3,7 @@ import test from "node:test";
 import type { Key } from "ink";
 import { createInitialState } from "../reducer.js";
 import {
+  getApprovalKeyAction,
   getModelEditorFieldNavigationAction,
   getQuestionAnswerConfirmEnterAction,
   getQuestionAnswerQuestionKeyActions,
@@ -82,6 +83,81 @@ test("model editor tab navigation is ignored while provider select is open", () 
 
   assert.equal(getModelEditorFieldNavigationAction(state, key({ tab: true })), null);
   assert.equal(getModelEditorFieldNavigationAction(state, key({ tab: true, shift: true })), null);
+});
+
+test("approval keyboard uses Y and N for the current item", () => {
+  const state = {
+    ...createInitialState("http://127.0.0.1:8080", "token", "/tmp", "1.0.0"),
+    view: "approval" as const,
+    approvalCursor: 1,
+    pendingApprovals: [
+      { toolCallId: "call-a", toolName: "exec", command: "run", params: {} },
+      { toolCallId: "call-b", toolName: "file_read", command: "read", params: {} },
+    ],
+  };
+
+  assert.deepEqual(getApprovalKeyAction(state, "Y", key()), {
+    kind: "settle",
+    items: [{ toolCallId: "call-b", approved: true }],
+  });
+  assert.deepEqual(getApprovalKeyAction(state, "N", key()), {
+    kind: "settle",
+    items: [{ toolCallId: "call-b", approved: false }],
+  });
+  assert.equal(getApprovalKeyAction(state, "", key({ return: true })), null);
+  assert.equal(getApprovalKeyAction(state, " ", key()), null);
+});
+
+test("approval keyboard batches every pending item regardless of marks", () => {
+  const state = {
+    ...createInitialState("http://127.0.0.1:8080", "token", "/tmp", "1.0.0"),
+    view: "approval" as const,
+    approvalCursor: 0,
+    markedApprovalIds: ["call-b"],
+    pendingApprovals: [
+      { toolCallId: "call-a", toolName: "exec", command: "run", params: {} },
+      { toolCallId: "call-b", toolName: "file_read", command: "read", params: {} },
+      { toolCallId: "call-c", toolName: "file_edit", command: "edit", params: {} },
+    ],
+  };
+
+  assert.deepEqual(getApprovalKeyAction(state, "A", key()), {
+    kind: "settle",
+    items: [
+      { toolCallId: "call-a", approved: true },
+      { toolCallId: "call-b", approved: true },
+      { toolCallId: "call-c", approved: true },
+    ],
+  });
+  assert.deepEqual(getApprovalKeyAction(state, "R", key()), {
+    kind: "settle",
+    items: [
+      { toolCallId: "call-a", approved: false },
+      { toolCallId: "call-b", approved: false },
+      { toolCallId: "call-c", approved: false },
+    ],
+  });
+});
+
+test("approval keyboard accepts lowercase shortcuts", () => {
+  const state = {
+    ...createInitialState("http://127.0.0.1:8080", "token", "/tmp", "1.0.0"),
+    view: "approval" as const,
+    approvalCursor: 0,
+    pendingApprovals: [
+      { toolCallId: "call-a", toolName: "exec", command: "run", params: {} },
+      { toolCallId: "call-b", toolName: "file_read", command: "read", params: {} },
+    ],
+  };
+
+  assert.deepEqual(getApprovalKeyAction(state, "y", key()), {
+    kind: "settle",
+    items: [{ toolCallId: "call-a", approved: true }],
+  });
+  assert.deepEqual(getApprovalKeyAction(state, "n", key()), {
+    kind: "settle",
+    items: [{ toolCallId: "call-a", approved: false }],
+  });
 });
 
 test("question answer confirm enter edits selected answer before submit row", () => {

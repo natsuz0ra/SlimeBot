@@ -536,7 +536,7 @@ export class ChatSocket {
 
   private openSocket() {
     const token = getAuthToken()
-    if (!token) {
+    if (!token && !window.slimebotDesktop) {
       this.emitStatus('disconnected', 'missing auth token')
       this.handlers?.onSocketError?.('missing auth token')
       return
@@ -544,8 +544,9 @@ export class ChatSocket {
 
     const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:'
     const wsBase = import.meta.env.VITE_WS_URL || `${protocol}//${location.host}`
-    const query = new URLSearchParams({ token })
-    const url = `${wsBase}/ws/chat?${query.toString()}`
+    const url = window.slimebotDesktop
+      ? `${wsBase}/ws/chat`
+      : `${wsBase}/ws/chat?${new URLSearchParams({ token }).toString()}`
     this.emitStatus('reconnecting')
     this.ws = new WebSocket(url)
 

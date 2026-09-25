@@ -10,6 +10,7 @@ import { isUpdateJobActive, normalizeUpdateJob, updateJobProgressPercent, update
 import { renderMarkdown } from '@/utils/markdown'
 
 const { t } = useI18n()
+const isDesktop = Boolean(window.slimebotDesktop)
 const emit = defineEmits<{
   updateCheckLoaded: [result: UpdateCheckResult]
 }>()
@@ -24,7 +25,7 @@ let pollTimer: ReturnType<typeof setInterval> | null = null
 
 const hasUpdate = computed(() => Boolean(checkResult.value?.updateAvailable))
 const hasActiveUpdateJob = computed(() => isUpdateJobActive(job.value.phase))
-const shouldShowTerminalJob = computed(() => !hasUpdate.value && (job.value.phase === 'succeeded' || job.value.phase === 'failed'))
+const shouldShowTerminalJob = computed(() => job.value.phase === 'ready' || (!hasUpdate.value && (job.value.phase === 'succeeded' || job.value.phase === 'failed')))
 const canApplyUpdate = computed(() => Boolean(checkResult.value?.canApply) && !checking.value && !applying.value && !hasActiveUpdateJob.value)
 const releaseNotes = computed(() => {
   const notes = checkResult.value?.releaseNotes?.trim() || ''
@@ -76,7 +77,7 @@ const progressLabel = computed(() => {
   return ''
 })
 const versionLine = computed(() => {
-  if (!checkResult.value?.latest) return version
+  if (!checkResult.value?.latest || !hasUpdate.value) return checkResult.value?.current || version
   return `${checkResult.value.current || version} → ${checkResult.value.latest}`
 })
 const currentVersionText = computed(() => checkResult.value?.current || version)
@@ -91,7 +92,7 @@ const heroDescription = computed(() => {
   return t('updateAvailable')
 })
 const primaryActionLabel = computed(() => {
-  if (hasUpdate.value) return applying.value ? t('updateApplying') : t('downloadUpdate')
+  if (hasUpdate.value) return applying.value ? t('updateApplying') : job.value.phase === 'ready' ? t('updateInstallRestart') : t('downloadUpdate')
   return checking.value ? t('updateChecking') : t('checkUpdate')
 })
 const primaryActionIcon = computed(() => hasUpdate.value ? mdiDownload : mdiRefresh)
@@ -245,7 +246,7 @@ onUnmounted(stopPolling)
       </div>
 
       <div v-if="showManualCommand" class="update-manual">
-        <span>{{ t('updateManualHint') }}</span>
+        <span>{{ isDesktop ? t('updateManualOnly') : t('updateManualHint') }}</span>
         <code>{{ manualHint || checkResult?.reason || '-' }}</code>
       </div>
     </div>

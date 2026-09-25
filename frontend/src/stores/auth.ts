@@ -13,7 +13,7 @@ export const useAuthStore = defineStore('auth', () => {
   const mustChangePassword = ref(false)
   const initialized = ref(false)
 
-  const isAuthenticated = computed(() => !!token.value)
+  const isAuthenticated = computed(() => Boolean(window.slimebotDesktop) || !!token.value)
 
   function hydrate() {
     token.value = getAuthToken()

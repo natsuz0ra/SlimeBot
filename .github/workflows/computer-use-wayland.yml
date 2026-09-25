@@ -1,0 +1,30 @@
+name: Computer Use Wayland helper smoke test
+
+on:
+  push:
+    branches:
+      - dev/1.31.0
+    paths:
+      - .github/workflows/computer-use-wayland.yml
+      - internal/tools/computer.go
+      - internal/tools/computer_linux.py
+      - internal/tools/computer_linux_wayland_test.go
+      - go.mod
+      - go.sum
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  wayland-helper:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Exercise Wayland command path without a desktop
+        run: go test -count=1 -run '^TestComputerLinuxWaylandCommands$' -v ./internal/tools

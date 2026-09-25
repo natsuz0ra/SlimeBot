@@ -26,6 +26,8 @@ type ExecuteResult struct {
 	Output   string `json:"output,omitempty"`
 	Error    string `json:"error,omitempty"`
 	Metadata any    `json:"metadata,omitempty"`
+	// ImageURL is a data URL returned to the model after the matching tool result.
+	ImageURL string `json:"-"`
 }
 
 // Tool is the interface every built-in tool implements.

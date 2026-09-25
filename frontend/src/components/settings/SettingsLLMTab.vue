@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { mdiClose, mdiDeleteOutline, mdiMagnify, mdiPencilOutline, mdiPlus, mdiRefresh, mdiServerOutline } from '@mdi/js'
+import { mdiChevronLeft, mdiChevronRight, mdiClose, mdiDeleteOutline, mdiMagnify, mdiPencilOutline, mdiPlus, mdiRefresh, mdiServerOutline } from '@mdi/js'
 import MdiIcon from '@/components/ui/MdiIcon.vue'
 import LoadingSpinner from '@/components/ui/LoadingSpinner.vue'
 import { formatContextSize } from '@/utils/contextSize'
@@ -35,6 +35,8 @@ const emit = defineEmits<{
 }>()
 
 const { t } = useI18n()
+const selectedProviderId = ref('')
+const selectedProvider = computed(() => props.providers.find(provider => provider.id === selectedProviderId.value))
 const modelIdsByProvider = computed(() => {
   const entries = new Map<string, Set<string>>()
   for (const model of props.models) {
@@ -56,46 +58,66 @@ function availableDiscovered(providerId: string) {
 function protocolLabel(protocol: string) {
   return t(protocol === 'anthropic' ? 'providerAnthropic' : protocol === 'deepseek' ? 'providerDeepSeek' : 'providerOpenAI')
 }
+
+function backToProviders() {
+  selectedProviderId.value = ''
+  emit('closeDiscovery')
+}
 </script>
 
 <template>
   <div class="llm-settings">
-    <div class="flex items-start justify-between gap-3 mb-5">
-      <div>
-        <p class="section-label mb-1">{{ t('modelProviders') }}</p>
-        <p class="llm-description">{{ t('modelProvidersHint') }}</p>
+    <template v-if="!selectedProvider">
+      <div class="flex items-start justify-between gap-3 mb-5">
+        <div>
+          <p class="section-label mb-1">{{ t('modelProviders') }}</p>
+          <p class="llm-description">{{ t('modelProvidersHint') }}</p>
+        </div>
+        <button type="button" class="btn-primary action-btn llm-main-action flex items-center gap-1.5 px-3 py-2 rounded-xl cursor-pointer settings-action-text" @click="emit('addProvider')">
+          <MdiIcon :path="mdiPlus" :size="14" />{{ t('addProvider') }}
+        </button>
       </div>
-      <button type="button" class="btn-primary action-btn llm-main-action flex items-center gap-1.5 px-3 py-2 rounded-xl cursor-pointer settings-action-text" @click="emit('addProvider')">
-        <MdiIcon :path="mdiPlus" :size="14" />{{ t('addProvider') }}
-      </button>
-    </div>
 
-    <div v-if="providers.length === 0" class="settings-card llm-empty rounded-xl text-center px-4 py-10">
-      <div class="llm-empty-icon"><MdiIcon :path="mdiServerOutline" :size="24" /></div>
-      <p class="settings-item-name mt-3">{{ t('noProviders') }}</p>
-      <p class="llm-description mt-1">{{ t('noProvidersHint') }}</p>
-    </div>
+      <div v-if="providers.length === 0" class="settings-card llm-empty rounded-xl text-center px-4 py-10">
+        <div class="llm-empty-icon"><MdiIcon :path="mdiServerOutline" :size="24" /></div>
+        <p class="settings-item-name mt-3">{{ t('noProviders') }}</p>
+        <p class="llm-description mt-1">{{ t('noProvidersHint') }}</p>
+      </div>
 
-    <div class="flex flex-col gap-3">
-      <section v-for="provider in providers" :key="provider.id" class="settings-card llm-provider-card rounded-xl overflow-hidden">
+      <div class="flex flex-col gap-2.5">
+        <button v-for="provider in providers" :key="provider.id" type="button" class="settings-card llm-provider-entry w-full rounded-xl px-4 py-3.5" @click="selectedProviderId = provider.id">
+          <span class="llm-provider-icon flex-shrink-0"><MdiIcon :path="mdiServerOutline" :size="19" /></span>
+          <span class="flex-1 min-w-0 text-left">
+            <span class="flex flex-wrap items-center gap-2"><span class="settings-item-name llm-provider-name">{{ provider.name }}</span><span class="llm-protocol-badge">{{ protocolLabel(provider.protocol) }}</span></span>
+            <span class="settings-item-sub llm-provider-url truncate block mt-1" :title="provider.baseUrl">{{ provider.baseUrl }}</span>
+          </span>
+          <span class="llm-provider-count">{{ t('providerModelCount', { count: modelsFor(provider.id).length }) }}</span>
+          <MdiIcon :path="mdiChevronRight" :size="17" class="llm-entry-chevron flex-shrink-0" />
+        </button>
+      </div>
+    </template>
+
+    <template v-else>
+      <button type="button" class="llm-back-button mb-3" @click="backToProviders"><MdiIcon :path="mdiChevronLeft" :size="16" />{{ t('modelProviders') }}</button>
+      <section class="settings-card llm-provider-card rounded-xl overflow-hidden">
         <div class="llm-provider-header flex items-start gap-3 px-4 py-4">
           <div class="llm-provider-icon flex-shrink-0"><MdiIcon :path="mdiServerOutline" :size="19" /></div>
           <div class="flex-1 min-w-0">
             <div class="flex flex-wrap items-center gap-2">
-              <h3 class="settings-item-name llm-provider-name">{{ provider.name }}</h3>
-              <span class="llm-protocol-badge">{{ protocolLabel(provider.protocol) }}</span>
+              <h3 class="settings-item-name llm-provider-name">{{ selectedProvider.name }}</h3>
+              <span class="llm-protocol-badge">{{ protocolLabel(selectedProvider.protocol) }}</span>
             </div>
-            <p class="settings-item-sub llm-provider-url truncate mt-1" :title="provider.baseUrl">{{ provider.baseUrl }}</p>
+            <p class="settings-item-sub llm-provider-url truncate mt-1" :title="selectedProvider.baseUrl">{{ selectedProvider.baseUrl }}</p>
           </div>
           <div class="flex items-center gap-1 flex-shrink-0">
-            <button type="button" class="llm-icon-button" :title="t('editProvider')" :aria-label="t('editProvider')" @click="emit('editProvider', provider)"><MdiIcon :path="mdiPencilOutline" :size="16" /></button>
-            <button type="button" class="llm-icon-button llm-danger-button" :title="t('deleteProvider')" :aria-label="t('deleteProvider')" @click="emit('deleteProvider', provider.id)"><MdiIcon :path="mdiDeleteOutline" :size="16" /></button>
+            <button type="button" class="llm-icon-button" :title="t('editProvider')" :aria-label="t('editProvider')" @click="emit('editProvider', selectedProvider)"><MdiIcon :path="mdiPencilOutline" :size="16" /></button>
+            <button type="button" class="llm-icon-button llm-danger-button" :title="t('deleteProvider')" :aria-label="t('deleteProvider')" @click="emit('deleteProvider', selectedProvider.id)"><MdiIcon :path="mdiDeleteOutline" :size="16" /></button>
           </div>
         </div>
 
         <div class="llm-model-list">
-          <div class="llm-model-list-heading px-4 py-2">{{ t('availableModels') }} <span>{{ modelsFor(provider.id).length }}</span></div>
-          <div v-for="model in modelsFor(provider.id)" :key="model.id" class="llm-model-row flex items-center gap-3 px-4 py-2.5">
+          <div class="llm-model-list-heading px-4 py-2">{{ t('availableModels') }} <span>{{ modelsFor(selectedProvider.id).length }}</span></div>
+          <div v-for="model in modelsFor(selectedProvider.id)" :key="model.id" class="llm-model-row flex items-center gap-3 px-4 py-2.5">
             <div class="llm-model-dot flex-shrink-0" />
             <div class="flex-1 min-w-0">
               <div class="settings-item-name truncate">{{ model.name }}</div>
@@ -104,18 +126,18 @@ function protocolLabel(protocol: string) {
             <button type="button" class="llm-icon-button" :title="t('editModel')" :aria-label="t('editModel')" @click="emit('editModel', model)"><MdiIcon :path="mdiPencilOutline" :size="15" /></button>
             <button type="button" class="llm-icon-button llm-danger-button" :title="t('delete')" :aria-label="t('delete')" @click="emit('deleteModel', model.id)"><MdiIcon :path="mdiDeleteOutline" :size="15" /></button>
           </div>
-          <p v-if="modelsFor(provider.id).length === 0" class="llm-no-models px-4 py-5">{{ t('noModelsInProvider') }}</p>
+          <p v-if="modelsFor(selectedProvider.id).length === 0" class="llm-no-models px-4 py-5">{{ t('noModelsInProvider') }}</p>
         </div>
 
         <div class="llm-card-actions flex flex-wrap gap-2 px-4 py-3">
-          <button type="button" class="llm-secondary-button" :disabled="discovering && discoveryProviderId === provider.id" @click="emit('discover', provider.id)">
-            <LoadingSpinner v-if="discovering && discoveryProviderId === provider.id" size-class="w-3.5 h-3.5" />
+          <button type="button" class="llm-secondary-button" :disabled="discovering && discoveryProviderId === selectedProvider.id" @click="emit('discover', selectedProvider.id)">
+            <LoadingSpinner v-if="discovering && discoveryProviderId === selectedProvider.id" size-class="w-3.5 h-3.5" />
             <MdiIcon v-else :path="mdiRefresh" :size="15" />{{ t('discoverModels') }}
           </button>
-          <button type="button" class="llm-secondary-button" @click="emit('addModel', provider.id)"><MdiIcon :path="mdiPlus" :size="15" />{{ t('addModelManually') }}</button>
+          <button type="button" class="llm-secondary-button" @click="emit('addModel', selectedProvider.id)"><MdiIcon :path="mdiPlus" :size="15" />{{ t('addModelManually') }}</button>
         </div>
 
-        <div v-if="discoveryProviderId === provider.id" class="llm-discovery px-4 py-4">
+        <div v-if="discoveryProviderId === selectedProvider.id" class="llm-discovery px-4 py-4">
           <div class="flex items-center justify-between gap-2 mb-3">
             <div>
               <p class="settings-item-name">{{ t('discoveredModels') }}</p>
@@ -131,13 +153,13 @@ function protocolLabel(protocol: string) {
           <template v-else>
             <div class="llm-discovery-toolbar flex items-center justify-between gap-2 py-2">
               <span>{{ t('modelsFound', { count: discoveredModels.length }) }}</span>
-              <button v-if="availableDiscovered(provider.id).length > 0" type="button" class="llm-link-button" @click="emit('toggleAll', availableDiscovered(provider.id).map(model => model.id))">{{ t('selectVisibleModels') }}</button>
+              <button v-if="availableDiscovered(selectedProvider.id).length > 0" type="button" class="llm-link-button" @click="emit('toggleAll', availableDiscovered(selectedProvider.id).map(model => model.id))">{{ t('selectVisibleModels') }}</button>
             </div>
             <div class="llm-discovery-list">
               <label v-for="model in visibleDiscovered.slice(0, 100)" :key="model.id" class="llm-discovery-row flex items-center gap-2.5">
-                <input type="checkbox" :checked="selectedModelIds.includes(model.id) || modelIdsByProvider.get(provider.id)?.has(model.id)" :disabled="modelIdsByProvider.get(provider.id)?.has(model.id) || discoverySaving" @change="emit('toggleModel', model.id)" />
+                <input type="checkbox" :checked="selectedModelIds.includes(model.id) || modelIdsByProvider.get(selectedProvider.id)?.has(model.id)" :disabled="modelIdsByProvider.get(selectedProvider.id)?.has(model.id) || discoverySaving" @change="emit('toggleModel', model.id)" />
                 <span class="flex-1 min-w-0"><strong class="truncate block">{{ model.name }}</strong><small class="truncate block">{{ model.id }}</small></span>
-                <span v-if="modelIdsByProvider.get(provider.id)?.has(model.id)" class="llm-added-label">{{ t('alreadyAdded') }}</span>
+                <span v-if="modelIdsByProvider.get(selectedProvider.id)?.has(model.id)" class="llm-added-label">{{ t('alreadyAdded') }}</span>
               </label>
               <p v-if="visibleDiscovered.length === 0" class="llm-no-models px-3 py-4">{{ t('noDiscoveredModels') }}</p>
             </div>
@@ -146,7 +168,7 @@ function protocolLabel(protocol: string) {
           </template>
         </div>
       </section>
-    </div>
+    </template>
   </div>
 </template>
 
@@ -156,6 +178,14 @@ function protocolLabel(protocol: string) {
 .llm-empty-icon, .llm-provider-icon { display: inline-flex; align-items: center; justify-content: center; color: var(--sb-brand); background: var(--primary-alpha-10); border-radius: 10px; }
 .llm-empty-icon { width: 42px; height: 42px; margin: auto; }
 .llm-provider-icon { width: 38px; height: 38px; }
+.llm-provider-entry { display: flex; align-items: center; gap: 12px; text-align: left; cursor: pointer; transition: border-color .18s, background .18s; }
+.llm-provider-entry:hover { border-color: var(--sb-brand); background: var(--primary-alpha-05); }
+.llm-provider-entry:focus-visible, .llm-back-button:focus-visible { outline: 2px solid var(--sb-brand); outline-offset: 2px; }
+.llm-provider-count { flex-shrink: 0; color: var(--text-secondary); font-size: 11px; }
+.llm-entry-chevron { color: var(--text-muted); transition: color .18s, transform .18s; }
+.llm-provider-entry:hover .llm-entry-chevron { color: var(--sb-brand); transform: translateX(2px); }
+.llm-back-button { display: inline-flex; align-items: center; gap: 4px; padding: 5px 8px; border-radius: 7px; color: var(--text-secondary); font-size: 12px; cursor: pointer; transition: color .18s, background .18s; }
+.llm-back-button:hover { color: var(--sb-brand); background: var(--primary-alpha-08); }
 .llm-provider-name { font-size: 15px; font-weight: 600; }
 .llm-provider-url { color: var(--text-secondary); }
 .llm-protocol-badge { color: var(--sb-brand); background: var(--primary-alpha-10); border-radius: 6px; padding: 3px 7px; font-size: 11px; font-weight: 600; }

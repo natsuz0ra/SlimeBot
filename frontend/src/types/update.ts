@@ -4,6 +4,7 @@ export type UpdatePhase =
   | 'downloading'
   | 'installing'
   | 'restarting'
+  | 'ready'
   | 'succeeded'
   | 'failed'
 

@@ -1,0 +1,21 @@
+{
+  "name": "slimebot-desktop",
+  "version": "1.32.0",
+  "private": true,
+  "main": "main.cjs",
+  "scripts": {
+    "icons": "node scripts/icons.cjs",
+    "build:backend": "node scripts/build-backend.cjs",
+    "dev": "npm run build:backend && electron .",
+    "package:mac": "npm run icons && SLIMEBOT_DESKTOP_UNIVERSAL=1 npm run build:backend && electron-builder --config electron-builder.config.cjs --mac --universal --publish never",
+    "package:win": "npm run icons && npm run build:backend && electron-builder --config electron-builder.config.cjs --win --x64 --publish never"
+  },
+  "dependencies": {
+    "electron-updater": "6.8.9"
+  },
+  "devDependencies": {
+    "@resvg/resvg-js": "2.6.2",
+    "electron": "44.4.5",
+    "electron-builder": "26.15.3"
+  }
+}

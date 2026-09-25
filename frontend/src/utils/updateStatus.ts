@@ -8,6 +8,7 @@ const phases = new Set<UpdatePhase>([
   'downloading',
   'installing',
   'restarting',
+  'ready',
   'succeeded',
   'failed',
 ])
@@ -63,6 +64,7 @@ export function updateJobStatusLabelKey(phase: UpdatePhase): string {
   if (phase === 'downloading') return 'updateDownloading'
   if (phase === 'installing') return 'updateInstalling'
   if (phase === 'restarting') return 'updateRestarting'
+  if (phase === 'ready') return 'updateReady'
   if (phase === 'succeeded') return 'updateSucceeded'
   if (phase === 'failed') return 'updateFailed'
   return ''
@@ -72,7 +74,7 @@ export function updateJobProgressPercent(job: UpdateJobStatus): number {
   if (job.phase === 'downloading') {
     return job.totalBytes > 0 ? job.progressPercent : 42
   }
-  if (job.phase === 'installing' || job.phase === 'restarting' || job.phase === 'succeeded' || job.phase === 'failed') {
+  if (job.phase === 'installing' || job.phase === 'restarting' || job.phase === 'ready' || job.phase === 'succeeded' || job.phase === 'failed') {
     return 100
   }
   return 0

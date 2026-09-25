@@ -1,7 +1,8 @@
 import { onMounted, onUnmounted, ref } from 'vue'
 
 export function useHomeUiState() {
-  const drawerOpen = ref(false)
+  const desktopLayout = window.matchMedia('(min-width: 768px)')
+  const drawerOpen = ref(desktopLayout.matches)
   const renameVisible = ref(false)
   const renameValue = ref('')
   const renameTargetId = ref('')
@@ -23,6 +24,10 @@ export function useHomeUiState() {
     drawerOpen.value = !drawerOpen.value
   }
 
+  function onLayoutChange(event: MediaQueryListEvent) {
+    drawerOpen.value = event.matches
+  }
+
   function toggleSessionMenu(sessionId: string, event: MouseEvent) {
     const target = event.currentTarget as HTMLElement | null
     if (!target) return
@@ -36,10 +41,12 @@ export function useHomeUiState() {
 
   onMounted(() => {
     document.addEventListener('click', onGlobalClick)
+    desktopLayout.addEventListener('change', onLayoutChange)
   })
 
   onUnmounted(() => {
     document.removeEventListener('click', onGlobalClick)
+    desktopLayout.removeEventListener('change', onLayoutChange)
   })
 
   return {

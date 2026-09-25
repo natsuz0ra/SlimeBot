@@ -15,6 +15,13 @@
 - 桌面 Computer Use：在 SlimeBot 所在机器的交互式桌面上，优先通过辅助功能识别前台应用，必要时结合截图完成点击、输入、按键和滚动；支持 macOS、Windows 和 Linux，操作遵循工具审批（[环境要求与使用限制](docs/computer-use.zh-CN.md)）
 - 规划模式、流式思考、上下文压缩、MCP 配置、Skills 与 AGENTS.md 指令
 - Web UI、CLI TUI 与 Telegram 集成
+- macOS / Windows 桌面应用预览版：免账号密码登录，关窗后继续运行后台任务，可从系统托盘退出
+
+## 桌面应用预览版（1.32.0）
+
+`dev/1.32.0` 分支的 [Desktop preview 工作流](https://github.com/natsuz0ra/SlimeBot/actions/workflows/desktop-preview.yml) 分别生成 `SlimeBot-1.32.0-macos-universal.dmg` 和 `SlimeBot-1.32.0-windows-x64.exe`，并将两个原文件直接附在 [GitHub 预发布版本](https://github.com/natsuz0ra/SlimeBot/releases) 中下载。分支合并并发布 `v1.32.0` 后，CI 也会将它们作为独立资产附在同一个正式 Release 中。macOS 打开 DMG 后将 `.app` 拖到“应用程序”目录；Windows 直接运行 EXE 安装程序。
+
+桌面版使用独立数据目录和随机本地会话，打开后无需输入账号密码；脚本安装的 Web 端仍保留账号密码登录。关闭窗口会隐藏到托盘，消息平台与计划任务继续运行；在托盘图标右键选择“退出 SlimeBot”才会停止后台服务。设置中的更新中心可检查新版本并打开下载页。当前预览包未签名，需按系统提示明确允许首次运行，更新时手动下载并覆盖安装。macOS 只发布 DMG，应用内自动安装还需要代码签名和 ZIP 更新包，暂不启用。详细方案见 [桌面应用技术方案](docs/desktop-app-1.32.0-technical-design.zh-CN.md)。
 
 ## 从 Release 安装
 

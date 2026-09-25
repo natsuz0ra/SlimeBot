@@ -10,6 +10,9 @@ const SlimeBotDirName = ".slimebot"
 const GlobalAgentsFileName = "AGENTS.md"
 
 func SlimeBotHomeDir() string {
+	if configured := strings.TrimSpace(os.Getenv("SLIMEBOT_HOME")); configured != "" {
+		return filepath.Clean(ExpandHome(configured))
+	}
 	home, err := os.UserHomeDir()
 	if err != nil || strings.TrimSpace(home) == "" {
 		return SlimeBotDirName

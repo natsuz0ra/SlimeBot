@@ -26,12 +26,13 @@ const emit = defineEmits<{
 }>()
 
 const { t } = useI18n()
+const isDesktop = Boolean(window.slimebotDesktop)
 </script>
 
 <template>
   <div>
     <p class="section-label">{{ t('basicSettings') }}</p>
-    <div class="settings-card flex items-center justify-between px-4 py-3.5 rounded-xl mb-2">
+    <div v-if="!isDesktop" class="settings-card flex items-center justify-between px-4 py-3.5 rounded-xl mb-2">
       <span class="settings-field-label">{{ t('accountEdit') }}</span>
       <button type="button" class="px-3 py-1.5 rounded-lg cursor-pointer account-edit-btn settings-action-text" @click="emit('openAccount')">
         {{ t('accountEditAction') }}
@@ -74,7 +75,7 @@ const { t } = useI18n()
         </button>
       </div>
     </div>
-    <button type="button" class="settings-card w-full mt-2 px-4 py-3.5 rounded-xl text-left cursor-pointer logout-btn settings-field-label" @click="emit('logout')">
+    <button v-if="!isDesktop" type="button" class="settings-card w-full mt-2 px-4 py-3.5 rounded-xl text-left cursor-pointer logout-btn settings-field-label" @click="emit('logout')">
       {{ t('logout') }}
     </button>
   </div>

@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"context"
+	"crypto/subtle"
 	"net/http"
 	"strings"
 
@@ -16,11 +17,26 @@ import (
 // If cliToken is set and the request is from localhost, X-CLI-Token may bypass JWT.
 func RequireJWT(tokenManager *auth.TokenManager, cliToken ...string) func(http.Handler) http.Handler {
 	ct := ""
+	desktopToken := ""
 	if len(cliToken) > 0 {
 		ct = cliToken[0]
 	}
+	if len(cliToken) > 1 {
+		desktopToken = cliToken[1]
+	}
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if desktopToken != "" {
+				token := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
+				if auth.IsLocalhost(r) && subtle.ConstantTimeCompare([]byte(token), []byte(desktopToken)) == 1 {
+					ctx := context.WithValue(r.Context(), constants.ContextAuthUsername, "desktop")
+					ctx = constants.WithClientSurface(ctx, constants.ClientSurfaceWeb)
+					next.ServeHTTP(w, r.WithContext(ctx))
+					return
+				}
+				apierrors2.WriteJSONError(w, http.StatusUnauthorized, apierrors2.APIError{Message: "Unauthorized."})
+				return
+			}
 			// CLI token bypass: localhost + matching token → admin context
 			if ct != "" && auth.IsLocalhost(r) {
 				receivedToken := r.Header.Get("X-CLI-Token")

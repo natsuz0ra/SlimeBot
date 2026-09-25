@@ -62,6 +62,60 @@ func TestDiscoverAnthropicModelsPaginatesAndKeepsContextSize(t *testing.T) {
 	}
 }
 
+func TestDiscoverModelsReadsCompatibleContextMetadata(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, `{"data":[{"id":"a","context_length":131072},{"id":"b","max_model_len":"262144"},{"id":"c","metadata":{"context_window":32768}},{"id":"d"},{"id":"e","metadata":"unexpected"}]}`)
+	}))
+	defer server.Close()
+	repo := repositories.New(repositories.NewSQLiteDBTest(t, "discover_context_metadata"))
+	svc := NewLLMConfigService(repo)
+	provider, err := svc.CreateProvider(context.Background(), LLMProviderInput{Name: "Gateway", Protocol: "openai", BaseURL: server.URL})
+	if err != nil {
+		t.Fatal(err)
+	}
+	models, err := svc.DiscoverModels(context.Background(), provider.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i, want := range []int{131072, 262144, 32768, 0, 0} {
+		if models[i].ContextSize != want {
+			t.Fatalf("%s: expected %d, got %d", models[i].ID, want, models[i].ContextSize)
+		}
+	}
+}
+
+func TestCreateModelAutomaticallyDetectsContextAndMarksFallback(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, `{"data":[{"id":"known","context_length":128000},{"id":"unknown"}]}`)
+	}))
+	defer server.Close()
+	ctx := context.Background()
+	repo := repositories.New(repositories.NewSQLiteDBTest(t, "auto_context_save"))
+	svc := NewLLMConfigService(repo)
+	provider, err := svc.CreateProvider(ctx, LLMProviderInput{Name: "Gateway", Protocol: "openai", BaseURL: server.URL})
+	if err != nil {
+		t.Fatal(err)
+	}
+	known, err := svc.Create(ctx, LLMConfigInput{ProviderID: provider.ID, Name: "Known", Model: "known", ContextSizeSource: "auto"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	unknown, err := svc.Create(ctx, LLMConfigInput{ProviderID: provider.ID, Name: "Unknown", Model: "unknown", ContextSizeSource: "auto"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if known.ContextSize != 128000 || known.ContextSizeSource != "detected" {
+		t.Fatalf("unexpected detected context: %+v", known)
+	}
+	if unknown.ContextSize != 1_000_000 || unknown.ContextSizeSource != "fallback" {
+		t.Fatalf("unexpected fallback context: %+v", unknown)
+	}
+	stored, err := repo.GetLLMConfigByID(ctx, known.ID)
+	if err != nil || stored.ContextSizeSource != "detected" {
+		t.Fatalf("detected source was not persisted: %+v, %v", stored, err)
+	}
+}
+
 func TestProviderKeyCanBeRetainedOrExplicitlyCleared(t *testing.T) {
 	ctx := context.Background()
 	repo := repositories.New(repositories.NewSQLiteDBTest(t, "provider_key_update"))

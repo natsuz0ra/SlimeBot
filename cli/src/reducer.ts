@@ -12,7 +12,7 @@ import type {
   ModelProvider,
 } from "./types.js";
 import { estimateTokens } from "./utils/format.js";
-import { CONTEXT_SIZE_DEFAULT, clampContextSize } from "./utils/contextSize.js";
+import { CONTEXT_SIZE_DEFAULT } from "./utils/contextSize.js";
 import { memoryConsoleActionCount } from "./utils/memoryConsole.js";
 import {
   clampAgentTeamCursor,
@@ -220,6 +220,7 @@ export function createInitialState(
     modelEditorApiKey: "",
     modelEditorModel: "",
     modelEditorContextSize: String(CONTEXT_SIZE_DEFAULT),
+    modelEditorContextSizeSource: "auto",
     modelEditorFocusIndex: 0,
     modelEditorProviderSelect: false,
     approvalToolCallId: "",
@@ -640,7 +641,8 @@ export function reducer(state: AppState, action: AppAction): AppState {
         modelEditorBaseUrl: "",
         modelEditorApiKey: "",
         modelEditorModel: "",
-        modelEditorContextSize: String(CONTEXT_SIZE_DEFAULT),
+        modelEditorContextSize: "",
+        modelEditorContextSizeSource: "auto",
         modelEditorFocusIndex: 0,
         modelEditorProviderSelect: false,
       };
@@ -681,7 +683,8 @@ export function reducer(state: AppState, action: AppAction): AppState {
         modelEditorProviderId: action.config.providerId,
         modelEditorName: action.config.name,
         modelEditorModel: action.config.model,
-        modelEditorContextSize: String(clampContextSize(action.config.contextSize)),
+        modelEditorContextSize: String(action.config.contextSize || CONTEXT_SIZE_DEFAULT),
+        modelEditorContextSizeSource: action.config.contextSizeSource || "manual",
         modelEditorFocusIndex: 0,
         modelEditorProviderSelect: false,
       };
@@ -699,10 +702,13 @@ export function reducer(state: AppState, action: AppAction): AppState {
       return { ...state, modelEditorApiKey: action.apiKey };
 
     case "SET_MODEL_EDITOR_MODEL":
-      return { ...state, modelEditorModel: action.model };
+      return { ...state, modelEditorModel: action.model, ...(state.modelEditorContextSizeSource === "manual" ? {} : { modelEditorContextSize: "", modelEditorContextSizeSource: "auto" as const }) };
 
     case "SET_MODEL_EDITOR_CONTEXT_SIZE":
-      return { ...state, modelEditorContextSize: action.contextSize };
+      return { ...state, modelEditorContextSize: action.contextSize, modelEditorContextSizeSource: "manual" };
+
+    case "SET_MODEL_EDITOR_CONTEXT_AUTO":
+      return { ...state, modelEditorContextSize: "", modelEditorContextSizeSource: "auto" };
 
     case "MODEL_EDITOR_NEXT_FIELD": {
       const maxIndex = state.view === "provider-editor" ? 3 : 2;

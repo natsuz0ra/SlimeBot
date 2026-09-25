@@ -141,6 +141,7 @@ export class APIClient {
     providerId: string;
     model: string;
     contextSize?: number;
+    contextSizeSource?: "auto" | "detected" | "fallback" | "manual";
   }): Promise<LLMConfig> {
     return this.request("/api/llm-configs", {
       method: "POST",
@@ -153,6 +154,7 @@ export class APIClient {
     providerId: string;
     model: string;
     contextSize?: number;
+    contextSizeSource?: "auto" | "detected" | "fallback" | "manual";
   }): Promise<void> {
     return this.request(`/api/llm-configs/${id}`, {
       method: "PUT",

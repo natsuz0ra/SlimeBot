@@ -66,13 +66,14 @@ func (r *Repository) CreateLLMConfig(ctx context.Context, item domain.LLMConfig)
 func (r *Repository) UpdateLLMConfig(ctx context.Context, id string, item domain.LLMConfig) error {
 	normalizeLLMConfig(&item)
 	return r.dbWithContext(ctx).Model(&domain.LLMConfig{}).Where("id = ?", id).Updates(domain.LLMConfig{
-		Name:        item.Name,
-		ProviderID:  item.ProviderID,
-		Provider:    item.Provider,
-		BaseURL:     item.BaseURL,
-		APIKey:      item.APIKey,
-		Model:       item.Model,
-		ContextSize: item.ContextSize,
+		Name:              item.Name,
+		ProviderID:        item.ProviderID,
+		Provider:          item.Provider,
+		BaseURL:           item.BaseURL,
+		APIKey:            item.APIKey,
+		Model:             item.Model,
+		ContextSize:       item.ContextSize,
+		ContextSizeSource: item.ContextSizeSource,
 	}).Error
 }
 
@@ -92,5 +93,8 @@ func normalizeLLMConfig(item *domain.LLMConfig) {
 	}
 	if item.ContextSize <= 0 {
 		item.ContextSize = constants.DefaultContextSize
+	}
+	if item.ContextSizeSource == "" {
+		item.ContextSizeSource = "manual"
 	}
 }

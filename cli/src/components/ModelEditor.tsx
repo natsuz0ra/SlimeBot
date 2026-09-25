@@ -40,13 +40,14 @@ interface ModelEditorProps {
   name: string;
   model: string;
   contextSize: string;
+  contextSizeSource: "auto" | "detected" | "fallback" | "manual";
   focusIndex: number;
   onNameChange: (name: string) => void;
   onModelChange: (model: string) => void;
   onContextSizeChange: (contextSize: string) => void;
 }
 
-export function ModelEditor({ name, model, contextSize, focusIndex, onNameChange, onModelChange, onContextSizeChange }: ModelEditorProps): React.ReactElement {
+export function ModelEditor({ name, model, contextSize, contextSizeSource, focusIndex, onNameChange, onModelChange, onContextSizeChange }: ModelEditorProps): React.ReactElement {
   const { stdout } = useStdout();
   const valueColumns = Math.max(12, (stdout?.columns || 80) - LABEL_WIDTH - 12);
   const field = (index: number, label: string, value: string, onChange: (value: string) => void) => (
@@ -58,6 +59,11 @@ export function ModelEditor({ name, model, contextSize, focusIndex, onNameChange
     </Box>
   );
   const clamped = clampContextSize(contextSize);
+  const auto = contextSizeSource !== "manual";
+  const contextLabel = contextSizeSource === "detected" ? `Auto · ${formatContextSize(Number(contextSize))} detected` : contextSizeSource === "fallback" ? `Auto · ${formatContextSize(Number(contextSize))} default estimate` : auto ? "Auto · detect on save" : `Custom · ${formatContextSize(clamped)}`;
+  const barWidth = Math.min(20, valueColumns - stringWidth(contextLabel) - 4);
+  const showBar = !auto && barWidth >= 8;
+  const contextText = `${showBar ? `[${renderContextSizeBar(clamped, barWidth)}] ` : ""}${truncateDisplayValue(contextLabel, showBar ? valueColumns - barWidth - 3 : valueColumns)}`;
   return (
     <Box flexDirection="column">
       <Text bold color={CLI_ACCENT_COLOR}>Model Editor</Text>
@@ -65,10 +71,9 @@ export function ModelEditor({ name, model, contextSize, focusIndex, onNameChange
       {field(1, "Model ID", model, onModelChange)}
       <Box>
         <Box width={LABEL_WIDTH}><Text color={focusIndex === 2 ? "white" : "gray"}>{focusIndex === 2 ? "> " : "  "}Context</Text></Box>
-        <Text color={CLI_ACCENT_COLOR}>[{renderContextSizeBar(clamped, Math.min(24, Math.max(8, valueColumns - 12)))}]</Text>
-        <Text color="gray"> {formatContextSize(clamped)}</Text>
+        <Text color={CLI_ACCENT_COLOR}>{contextText}</Text>
       </Box>
-      {focusIndex === 2 && <Box marginLeft={LABEL_WIDTH}><TextInput value={contextSize} onChange={onContextSizeChange} focus columns={Math.max(10, valueColumns - 18)} multiline={false} enableCtrlShortcuts={false} /><Text color="gray"> {"  ←/→ 1K  ↑/↓ 32K"}</Text></Box>}
+      {focusIndex === 2 && <Box marginLeft={LABEL_WIDTH}><TextInput value={auto ? "" : contextSize} onChange={onContextSizeChange} focus columns={Math.max(10, valueColumns - 18)} multiline={false} enableCtrlShortcuts={false} /><Text color="gray"> {"  type to override · Ctrl+A auto"}</Text></Box>}
     </Box>
   );
 }

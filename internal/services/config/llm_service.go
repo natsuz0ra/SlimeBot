@@ -12,13 +12,14 @@ import (
 )
 
 type LLMConfigInput struct {
-	Name        string
-	ProviderID  string
-	Provider    string
-	BaseURL     string
-	APIKey      string
-	Model       string
-	ContextSize int
+	Name              string
+	ProviderID        string
+	Provider          string
+	BaseURL           string
+	APIKey            string
+	Model             string
+	ContextSize       int
+	ContextSizeSource string
 }
 
 type LLMConfigCreateInput = LLMConfigInput
@@ -75,14 +76,16 @@ func (s *LLMConfigService) buildConfig(ctx context.Context, input LLMConfigInput
 	if provider == "" {
 		provider = "openai"
 	}
+	contextSize, contextSizeSource := s.contextSizeForInput(ctx, input)
 	return domain.LLMConfig{
-		Name:        strings.TrimSpace(input.Name),
-		ProviderID:  strings.TrimSpace(input.ProviderID),
-		Provider:    provider,
-		BaseURL:     strings.TrimSpace(input.BaseURL),
-		APIKey:      strings.TrimSpace(input.APIKey),
-		Model:       strings.TrimSpace(input.Model),
-		ContextSize: s.resolveContextSize(input.ContextSize),
+		Name:              strings.TrimSpace(input.Name),
+		ProviderID:        strings.TrimSpace(input.ProviderID),
+		Provider:          provider,
+		BaseURL:           strings.TrimSpace(input.BaseURL),
+		APIKey:            strings.TrimSpace(input.APIKey),
+		Model:             strings.TrimSpace(input.Model),
+		ContextSize:       contextSize,
+		ContextSizeSource: contextSizeSource,
 	}, nil
 }
 
@@ -168,4 +171,31 @@ func (s *LLMConfigService) resolveContextSize(value int) int {
 		return s.defaultContextSize
 	}
 	return constants.DefaultContextSize
+}
+
+func (s *LLMConfigService) contextSizeForInput(ctx context.Context, input LLMConfigInput) (int, string) {
+	switch input.ContextSizeSource {
+	case "detected":
+		if input.ContextSize > 0 {
+			return input.ContextSize, "detected"
+		}
+	case "fallback":
+		return s.resolveContextSize(0), "fallback"
+	case "auto":
+		if input.ProviderID != "" && strings.TrimSpace(input.Model) != "" {
+			models, err := s.DiscoverModels(ctx, input.ProviderID)
+			if err == nil {
+				for _, model := range models {
+					if model.ID == strings.TrimSpace(input.Model) && model.ContextSize > 0 {
+						return model.ContextSize, "detected"
+					}
+				}
+			}
+		}
+		return s.resolveContextSize(0), "fallback"
+	}
+	if input.ContextSize > 0 {
+		return input.ContextSize, "manual"
+	}
+	return s.resolveContextSize(0), "fallback"
 }

@@ -1,7 +1,7 @@
 import { computed, ref, type Ref } from 'vue'
 import { llmAPI } from '@/api/llm'
 import type { DiscoveredModel, LLMConfig, LLMProvider } from '@/types/settings'
-import { CONTEXT_SIZE_DEFAULT, clampContextSize, contextSizeToSlider, formatContextSize, sliderToContextSize } from '@/utils/contextSize'
+import { CONTEXT_SIZE_DEFAULT, clampContextSize, formatContextSize } from '@/utils/contextSize'
 
 type ToastLike = { error(message: string): void }
 type Translate = (key: string) => string
@@ -11,7 +11,7 @@ function emptyProviderForm() {
 }
 
 function emptyModelForm(providerId = '') {
-  return { providerId, name: '', model: '', contextSize: CONTEXT_SIZE_DEFAULT }
+  return { providerId, name: '', model: '', contextSize: 0, contextSizeSource: 'auto' as 'auto' | 'detected' | 'fallback' | 'manual' }
 }
 
 function errorMessage(error: unknown, fallback: string) {
@@ -35,6 +35,7 @@ export function useSettingsLLM(options: {
   const providerEditingId = ref('')
   const modelForm = ref(emptyModelForm())
   const modelEditingId = ref('')
+  const modelEditingOriginalModel = ref('')
   const discoveryProviderId = ref('')
   const discoveredModels = ref<DiscoveredModel[]>([])
   const discovering = ref(false)
@@ -46,11 +47,13 @@ export function useSettingsLLM(options: {
   const providerRows = computed(() => providerList.value || [])
   const providerDialogTitleKey = computed(() => providerEditingId.value ? 'editProvider' : 'addProvider')
   const modelDialogTitleKey = computed(() => modelEditingId.value ? 'editModel' : 'addModel')
-  const contextSizeDisplay = computed(() => formatContextSize(modelForm.value.contextSize))
-  const contextSizeSlider = computed({
-    get: () => contextSizeToSlider(modelForm.value.contextSize),
-    set: (value: number | string) => { modelForm.value.contextSize = sliderToContextSize(value) },
-  })
+  const contextSizeDisplay = computed(() => modelForm.value.contextSize > 0 ? formatContextSize(modelForm.value.contextSize) : t('contextSizeAuto'))
+  const contextSizeManual = computed(() => modelForm.value.contextSizeSource === 'manual')
+
+  function setContextSizeManual(manual: boolean) {
+    modelForm.value.contextSizeSource = manual ? 'manual' : 'auto'
+    modelForm.value.contextSize = manual ? clampContextSize(modelForm.value.contextSize) : 0
+  }
   const visibleDiscovered = computed(() => {
     const query = discoveryQuery.value.trim().toLowerCase()
     return discoveredModels.value.filter(item => !query || item.id.toLowerCase().includes(query) || item.name.toLowerCase().includes(query))
@@ -103,12 +106,14 @@ export function useSettingsLLM(options: {
   function openModelDialog(providerId: string) {
     modelForm.value = emptyModelForm(providerId)
     modelEditingId.value = ''
+    modelEditingOriginalModel.value = ''
     modelDialogVisible.value = true
   }
 
   function openModelEditDialog(item: LLMConfig) {
-    modelForm.value = { providerId: item.providerId, name: item.name, model: item.model, contextSize: clampContextSize(item.contextSize) }
+    modelForm.value = { providerId: item.providerId, name: item.name, model: item.model, contextSize: item.contextSize || CONTEXT_SIZE_DEFAULT, contextSizeSource: item.contextSizeSource || 'manual' }
     modelEditingId.value = item.id
+    modelEditingOriginalModel.value = item.model
     modelDialogVisible.value = true
   }
 
@@ -119,7 +124,13 @@ export function useSettingsLLM(options: {
     }
     llmSubmitting.value = true
     try {
-      const payload = { ...modelForm.value, contextSize: clampContextSize(modelForm.value.contextSize) }
+      const changedModel = modelEditingId.value && modelEditingOriginalModel.value !== modelForm.value.model.trim()
+      const source = modelForm.value.contextSizeSource
+      const payload = {
+        ...modelForm.value,
+        contextSize: source === 'manual' ? clampContextSize(modelForm.value.contextSize) : source === 'detected' && !changedModel ? modelForm.value.contextSize : 0,
+        contextSizeSource: source === 'manual' ? 'manual' as const : source === 'detected' && !changedModel ? 'detected' as const : 'auto' as const,
+      }
       if (modelEditingId.value) await llmAPI.update(modelEditingId.value, payload)
       else await llmAPI.create(payload)
       await refresh()
@@ -168,7 +179,7 @@ export function useSettingsLLM(options: {
     discoverySaving.value = true
     try {
       for (const item of selected) {
-        await llmAPI.create({ providerId: discoveryProviderId.value, name: item.name, model: item.id, contextSize: clampContextSize(item.contextSize || CONTEXT_SIZE_DEFAULT) })
+        await llmAPI.create({ providerId: discoveryProviderId.value, name: item.name, model: item.id, contextSize: item.contextSize || 0, contextSizeSource: item.contextSize ? 'detected' : 'fallback' })
       }
       selectedModelIds.value = []
       await refresh()
@@ -183,7 +194,7 @@ export function useSettingsLLM(options: {
 
   return {
     llmRows, providerRows, providerForm, providerEditingId, modelForm, providerDialogTitleKey, modelDialogTitleKey,
-    contextSizeDisplay, contextSizeSlider, discoveryProviderId, discoveredModels, visibleDiscovered,
+    contextSizeDisplay, contextSizeManual, setContextSizeManual, discoveryProviderId, discoveredModels, visibleDiscovered,
     discovering, discoverySaving, discoveryQuery, selectedModelIds,
     openProviderDialog, openProviderEditDialog, saveProvider, deleteProvider,
     openModelDialog, openModelEditDialog, saveModel, deleteModel,

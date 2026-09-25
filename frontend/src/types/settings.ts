@@ -55,6 +55,7 @@ export interface LLMConfig {
   baseUrl: string
   model: string
   contextSize?: number
+  contextSizeSource?: 'detected' | 'fallback' | 'manual'
 }
 
 export interface LLMProvider {

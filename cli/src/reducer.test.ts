@@ -395,12 +395,13 @@ test("CONTEXT_COMPACTED stores usage and appends a system notice", () => {
 	assert.match(state.timeline.at(-1)?.content || "", /Context compacted/);
 });
 
-test("SET_MODEL_EDITOR_VIEW initializes context size defaults", () => {
+test("SET_MODEL_EDITOR_VIEW starts with automatic context detection", () => {
 	const state = reduce(initState(), { type: "SET_MODEL_EDITOR_VIEW" });
 
 	assert.equal(state.view, "model-editor");
 	assert.equal(state.modelEditorId, "");
-	assert.equal(state.modelEditorContextSize, "1000000");
+	assert.equal(state.modelEditorContextSize, "");
+	assert.equal(state.modelEditorContextSizeSource, "auto");
 	assert.equal(state.modelEditorFocusIndex, 0);
 });
 
@@ -424,6 +425,26 @@ test("SET_MODEL_EDITOR preloads existing model config for editing", () => {
 	assert.equal(state.modelEditorId, "model-1");
 	assert.equal(state.modelEditorProviderId, "provider-1");
 	assert.equal(state.modelEditorContextSize, "128000");
+	assert.equal(state.modelEditorContextSizeSource, "manual");
+});
+
+test("model editor preserves detected context and resets on model change", () => {
+	let state = reduce(initState(), {
+		type: "SET_MODEL_EDITOR",
+		config: {
+			id: "model-1", providerId: "provider-1", name: "Claude", provider: "anthropic",
+			baseUrl: "https://api.anthropic.com", model: "claude", contextSize: 200_000,
+			contextSizeSource: "detected", createdAt: "", updatedAt: "",
+		},
+	});
+	assert.equal(state.modelEditorContextSizeSource, "detected");
+	state = reduce(state, { type: "SET_MODEL_EDITOR_MODEL", model: "claude-new" });
+	assert.equal(state.modelEditorContextSizeSource, "auto");
+	assert.equal(state.modelEditorContextSize, "");
+	state = reduce(state, { type: "SET_MODEL_EDITOR_CONTEXT_SIZE", contextSize: "128000" });
+	assert.equal(state.modelEditorContextSizeSource, "manual");
+	state = reduce(state, { type: "SET_MODEL_EDITOR_CONTEXT_AUTO" });
+	assert.equal(state.modelEditorContextSizeSource, "auto");
 });
 
 test("MODEL_EDITOR field navigation wraps in both directions", () => {

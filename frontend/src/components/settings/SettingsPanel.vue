@@ -125,7 +125,8 @@ const {
   providerDialogTitleKey,
   modelDialogTitleKey,
   contextSizeDisplay,
-  contextSizeSlider,
+  contextSizeManual,
+  setContextSizeManual,
   llmRows,
   providerRows,
   discoveryProviderId,
@@ -691,15 +692,11 @@ watch(tab, (nextTab) => {
           <label class="settings-dialog-label">{{ t('contextSize') }}</label>
           <span class="settings-item-meta">{{ contextSizeDisplay }}</span>
         </div>
-        <input
-          v-model.number="contextSizeSlider"
-          type="range"
-          min="0"
-          max="100"
-          step="1"
-          class="context-size-slider"
-        />
-        <div class="flex items-center gap-2">
+        <div class="context-size-modes" role="group" :aria-label="t('contextSize')">
+          <button type="button" :class="{ active: !contextSizeManual }" @click="setContextSizeManual(false)">{{ t('contextSizeAuto') }}</button>
+          <button type="button" :class="{ active: contextSizeManual }" @click="setContextSizeManual(true)">{{ t('contextSizeCustom') }}</button>
+        </div>
+        <div v-if="contextSizeManual" class="flex items-center gap-2">
           <input
             v-model.number="modelForm.contextSize"
             type="number"
@@ -708,8 +705,9 @@ watch(tab, (nextTab) => {
             step="1000"
             class="context-size-input"
           />
-          <span class="settings-item-meta">{{ t('contextSizeHint') }}</span>
+          <span class="settings-item-meta">tokens</span>
         </div>
+        <span v-else class="settings-item-meta">{{ t('contextSizeAutoHint') }}</span>
       </div>
     </div>
   </AppDialog>

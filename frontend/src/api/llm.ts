@@ -1,7 +1,7 @@
 import { apiClient } from './client'
 import type { DiscoveredModel, LLMConfig, LLMProvider } from '@/types/settings'
 
-type ModelPayload = { providerId: string; name: string; model: string; contextSize: number }
+type ModelPayload = { providerId: string; name: string; model: string; contextSize: number; contextSizeSource: 'auto' | 'detected' | 'fallback' | 'manual' }
 type ProviderPayload = { name: string; protocol: LLMProvider['protocol']; baseUrl: string; apiKey: string; clearApiKey?: boolean }
 
 export const llmAPI = {

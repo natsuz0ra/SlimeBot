@@ -96,17 +96,18 @@ type AppSetting struct {
 }
 
 type LLMConfig struct {
-	ID           string    `gorm:"primaryKey;size:36" json:"id"`
-	ProviderID   string    `gorm:"size:36;index" json:"providerId"`
-	ProviderName string    `gorm:"-" json:"providerName,omitempty"`
-	Name         string    `gorm:"size:128;not null" json:"name"`
-	Provider     string    `gorm:"size:32;not null;default:'openai'" json:"provider"`
-	BaseURL      string    `gorm:"size:512;not null" json:"baseUrl"`
-	APIKey       string    `gorm:"size:512;not null" json:"-"`
-	Model        string    `gorm:"size:128;not null" json:"model"`
-	ContextSize  int       `gorm:"not null;default:1000000" json:"contextSize"`
-	CreatedAt    time.Time `json:"createdAt"`
-	UpdatedAt    time.Time `json:"updatedAt"`
+	ID                string    `gorm:"primaryKey;size:36" json:"id"`
+	ProviderID        string    `gorm:"size:36;index" json:"providerId"`
+	ProviderName      string    `gorm:"-" json:"providerName,omitempty"`
+	Name              string    `gorm:"size:128;not null" json:"name"`
+	Provider          string    `gorm:"size:32;not null;default:'openai'" json:"provider"`
+	BaseURL           string    `gorm:"size:512;not null" json:"baseUrl"`
+	APIKey            string    `gorm:"size:512;not null" json:"-"`
+	Model             string    `gorm:"size:128;not null" json:"model"`
+	ContextSize       int       `gorm:"not null;default:1000000" json:"contextSize"`
+	ContextSizeSource string    `gorm:"size:16;not null;default:'manual'" json:"contextSizeSource"`
+	CreatedAt         time.Time `json:"createdAt"`
+	UpdatedAt         time.Time `json:"updatedAt"`
 }
 
 // LLMProvider stores a named endpoint shared by its selectable models.

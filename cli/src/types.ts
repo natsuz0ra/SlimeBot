@@ -31,6 +31,7 @@ export interface LLMConfig {
   baseUrl: string;
   model: string;
   contextSize?: number;
+  contextSizeSource?: "detected" | "fallback" | "manual";
   createdAt: string;
   updatedAt: string;
 }
@@ -605,6 +606,7 @@ export interface AppState {
   modelEditorApiKey: string;
   modelEditorModel: string;
   modelEditorContextSize: string;
+  modelEditorContextSizeSource: "auto" | "detected" | "fallback" | "manual";
   modelEditorFocusIndex: number;
   modelEditorProviderSelect: boolean;
 
@@ -695,6 +697,7 @@ export type AppAction =
   | { type: "SET_MODEL_EDITOR_API_KEY"; apiKey: string }
   | { type: "SET_MODEL_EDITOR_MODEL"; model: string }
   | { type: "SET_MODEL_EDITOR_CONTEXT_SIZE"; contextSize: string }
+  | { type: "SET_MODEL_EDITOR_CONTEXT_AUTO" }
   | { type: "MODEL_EDITOR_NEXT_FIELD" }
   | { type: "MODEL_EDITOR_PREV_FIELD" }
   | { type: "TOGGLE_MODEL_EDITOR_PROVIDER_SELECT" }

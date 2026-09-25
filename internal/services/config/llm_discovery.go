@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/url"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -71,9 +72,13 @@ func (s *LLMConfigService) DiscoverModels(ctx context.Context, providerID string
 		}
 		var result struct {
 			Data []struct {
-				ID             string `json:"id"`
-				DisplayName    string `json:"display_name"`
-				MaxInputTokens int    `json:"max_input_tokens"`
+				ID             string          `json:"id"`
+				DisplayName    string          `json:"display_name"`
+				MaxInputTokens json.RawMessage `json:"max_input_tokens"`
+				ContextLength  json.RawMessage `json:"context_length"`
+				ContextWindow  json.RawMessage `json:"context_window"`
+				MaxModelLen    json.RawMessage `json:"max_model_len"`
+				Metadata       json.RawMessage `json:"metadata"`
 			} `json:"data"`
 			HasMore bool   `json:"has_more"`
 			LastID  string `json:"last_id"`
@@ -92,7 +97,10 @@ func (s *LLMConfigService) DiscoverModels(ctx context.Context, providerID string
 			if name == "" {
 				name = id
 			}
-			models[id] = DiscoveredModel{ID: id, Name: name, ContextSize: model.MaxInputTokens}
+			var metadata map[string]json.RawMessage
+			_ = json.Unmarshal(model.Metadata, &metadata)
+			contextSize := firstContextSize(model.MaxInputTokens, model.ContextLength, model.ContextWindow, model.MaxModelLen, metadata["context_length"], metadata["context_window"])
+			models[id] = DiscoveredModel{ID: id, Name: name, ContextSize: contextSize}
 		}
 		if provider.Protocol != "anthropic" || !result.HasMore || result.LastID == "" {
 			break
@@ -105,4 +113,25 @@ func (s *LLMConfigService) DiscoverModels(ctx context.Context, providerID string
 	}
 	sort.Slice(items, func(i, j int) bool { return strings.ToLower(items[i].Name) < strings.ToLower(items[j].Name) })
 	return items, nil
+}
+
+func firstContextSize(values ...json.RawMessage) int {
+	for _, value := range values {
+		if len(value) == 0 {
+			continue
+		}
+		var number json.Number
+		if err := json.Unmarshal(value, &number); err == nil {
+			if size, err := strconv.Atoi(number.String()); err == nil && size > 0 {
+				return size
+			}
+		}
+		var stringValue string
+		if err := json.Unmarshal(value, &stringValue); err == nil {
+			if size, err := strconv.Atoi(stringValue); err == nil && size > 0 {
+				return size
+			}
+		}
+	}
+	return 0
 }

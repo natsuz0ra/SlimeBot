@@ -331,7 +331,7 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
       const models = (await apiRef.current.listLLMConfigs()).filter(model => model.providerId === provider.id);
       dispatch({
         type: "SET_MENU", kind: "provider-model", title: provider.name,
-        items: models.map(model => ({ title: model.name, desc: `${model.model} · ${formatContextSize(model.contextSize || 1_000_000)}`, data: model })),
+        items: models.map(model => ({ title: model.name, desc: `${model.model} · ${formatContextSize(model.contextSize || 1_000_000)} ${model.contextSizeSource === "detected" ? "(detected)" : model.contextSizeSource === "fallback" ? "(estimate)" : "(custom)"}`, data: model })),
         hint: "Enter edit | A add manually | D delete | R discover | Esc providers",
       } as AppAction);
     } catch (error) {
@@ -346,7 +346,7 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
       const existing = new Set(current.filter(model => model.providerId === provider.id).map(model => model.model));
       dispatch({
         type: "SET_MENU", kind: "discovered-model", title: `${provider.name} · Discovery`,
-        items: found.map(model => ({ title: model.name, desc: existing.has(model.id) ? `${model.id} · already added` : model.id, data: { ...model, added: existing.has(model.id) } })),
+        items: found.map(model => ({ title: model.name, desc: existing.has(model.id) ? `${model.id} · already added` : `${model.id} · ${model.contextSize ? formatContextSize(model.contextSize) : "context unknown"}`, data: { ...model, added: existing.has(model.id) } })),
         hint: "Enter add model | Esc provider models",
       } as AppAction);
     } catch (error) {
@@ -708,7 +708,7 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
         const model = item.data as DiscoveredModel & { added: boolean };
         const provider = providerMenuRef.current;
         if (!provider || model.added) return;
-        await apiRef.current.createLLMConfig({ providerId: provider.id, name: model.name, model: model.id, contextSize: clampContextSize(model.contextSize || 1_000_000) });
+        await apiRef.current.createLLMConfig({ providerId: provider.id, name: model.name, model: model.id, contextSize: model.contextSize || 0, contextSizeSource: model.contextSize ? "detected" : "fallback" });
         appendSystem(`Added ${model.name} to ${provider.name}.`);
         await loadProviderModels(provider);
         return;
@@ -917,7 +917,8 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
         name: state.modelEditorName,
         providerId: state.modelEditorProviderId,
         model: state.modelEditorModel,
-        contextSize: clampContextSize(state.modelEditorContextSize),
+        contextSize: state.modelEditorContextSizeSource === "manual" ? clampContextSize(state.modelEditorContextSize) : state.modelEditorContextSizeSource === "detected" ? Number(state.modelEditorContextSize) : 0,
+        contextSizeSource: state.modelEditorContextSizeSource === "fallback" ? "auto" as const : state.modelEditorContextSizeSource,
       };
       if (!payload.providerId || !payload.name.trim() || !payload.model.trim()) throw new Error("Name and Model ID are required.");
       if (state.modelEditorId) {
@@ -939,6 +940,7 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
     state.modelEditorProviderId,
     state.modelEditorModel,
     state.modelEditorContextSize,
+    state.modelEditorContextSizeSource,
     state.modelEditorId,
     loadProviderModels,
   ]);
@@ -1448,6 +1450,7 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
           name={state.modelEditorName}
           model={state.modelEditorModel}
           contextSize={state.modelEditorContextSize}
+          contextSizeSource={state.modelEditorContextSizeSource}
           focusIndex={state.modelEditorFocusIndex}
           onNameChange={(name) => dispatch({ type: "SET_MODEL_EDITOR_NAME", name } as AppAction)}
           onModelChange={(model) => dispatch({ type: "SET_MODEL_EDITOR_MODEL", model } as AppAction)}

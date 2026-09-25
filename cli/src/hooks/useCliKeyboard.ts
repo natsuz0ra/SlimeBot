@@ -591,6 +591,10 @@ export function useCliKeyboard({
         return;
       }
       if (state.view === "model-editor" && state.modelEditorFocusIndex === 2) {
+        if (key.ctrl && input === "a") {
+          dispatch({ type: "SET_MODEL_EDITOR_CONTEXT_AUTO" });
+          return;
+        }
         if (key.leftArrow || key.rightArrow || key.upArrow || key.downArrow) {
           const current = clampContextSize(state.modelEditorContextSize);
           const delta = key.leftArrow ? -1_000 : key.rightArrow ? 1_000 : key.upArrow ? 32_000 : -32_000;

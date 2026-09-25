@@ -121,7 +121,7 @@ function backToProviders() {
             <div class="llm-model-dot flex-shrink-0" />
             <div class="flex-1 min-w-0">
               <div class="settings-item-name truncate">{{ model.name }}</div>
-              <div class="settings-item-sub truncate mt-0.5">{{ model.model }} · {{ t('contextSize') }} {{ formatContextSize(model.contextSize || 1_000_000) }}</div>
+              <div class="settings-item-sub truncate mt-0.5">{{ model.model }} · {{ t('contextSize') }} {{ formatContextSize(model.contextSize || 1_000_000) }} <span class="llm-context-source">{{ t(model.contextSizeSource === 'detected' ? 'contextSizeDetected' : model.contextSizeSource === 'fallback' ? 'contextSizeEstimated' : 'contextSizeCustom') }}</span></div>
             </div>
             <button type="button" class="llm-icon-button" :title="t('editModel')" :aria-label="t('editModel')" @click="emit('editModel', model)"><MdiIcon :path="mdiPencilOutline" :size="15" /></button>
             <button type="button" class="llm-icon-button llm-danger-button" :title="t('delete')" :aria-label="t('delete')" @click="emit('deleteModel', model.id)"><MdiIcon :path="mdiDeleteOutline" :size="15" /></button>
@@ -159,6 +159,7 @@ function backToProviders() {
               <label v-for="model in visibleDiscovered.slice(0, 100)" :key="model.id" class="llm-discovery-row flex items-center gap-2.5">
                 <input type="checkbox" :checked="selectedModelIds.includes(model.id) || modelIdsByProvider.get(selectedProvider.id)?.has(model.id)" :disabled="modelIdsByProvider.get(selectedProvider.id)?.has(model.id) || discoverySaving" @change="emit('toggleModel', model.id)" />
                 <span class="flex-1 min-w-0"><strong class="truncate block">{{ model.name }}</strong><small class="truncate block">{{ model.id }}</small></span>
+                <span v-if="model.contextSize && !modelIdsByProvider.get(selectedProvider.id)?.has(model.id)" class="llm-discovery-context">{{ formatContextSize(model.contextSize) }}</span>
                 <span v-if="modelIdsByProvider.get(selectedProvider.id)?.has(model.id)" class="llm-added-label">{{ t('alreadyAdded') }}</span>
               </label>
               <p v-if="visibleDiscovered.length === 0" class="llm-no-models px-3 py-4">{{ t('noDiscoveredModels') }}</p>
@@ -189,6 +190,8 @@ function backToProviders() {
 .llm-provider-name { font-size: 15px; font-weight: 600; }
 .llm-provider-url { color: var(--text-secondary); }
 .llm-protocol-badge { color: var(--sb-brand); background: var(--primary-alpha-10); border-radius: 6px; padding: 3px 7px; font-size: 11px; font-weight: 600; }
+.llm-context-source { color: var(--text-muted); margin-left: 3px; }
+.llm-discovery-context { flex-shrink: 0; color: var(--sb-brand); background: var(--primary-alpha-10); border-radius: 6px; padding: 2px 6px; font-size: 11px; font-weight: 600; }
 .llm-icon-button { width: 30px; height: 30px; display: inline-flex; align-items: center; justify-content: center; border-radius: 8px; color: var(--text-muted); cursor: pointer; transition: background .15s, color .15s; }
 .llm-icon-button:hover { background: var(--primary-alpha-10); color: var(--sb-brand); }
 .llm-danger-button:hover { background: var(--danger-alpha-10); color: var(--color-danger); }

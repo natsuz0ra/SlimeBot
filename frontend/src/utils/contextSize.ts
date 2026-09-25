@@ -9,10 +9,10 @@ export function clampContextSize(value: number | string | null | undefined): num
 }
 
 export function formatContextSize(value: number): string {
-  const clamped = clampContextSize(value)
-  if (clamped >= 1_000_000) return '1M'
-  if (clamped % 1_000 === 0) return `${clamped / 1_000}K`
-  return clamped.toLocaleString()
+  const size = Number.isFinite(value) && value > 0 ? Math.round(value) : CONTEXT_SIZE_DEFAULT
+  if (size % 1_000_000 === 0) return `${size / 1_000_000}M`
+  if (size % 1_000 === 0) return `${size / 1_000}K`
+  return size.toLocaleString()
 }
 
 export function formatContextTokenCount(value: number): string {

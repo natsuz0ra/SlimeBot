@@ -1,0 +1,216 @@
+name: Computer Use Wayland live smoke test
+
+on:
+  push:
+    branches:
+      - dev/1.31.0
+    paths:
+      - .github/workflows/computer-use-wayland-live.yml
+      - internal/tools/computer.go
+      - internal/tools/computer_linux.py
+      - internal/tools/computer_linux_wayland_live_test.go
+      - internal/tools/computer_linux_wayland_test.go
+      - go.mod
+      - go.sum
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  wayland:
+    name: ${{ matrix.os }} / ${{ matrix.compositor }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, ubuntu-26.04]
+        compositor: [sway, labwc]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Install a native Wayland compositor and input tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ${{ matrix.compositor }} grim wlrctl ydotool libinput-tools python3-gi gir1.2-gtk-3.0 dbus-x11
+          if [ '${{ matrix.os }}' = ubuntu-24.04 ]; then sudo apt-get install -y ydotoold; fi
+          python3 -c 'import gi; gi.require_version("Gtk", "3.0"); from gi.repository import Gtk'
+          command -v ydotoold
+          ydotool help || true
+      - name: Exercise real screenshot and /dev/uinput actions
+        run: |
+          set -euo pipefail
+          sudo modprobe uinput
+          sudo chmod a+rw /dev/uinput
+          export XDG_RUNTIME_DIR="$RUNNER_TEMP/slimebot-wayland"
+          mkdir -p "$XDG_RUNTIME_DIR"
+          chmod 700 "$XDG_RUNTIME_DIR"
+          export XDG_SESSION_TYPE=wayland
+          export WLR_BACKENDS=headless,libinput
+          export WLR_RENDERER=pixman
+          export WLR_HEADLESS_OUTPUTS=1
+          export WLR_LIBINPUT_NO_DEVICES=1
+          export LIBSEAT_BACKEND=noop
+          unset DISPLAY
+          cat > "$RUNNER_TEMP/slimebot-sway.conf" <<'EOF'
+          output * resolution 800x600
+          input type:pointer accel_profile flat
+          EOF
+          mkdir -p "$RUNNER_TEMP/slimebot-labwc"
+          cat > "$RUNNER_TEMP/slimebot-labwc/rc.xml" <<'EOF'
+          <labwc_config>
+            <libinput>
+              <device category="default">
+                <accelProfile>flat</accelProfile>
+                <pointerSpeed>0</pointerSpeed>
+              </device>
+            </libinput>
+          </labwc_config>
+          EOF
+          dbus-run-session -- bash -c '
+            set -euo pipefail
+            trap "cat $RUNNER_TEMP/slimebot-ydotoold.log $RUNNER_TEMP/slimebot-compositor.log" ERR
+            ydotoold > "$RUNNER_TEMP/slimebot-ydotoold.log" 2>&1 &
+            for i in {1..50}; do
+              if [ -S "$XDG_RUNTIME_DIR/.ydotool_socket" ] || [ -S /tmp/.ydotool_socket ]; then break; fi
+              sleep 0.1
+            done
+            test -S "$XDG_RUNTIME_DIR/.ydotool_socket" || test -S /tmp/.ydotool_socket
+            sudo find /dev/input -maxdepth 1 -name "event*" -exec chmod a+rw {} +
+            if [ "${{ matrix.compositor }}" = sway ]; then
+              sway -c "$RUNNER_TEMP/slimebot-sway.conf" > "$RUNNER_TEMP/slimebot-compositor.log" 2>&1 &
+            else
+              labwc -d -C "$RUNNER_TEMP/slimebot-labwc" > "$RUNNER_TEMP/slimebot-compositor.log" 2>&1 &
+            fi
+            for i in {1..100}; do
+              for socket in "$XDG_RUNTIME_DIR"/wayland-*; do
+                if [ -S "$socket" ]; then export WAYLAND_DISPLAY="${socket##*/}"; fi
+              done
+              if [ "${{ matrix.compositor }}" = sway ]; then
+                for socket in "$XDG_RUNTIME_DIR"/sway-ipc.*.sock; do
+                  if [ -S "$socket" ]; then export SWAYSOCK="$socket"; fi
+                done
+              fi
+              if [ -n "${WAYLAND_DISPLAY:-}" ] && { [ "${{ matrix.compositor }}" != sway ] || [ -n "${SWAYSOCK:-}" ]; }; then break; fi
+              sleep 0.1
+            done
+            test -n "${WAYLAND_DISPLAY:-}"
+            if [ "${{ matrix.compositor }}" = sway ]; then
+              test -n "${SWAYSOCK:-}"
+              swaymsg -t get_outputs
+            fi
+            libinput list-devices
+            if ! SLIMEBOT_COMPUTER_WAYLAND_LIVE_TEST=1 go test -count=1 -run "^TestComputerLinuxWayland(Live|Commands|LegacyYdotoolCommands|SpectacleScreenshot)$" -v ./internal/tools; then
+              grim "$RUNNER_TEMP/slimebot-failed-screen.png" || true
+              cat "$RUNNER_TEMP/slimebot-ydotoold.log" "$RUNNER_TEMP/slimebot-compositor.log"
+              exit 1
+            fi
+          '
+      - name: Save failed Wayland screenshot
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: wayland-failure-${{ matrix.os }}-${{ matrix.compositor }}
+          path: |
+            ${{ runner.temp }}/slimebot-probe-screen.jpg
+            ${{ runner.temp }}/slimebot-failed-screen.png
+
+  desktop-probe:
+    # Hosted runners lack an interactive seat; keep these diagnostic probes explicit.
+    if: github.event_name == 'workflow_dispatch'
+    name: ${{ matrix.os }} / ${{ matrix.desktop }} desktop probe
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, ubuntu-26.04]
+        desktop: [gnome, kde]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install desktop compositor and capture tools
+        run: |
+          sudo apt-get update
+          if [ '${{ matrix.desktop }}' = gnome ]; then
+            sudo apt-get install -y --no-install-recommends gnome-shell gnome-screenshot
+          else
+            sudo apt-get install -y --no-install-recommends kwin-wayland kde-spectacle
+            if [ '${{ matrix.os }}' = ubuntu-24.04 ]; then
+              sudo apt-get install -y --no-install-recommends qtwayland5
+            else
+              sudo apt-get install -y --no-install-recommends qt6-wayland
+            fi
+          fi
+          sudo apt-get install -y --no-install-recommends ydotool python3-gi gir1.2-gtk-3.0 dbus-x11 wayland-utils
+          if [ '${{ matrix.os }}' = ubuntu-24.04 ]; then sudo apt-get install -y ydotoold; fi
+          if [ '${{ matrix.desktop }}' = gnome ]; then gnome-shell --help; else kwin_wayland --help; QT_QPA_PLATFORM=offscreen spectacle --help; fi
+      - name: Start native desktop and capture GTK window
+        run: |
+          set -euo pipefail
+          sudo modprobe uinput
+          sudo chmod a+rw /dev/uinput
+          export XDG_RUNTIME_DIR="$RUNNER_TEMP/slimebot-desktop"
+          mkdir -p "$XDG_RUNTIME_DIR"
+          chmod 700 "$XDG_RUNTIME_DIR"
+          export XDG_SESSION_TYPE=wayland
+          export LIBGL_ALWAYS_SOFTWARE=1
+          export LIBSEAT_BACKEND=noop
+          if [ '${{ matrix.desktop }}' = kde ]; then
+            export QT_QPA_PLATFORM=offscreen
+            export XDG_CURRENT_DESKTOP=KDE
+            export KDE_FULL_SESSION=true
+          fi
+          unset DISPLAY
+          dbus-run-session -- bash -c '
+            set -euo pipefail
+            ydotoold > "$RUNNER_TEMP/slimebot-ydotoold.log" 2>&1 &
+            if [ "${{ matrix.desktop }}" = gnome ]; then
+              gnome-shell --wayland --headless --virtual-monitor 800x600 --no-x11 > "$RUNNER_TEMP/slimebot-desktop.log" 2>&1 &
+            else
+              kwin_wayland --virtual --width 800 --height 600 > "$RUNNER_TEMP/slimebot-desktop.log" 2>&1 &
+            fi
+            for i in {1..150}; do
+              for socket in "$XDG_RUNTIME_DIR"/wayland-*; do
+                if [ -S "$socket" ]; then export WAYLAND_DISPLAY="${socket##*/}"; fi
+              done
+              if [ -n "${WAYLAND_DISPLAY:-}" ]; then break; fi
+              sleep 0.2
+            done
+            if [ -z "${WAYLAND_DISPLAY:-}" ]; then cat "$RUNNER_TEMP/slimebot-desktop.log"; exit 1; fi
+            if [ "${{ matrix.desktop }}" = kde ]; then export QT_QPA_PLATFORM=wayland; fi
+            wayland-info > "$RUNNER_TEMP/slimebot-wayland-info.log"
+            sed -n "1,30p" "$RUNNER_TEMP/slimebot-wayland-info.log"
+            if [ "${{ matrix.desktop }}" = kde ]; then
+              for i in {1..30}; do
+                if gdbus introspect --session --dest org.kde.KWin.ScreenShot2 --object-path /org/kde/KWin/ScreenShot2 > "$RUNNER_TEMP/slimebot-screenshot-dbus.log" 2>&1; then break; fi
+                sleep 1
+              done
+              cat "$RUNNER_TEMP/slimebot-screenshot-dbus.log"
+              gdbus introspect --session --dest org.kde.KWin --object-path /KWin || true
+            fi
+            GDK_BACKEND=wayland python3 -c "import gi, sys; gi.require_version(\"Gtk\", \"3.0\"); from gi.repository import Gtk; w=Gtk.Window(title=\"SlimeBot desktop probe\"); w.fullscreen(); b=Gtk.Button(label=\"WAYLAND PROBE\"); b.connect(\"clicked\", lambda *_: open(sys.argv[1], \"w\").write(\"clicked\")); w.add(b); w.show_all(); Gtk.main()" "$RUNNER_TEMP/slimebot-clicked.txt" > "$RUNNER_TEMP/slimebot-gtk.log" 2>&1 &
+            sleep 3
+            SLIMEBOT_COMPUTER_REQUEST="{\"op\":\"screenshot\",\"file_path\":\"$RUNNER_TEMP/slimebot-desktop.png\"}" python3 internal/tools/computer_linux.py | tee "$RUNNER_TEMP/slimebot-screenshot-result.json"
+            SLIMEBOT_COMPUTER_REQUEST="{\"op\":\"click\",\"x\":400,\"y\":300}" python3 internal/tools/computer_linux.py
+            sleep 1
+            if [ -f "$RUNNER_TEMP/slimebot-clicked.txt" ]; then cat "$RUNNER_TEMP/slimebot-clicked.txt"; else echo "GTK did not receive /dev/uinput click"; fi
+            if [ -f "$RUNNER_TEMP/slimebot-desktop.png" ]; then file "$RUNNER_TEMP/slimebot-desktop.png"; fi
+            cat "$RUNNER_TEMP/slimebot-desktop.log"
+            test -s "$RUNNER_TEMP/slimebot-desktop.png"
+            test -s "$RUNNER_TEMP/slimebot-clicked.txt"
+          '
+      - name: Save desktop diagnostic files
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-probe-${{ matrix.os }}-${{ matrix.desktop }}
+          path: |
+            ${{ runner.temp }}/slimebot-desktop.png
+            ${{ runner.temp }}/slimebot-desktop.log
+            ${{ runner.temp }}/slimebot-gtk.log
+            ${{ runner.temp }}/slimebot-clicked.txt
+            ${{ runner.temp }}/slimebot-screenshot-result.json

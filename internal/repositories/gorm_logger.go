@@ -2,9 +2,12 @@ package repositories
 
 import (
 	"context"
-	"slimebot/internal/logging"
+	"errors"
 	"time"
 
+	"slimebot/internal/logging"
+
+	"gorm.io/gorm"
 	gormlogger "gorm.io/gorm/logger"
 )
 
@@ -31,6 +34,9 @@ func (l *gormSlogLogger) Error(ctx context.Context, msg string, data ...any) {
 }
 
 func (l *gormSlogLogger) Trace(ctx context.Context, begin time.Time, fc func() (string, int64), err error) {
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return
+	}
 	elapsed := time.Since(begin)
 	sql, rows := fc()
 	if err != nil {

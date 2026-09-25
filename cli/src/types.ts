@@ -25,13 +25,29 @@ export interface Message {
 export interface LLMConfig {
   id: string;
   name: string;
+  providerId: string;
+  providerName?: string;
   provider: string;
   baseUrl: string;
-  apiKey: string;
   model: string;
   contextSize?: number;
+  contextSizeSource?: "detected" | "fallback" | "manual";
   createdAt: string;
   updatedAt: string;
+}
+
+export interface LLMProvider {
+  id: string;
+  name: string;
+  protocol: ModelProvider;
+  baseUrl: string;
+  hasApiKey: boolean;
+}
+
+export interface DiscoveredModel {
+  id: string;
+  name: string;
+  contextSize?: number;
 }
 
 export interface MCPConfig {
@@ -331,11 +347,14 @@ export interface ContextUsage {
 
 // ===== UI state types =====
 
-export type ViewMode = "chat" | "menu" | "mcp-editor" | "mcp-template" | "mcp-tools" | "model-editor" | "approval" | "thinking-detail" | "plan-confirm" | "question-answer" | "update" | "memory-console" | "team-detail";
+export type ViewMode = "chat" | "menu" | "mcp-editor" | "mcp-template" | "mcp-tools" | "model-editor" | "provider-editor" | "approval" | "thinking-detail" | "plan-confirm" | "question-answer" | "update" | "memory-console" | "team-detail";
 
 export type MenuKind =
   | "session"
   | "model"
+  | "provider"
+  | "provider-model"
+  | "discovered-model"
   | "skills"
   | "mcp"
   | "effort"
@@ -482,6 +501,7 @@ export const SUPPORTED_COMMANDS: CommandMeta[] = [
   { command: "/new", description: "Create a new chat session" },
   { command: "/session", description: "Open session menu to switch or delete" },
   { command: "/model", description: "Choose the default model" },
+  { command: "/provider", description: "Manage model providers and available models" },
   { command: "/memory", description: "Open memory console" },
   { command: "/team", description: "Open Agent Team details" },
   { command: "/subagent_model", description: "Choose sub-agent model" },
@@ -579,12 +599,14 @@ export interface AppState {
 
   // Model Editor
   modelEditorId: string;
+  modelEditorProviderId: string;
   modelEditorName: string;
   modelEditorProvider: ModelProvider;
   modelEditorBaseUrl: string;
   modelEditorApiKey: string;
   modelEditorModel: string;
   modelEditorContextSize: string;
+  modelEditorContextSizeSource: "auto" | "detected" | "fallback" | "manual";
   modelEditorFocusIndex: number;
   modelEditorProviderSelect: boolean;
 
@@ -665,7 +687,9 @@ export type AppAction =
   | { type: "SET_MCP_TOOLS_VIEW"; config: MCPConfig }
   | { type: "SET_MCP_TOOLS_LOADING"; loading: boolean }
   | { type: "SET_MCP_TOOLS_RESULT"; result: MCPToolListResponse | null; error: string }
-  | { type: "SET_MODEL_EDITOR_VIEW" }
+  | { type: "SET_MODEL_EDITOR_VIEW"; providerId?: string }
+  | { type: "SET_PROVIDER_EDITOR_VIEW" }
+  | { type: "SET_PROVIDER_EDITOR"; provider: LLMProvider }
   | { type: "SET_MODEL_EDITOR"; config: LLMConfig }
   | { type: "SET_MODEL_EDITOR_NAME"; name: string }
   | { type: "SET_MODEL_EDITOR_PROVIDER"; provider: ModelProvider }
@@ -673,6 +697,7 @@ export type AppAction =
   | { type: "SET_MODEL_EDITOR_API_KEY"; apiKey: string }
   | { type: "SET_MODEL_EDITOR_MODEL"; model: string }
   | { type: "SET_MODEL_EDITOR_CONTEXT_SIZE"; contextSize: string }
+  | { type: "SET_MODEL_EDITOR_CONTEXT_AUTO" }
   | { type: "MODEL_EDITOR_NEXT_FIELD" }
   | { type: "MODEL_EDITOR_PREV_FIELD" }
   | { type: "TOGGLE_MODEL_EDITOR_PROVIDER_SELECT" }

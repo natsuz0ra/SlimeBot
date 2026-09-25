@@ -51,6 +51,11 @@ type llmConfigService interface {
 	Create(ctx context.Context, input configsvc.LLMConfigCreateInput) (*domain.LLMConfig, error)
 	Update(ctx context.Context, id string, input configsvc.LLMConfigInput) error
 	Delete(ctx context.Context, id string) error
+	ListProviders(ctx context.Context) ([]domain.LLMProvider, error)
+	CreateProvider(ctx context.Context, input configsvc.LLMProviderInput) (*domain.LLMProvider, error)
+	UpdateProvider(ctx context.Context, id string, input configsvc.LLMProviderInput) error
+	DeleteProvider(ctx context.Context, id string) error
+	DiscoverModels(ctx context.Context, providerID string) ([]configsvc.DiscoveredModel, error)
 }
 
 type mcpConfigService interface {

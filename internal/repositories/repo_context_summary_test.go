@@ -73,12 +73,13 @@ func TestLLMConfigUpdatePersistsContextSize(t *testing.T) {
 	}
 
 	err = repo.UpdateLLMConfig(ctx, item.ID, domain.LLMConfig{
-		Name:        "New",
-		Provider:    "anthropic",
-		BaseURL:     "http://new",
-		APIKey:      "new-key",
-		Model:       "new-model",
-		ContextSize: 128_000,
+		Name:              "New",
+		Provider:          "anthropic",
+		BaseURL:           "http://new",
+		APIKey:            "new-key",
+		Model:             "new-model",
+		ContextSize:       128_000,
+		ContextSizeSource: "detected",
 	})
 	if err != nil {
 		t.Fatalf("UpdateLLMConfig failed: %v", err)
@@ -93,5 +94,8 @@ func TestLLMConfigUpdatePersistsContextSize(t *testing.T) {
 	}
 	if got.ContextSize != 128_000 {
 		t.Fatalf("expected context size 128000, got %d", got.ContextSize)
+	}
+	if got.ContextSizeSource != "detected" {
+		t.Fatalf("expected detected context source, got %q", got.ContextSizeSource)
 	}
 }

@@ -405,20 +405,21 @@ onUnmounted(() => {
               <MdiIcon :path="mdiChevronLeft" :size="16" />
               <span>{{ t('model') }}</span>
             </button>
-            <button
-              v-for="opt in modelSelectOptions"
-              :key="opt.value"
-              type="button"
-              class="composer-submenu-option"
-              :class="opt.value === selectedModelId ? 'composer-submenu-option-active' : ''"
-              @click="onSelectModel(opt.value)"
-            >
-              <span
-                class="w-1.5 h-1.5 rounded-full flex-shrink-0"
-                :class="opt.value === selectedModelId ? 'bg-indigo-500' : 'bg-transparent'"
-              />
-              {{ opt.label }}
-            </button>
+            <template v-for="(opt, index) in modelSelectOptions" :key="opt.value">
+              <div v-if="opt.group && (index === 0 || modelSelectOptions[index - 1]?.group !== opt.group)" class="composer-model-group">{{ opt.group }}</div>
+              <button
+                type="button"
+                class="composer-submenu-option"
+                :class="opt.value === selectedModelId ? 'composer-submenu-option-active' : ''"
+                @click="onSelectModel(opt.value)"
+              >
+                <span
+                  class="w-1.5 h-1.5 rounded-full flex-shrink-0"
+                  :class="opt.value === selectedModelId ? 'bg-indigo-500' : 'bg-transparent'"
+                />
+                {{ opt.label }}
+              </button>
+            </template>
           </div>
         </Transition>
 
@@ -429,20 +430,21 @@ onUnmounted(() => {
               <MdiIcon :path="mdiChevronLeft" :size="16" />
               <span>{{ t('subagentModelLabel') }}</span>
             </button>
-            <button
-              v-for="opt in subagentModelSelectOptions"
-              :key="opt.value"
-              type="button"
-              class="composer-submenu-option"
-              :class="opt.value === selectedSubagentModelId ? 'composer-submenu-option-active' : ''"
-              @click="onSelectSubagentModel(opt.value)"
-            >
-              <span
-                class="w-1.5 h-1.5 rounded-full flex-shrink-0"
-                :class="opt.value === selectedSubagentModelId ? 'bg-indigo-500' : 'bg-transparent'"
-              />
-              {{ opt.label }}
-            </button>
+            <template v-for="(opt, index) in subagentModelSelectOptions" :key="opt.value">
+              <div v-if="opt.group && (index === 0 || subagentModelSelectOptions[index - 1]?.group !== opt.group)" class="composer-model-group">{{ opt.group }}</div>
+              <button
+                type="button"
+                class="composer-submenu-option"
+                :class="opt.value === selectedSubagentModelId ? 'composer-submenu-option-active' : ''"
+                @click="onSelectSubagentModel(opt.value)"
+              >
+                <span
+                  class="w-1.5 h-1.5 rounded-full flex-shrink-0"
+                  :class="opt.value === selectedSubagentModelId ? 'bg-indigo-500' : 'bg-transparent'"
+                />
+                {{ opt.label }}
+              </button>
+            </template>
           </div>
         </Transition>
 
@@ -840,6 +842,19 @@ onUnmounted(() => {
 }
 .composer-submenu-header:hover {
   background: var(--primary-alpha-07);
+}
+
+.composer-model-group {
+  padding: 9px 12px 4px;
+  border-top: 1px solid var(--menu-border);
+  color: var(--text-muted);
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: .03em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .composer-submenu-option {

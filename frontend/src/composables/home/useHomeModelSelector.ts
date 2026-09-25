@@ -2,6 +2,7 @@ import { computed, ref } from 'vue'
 import { llmAPI } from '@/api/llm'
 import type { LLMConfig } from '@/types/settings'
 import { useI18n } from 'vue-i18n'
+import { groupedModelOptions } from '@/utils/modelSelectOptions'
 
 const MODEL_STORAGE_KEY = 'slimebot:selectedModelId'
 const THINKING_STORAGE_KEY = 'slimebot:thinkingLevel'
@@ -14,7 +15,7 @@ export function useHomeModelSelector() {
   const thinkingLevel = ref(localStorage.getItem(THINKING_STORAGE_KEY) || 'off')
   const subagentModelId = ref(localStorage.getItem(SUBAGENT_MODEL_STORAGE_KEY) || '')
 
-  const modelSelectOptions = computed(() => modelOptions.value.map((m) => ({ value: m.id, label: m.name })))
+  const modelSelectOptions = computed(() => groupedModelOptions(modelOptions.value))
   const hasModel = computed(() => modelOptions.value.length > 0)
   const thinkingSelectOptions = computed(() => [
     { value: 'off', label: t('thinkingOff') as string },
@@ -73,7 +74,7 @@ export function useHomeModelSelector() {
 
   const subagentModelSelectOptions = computed(() => [
     { value: '', label: t('subagentModelFollow') as string },
-    ...modelOptions.value.map((m) => ({ value: m.id, label: m.name })),
+    ...modelSelectOptions.value,
   ])
 
   function onSubagentModelChange(modelId: string) {

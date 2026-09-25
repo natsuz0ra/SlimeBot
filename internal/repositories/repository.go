@@ -13,6 +13,7 @@ var (
 	_ domain.ChatStore                  = (*Repository)(nil)
 	_ domain.SessionStore               = (*Repository)(nil)
 	_ domain.LLMConfigStore             = (*Repository)(nil)
+	_ domain.LLMProviderStore           = (*Repository)(nil)
 	_ domain.MCPConfigStore             = (*Repository)(nil)
 	_ domain.MessagePlatformConfigStore = (*Repository)(nil)
 	_ domain.SettingsStore              = (*Repository)(nil)

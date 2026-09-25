@@ -49,10 +49,26 @@ export interface MemorySnapshot {
 export interface LLMConfig {
   id: string
   name: string
+  providerId: string
+  providerName?: string
   provider: 'openai' | 'anthropic' | 'deepseek'
   baseUrl: string
-  apiKey: string
   model: string
+  contextSize?: number
+  contextSizeSource?: 'detected' | 'fallback' | 'manual'
+}
+
+export interface LLMProvider {
+  id: string
+  name: string
+  protocol: 'openai' | 'anthropic' | 'deepseek'
+  baseUrl: string
+  hasApiKey: boolean
+}
+
+export interface DiscoveredModel {
+  id: string
+  name: string
   contextSize?: number
 }
 

@@ -1,0 +1,42 @@
+name: Computer Use X11 smoke test
+
+on:
+  push:
+    branches:
+      - dev/1.31.0
+    paths:
+      - .github/workflows/computer-use-x11.yml
+      - internal/tools/computer.go
+      - internal/tools/computer_linux.py
+      - internal/tools/computer_linux_live_test.go
+      - go.mod
+      - go.sum
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  x11:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Install X11 and accessibility tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y at-spi2-core dbus-x11 openbox python3-pyatspi scrot xdotool xvfb yad zenity
+          python3 -c 'import pyatspi'
+      - name: Exercise Computer Use in a virtual X11 desktop
+        run: |
+          xvfb-run -a -s '-screen 0 1280x800x24' dbus-run-session -- bash -c '
+            set -euo pipefail
+            export NO_AT_BRIDGE=0
+            openbox >/tmp/slimebot-openbox.log 2>&1 &
+            sleep 2
+            SLIMEBOT_COMPUTER_LINUX_LIVE_TEST=1 go test -count=1 -run "^TestComputerLinuxX11Live$" -v ./internal/tools
+          '

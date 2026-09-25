@@ -6,6 +6,7 @@ import MdiIcon from '@/components/ui/MdiIcon.vue'
 export interface SelectOption {
   value: string
   label: string
+  group?: string
 }
 
 const props = withDefaults(defineProps<{
@@ -134,26 +135,27 @@ onUnmounted(() => {
           v-if="open"
           ref="dropdownRef"
           :style="dropdownStyle"
-          class="select-panel z-[9999] rounded-xl py-1 overflow-hidden"
+          class="select-panel z-[9999] rounded-xl py-1"
           @click.stop
         >
-          <button
-            v-for="opt in options"
-            :key="opt.value"
-            type="button"
-            class="select-option w-full text-left px-3 py-2 cursor-pointer transition-all duration-100 flex items-center gap-2"
-            :class="[
-              size === 'xs' ? 'text-xs' : 'text-sm',
-              opt.value === modelValue ? 'select-option-active' : 'select-option-default',
-            ]"
-            @click="select(opt.value)"
-          >
-            <span
-              class="w-1.5 h-1.5 rounded-full flex-shrink-0 transition-all duration-150"
-              :class="opt.value === modelValue ? 'bg-indigo-500' : 'bg-transparent'"
-            />
-            {{ opt.label }}
-          </button>
+          <template v-for="(opt, index) in options" :key="opt.value">
+            <div v-if="opt.group && (index === 0 || options[index - 1]?.group !== opt.group)" class="select-group-label">{{ opt.group }}</div>
+            <button
+              type="button"
+              class="select-option w-full text-left px-3 py-2 cursor-pointer transition-all duration-100 flex items-center gap-2"
+              :class="[
+                size === 'xs' ? 'text-xs' : 'text-sm',
+                opt.value === modelValue ? 'select-option-active' : 'select-option-default',
+              ]"
+              @click="select(opt.value)"
+            >
+              <span
+                class="w-1.5 h-1.5 rounded-full flex-shrink-0 transition-all duration-150"
+                :class="opt.value === modelValue ? 'bg-indigo-500' : 'bg-transparent'"
+              />
+              {{ opt.label }}
+            </button>
+          </template>
         </div>
       </Transition>
     </Teleport>
@@ -189,7 +191,11 @@ onUnmounted(() => {
   border: 1px solid var(--menu-border);
   box-shadow: var(--menu-shadow);
   backdrop-filter: blur(16px);
+  max-height: min(320px, 60vh);
+  overflow-y: auto;
 }
+.select-group-label { padding: 9px 12px 4px; border-top: 1px solid var(--menu-border); color: var(--text-muted); font-size: 10px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; }
+.select-group-label:first-child { border-top: 0; }
 
 .select-option-active {
   background: var(--primary-alpha-10);

@@ -4,6 +4,7 @@ import { messagePlatformAPI } from '@/api/messagePlatform'
 import type { ApprovalMode, LLMConfig, MessagePlatformConfig, ThinkingLevel } from '@/types/settings'
 import { getApprovalModeOptions } from '@/utils/approvalMode'
 import { createMessagePlatformThinkingOptions, shouldSaveMessagePlatformDefaultModel } from '@/utils/messagePlatformSettings'
+import { groupedModelOptions } from '@/utils/modelSelectOptions'
 
 type ToastLike = {
   error(message: string): void
@@ -44,7 +45,7 @@ export function useSettingsMessagePlatform(options: {
 
   const telegramConfig = computed(() => messagePlatformList.value.find((item) => item.platform === 'telegram'))
   const messagePlatformModelOptions = computed(() => {
-    const base = (toValue(llmRows) || []).map((item) => ({ value: item.id, label: item.name }))
+    const base = groupedModelOptions(toValue(llmRows) || [])
     return [{ value: '', label: t('messagePlatformModelUnset') }, ...base]
   })
   const messagePlatformThinkingOptions = computed(() => createMessagePlatformThinkingOptions(t))

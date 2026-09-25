@@ -138,17 +138,6 @@
   line-height: 20px;
 }
 
-.settings-provider-badge {
-  display: inline-block;
-  margin-left: 4px;
-  padding: 2px 6px;
-  border-radius: 6px;
-  font-size: 11px;
-  font-weight: 500;
-  line-height: 14px;
-  vertical-align: 1px;
-}
-
 button.action-btn.btn-primary {
   background: var(--sb-brand);
   box-shadow: none;
@@ -223,10 +212,34 @@ button.account-edit-btn:hover {
   line-height: 20px;
 }
 
-.context-size-slider {
-  width: 100%;
-  accent-color: var(--sb-brand);
+.context-size-modes {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 3px;
+  padding: 3px;
+  border: 1px solid var(--input-border);
+  border-radius: 9px;
+  background: var(--input-bg);
+}
+
+.context-size-modes button {
+  padding: 7px 10px;
+  border-radius: 6px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 600;
   cursor: pointer;
+  transition: background .15s, color .15s;
+}
+
+.context-size-modes button.active {
+  color: var(--sb-brand);
+  background: var(--primary-alpha-10);
+}
+
+.context-size-modes button:focus-visible {
+  outline: 2px solid var(--sb-brand);
+  outline-offset: 1px;
 }
 
 .context-size-input {

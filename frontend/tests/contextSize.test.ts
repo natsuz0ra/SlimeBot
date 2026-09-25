@@ -23,6 +23,7 @@ test('formatContextSize renders compact labels', () => {
   assert.equal(formatContextSize(8_000), '8K')
   assert.equal(formatContextSize(128_000), '128K')
   assert.equal(formatContextSize(1_000_000), '1M')
+  assert.equal(formatContextSize(2_000_000), '2M')
 })
 
 test('formatContextTokenCount renders K and M units', () => {

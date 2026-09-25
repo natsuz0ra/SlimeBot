@@ -62,6 +62,10 @@ var metadataByTool = map[string]ToolMetadata{
 		Name:              "file_write",
 		ApprovalSensitive: true,
 	},
+	"computer": {
+		Name:              "computer",
+		ApprovalSensitive: true,
+	},
 	constants.AskQuestionsTool: {
 		Name: constants.AskQuestionsTool,
 	},

@@ -32,6 +32,7 @@ func NewSQLite(dbPath string) (*gorm.DB, error) {
 		&domain.TeamRun{},
 		&domain.TeamMemberRun{},
 		&domain.AppSetting{},
+		&domain.LLMProvider{},
 		&domain.LLMConfig{},
 		&domain.SessionContextSummary{},
 		&domain.MCPConfig{},
@@ -40,6 +41,9 @@ func NewSQLite(dbPath string) (*gorm.DB, error) {
 		&domain.ScheduledTaskRun{},
 	); err != nil {
 		return nil, fmt.Errorf("auto migration failed: %w", err)
+	}
+	if err := migrateLegacyLLMProviders(db); err != nil {
+		return nil, fmt.Errorf("LLM provider migration failed: %w", err)
 	}
 
 	return db, nil

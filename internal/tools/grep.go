@@ -282,7 +282,7 @@ func formatGrepCountOutput(root string, lines []string, appliedLimit, offset int
 	var total int
 	var formatted []string
 	for _, line := range lines {
-		path, countText, ok := strings.Cut(line, ":")
+		path, countText, ok := splitRipgrepPathLine(line)
 		if !ok {
 			formatted = append(formatted, line)
 			continue
@@ -302,12 +302,10 @@ func formatGrepCountOutput(root string, lines []string, appliedLimit, offset int
 }
 
 func formatRipgrepContentLine(root, line string) string {
-	first := strings.Index(line, ":")
-	if first <= 0 {
+	path, rest, ok := splitRipgrepPathLine(line)
+	if !ok {
 		return line
 	}
-	path := line[:first]
-	rest := line[first+1:]
 	second := strings.Index(rest, ":")
 	if second > 0 {
 		lineNo := rest[:second]
@@ -317,6 +315,16 @@ func formatRipgrepContentLine(root, line string) string {
 		}
 	}
 	return fmt.Sprintf("%s: %s", displayPath(root, path), rest)
+}
+
+func splitRipgrepPathLine(line string) (string, string, bool) {
+	start := len(filepath.VolumeName(line))
+	separator := strings.IndexByte(line[start:], ':')
+	if separator < 0 || start+separator == 0 {
+		return "", "", false
+	}
+	separator += start
+	return line[:separator], line[separator+1:], true
 }
 
 func displayPath(root, path string) string {

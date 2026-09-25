@@ -39,6 +39,7 @@ type parallelToolOutcome struct {
 	output         string
 	error          string
 	metadata       any
+	imageURL       string
 }
 
 func runParallelToolJobs(
@@ -128,6 +129,10 @@ func runParallelToolJobs(
 			if onResult != nil && !job.silent {
 				onResult(result)
 			}
+			imageURL := ""
+			if execResult != nil {
+				imageURL = execResult.ImageURL
+			}
 			outCh <- parallelToolOutcome{
 				index:          job.index,
 				toolCallID:     job.toolCallID,
@@ -136,6 +141,7 @@ func runParallelToolJobs(
 				output:         result.Output,
 				error:          result.Error,
 				metadata:       result.Metadata,
+				imageURL:       imageURL,
 			}
 		}()
 	}

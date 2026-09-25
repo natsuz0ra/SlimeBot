@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"fmt"
 	"io/fs"
 	"net"
 	"net/http"
@@ -34,7 +35,19 @@ type App struct {
 
 // New builds repositories, services, controller, and background components needed to run the app.
 func New(cfg config.Config) (*App, error) {
-	core, err := NewCore(cfg)
+	return newApp(cfg, "")
+}
+
+// NewDesktop runs the full server with an ephemeral local token and no password account.
+func NewDesktop(cfg config.Config, desktopToken string) (*App, error) {
+	if desktopToken == "" {
+		return nil, fmt.Errorf("desktop token is required")
+	}
+	return newApp(cfg, desktopToken)
+}
+
+func newApp(cfg config.Config, desktopToken string) (*App, error) {
+	core, err := newCore(cfg, desktopToken != "")
 	if err != nil {
 		return nil, err
 	}
@@ -64,14 +77,18 @@ func New(cfg config.Config) (*App, error) {
 	httpController.SetAgentsInstructionsService(core.AgentsService)
 	httpController.SetUpdateService(core.UpdateService)
 	httpController.SetMemoryService(core.MemoryService)
-	wsController := ws.NewController(core.ChatService, core.PlanService)
+	wsController := ws.NewController(core.ChatService, core.PlanService, cfg.Frontend)
 	subDist, err := fs.Sub(web.DistFS, "dist")
 	if err != nil {
 		return nil, err
 	}
-	engine := router.New(cfg, tokenManager, httpController, wsController, subDist)
+	engine := router.New(cfg, tokenManager, httpController, wsController, subDist,
+		router.RouterConfig{DesktopToken: desktopToken})
 
 	addr := ":" + cfg.ServerPort
+	if desktopToken != "" {
+		addr = "127.0.0.1:0"
+	}
 	logging.Info("server_listening", "addr", addr)
 
 	app := &App{
@@ -196,6 +213,12 @@ func (a *App) Start(ctx context.Context) error {
 		return err
 	}
 	a.listener = ln
+	if a.telegramWorker != nil {
+		a.telegramWorker.Start(ctx)
+	}
+	if a.scheduleRunner != nil {
+		a.scheduleRunner.Start(ctx)
+	}
 
 	go func() {
 		if err := a.httpServer.Serve(ln); err != nil && err != http.ErrServerClosed {

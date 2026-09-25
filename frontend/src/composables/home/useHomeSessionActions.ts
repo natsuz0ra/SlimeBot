@@ -162,17 +162,10 @@ export function useHomeSessionActions(options: {
 
   async function pickSession(id: string) {
     uiState.pendingFiles.value = []
-    if (id === MESSAGE_PLATFORM_SESSION_ID) {
-      await store.selectSession(id)
-      await nextTick()
-      scrollState.scrollMessagesToBottom(true)
-      uiState.drawerOpen.value = false
-      return
-    }
     await store.selectSession(id)
     await nextTick()
     scrollState.scrollMessagesToBottom(true)
-    uiState.drawerOpen.value = false
+    if (window.matchMedia('(max-width: 767px)').matches) uiState.drawerOpen.value = false
   }
 
   async function createSession() {
@@ -180,7 +173,7 @@ export function useHomeSessionActions(options: {
     store.resetToNewSession()
     scrollState.autoStickToBottom.value = true
     scrollState.queueScrollMessagesToBottom(true)
-    uiState.drawerOpen.value = false
+    if (window.matchMedia('(max-width: 767px)').matches) uiState.drawerOpen.value = false
     void router.push('/chat/new_chat')
   }
 

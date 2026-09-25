@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"net/url"
 	"slimebot/internal/constants"
 	"slimebot/internal/domain"
 	"slimebot/internal/logging"
@@ -85,15 +86,31 @@ func (a *activeChatCanceler) Cancel() bool {
 	return true
 }
 
-func NewController(chatService *chatsvc.ChatService, planService *plansvc.PlanService) *Controller {
+func NewController(chatService *chatsvc.ChatService, planService *plansvc.PlanService, allowedOrigins ...string) *Controller {
 	return &Controller{
 		chatService: chatService,
 		planService: planService,
 		upgrader: websocket.Upgrader{
 			ReadBufferSize:  1024,
 			WriteBufferSize: 1024,
-			CheckOrigin: func(_ *http.Request) bool {
-				return true
+			CheckOrigin: func(r *http.Request) bool {
+				origin := r.Header.Get("Origin")
+				if origin == "" {
+					return true
+				}
+				parsed, err := url.Parse(origin)
+				if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") {
+					return false
+				}
+				if parsed.Host == r.Host {
+					return true
+				}
+				for _, allowed := range allowedOrigins {
+					if origin == allowed {
+						return true
+					}
+				}
+				return false
 			},
 		},
 	}

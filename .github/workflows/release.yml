@@ -88,3 +88,73 @@ jobs:
             --verify-tag \
             --title "${RELEASE_VERSION}" \
             --generate-notes
+
+  desktop-mac:
+    name: Build macOS Desktop
+    needs: release
+    runs-on: macos-15
+    env:
+      RELEASE_VERSION: ${{ github.event_name == 'workflow_dispatch' && inputs.version || github.ref_name }}
+      CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
+      CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
+      APPLE_ID: ${{ secrets.APPLE_ID }}
+      APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.RELEASE_VERSION }}
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            frontend/package-lock.json
+            desktop/package-lock.json
+      - run: npm ci --prefix frontend && npm ci --prefix desktop
+      - run: npm --prefix desktop run package:mac
+      - name: Upload Desktop assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          gh release upload "${RELEASE_VERSION}" desktop/dist/SlimeBot-*-macos-universal.dmg --clobber
+
+  desktop-windows:
+    name: Build Windows Desktop
+    needs: release
+    runs-on: windows-2022
+    env:
+      RELEASE_VERSION: ${{ github.event_name == 'workflow_dispatch' && inputs.version || github.ref_name }}
+      CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
+      CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.RELEASE_VERSION }}
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            frontend/package-lock.json
+            desktop/package-lock.json
+      - run: npm ci --prefix frontend && npm ci --prefix desktop
+        shell: pwsh
+      - run: npm --prefix desktop run package:win
+      - name: Upload Desktop assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: pwsh
+        run: |
+          $files = Get-ChildItem desktop/dist -File | Where-Object { $_.Name -like 'SlimeBot-*-windows-x64.exe' -or $_.Extension -in '.yml', '.blockmap' }
+          if ($files.Count -eq 0) { throw 'No Desktop assets were built' }
+          gh release upload $env:RELEASE_VERSION @($files.FullName) --clobber

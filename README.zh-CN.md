@@ -12,6 +12,7 @@
 
 - 会话列表、实时流式回复、多模态消息、会话标题自动生成
 - Agent 多轮 tool call、审批模式、沙盒策略、命令/文件工具、网络请求、网络搜索和待办事项
+- 桌面 Computer Use：在 SlimeBot 所在机器的交互式桌面上，优先通过辅助功能识别前台应用，必要时结合截图完成点击、输入、按键和滚动；支持 macOS、Windows 和 Linux，操作遵循工具审批（[环境要求与使用限制](docs/computer-use.zh-CN.md)）
 - 规划模式、流式思考、上下文压缩、MCP 配置、Skills 与 AGENTS.md 指令
 - Web UI、CLI TUI 与 Telegram 集成
 
@@ -145,7 +146,7 @@ macOS 服务 label 为 `com.natsuzora.slimebot`，plist 位于 `~/Library/Launch
 
 ## 功能状态与待办
 
-**已完成：** Web/CLI 会话、WebSocket 流式回复、Agent 工具、审批、沙盒约束、规划模式、思考控制、子代理、MCP、Skills、AGENTS.md 指令、SQLite 摘要、Telegram、多模态与 JWT 认证。
+**已完成：** Web/CLI 会话、WebSocket 流式回复、Agent 工具、桌面 Computer Use、审批、沙盒约束、规划模式、思考控制、子代理、MCP、Skills、AGENTS.md 指令、SQLite 摘要、Telegram、多模态与 JWT 认证。
 
 **待完成：** 更多消息平台接入，如 Discord、Slack 等。
 

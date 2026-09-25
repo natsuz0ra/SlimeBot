@@ -12,6 +12,7 @@ A personal AI agent demo: an extensible foundation for conversational AI apps. I
 
 - Chat sessions, real-time streaming replies, multimodal messages, and automatic title generation
 - Agent tool-call flows with approval modes, sandbox policies, command/file tools, web requests, web search, and task tracking
+- Desktop Computer Use on macOS, Windows, and Linux: inspect the foreground app through accessibility or screenshots, then click, type, press keys, and scroll on the machine running SlimeBot, subject to tool approval ([requirements and limits, in Chinese](docs/computer-use.zh-CN.md))
 - Plan mode, streamed thinking, context compression, MCP configuration, skills, and AGENTS.md instructions
 - Web UI, CLI TUI, and Telegram integration
 
@@ -145,7 +146,7 @@ For development startup, production builds from source, Docker, Docker Compose, 
 
 ## Status & Roadmap
 
-**Done:** Web/CLI chat, WebSocket streaming, agent tools, approvals, sandbox enforcement, plan mode, thinking controls, subagents, MCP, skills, AGENTS.md instructions, SQLite-backed summaries, Telegram, multimodal chat, and JWT auth.
+**Done:** Web/CLI chat, WebSocket streaming, agent tools, desktop Computer Use, approvals, sandbox enforcement, plan mode, thinking controls, subagents, MCP, skills, AGENTS.md instructions, SQLite-backed summaries, Telegram, multimodal chat, and JWT auth.
 
 **Planned:** More messaging platforms such as Discord and Slack.
 

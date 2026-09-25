@@ -26,7 +26,7 @@ import { memoryAPI } from '@/api/memory'
 import { agentsInstructionsAPI } from '@/api/agentsInstructions'
 import { skillsAPI } from '@/api/skills'
 import { messagePlatformAPI } from '@/api/messagePlatform'
-import type { AppSettings, ApprovalMode, LLMConfig, MCPConfig, MemorySnapshot, MemoryTarget, MessagePlatformConfig, SandboxMode, SettingsTabKey, SkillItem, ThinkingLevel } from '@/types/settings'
+import type { AppSettings, ApprovalMode, LLMConfig, LLMProvider, MCPConfig, MemorySnapshot, MemoryTarget, MessagePlatformConfig, SandboxMode, SettingsTabKey, SkillItem, ThinkingLevel } from '@/types/settings'
 import { useToast } from '@/composables/useToast'
 import { useSettingsLLM } from '@/composables/settings/useSettingsLLM'
 import { useSettingsMCP } from '@/composables/settings/useSettingsMCP'
@@ -75,13 +75,17 @@ const settingsTabs: { key: SettingsTabKey; labelKey: string }[] = [
 const tab = ref<SettingsTabKey>('basic')
 const hasUpdateNotice = computed(() => props.hasUpdateNotice)
 const llmList = ref<LLMConfig[]>([])
+const providerList = ref<LLMProvider[]>([])
 const mcpList = ref<MCPConfig[]>([])
 const skillsList = ref<SkillItem[]>([])
 const messagePlatformList = ref<MessagePlatformConfig[]>([])
 const loading = ref(false)
 const llmDialogVisible = ref(false)
+const providerDialogVisible = ref(false)
 const mcpDialogVisible = ref(false)
 const llmSubmitting = ref(false)
+const providerSubmitting = ref(false)
+const confirmDeleteDescription = ref('confirmDeleteItem')
 const mcpSubmitting = ref(false)
 const skillsUploading = ref(false)
 const skillsDropActive = ref(false)
@@ -115,19 +119,40 @@ const {
 } = useSettingsWebSearch({ toast, t: (key) => t(key) })
 
 const {
-  llmForm,
-  llmDialogTitleKey,
-  llmContextSizeDisplay,
-  llmContextSizeSlider,
+  providerForm,
+  providerEditingId,
+  modelForm,
+  providerDialogTitleKey,
+  modelDialogTitleKey,
+  contextSizeDisplay,
+  contextSizeSlider,
   llmRows,
-  openLLMDialog,
-  openLLMEditDialog,
-  saveLLM,
-  deleteLLM: removeLLM,
+  providerRows,
+  discoveryProviderId,
+  discoveredModels,
+  visibleDiscovered,
+  discovering,
+  discoverySaving,
+  discoveryQuery,
+  selectedModelIds,
+  openProviderDialog,
+  openProviderEditDialog,
+  saveProvider,
+  deleteProvider: removeProvider,
+  openModelDialog,
+  openModelEditDialog,
+  saveModel,
+  deleteModel: removeLLM,
+  discover,
+  closeDiscovery,
+  addDiscovered,
 } = useSettingsLLM({
   llmList,
-  llmDialogVisible,
+  providerList,
+  providerDialogVisible,
+  modelDialogVisible: llmDialogVisible,
   llmSubmitting,
+  providerSubmitting,
   toast,
   t: (key) => t(key),
   onChanged: () => emit('llmChanged'),
@@ -223,7 +248,9 @@ async function loadData() {
     memoryCharLimit.value = appSettings.memoryCharLimit || 2200
     memoryUserCharLimit.value = appSettings.memoryUserCharLimit || 1375
     memoryNudgeInterval.value = appSettings.memoryNudgeInterval || 10
-    llmList.value = await llmAPI.list()
+    const [providers, models] = await Promise.all([llmAPI.providers(), llmAPI.list()])
+    providerList.value = providers
+    llmList.value = models
     mcpList.value = await mcpAPI.list()
     skillsList.value = await skillsAPI.list()
     const agentsInstructions = await agentsInstructionsAPI.get()
@@ -351,18 +378,41 @@ function onAccountUpdated() {
 }
 
 function deleteLLM(id: string) {
+  confirmDeleteDescription.value = 'confirmDeleteItem'
   openConfirmDialog(async () => {
     await removeLLM(id)
   })
 }
 
+function deleteProvider(id: string) {
+  confirmDeleteDescription.value = 'confirmDeleteProvider'
+  openConfirmDialog(async () => {
+    await removeProvider(id)
+  })
+}
+
+function toggleDiscoveredModel(id: string) {
+  selectedModelIds.value = selectedModelIds.value.includes(id)
+    ? selectedModelIds.value.filter(item => item !== id)
+    : [...selectedModelIds.value, id]
+}
+
+function toggleAllDiscovered(ids: string[]) {
+  const selected = new Set(selectedModelIds.value)
+  const allSelected = ids.every(id => selected.has(id))
+  ids.forEach(id => allSelected ? selected.delete(id) : selected.add(id))
+  selectedModelIds.value = [...selected]
+}
+
 function deleteMCP(id: string) {
+  confirmDeleteDescription.value = 'confirmDeleteItem'
   openConfirmDialog(async () => {
     await removeMCP(id)
   })
 }
 
 function deleteSkill(id: string) {
+  confirmDeleteDescription.value = 'confirmDeleteItem'
   openConfirmDialog(async () => {
     await removeSkill(id)
   })
@@ -455,7 +505,30 @@ watch(tab, (nextTab) => {
           @sandbox-network-change="onSandboxNetworkChange"
         />
 
-        <SettingsLLMTab v-if="tab === 'llm'" :llm-rows="llmRows" @add="openLLMDialog" @edit="openLLMEditDialog" @delete="deleteLLM" />
+        <SettingsLLMTab
+          v-if="tab === 'llm'"
+          :providers="providerRows"
+          :models="llmRows"
+          :discovery-provider-id="discoveryProviderId"
+          :discovered-models="discoveredModels"
+          :visible-discovered="visibleDiscovered"
+          :discovering="discovering"
+          :discovery-saving="discoverySaving"
+          :discovery-query="discoveryQuery"
+          :selected-model-ids="selectedModelIds"
+          @add-provider="openProviderDialog"
+          @edit-provider="openProviderEditDialog"
+          @delete-provider="deleteProvider"
+          @add-model="openModelDialog"
+          @edit-model="openModelEditDialog"
+          @delete-model="deleteLLM"
+          @discover="discover"
+          @close-discovery="closeDiscovery"
+          @update-query="discoveryQuery = $event"
+          @toggle-model="toggleDiscoveredModel"
+          @toggle-all="toggleAllDiscovered"
+          @add-selected="addDiscovered"
+        />
 
         <SettingsMCPTab
           v-if="tab === 'mcp'"
@@ -549,55 +622,77 @@ watch(tab, (nextTab) => {
   </div>
 
   <AppDialog
-    v-model:visible="llmDialogVisible"
-    :title="t(llmDialogTitleKey)"
+    v-model:visible="providerDialogVisible"
+    :title="t(providerDialogTitleKey)"
     :confirm-text="t('confirm')"
     :cancel-text="t('cancel')"
-    :confirm-loading="llmSubmitting"
+    :confirm-loading="providerSubmitting"
     width="440px"
-    @confirm="saveLLM"
+    @confirm="saveProvider"
   >
     <div class="flex flex-col gap-4">
       <div class="flex flex-col gap-1.5">
         <label class="settings-dialog-label">{{ t('provider') }}</label>
         <div class="flex gap-3">
           <label class="flex items-center gap-1.5 cursor-pointer settings-radio-label">
-            <input type="radio" v-model="llmForm.provider" value="openai" class="accent-[#6366f1]" />
+            <input type="radio" v-model="providerForm.protocol" value="openai" class="accent-[#6366f1]" />
             {{ t('providerOpenAI') }}
           </label>
           <label class="flex items-center gap-1.5 cursor-pointer settings-radio-label">
-            <input type="radio" v-model="llmForm.provider" value="anthropic" class="accent-[#6366f1]" />
+            <input type="radio" v-model="providerForm.protocol" value="anthropic" class="accent-[#6366f1]" />
             {{ t('providerAnthropic') }}
           </label>
           <label class="flex items-center gap-1.5 cursor-pointer settings-radio-label">
-            <input type="radio" v-model="llmForm.provider" value="deepseek" class="accent-[#6366f1]" />
+            <input type="radio" v-model="providerForm.protocol" value="deepseek" class="accent-[#6366f1]" />
             {{ t('providerDeepSeek') }}
           </label>
         </div>
       </div>
       <div class="flex flex-col gap-1.5">
-        <label class="settings-dialog-label">{{ t('name') }}</label>
-        <AppTextInput v-model="llmForm.name" />
+        <label for="llm-provider-name" class="settings-dialog-label">{{ t('name') }}</label>
+        <AppTextInput id="llm-provider-name" v-model="providerForm.name" />
       </div>
       <div class="flex flex-col gap-1.5">
-        <label class="settings-dialog-label">{{ t('model') }}</label>
-        <AppTextInput v-model="llmForm.model" />
+        <label for="llm-provider-url" class="settings-dialog-label">{{ t('baseUrl') }}</label>
+        <AppTextInput id="llm-provider-url" v-model="providerForm.baseUrl" placeholder="https://api.example.com/v1" />
       </div>
       <div class="flex flex-col gap-1.5">
-        <label class="settings-dialog-label">{{ t('baseUrl') }}</label>
-        <AppTextInput v-model="llmForm.baseUrl" />
+        <label for="llm-provider-key" class="settings-dialog-label">{{ t('apiKey') }}</label>
+        <AppPasswordInput id="llm-provider-key" v-model="providerForm.apiKey" :disabled="providerForm.clearApiKey" autocomplete="new-password" />
+        <span class="settings-item-meta">{{ t(providerEditingId ? 'providerKeyHint' : 'providerKeyOptionalHint') }}</span>
+        <label v-if="providerEditingId && providerRows.find(item => item.id === providerEditingId)?.hasApiKey" class="flex items-center gap-2 settings-radio-label cursor-pointer">
+          <input v-model="providerForm.clearApiKey" type="checkbox" class="accent-[#6366f1]" />
+          {{ t('clearProviderKey') }}
+        </label>
+      </div>
+    </div>
+  </AppDialog>
+
+  <AppDialog
+    v-model:visible="llmDialogVisible"
+    :title="t(modelDialogTitleKey)"
+    :confirm-text="t('confirm')"
+    :cancel-text="t('cancel')"
+    :confirm-loading="llmSubmitting"
+    width="440px"
+    @confirm="saveModel"
+  >
+    <div class="flex flex-col gap-4">
+      <div class="flex flex-col gap-1.5">
+        <label for="llm-model-name" class="settings-dialog-label">{{ t('name') }}</label>
+        <AppTextInput id="llm-model-name" v-model="modelForm.name" />
       </div>
       <div class="flex flex-col gap-1.5">
-        <label class="settings-dialog-label">{{ t('apiKey') }}</label>
-        <AppPasswordInput v-model="llmForm.apiKey" />
+        <label for="llm-model-id" class="settings-dialog-label">{{ t('modelId') }}</label>
+        <AppTextInput id="llm-model-id" v-model="modelForm.model" />
       </div>
       <div class="flex flex-col gap-2">
         <div class="flex items-center justify-between gap-3">
           <label class="settings-dialog-label">{{ t('contextSize') }}</label>
-          <span class="settings-item-meta">{{ llmContextSizeDisplay }}</span>
+          <span class="settings-item-meta">{{ contextSizeDisplay }}</span>
         </div>
         <input
-          v-model.number="llmContextSizeSlider"
+          v-model.number="contextSizeSlider"
           type="range"
           min="0"
           max="100"
@@ -606,7 +701,7 @@ watch(tab, (nextTab) => {
         />
         <div class="flex items-center gap-2">
           <input
-            v-model.number="llmForm.contextSize"
+            v-model.number="modelForm.contextSize"
             type="number"
             min="8000"
             max="1000000"
@@ -628,7 +723,7 @@ watch(tab, (nextTab) => {
     width="360px"
     @confirm="runConfirmDialog"
   >
-    <p class="settings-item-sub">{{ t('confirmDeleteItem') }}</p>
+    <p class="settings-item-sub">{{ t(confirmDeleteDescription) }}</p>
   </AppDialog>
 
   <AppDialog

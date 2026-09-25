@@ -10,6 +10,14 @@ type LLMConfigStore interface {
 	DeleteLLMConfig(ctx context.Context, id string) error
 }
 
+type LLMProviderStore interface {
+	ListLLMProviders(ctx context.Context) ([]LLMProvider, error)
+	GetLLMProvider(ctx context.Context, id string) (*LLMProvider, error)
+	CreateLLMProvider(ctx context.Context, item LLMProvider) (*LLMProvider, error)
+	UpdateLLMProvider(ctx context.Context, id string, item LLMProvider) error
+	DeleteLLMProvider(ctx context.Context, id string) error
+}
+
 // MCPConfigStore persists MCP server configs.
 type MCPConfigStore interface {
 	ListMCPConfigs(ctx context.Context) ([]MCPConfig, error)

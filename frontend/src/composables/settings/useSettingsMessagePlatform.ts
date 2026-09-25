@@ -44,7 +44,7 @@ export function useSettingsMessagePlatform(options: {
 
   const telegramConfig = computed(() => messagePlatformList.value.find((item) => item.platform === 'telegram'))
   const messagePlatformModelOptions = computed(() => {
-    const base = (toValue(llmRows) || []).map((item) => ({ value: item.id, label: item.name }))
+    const base = (toValue(llmRows) || []).map((item) => ({ value: item.id, label: item.providerName ? `${item.name} · ${item.providerName}` : item.name }))
     return [{ value: '', label: t('messagePlatformModelUnset') }, ...base]
   })
   const messagePlatformThinkingOptions = computed(() => createMessagePlatformThinkingOptions(t))

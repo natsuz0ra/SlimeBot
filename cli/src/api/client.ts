@@ -8,6 +8,8 @@ import type {
   SessionListResponse,
   SessionHistoryPayload,
   LLMConfig,
+  LLMProvider,
+  DiscoveredModel,
   MCPConfig,
   MCPToolListResponse,
   Skill,
@@ -136,9 +138,7 @@ export class APIClient {
 
   createLLMConfig(data: {
     name: string;
-    provider: string;
-    baseUrl: string;
-    apiKey: string;
+    providerId: string;
     model: string;
     contextSize?: number;
   }): Promise<LLMConfig> {
@@ -150,9 +150,7 @@ export class APIClient {
 
   updateLLMConfig(id: string, data: {
     name: string;
-    provider: string;
-    baseUrl: string;
-    apiKey: string;
+    providerId: string;
     model: string;
     contextSize?: number;
   }): Promise<void> {
@@ -164,6 +162,26 @@ export class APIClient {
 
   deleteLLMConfig(id: string): Promise<void> {
     return this.request(`/api/llm-configs/${id}`, { method: "DELETE" }).then(() => {});
+  }
+
+  listLLMProviders(): Promise<LLMProvider[]> {
+    return this.request("/api/llm-providers");
+  }
+
+  createLLMProvider(data: { name: string; protocol: string; baseUrl: string; apiKey: string }): Promise<LLMProvider> {
+    return this.request("/api/llm-providers", { method: "POST", body: JSON.stringify(data) });
+  }
+
+  updateLLMProvider(id: string, data: { name: string; protocol: string; baseUrl: string; apiKey: string; clearApiKey?: boolean }): Promise<void> {
+    return this.request(`/api/llm-providers/${id}`, { method: "PUT", body: JSON.stringify(data) }).then(() => {});
+  }
+
+  deleteLLMProvider(id: string): Promise<void> {
+    return this.request(`/api/llm-providers/${id}`, { method: "DELETE" }).then(() => {});
+  }
+
+  discoverLLMModels(id: string): Promise<DiscoveredModel[]> {
+    return this.request(`/api/llm-providers/${id}/discover`, { method: "POST" });
   }
 
   // ===== MCP Configs =====

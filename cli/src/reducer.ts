@@ -213,6 +213,7 @@ export function createInitialState(
     mcpToolsError: "",
     mcpTemplateCursor: 0,
     modelEditorId: "",
+    modelEditorProviderId: "",
     modelEditorName: "",
     modelEditorProvider: "openai" as ModelProvider,
     modelEditorBaseUrl: "",
@@ -633,6 +634,7 @@ export function reducer(state: AppState, action: AppAction): AppState {
         ...state,
         view: "model-editor",
         modelEditorId: "",
+        modelEditorProviderId: action.providerId || "",
         modelEditorName: "",
         modelEditorProvider: "openai" as ModelProvider,
         modelEditorBaseUrl: "",
@@ -643,15 +645,41 @@ export function reducer(state: AppState, action: AppAction): AppState {
         modelEditorProviderSelect: false,
       };
 
+    case "SET_PROVIDER_EDITOR_VIEW":
+      return {
+        ...state,
+        view: "provider-editor",
+        modelEditorId: "",
+        modelEditorProviderId: "",
+        modelEditorName: "",
+        modelEditorProvider: "openai" as ModelProvider,
+        modelEditorBaseUrl: "",
+        modelEditorApiKey: "",
+        modelEditorFocusIndex: 0,
+        modelEditorProviderSelect: false,
+      };
+
+    case "SET_PROVIDER_EDITOR":
+      return {
+        ...state,
+        view: "provider-editor",
+        modelEditorId: action.provider.id,
+        modelEditorProviderId: "",
+        modelEditorName: action.provider.name,
+        modelEditorProvider: action.provider.protocol,
+        modelEditorBaseUrl: action.provider.baseUrl,
+        modelEditorApiKey: "",
+        modelEditorFocusIndex: 0,
+        modelEditorProviderSelect: false,
+      };
+
     case "SET_MODEL_EDITOR":
       return {
         ...state,
         view: "model-editor",
         modelEditorId: action.config.id,
+        modelEditorProviderId: action.config.providerId,
         modelEditorName: action.config.name,
-        modelEditorProvider: (action.config.provider || "openai") as ModelProvider,
-        modelEditorBaseUrl: action.config.baseUrl,
-        modelEditorApiKey: action.config.apiKey,
         modelEditorModel: action.config.model,
         modelEditorContextSize: String(clampContextSize(action.config.contextSize)),
         modelEditorFocusIndex: 0,
@@ -662,7 +690,7 @@ export function reducer(state: AppState, action: AppAction): AppState {
       return { ...state, modelEditorName: action.name };
 
     case "SET_MODEL_EDITOR_PROVIDER":
-      return { ...state, modelEditorProvider: action.provider, modelEditorProviderSelect: false };
+      return { ...state, modelEditorProvider: action.provider };
 
     case "SET_MODEL_EDITOR_BASE_URL":
       return { ...state, modelEditorBaseUrl: action.baseUrl };
@@ -677,13 +705,13 @@ export function reducer(state: AppState, action: AppAction): AppState {
       return { ...state, modelEditorContextSize: action.contextSize };
 
     case "MODEL_EDITOR_NEXT_FIELD": {
-      const maxIndex = 5;
+      const maxIndex = state.view === "provider-editor" ? 3 : 2;
       const next = state.modelEditorFocusIndex >= maxIndex ? 0 : state.modelEditorFocusIndex + 1;
       return { ...state, modelEditorFocusIndex: next, modelEditorProviderSelect: false };
     }
 
     case "MODEL_EDITOR_PREV_FIELD": {
-      const maxIndex = 5;
+      const maxIndex = state.view === "provider-editor" ? 3 : 2;
       const prev = state.modelEditorFocusIndex <= 0 ? maxIndex : state.modelEditorFocusIndex - 1;
       return { ...state, modelEditorFocusIndex: prev, modelEditorProviderSelect: false };
     }

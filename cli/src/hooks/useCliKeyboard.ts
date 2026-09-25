@@ -31,6 +31,7 @@ interface UseCliKeyboardProps {
   handleMenuEdit: (item: MenuItem | undefined) => void;
   handleMenuToggle: (item: MenuItem | undefined) => Promise<void>;
   handleMenuTools: (item: MenuItem | undefined) => void;
+  handleMenuDiscover: (item: MenuItem | undefined) => void;
   loadUpdate: () => Promise<void>;
   applyUpdate: () => Promise<void>;
   loadMemory: () => Promise<void>;
@@ -38,9 +39,12 @@ interface UseCliKeyboardProps {
   saveMemoryConsoleDraft: () => Promise<void>;
   loadMCPConfigs: () => Promise<void>;
   loadModels: () => Promise<void>;
+  loadProviders: () => Promise<void>;
+  loadProviderModels: () => Promise<void>;
   refreshMCPTools: () => void;
   saveMCPConfig: () => Promise<void>;
   saveModelConfig: () => Promise<void>;
+  saveProviderConfig: () => Promise<void>;
   selectMCPTemplate: (template: MCPTemplate) => void;
   moveModelProvider: (current: ModelProvider, delta: number) => ModelProvider;
 }
@@ -77,7 +81,7 @@ export function shouldLetQuestionAnswerViewHandleInput(state: AppState, input: s
 }
 
 export function getModelEditorFieldNavigationAction(state: AppState, key: Key): AppAction | null {
-  if (state.view !== "model-editor" || state.modelEditorProviderSelect || !key.tab) {
+  if ((state.view !== "model-editor" && state.view !== "provider-editor") || state.modelEditorProviderSelect || !key.tab) {
     return null;
   }
   return key.shift ? { type: "MODEL_EDITOR_PREV_FIELD" } : { type: "MODEL_EDITOR_NEXT_FIELD" };
@@ -217,6 +221,7 @@ export function useCliKeyboard({
   handleMenuEdit,
   handleMenuToggle,
   handleMenuTools,
+  handleMenuDiscover,
   loadUpdate,
   applyUpdate,
   loadMemory,
@@ -224,9 +229,12 @@ export function useCliKeyboard({
   saveMemoryConsoleDraft,
   loadMCPConfigs,
   loadModels,
+  loadProviders,
+  loadProviderModels,
   refreshMCPTools,
   saveMCPConfig,
   saveModelConfig,
+  saveProviderConfig,
   selectMCPTemplate,
   moveModelProvider,
 }: UseCliKeyboardProps): void {
@@ -481,18 +489,24 @@ export function useCliKeyboard({
         return;
       }
       if (key.escape) {
-        dispatch({ type: "CLOSE_MENU" });
+        if (state.menuKind === "provider-model") void loadProviders();
+        else if (state.menuKind === "discovered-model") void loadProviderModels();
+        else dispatch({ type: "CLOSE_MENU" });
         return;
       }
-      if (input === "d") {
+      if ((input === "r" || input === "R") && (state.menuKind === "provider" || state.menuKind === "provider-model")) {
+        handleMenuDiscover(current);
+        return;
+      }
+      if (input === "d" || input === "D") {
         void handleMenuDelete(current);
         return;
       }
-      if (input === "a") {
+      if (input === "a" || input === "A") {
         handleMenuAdd();
         return;
       }
-      if (input === "e") {
+      if (input === "e" || input === "E") {
         handleMenuEdit(current);
         return;
       }
@@ -555,8 +569,8 @@ export function useCliKeyboard({
       return;
     }
 
-    if (state.view === "model-editor") {
-      if (state.modelEditorProviderSelect) {
+    if (state.view === "model-editor" || state.view === "provider-editor") {
+      if (state.view === "provider-editor" && state.modelEditorProviderSelect) {
         if (key.upArrow) {
           dispatch({ type: "SET_MODEL_EDITOR_PROVIDER", provider: moveModelProvider(state.modelEditorProvider, -1) });
           return;
@@ -576,7 +590,7 @@ export function useCliKeyboard({
         dispatch(fieldNavigationAction);
         return;
       }
-      if (state.modelEditorFocusIndex === 5) {
+      if (state.view === "model-editor" && state.modelEditorFocusIndex === 2) {
         if (key.leftArrow || key.rightArrow || key.upArrow || key.downArrow) {
           const current = clampContextSize(state.modelEditorContextSize);
           const delta = key.leftArrow ? -1_000 : key.rightArrow ? 1_000 : key.upArrow ? 32_000 : -32_000;
@@ -585,14 +599,16 @@ export function useCliKeyboard({
         }
       }
       if (key.escape) {
-        void loadModels();
+        if (state.view === "provider-editor") void loadProviders();
+        else void loadProviderModels();
         return;
       }
       if (key.ctrl && input === "s") {
-        void saveModelConfig();
+        if (state.view === "provider-editor") void saveProviderConfig();
+        else void saveModelConfig();
         return;
       }
-      if (key.return && state.modelEditorFocusIndex === 1) {
+      if (key.return && state.view === "provider-editor" && state.modelEditorFocusIndex === 1) {
         dispatch({ type: "TOGGLE_MODEL_EDITOR_PROVIDER_SELECT" });
         return;
       }

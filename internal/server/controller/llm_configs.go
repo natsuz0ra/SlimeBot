@@ -24,6 +24,7 @@ func (h *HTTPController) CreateLLMConfig(c WebContext) {
 	}
 	item, err := h.llmConfigs.Create(c.Request().Context(), configsvc.LLMConfigCreateInput{
 		Name:        req.Name,
+		ProviderID:  req.ProviderID,
 		Provider:    req.Provider,
 		BaseURL:     req.BaseURL,
 		APIKey:      req.APIKey,
@@ -46,6 +47,7 @@ func (h *HTTPController) UpdateLLMConfig(c WebContext) {
 	}
 	if err := h.llmConfigs.Update(c.Request().Context(), id, configsvc.LLMConfigInput{
 		Name:        req.Name,
+		ProviderID:  req.ProviderID,
 		Provider:    req.Provider,
 		BaseURL:     req.BaseURL,
 		APIKey:      req.APIKey,
@@ -70,6 +72,7 @@ func (h *HTTPController) DeleteLLMConfig(c WebContext) {
 
 type llmConfigPayload struct {
 	Name        string `json:"name"`
+	ProviderID  string `json:"providerId"`
 	Provider    string `json:"provider"`
 	BaseURL     string `json:"baseUrl"`
 	APIKey      string `json:"apiKey"`
@@ -82,9 +85,9 @@ func bindLLMConfigPayload(c WebContext) (llmConfigPayload, bool) {
 	if !bindJSONOrBadRequest(c, &req, "Invalid request payload format.") {
 		return req, false
 	}
-	trimSpaceFields(&req.Name, &req.Provider, &req.BaseURL, &req.APIKey, &req.Model)
-	if !allFieldsPresent(req.Name, req.BaseURL, req.APIKey, req.Model) {
-		jsonError(c, http.StatusBadRequest, "name, baseUrl, apiKey, and model are all required.")
+	trimSpaceFields(&req.Name, &req.ProviderID, &req.Provider, &req.BaseURL, &req.APIKey, &req.Model)
+	if !allFieldsPresent(req.Name, req.Model) || (req.ProviderID == "" && !allFieldsPresent(req.BaseURL, req.APIKey)) {
+		jsonError(c, http.StatusBadRequest, "name, model, and providerId are required.")
 		return req, false
 	}
 	return req, true

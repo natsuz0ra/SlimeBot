@@ -409,10 +409,10 @@ test("SET_MODEL_EDITOR preloads existing model config for editing", () => {
 		type: "SET_MODEL_EDITOR",
 		config: {
 			id: "model-1",
+			providerId: "provider-1",
 			name: "Claude",
 			provider: "anthropic",
 			baseUrl: "https://api.anthropic.com",
-			apiKey: "secret",
 			model: "claude",
 			contextSize: 128_000,
 			createdAt: "",
@@ -422,23 +422,34 @@ test("SET_MODEL_EDITOR preloads existing model config for editing", () => {
 
 	assert.equal(state.view, "model-editor");
 	assert.equal(state.modelEditorId, "model-1");
-	assert.equal(state.modelEditorProvider, "anthropic");
+	assert.equal(state.modelEditorProviderId, "provider-1");
 	assert.equal(state.modelEditorContextSize, "128000");
 });
 
 test("MODEL_EDITOR field navigation wraps in both directions", () => {
 	let state = reduce(initState(), { type: "SET_MODEL_EDITOR_VIEW" });
 
-	for (let i = 0; i < 5; i += 1) {
+	for (let i = 0; i < 2; i += 1) {
 		state = reduce(state, { type: "MODEL_EDITOR_NEXT_FIELD" });
 	}
-	assert.equal(state.modelEditorFocusIndex, 5);
+	assert.equal(state.modelEditorFocusIndex, 2);
 
 	state = reduce(state, { type: "MODEL_EDITOR_NEXT_FIELD" });
 	assert.equal(state.modelEditorFocusIndex, 0);
 
 	state = reduce(state, { type: "MODEL_EDITOR_PREV_FIELD" });
-	assert.equal(state.modelEditorFocusIndex, 5);
+	assert.equal(state.modelEditorFocusIndex, 2);
+});
+
+test("provider editor keeps protocol and connection fields separate from model editor", () => {
+	let state = reduce(initState(), { type: "SET_PROVIDER_EDITOR", provider: {
+		id: "provider-1", name: "Gateway", protocol: "anthropic", baseUrl: "https://example.com", hasApiKey: true,
+	} });
+	assert.equal(state.view, "provider-editor");
+	assert.equal(state.modelEditorProvider, "anthropic");
+	assert.equal(state.modelEditorApiKey, "");
+	state = reduce(state, { type: "MODEL_EDITOR_PREV_FIELD" });
+	assert.equal(state.modelEditorFocusIndex, 3);
 });
 
 test("THINKING_DONE stores a fixed thinking duration", () => {

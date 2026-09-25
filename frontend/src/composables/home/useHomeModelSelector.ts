@@ -14,7 +14,7 @@ export function useHomeModelSelector() {
   const thinkingLevel = ref(localStorage.getItem(THINKING_STORAGE_KEY) || 'off')
   const subagentModelId = ref(localStorage.getItem(SUBAGENT_MODEL_STORAGE_KEY) || '')
 
-  const modelSelectOptions = computed(() => modelOptions.value.map((m) => ({ value: m.id, label: m.name })))
+  const modelSelectOptions = computed(() => modelOptions.value.map((m) => ({ value: m.id, label: m.providerName ? `${m.name} · ${m.providerName}` : m.name })))
   const hasModel = computed(() => modelOptions.value.length > 0)
   const thinkingSelectOptions = computed(() => [
     { value: 'off', label: t('thinkingOff') as string },
@@ -73,7 +73,7 @@ export function useHomeModelSelector() {
 
   const subagentModelSelectOptions = computed(() => [
     { value: '', label: t('subagentModelFollow') as string },
-    ...modelOptions.value.map((m) => ({ value: m.id, label: m.name })),
+    ...modelOptions.value.map((m) => ({ value: m.id, label: m.providerName ? `${m.name} · ${m.providerName}` : m.name })),
   ])
 
   function onSubagentModelChange(modelId: string) {

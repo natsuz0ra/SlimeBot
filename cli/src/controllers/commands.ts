@@ -31,6 +31,7 @@ export interface CliCommandHandlers {
   newSession: () => void;
   loadSessions: () => Promise<void>;
   loadModels: () => Promise<void>;
+  loadProviders: () => Promise<void>;
   loadSubagentModels: () => Promise<void>;
   toggleApprovalMode: () => Promise<void>;
   toggleThinkingLevel: () => void;
@@ -59,6 +60,10 @@ export async function runCliCommand(raw: string, handlers: CliCommandHandlers): 
   }
   if (cmd === "/model") {
     await handlers.loadModels();
+    return;
+  }
+  if (cmd === "/provider") {
+    await handlers.loadProviders();
     return;
   }
   if (cmd === "/subagent_model") {

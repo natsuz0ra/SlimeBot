@@ -18,6 +18,7 @@ import { CLI_HINT_COLOR, MenuView, MENU_VISIBLE_LIMIT } from "./components/MenuV
 import MemoryConsoleView from "./components/MemoryConsoleView.js";
 import TeamView from "./components/TeamView.js";
 import { ModelEditor } from "./components/ModelEditor.js";
+import { ProviderEditor } from "./components/ProviderEditor.js";
 import { TextInput } from "./components/TextInput.js";
 import { Timeline } from "./components/Timeline.js";
 import { UpdateView, getInitialUpdateJobForView, isUpdateActive } from "./components/UpdateView.js";
@@ -45,6 +46,8 @@ import { CLISocket } from "./ws/socket.js";
 import type {
   AppAction,
   LLMConfig,
+  LLMProvider,
+  DiscoveredModel,
   MCPConfig,
   MCPTemplate,
   MenuItem,
@@ -92,6 +95,8 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
   );
 
   const apiRef = useRef(new APIClient(apiURL, cliToken));
+  const providerMenuRef = useRef<LLMProvider | null>(null);
+  const pendingProviderDeleteRef = useRef<{ id: string; at: number } | null>(null);
   const socketRef = useRef<CLISocket | null>(null);
   const blinkRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const sessionRef = useRef({ id: "", name: "" });
@@ -174,13 +179,16 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
   const loadDefaultModel = useCallback(async () => {
     try {
       const settings = await apiRef.current.getSettings();
-      if (!settings.defaultModel) return;
       const configs = await apiRef.current.listLLMConfigs();
-      const model = configs.find((c) => c.id === settings.defaultModel);
+      const model = configs.find((c) => c.id === settings.defaultModel) ?? configs[0];
+      const modelId = model?.id ?? "";
+      if (settings.defaultModel && settings.defaultModel !== modelId) {
+        await apiRef.current.updateSettings({ defaultModel: modelId });
+      }
       dispatch({
         type: "SET_MODEL",
-        modelId: settings.defaultModel,
-        modelName: formatModelLine(model, settings.defaultModel),
+        modelId,
+        modelName: model ? formatModelLine(model, modelId) : "",
       } as AppAction);
     } catch {
       // Ignore when no model is configured.
@@ -284,11 +292,12 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
   }, [appendSystem]);
 
   const loadModels = useCallback(async () => {
+    providerMenuRef.current = null;
     try {
       const configs = await apiRef.current.listLLMConfigs();
       const items: MenuItem[] = configs.map((c) => ({
         title: c.name,
-        desc: `${c.model} · ${formatContextSize(c.contextSize || 1_000_000)}`,
+        desc: `${c.providerName || c.provider} · ${c.model} · ${formatContextSize(c.contextSize || 1_000_000)}`,
         data: c,
       }));
       dispatch({
@@ -296,10 +305,52 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
         kind: "model",
         title: "Model Menu",
         items,
-        hint: "Arrow keys to navigate | Enter to set default | A to add | E to edit | D to delete | Esc to close",
+        hint: "Enter switch | A providers | E edit | D delete | Esc close",
       } as AppAction);
     } catch (error) {
       appendSystem(`Failed to load models: ${(error as Error).message}`);
+    }
+  }, [appendSystem]);
+
+  const loadProviders = useCallback(async () => {
+    try {
+      const providers = await apiRef.current.listLLMProviders();
+      dispatch({
+        type: "SET_MENU", kind: "provider", title: "Model Providers",
+        items: providers.map(provider => ({ title: provider.name, desc: `${provider.protocol} · ${provider.baseUrl}`, data: provider })),
+        hint: "Enter models | A add | E edit | D delete | R discover | Esc back",
+      } as AppAction);
+    } catch (error) {
+      appendSystem(`Failed to load providers: ${(error as Error).message}`);
+    }
+  }, [appendSystem]);
+
+  const loadProviderModels = useCallback(async (provider: LLMProvider) => {
+    providerMenuRef.current = provider;
+    try {
+      const models = (await apiRef.current.listLLMConfigs()).filter(model => model.providerId === provider.id);
+      dispatch({
+        type: "SET_MENU", kind: "provider-model", title: provider.name,
+        items: models.map(model => ({ title: model.name, desc: `${model.model} · ${formatContextSize(model.contextSize || 1_000_000)}`, data: model })),
+        hint: "Enter edit | A add manually | D delete | R discover | Esc providers",
+      } as AppAction);
+    } catch (error) {
+      appendSystem(`Failed to load provider models: ${(error as Error).message}`);
+    }
+  }, [appendSystem]);
+
+  const loadDiscoveredModels = useCallback(async (provider: LLMProvider) => {
+    providerMenuRef.current = provider;
+    try {
+      const [found, current] = await Promise.all([apiRef.current.discoverLLMModels(provider.id), apiRef.current.listLLMConfigs()]);
+      const existing = new Set(current.filter(model => model.providerId === provider.id).map(model => model.model));
+      dispatch({
+        type: "SET_MENU", kind: "discovered-model", title: `${provider.name} · Discovery`,
+        items: found.map(model => ({ title: model.name, desc: existing.has(model.id) ? `${model.id} · already added` : model.id, data: { ...model, added: existing.has(model.id) } })),
+        hint: "Enter add model | Esc provider models",
+      } as AppAction);
+    } catch (error) {
+      appendSystem(`Model discovery failed: ${(error as Error).message}`);
     }
   }, [appendSystem]);
 
@@ -310,7 +361,7 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
         { title: "Follow Main Agent", desc: "Inherit parent model", data: { id: "", name: "Follow Main Agent" } },
         ...configs.map((c) => ({
           title: c.name,
-          desc: c.model,
+          desc: `${c.providerName || c.provider} · ${c.model}`,
           data: c,
         })),
       ];
@@ -579,6 +630,7 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
       { title: "/new", desc: "Create a new chat (lazy session creation)", data: null },
       { title: "/session", desc: "Browse, switch, or delete sessions", data: null },
       { title: "/model", desc: "Switch default model", data: null },
+      { title: "/provider", desc: "Manage model providers and available models", data: null },
       { title: "/memory", desc: "Open memory console", data: null },
       { title: "/approval", desc: "Toggle approval mode (standard/auto review/auto)", data: null },
       { title: "/effort", desc: "Toggle thinking level (off/low/medium/high)", data: null },
@@ -644,6 +696,23 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
         }
         return;
       }
+      if (state.menuKind === "provider") {
+        await loadProviderModels(item.data as LLMProvider);
+        return;
+      }
+      if (state.menuKind === "provider-model") {
+        dispatch({ type: "SET_MODEL_EDITOR", config: item.data as LLMConfig } as AppAction);
+        return;
+      }
+      if (state.menuKind === "discovered-model") {
+        const model = item.data as DiscoveredModel & { added: boolean };
+        const provider = providerMenuRef.current;
+        if (!provider || model.added) return;
+        await apiRef.current.createLLMConfig({ providerId: provider.id, name: model.name, model: model.id, contextSize: clampContextSize(model.contextSize || 1_000_000) });
+        appendSystem(`Added ${model.name} to ${provider.name}.`);
+        await loadProviderModels(provider);
+        return;
+      }
       if (state.menuKind === "subagent_model") {
         const model = item.data as { id: string; name: string };
         dispatch({
@@ -694,7 +763,7 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
     } catch (error) {
       appendSystem(`Menu action failed: ${(error as Error).message}`);
     }
-  }, [appendSystem, loadSandboxSettings, refreshContextUsage, state.menuKind, state.sessionId, switchSession]);
+  }, [appendSystem, loadProviderModels, loadSandboxSettings, refreshContextUsage, state.menuKind, state.sessionId, switchSession]);
 
   const handleMenuDelete = useCallback(async (item: MenuItem | undefined) => {
     if (!item || !state.menuKind) return;
@@ -731,24 +800,52 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
         const model = item.data as LLMConfig;
         await apiRef.current.deleteLLMConfig(model.id);
         await loadModels();
+        await loadDefaultModel();
+        return;
+      }
+      if (state.menuKind === "provider") {
+        const provider = item.data as LLMProvider;
+        if (pendingProviderDeleteRef.current?.id !== provider.id || Date.now() - pendingProviderDeleteRef.current.at > 5000) {
+          pendingProviderDeleteRef.current = { id: provider.id, at: Date.now() };
+          appendSystem(`Press D again within 5 seconds to delete ${provider.name} and all its models.`);
+          return;
+        }
+        pendingProviderDeleteRef.current = null;
+        await apiRef.current.deleteLLMProvider(provider.id);
+        await loadProviders();
+        await loadDefaultModel();
+        return;
+      }
+      if (state.menuKind === "provider-model") {
+        await apiRef.current.deleteLLMConfig((item.data as LLMConfig).id);
+        if (providerMenuRef.current) await loadProviderModels(providerMenuRef.current);
+        await loadDefaultModel();
       }
     } catch (error) {
       appendSystem(`Delete failed: ${(error as Error).message}`);
     }
-  }, [appendSystem, applyTerminalTitle, redrawTerminal, loadMCPConfigs, loadSessions, loadSkills, state.menuKind, state.sessionId]);
+  }, [appendSystem, applyTerminalTitle, redrawTerminal, loadDefaultModel, loadMCPConfigs, loadModels, loadProviderModels, loadProviders, loadSessions, loadSkills, state.menuKind, state.sessionId]);
 
   const handleMenuAdd = useCallback(() => {
     if (state.menuKind === "mcp") {
       dispatch({ type: "SET_MCP_TEMPLATE_VIEW" } as AppAction);
     } else if (state.menuKind === "model") {
-      dispatch({ type: "SET_MODEL_EDITOR_VIEW" } as AppAction);
+      void loadProviders();
+    } else if (state.menuKind === "provider") {
+      dispatch({ type: "SET_PROVIDER_EDITOR_VIEW" } as AppAction);
+    } else if (state.menuKind === "provider-model" && providerMenuRef.current) {
+      dispatch({ type: "SET_MODEL_EDITOR_VIEW", providerId: providerMenuRef.current.id } as AppAction);
     }
-  }, [state.menuKind]);
+  }, [loadProviders, state.menuKind]);
 
   const handleMenuEdit = useCallback((item: MenuItem | undefined) => {
     if (!item) return;
-    if (state.menuKind === "model") {
+    if (state.menuKind === "model" || state.menuKind === "provider-model") {
       dispatch({ type: "SET_MODEL_EDITOR", config: item.data as LLMConfig } as AppAction);
+      return;
+    }
+    if (state.menuKind === "provider") {
+      dispatch({ type: "SET_PROVIDER_EDITOR", provider: item.data as LLMProvider } as AppAction);
       return;
     }
     if (state.menuKind !== "mcp") return;
@@ -761,6 +858,11 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
       enabled: mcp.isEnabled,
     } as AppAction);
   }, [state.menuKind]);
+
+  const handleMenuDiscover = useCallback((item: MenuItem | undefined) => {
+    const provider = state.menuKind === "provider" ? item?.data as LLMProvider | undefined : providerMenuRef.current;
+    if (provider) void loadDiscoveredModels(provider);
+  }, [loadDiscoveredModels, state.menuKind]);
 
   const handleMenuToggle = useCallback(async (item: MenuItem | undefined) => {
     if (state.menuKind !== "mcp" || !item) return;
@@ -813,12 +915,11 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
     try {
       const payload = {
         name: state.modelEditorName,
-        provider: state.modelEditorProvider,
-        baseUrl: state.modelEditorBaseUrl,
-        apiKey: state.modelEditorApiKey,
+        providerId: state.modelEditorProviderId,
         model: state.modelEditorModel,
         contextSize: clampContextSize(state.modelEditorContextSize),
       };
+      if (!payload.providerId || !payload.name.trim() || !payload.model.trim()) throw new Error("Name and Model ID are required.");
       if (state.modelEditorId) {
         await apiRef.current.updateLLMConfig(state.modelEditorId, payload);
         appendSystem("Model config updated.");
@@ -826,7 +927,8 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
         await apiRef.current.createLLMConfig(payload);
         appendSystem("Model config created.");
       }
-      await loadModels();
+      if (providerMenuRef.current) await loadProviderModels(providerMenuRef.current);
+      else await loadModels();
     } catch (error) {
       appendSystem(`Failed to save model config: ${(error as Error).message}`);
     }
@@ -834,13 +936,31 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
     appendSystem,
     loadModels,
     state.modelEditorName,
-    state.modelEditorProvider,
-    state.modelEditorBaseUrl,
-    state.modelEditorApiKey,
+    state.modelEditorProviderId,
     state.modelEditorModel,
     state.modelEditorContextSize,
     state.modelEditorId,
+    loadProviderModels,
   ]);
+
+  const saveProviderConfig = useCallback(async () => {
+    try {
+      const payload = {
+        name: state.modelEditorName,
+        protocol: state.modelEditorProvider,
+        baseUrl: state.modelEditorBaseUrl,
+        apiKey: state.modelEditorId && state.modelEditorApiKey === "-" ? "" : state.modelEditorApiKey,
+        clearApiKey: Boolean(state.modelEditorId && state.modelEditorApiKey === "-"),
+      };
+      if (!payload.name.trim() || !payload.baseUrl.trim()) throw new Error("Name and Base URL are required.");
+      if (state.modelEditorId) await apiRef.current.updateLLMProvider(state.modelEditorId, payload);
+      else await apiRef.current.createLLMProvider(payload);
+      appendSystem(`Provider ${state.modelEditorId ? "updated" : "created"}.`);
+      await loadProviders();
+    } catch (error) {
+      appendSystem(`Failed to save provider: ${(error as Error).message}`);
+    }
+  }, [appendSystem, loadProviders, state.modelEditorName, state.modelEditorProvider, state.modelEditorBaseUrl, state.modelEditorApiKey, state.modelEditorId]);
 
   const saveMCPConfig = useCallback(async () => {
     try {
@@ -916,6 +1036,7 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
       },
       loadSessions,
       loadModels,
+      loadProviders,
       loadSubagentModels,
       toggleApprovalMode,
       toggleThinkingLevel,
@@ -937,6 +1058,7 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
     redrawTerminal,
     loadMCPConfigs,
     loadModels,
+    loadProviders,
     loadMemory,
     loadSandboxSettings,
     loadSessions,
@@ -1019,6 +1141,7 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
     handleMenuEdit,
     handleMenuToggle,
     handleMenuTools,
+    handleMenuDiscover,
     loadUpdate,
     applyUpdate,
     loadMemory,
@@ -1026,9 +1149,12 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
     saveMemoryConsoleDraft,
     loadMCPConfigs,
     loadModels,
+    loadProviders,
+    loadProviderModels: () => providerMenuRef.current ? loadProviderModels(providerMenuRef.current) : loadModels(),
     refreshMCPTools,
     saveMCPConfig,
     saveModelConfig,
+    saveProviderConfig,
     selectMCPTemplate,
     moveModelProvider,
   });
@@ -1320,20 +1446,27 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
       {state.view === "model-editor" && (
         <ModelEditor
           name={state.modelEditorName}
-          provider={state.modelEditorProvider}
-          baseUrl={state.modelEditorBaseUrl}
-          apiKey={state.modelEditorApiKey}
           model={state.modelEditorModel}
           contextSize={state.modelEditorContextSize}
           focusIndex={state.modelEditorFocusIndex}
-          providerSelect={state.modelEditorProviderSelect}
-          providerCursor={Math.max(0, MODEL_PROVIDER_ORDER.indexOf(state.modelEditorProvider))}
           onNameChange={(name) => dispatch({ type: "SET_MODEL_EDITOR_NAME", name } as AppAction)}
-          onProviderChange={(provider) => dispatch({ type: "SET_MODEL_EDITOR_PROVIDER", provider } as AppAction)}
-          onBaseUrlChange={(url) => dispatch({ type: "SET_MODEL_EDITOR_BASE_URL", baseUrl: url } as AppAction)}
-          onApiKeyChange={(k) => dispatch({ type: "SET_MODEL_EDITOR_API_KEY", apiKey: k } as AppAction)}
           onModelChange={(model) => dispatch({ type: "SET_MODEL_EDITOR_MODEL", model } as AppAction)}
           onContextSizeChange={(contextSize) => dispatch({ type: "SET_MODEL_EDITOR_CONTEXT_SIZE", contextSize } as AppAction)}
+        />
+      )}
+
+      {state.view === "provider-editor" && (
+        <ProviderEditor
+          name={state.modelEditorName}
+          protocol={state.modelEditorProvider}
+          baseUrl={state.modelEditorBaseUrl}
+          apiKey={state.modelEditorApiKey}
+          focusIndex={state.modelEditorFocusIndex}
+          protocolSelect={state.modelEditorProviderSelect}
+          protocolCursor={Math.max(0, MODEL_PROVIDER_ORDER.indexOf(state.modelEditorProvider))}
+          onNameChange={(name) => dispatch({ type: "SET_MODEL_EDITOR_NAME", name } as AppAction)}
+          onBaseUrlChange={(url) => dispatch({ type: "SET_MODEL_EDITOR_BASE_URL", baseUrl: url } as AppAction)}
+          onApiKeyChange={(key) => dispatch({ type: "SET_MODEL_EDITOR_API_KEY", apiKey: key } as AppAction)}
         />
       )}
 
@@ -1399,7 +1532,13 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
 
       {state.view === "model-editor" && (
         <Text color={CLI_HINT_COLOR}>
-          Tab to switch field | Ctrl+S to save | Esc to go back{state.modelEditorFocusIndex === 1 ? " | Enter to change provider" : ""}
+          Tab to switch field | Ctrl+S to save | Esc to go back
+        </Text>
+      )}
+
+      {state.view === "provider-editor" && (
+        <Text color={CLI_HINT_COLOR}>
+          Tab to switch field | Ctrl+S to save | Esc to go back{state.modelEditorFocusIndex === 1 ? " | Enter to change protocol" : ""}
         </Text>
       )}
     </Box>

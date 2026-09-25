@@ -82,6 +82,11 @@ func New(cfg config.Config, tokenManager *auth.TokenManager, httpController *con
 			api.Post("/llm-configs", adapt(httpController.CreateLLMConfig))
 			api.Put("/llm-configs/{id}", adapt(httpController.UpdateLLMConfig))
 			api.Delete("/llm-configs/{id}", adapt(httpController.DeleteLLMConfig))
+			api.Get("/llm-providers", adapt(httpController.ListLLMProviders))
+			api.Post("/llm-providers", adapt(httpController.CreateLLMProvider))
+			api.Put("/llm-providers/{id}", adapt(httpController.UpdateLLMProvider))
+			api.Delete("/llm-providers/{id}", adapt(httpController.DeleteLLMProvider))
+			api.Post("/llm-providers/{id}/discover", adapt(httpController.DiscoverLLMProviderModels))
 
 			api.Get("/mcp-configs", adapt(httpController.ListMCPConfigs))
 			api.Post("/mcp-configs", adapt(httpController.CreateMCPConfig))

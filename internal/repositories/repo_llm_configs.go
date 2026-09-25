@@ -13,10 +13,35 @@ import (
 )
 
 func (r *Repository) ListLLMConfigs(ctx context.Context) ([]domain.LLMConfig, error) {
-	var items []domain.LLMConfig
+	items := make([]domain.LLMConfig, 0)
 	err := r.dbWithContext(ctx).Order("name asc").Order("created_at asc").Find(&items).Error
+	if err != nil {
+		return nil, err
+	}
+	needsProviders := false
+	for _, item := range items {
+		if item.ProviderID != "" {
+			needsProviders = true
+			break
+		}
+	}
+	if !needsProviders {
+		normalizeLLMConfigs(items)
+		return items, nil
+	}
+	var providers []domain.LLMProvider
+	if err := r.dbWithContext(ctx).Select("id", "name").Find(&providers).Error; err != nil {
+		return nil, err
+	}
+	names := make(map[string]string, len(providers))
+	for _, provider := range providers {
+		names[provider.ID] = provider.Name
+	}
+	for i := range items {
+		items[i].ProviderName = names[items[i].ProviderID]
+	}
 	normalizeLLMConfigs(items)
-	return items, err
+	return items, nil
 }
 
 func (r *Repository) GetLLMConfigByID(ctx context.Context, id string) (*domain.LLMConfig, error) {
@@ -42,6 +67,7 @@ func (r *Repository) UpdateLLMConfig(ctx context.Context, id string, item domain
 	normalizeLLMConfig(&item)
 	return r.dbWithContext(ctx).Model(&domain.LLMConfig{}).Where("id = ?", id).Updates(domain.LLMConfig{
 		Name:        item.Name,
+		ProviderID:  item.ProviderID,
 		Provider:    item.Provider,
 		BaseURL:     item.BaseURL,
 		APIKey:      item.APIKey,

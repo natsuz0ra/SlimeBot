@@ -19,6 +19,8 @@ onnx
 cmd/test
 web/dist/
 dist/
+/desktop/build/
+/desktop/dist/
 *.exe
 slimebot
 __pycache__/

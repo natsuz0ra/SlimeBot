@@ -15,6 +15,13 @@ A personal AI agent demo: an extensible foundation for conversational AI apps. I
 - Desktop Computer Use on macOS, Windows, and Linux: inspect the foreground app through accessibility or screenshots, then click, type, press keys, and scroll on the machine running SlimeBot, subject to tool approval ([requirements and limits, in Chinese](docs/computer-use.zh-CN.md))
 - Plan mode, streamed thinking, context compression, MCP configuration, skills, and AGENTS.md instructions
 - Web UI, CLI TUI, and Telegram integration
+- macOS and Windows desktop preview: no password login, background work continues after closing the window, and the tray menu provides Quit
+
+## Desktop Preview (1.32.0)
+
+The [`dev/1.32.0` Desktop preview workflow](https://github.com/natsuz0ra/SlimeBot/actions/workflows/desktop-preview.yml) produces `SlimeBot-1.32.0-macos-universal.dmg` and `SlimeBot-1.32.0-windows-x64.exe`, each available as a direct download from a [GitHub prerelease](https://github.com/natsuz0ra/SlimeBot/releases). After the branch is merged and `v1.32.0` is published, CI attaches both files directly to the same stable Release. On macOS, open the DMG and drag the `.app` into Applications; on Windows, run the EXE installer.
+
+Desktop reads the same configuration as Web/CLI (`~/.slimebot/config.cfg` by default, or the directory set by `SLIMEBOT_HOME`) and honors its data paths. It uses an ephemeral local session, so no account password is needed; the script-installed Web service still uses password login. Do not run Desktop and the Web service simultaneously with the same data paths: both can start message platforms and scheduled tasks. Closing the desktop window keeps those tasks running; right-click the tray icon and choose **Quit SlimeBot** to stop them. Settings can check for releases and open the installer download page. These previews are unsigned, so the OS may require explicit permission on first launch. Installing an update currently requires downloading the new installer; macOS in-app automatic installation also requires signing and a ZIP update asset, which this DMG-only release does not provide. See the [technical design](docs/desktop-app-1.32.0-technical-design.zh-CN.md).
 
 ## Install From Release
 

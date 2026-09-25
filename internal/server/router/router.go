@@ -26,6 +26,8 @@ type RouterConfig struct {
 	CLIToken string
 	// Headless, if true, skips SPA static file routes.
 	Headless bool
+	// DesktopToken authenticates only the desktop-owned loopback server.
+	DesktopToken string
 }
 
 // New builds the HTTP router with REST and WebSocket routes.
@@ -53,11 +55,15 @@ func New(cfg config.Config, tokenManager *auth.TokenManager, httpController *con
 	// REST API
 	r.Route("/api", func(api chi.Router) {
 		api.Use(httprate.LimitByIP(400, time.Minute))
-		api.With(httprate.LimitByIP(30, time.Minute)).Post("/login", adapt(httpController.Login))
+		if rc.DesktopToken == "" {
+			api.With(httprate.LimitByIP(30, time.Minute)).Post("/login", adapt(httpController.Login))
+		}
 
-		authmw := middleware.RequireJWT(tokenManager, rc.CLIToken)
+		authmw := middleware.RequireJWT(tokenManager, rc.CLIToken, rc.DesktopToken)
 		api.With(authmw).Route("/", func(api chi.Router) {
-			api.Put("/account", adapt(httpController.UpdateAccount))
+			if rc.DesktopToken == "" {
+				api.Put("/account", adapt(httpController.UpdateAccount))
+			}
 
 			api.Get("/sessions", adapt(httpController.ListSessions))
 			api.Post("/sessions", adapt(httpController.CreateSession))
@@ -74,7 +80,9 @@ func New(cfg config.Config, tokenManager *auth.TokenManager, httpController *con
 			api.Delete("/memory/{target}/entries/{index}", adapt(httpController.DeleteMemoryEntry))
 			api.Get("/update/check", adapt(httpController.GetUpdateCheck))
 			api.Get("/update/job", adapt(httpController.GetUpdateJob))
-			api.Post("/update/apply", adapt(httpController.ApplyUpdate))
+			if rc.DesktopToken == "" {
+				api.Post("/update/apply", adapt(httpController.ApplyUpdate))
+			}
 			api.Get("/agents-instructions", adapt(httpController.GetAgentsInstructions))
 			api.Put("/agents-instructions", adapt(httpController.UpdateAgentsInstructions))
 
@@ -112,7 +120,7 @@ func New(cfg config.Config, tokenManager *auth.TokenManager, httpController *con
 	})
 
 	// WebSocket
-	wsAuthmw := middleware.RequireJWT(tokenManager, rc.CLIToken)
+	wsAuthmw := middleware.RequireJWT(tokenManager, rc.CLIToken, rc.DesktopToken)
 	r.With(wsAuthmw).Get("/ws/chat", func(w http.ResponseWriter, req *http.Request) {
 		wsController.Chat(w, req)
 	})

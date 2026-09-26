@@ -9,17 +9,19 @@ import {
   mdiMagnify,
   mdiFolderOutline,
   mdiMessageTextOutline,
+  mdiSlack,
+  mdiWechat,
   mdiPlus,
   mdiWeatherNight,
   mdiWeatherSunny,
 } from '@mdi/js'
 import type { SessionItem } from '@/api/chat'
-import { MESSAGE_PLATFORM_SESSION_ID } from '@/api/chat'
 import MdiIcon from '@/components/ui/MdiIcon.vue'
 import AppLogo from '@/components/ui/AppLogo.vue'
 import TruncationTooltip from '@/components/ui/TruncationTooltip.vue'
 import { useChatStore } from '@/stores/chat'
 import { groupSessionsByDirectory, type SessionGroup } from '@/utils/sessionGroups'
+import { isMessagePlatformSessionId, listPlatformSessions, platformFromSessionId, platformSessionName } from '@/utils/messagePlatformSessions'
 
 const INITIAL_GROUP_SESSION_COUNT = 6
 
@@ -47,9 +49,18 @@ const searchInput = ref('')
 let searchDebounceTimer: number | null = null
 
 const collapsed = ref<string[]>([])
+const platformCollapsed = ref(false)
 const searchCollapsed = ref<string[]>([])
 const groupSessionLimits = ref<Record<string, number>>({})
-const groupedSessions = computed(() => groupSessionsByDirectory(props.sessions, t('workspaceUnclassified'), MESSAGE_PLATFORM_SESSION_ID))
+const groupedSessions = computed(() => groupSessionsByDirectory(props.sessions.filter((session) => !isMessagePlatformSessionId(session.id)), t('workspaceUnclassified')))
+const platformSessions = computed(() => listPlatformSessions(props.sessions))
+function platformIcon(id: string) {
+  switch (platformFromSessionId(id)) {
+    case 'slack': return mdiSlack
+    case 'wechat': return mdiWechat
+    default: return mdiMessageTextOutline
+  }
+}
 const searching = computed(() => searchOpen.value && !!store.sessionSearchQuery.trim())
 
 function sessionLimit(path: string) {
@@ -163,21 +174,39 @@ onUnmounted(() => {
     </div>
 
     <div :ref="setSidebarListRef" class="scroll-area flex-1 overflow-y-auto py-2 px-1">
-      <div class="mb-1 px-0.5">
+      <section class="mb-1 px-0.5">
         <button
           type="button"
-          class="workspace-platform-row group group/tip relative flex h-9 w-full min-w-0 items-center gap-1.5 rounded-lg px-1.5 text-left text-sm font-semibold cursor-pointer"
-          :class="currentSessionId === MESSAGE_PLATFORM_SESSION_ID ? 'workspace-platform-row-active' : ''"
-          :aria-current="currentSessionId === MESSAGE_PLATFORM_SESSION_ID ? 'page' : undefined"
-          @click="emit('pickSession', MESSAGE_PLATFORM_SESSION_ID)"
+          class="workspace-group flex h-9 w-full min-w-0 items-center gap-1.5 rounded-lg px-1.5 text-left text-sm font-semibold cursor-pointer"
+          :aria-expanded="!platformCollapsed"
+          @click="platformCollapsed = !platformCollapsed"
         >
-          <span v-if="currentSessionId === MESSAGE_PLATFORM_SESSION_ID" class="session-active-indicator absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-5 rounded-r-full" />
-          <span class="w-[13px] flex-shrink-0" aria-hidden="true" />
+          <MdiIcon :path="mdiChevronDown" :size="13" class="flex-shrink-0 transition-transform duration-150" :class="platformCollapsed ? '-rotate-90' : ''" />
           <MdiIcon :path="mdiMessageTextOutline" :size="18" class="flex-shrink-0" />
           <TruncationTooltip inherit-group :text="t('messagePlatformSession')" wrapper-class="min-w-0 flex-1" content-class="text-sm font-semibold" />
           <span class="platform-badge rounded-md px-1.5 py-0.5 text-[10px] font-medium leading-none">IM</span>
         </button>
-      </div>
+        <div v-if="!platformCollapsed" class="workspace-session-list ml-7 mt-0.5 space-y-0.5 border-l pl-2">
+          <div
+            v-for="item in platformSessions"
+            :key="item.id"
+            class="workspace-session-row group group/tip relative flex h-9 min-w-0 items-center rounded-lg"
+            :class="item.id === currentSessionId ? 'workspace-session-row-active' : ''"
+          >
+            <button
+              type="button"
+              class="workspace-session-main relative flex h-full min-w-0 flex-1 items-center rounded-lg px-2 text-left text-sm cursor-pointer"
+              :aria-current="item.id === currentSessionId ? 'page' : undefined"
+              @click="emit('pickSession', item.id)"
+            >
+              <span v-if="item.id === currentSessionId" class="session-active-indicator absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-4 rounded-r-full" />
+              <img v-if="platformFromSessionId(item.id) === 'telegram'" src="/im_icon/telegram.svg" alt="" class="mr-2 h-4 w-4 flex-shrink-0" />
+              <MdiIcon v-else :path="platformIcon(item.id)" :size="16" class="mr-2 flex-shrink-0" />
+              <TruncationTooltip inherit-group :text="platformSessionName(item.id, t('telegram'))" wrapper-class="min-w-0 flex-1" content-class="text-sm" />
+            </button>
+          </div>
+        </div>
+      </section>
 
       <section v-for="group in groupedSessions" :key="group.path || 'unclassified'" class="mb-1">
         <div class="group flex items-center gap-1 px-0.5 min-w-0">
@@ -280,11 +309,6 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
-.workspace-platform-row { color: var(--text-primary); border: 1px solid transparent; transition: background 150ms ease, border-color 150ms ease; }
-.workspace-platform-row:hover, .workspace-platform-row:focus-visible { background: var(--primary-alpha-08); }
-.workspace-platform-row:focus-visible { outline: 2px solid var(--sb-brand); outline-offset: -2px; }
-.workspace-platform-row-active { background: var(--primary-alpha-12); border-color: var(--primary-alpha-15); }
-.workspace-platform-row-active:hover, .workspace-platform-row-active:focus-visible { background: var(--primary-alpha-15); }
 .workspace-group { color: var(--text-primary); transition: background 150ms ease, color 150ms ease; }
 .workspace-group:hover, .workspace-group:focus-visible, .workspace-group-add:hover, .workspace-group-add:focus-visible { color: var(--text-primary); background: var(--primary-alpha-08); }
 .workspace-group-add { color: var(--text-muted); }

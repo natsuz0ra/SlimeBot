@@ -15,7 +15,7 @@ import (
 
 type mockPlatformChatService struct{}
 
-func (m *mockPlatformChatService) EnsureMessagePlatformSession(_ context.Context) (*domain.Session, error) {
+func (m *mockPlatformChatService) EnsureMessagePlatformSession(_ context.Context, _ string) (*domain.Session, error) {
 	return &domain.Session{ID: constants.MessagePlatformSessionID, Name: constants.MessagePlatformSessionName}, nil
 }
 
@@ -59,14 +59,17 @@ func (m *mockPlatformChatService) HandleChatStream(
 }
 
 type captureAttachmentChatService struct {
+	lastPlatform      string
+	lastSessionID     string
 	lastContent       string
 	lastAttachmentIDs []string
 	lastThinkingLevel string
 	lastApprovalMode  string
 }
 
-func (m *captureAttachmentChatService) EnsureMessagePlatformSession(_ context.Context) (*domain.Session, error) {
-	return &domain.Session{ID: constants.MessagePlatformSessionID, Name: constants.MessagePlatformSessionName}, nil
+func (m *captureAttachmentChatService) EnsureMessagePlatformSession(_ context.Context, platform string) (*domain.Session, error) {
+	m.lastPlatform = platform
+	return &domain.Session{ID: constants.MessagePlatformSessionIDFor(platform), Name: platform}, nil
 }
 
 func (m *captureAttachmentChatService) ResolvePlatformModel(_ context.Context) (string, error) {
@@ -79,7 +82,7 @@ func (m *captureAttachmentChatService) ResolvePlatformRuntimeSettings(_ context.
 
 func (m *captureAttachmentChatService) HandleChatStream(
 	_ context.Context,
-	_ string,
+	sessionID string,
 	_ string,
 	content string,
 	_ string,
@@ -91,6 +94,7 @@ func (m *captureAttachmentChatService) HandleChatStream(
 	approvalMode string,
 	_ chatsvc.AgentCallbacks,
 ) (*chatsvc.ChatStreamResult, error) {
+	m.lastSessionID = sessionID
 	m.lastContent = content
 	m.lastAttachmentIDs = append([]string{}, attachmentIDs...)
 	m.lastThinkingLevel = thinkingLevel
@@ -100,7 +104,7 @@ func (m *captureAttachmentChatService) HandleChatStream(
 
 type mockApprovalChatService struct{}
 
-func (m *mockApprovalChatService) EnsureMessagePlatformSession(_ context.Context) (*domain.Session, error) {
+func (m *mockApprovalChatService) EnsureMessagePlatformSession(_ context.Context, _ string) (*domain.Session, error) {
 	return &domain.Session{ID: constants.MessagePlatformSessionID, Name: constants.MessagePlatformSessionName}, nil
 }
 
@@ -422,11 +426,27 @@ func TestDispatcherHandleInbound_PassesPlatformRuntimeSettings(t *testing.T) {
 	}
 }
 
+func TestDispatcherHandleInbound_UsesPlatformSession(t *testing.T) {
+	chatSvc := &captureAttachmentChatService{}
+	dispatcher := NewDispatcher(chatSvc, newMockApprovalBroker())
+	err := dispatcher.HandleInbound(context.Background(), InboundMessage{
+		Platform: "discord",
+		ChatID:   "30003",
+		Text:     "hello",
+	}, &mockSender{})
+	if err != nil {
+		t.Fatalf("handle inbound failed: %v", err)
+	}
+	if chatSvc.lastPlatform != "discord" || chatSvc.lastSessionID != constants.MessagePlatformSessionIDFor("discord") {
+		t.Fatalf("platform=%q session=%q", chatSvc.lastPlatform, chatSvc.lastSessionID)
+	}
+}
+
 type markerAnswerChatService struct {
 	answer string
 }
 
-func (m *markerAnswerChatService) EnsureMessagePlatformSession(_ context.Context) (*domain.Session, error) {
+func (m *markerAnswerChatService) EnsureMessagePlatformSession(_ context.Context, _ string) (*domain.Session, error) {
 	return &domain.Session{ID: constants.MessagePlatformSessionID, Name: constants.MessagePlatformSessionName}, nil
 }
 

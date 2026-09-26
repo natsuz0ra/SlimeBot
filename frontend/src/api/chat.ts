@@ -3,7 +3,7 @@ import type { ToolCallStatus } from '@/types/chat'
 
 export type { ToolCallStatus } from '@/types/chat'
 
-export const MESSAGE_PLATFORM_SESSION_ID = 'im-platform-session'
+export { MESSAGE_PLATFORM_SESSION_ID } from '@/utils/messagePlatformSessions'
 
 export interface SessionItem {
   id: string

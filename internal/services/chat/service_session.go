@@ -28,19 +28,32 @@ func (s *ChatService) EnsureSession(ctx context.Context, sessionID string) (*dom
 	return s.store.CreateSession(ctx, "New Chat", s.runContext.WorkingDir)
 }
 
-// EnsureMessagePlatformSession ensures the bridged platform session exists with a fixed ID.
-func (s *ChatService) EnsureMessagePlatformSession(ctx context.Context) (*domain.Session, error) {
+// EnsureMessagePlatformSession ensures each platform has a stable session.
+func (s *ChatService) EnsureMessagePlatformSession(ctx context.Context, platform string) (*domain.Session, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	session, err := s.store.GetSessionByID(ctx, constants.MessagePlatformSessionID)
+	platform = strings.ToLower(strings.TrimSpace(platform))
+	if platform == "" {
+		return nil, fmt.Errorf("platform is required")
+	}
+	id := constants.MessagePlatformSessionIDFor(platform)
+	session, err := s.store.GetSessionByID(ctx, id)
 	if err != nil && !errors.Is(err, apperrors.ErrNotFound) {
 		return nil, err
 	}
 	if session != nil {
 		return session, nil
 	}
-	return s.store.CreateSessionWithID(ctx, constants.MessagePlatformSessionID, constants.MessagePlatformSessionName)
+	session, err = s.store.CreateSessionWithID(ctx, id, platform)
+	if err == nil {
+		return session, nil
+	}
+	// Concurrent first messages can race to create the same platform session.
+	if existing, lookupErr := s.store.GetSessionByID(ctx, id); lookupErr == nil {
+		return existing, nil
+	}
+	return nil, err
 }
 
 // ResolvePlatformModel resolves the default model for platform ingress (platform setting, then global, then first).

@@ -126,7 +126,7 @@ func (h *HTTPController) BrowseWorkingDirectory(c WebContext) {
 // RenameSession renames a session.
 func (h *HTTPController) RenameSession(c WebContext) {
 	id := c.Param("id")
-	if id == constants.MessagePlatformSessionID {
+	if constants.IsMessagePlatformSessionID(id) {
 		jsonError(c, http.StatusBadRequest, "Message platform sessions cannot be renamed.")
 		return
 	}
@@ -146,7 +146,7 @@ func (h *HTTPController) RenameSession(c WebContext) {
 // DeleteSession deletes a session and related rows.
 func (h *HTTPController) DeleteSession(c WebContext) {
 	id := c.Param("id")
-	if id == constants.MessagePlatformSessionID {
+	if constants.IsMessagePlatformSessionID(id) {
 		jsonError(c, http.StatusBadRequest, "Message platform sessions cannot be deleted.")
 		return
 	}

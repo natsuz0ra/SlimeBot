@@ -2,7 +2,8 @@ import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 
 import { ChatSocket, type ConnectionStatus, type ContextUsageData, type RuntimeTodoItem, type TodoUpdateData } from '@/api/chatSocket'
-import { MESSAGE_PLATFORM_SESSION_ID, sessionAPI } from '@/api/chat'
+import { sessionAPI } from '@/api/chat'
+import { isMessagePlatformSessionId } from '@/utils/messagePlatformSessions'
 import type { MessageAttachmentItem, MessageItem, SessionHistoryPayload, SessionHistoryThinkingItem, SessionItem, UploadedAttachmentItem } from '@/api/chat'
 import { i18n } from '@/i18n'
 import {
@@ -116,7 +117,7 @@ export const useChatStore = defineStore('chat', () => {
 
   async function refreshContextUsage(modelId: string) {
     const sessionId = currentSessionId.value
-    if (!sessionId || !modelId || sessionId === MESSAGE_PLATFORM_SESSION_ID) {
+    if (!sessionId || !modelId || isMessagePlatformSessionId(sessionId)) {
       clearContextUsage()
       return
     }
@@ -309,8 +310,8 @@ export const useChatStore = defineStore('chat', () => {
     sessions.value = res.sessions
     hasMoreSessions.value = res.hasMore
     const isVirtualMessagePlatformSession =
-      currentSessionId.value === MESSAGE_PLATFORM_SESSION_ID &&
-      !sessions.value.some((item) => item.id === MESSAGE_PLATFORM_SESSION_ID)
+      isMessagePlatformSessionId(currentSessionId.value) &&
+      !sessions.value.some((item) => item.id === currentSessionId.value)
     if (isVirtualMessagePlatformSession) return
     if (currentSessionId.value && !sessions.value.some((item) => item.id === currentSessionId.value)) {
       currentSessionId.value = undefined
@@ -411,7 +412,7 @@ export const useChatStore = defineStore('chat', () => {
       rebuildReplyBatchesFromHistory(id, history)
     } catch {
       // Message-platform session may have no DB row before the first platform message; show read-only empty state first.
-      if (id === MESSAGE_PLATFORM_SESSION_ID) {
+      if (isMessagePlatformSessionId(id)) {
         currentSessionId.value = id
         messages.value = []
         clearContextUsage()

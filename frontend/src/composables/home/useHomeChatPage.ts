@@ -1,7 +1,7 @@
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useToast } from '@/composables/useToast'
-import { MESSAGE_PLATFORM_SESSION_ID } from '@/api/chat'
+import { isMessagePlatformSessionId } from '@/utils/messagePlatformSessions'
 import { settingAPI } from '@/api/settings'
 import { useHomeModelSelector } from '@/composables/home/useHomeModelSelector'
 import { useHomeNetworkNotice } from '@/composables/home/useHomeNetworkNotice'
@@ -32,7 +32,7 @@ export function useHomeChatPage() {
     t: (key, params) => t(key, params as never),
     store,
   })
-  const isMessagePlatformSession = computed(() => store.currentSessionId === MESSAGE_PLATFORM_SESSION_ID)
+  const isMessagePlatformSession = computed(() => isMessagePlatformSessionId(store.currentSessionId))
   const canSend = computed(() => {
     if (isMessagePlatformSession.value) return false
     const hasInput = uiState.inputValue.value.trim() !== '' || uiState.pendingFiles.value.length > 0

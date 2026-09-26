@@ -1,6 +1,10 @@
 package constants
 
-import "time"
+import (
+	"net/url"
+	"strings"
+	"time"
+)
 
 const (
 	DefaultContextHistoryRounds        = 20
@@ -9,6 +13,7 @@ const (
 	ContextHistoryRoundMax             = 50
 	MessagePlatformSessionID           = "im-platform-session"
 	MessagePlatformSessionName         = "Message Platform Session"
+	MessagePlatformSessionPrefix       = "im-platform-session:"
 	SettingLanguage                    = "language"
 	SettingDefaultModel                = "defaultModel"
 	SettingMessagePlatformDefaultModel = "messagePlatformDefaultModel"
@@ -98,3 +103,16 @@ const (
 	WSWriteChannelBuf = 128
 	WSChatChannelBuf  = 16
 )
+
+// MessagePlatformSessionIDFor keeps Telegram's original ID so existing history remains available.
+func MessagePlatformSessionIDFor(platform string) string {
+	platform = strings.ToLower(strings.TrimSpace(platform))
+	if platform == TelegramPlatformName {
+		return MessagePlatformSessionID
+	}
+	return MessagePlatformSessionPrefix + url.PathEscape(platform)
+}
+
+func IsMessagePlatformSessionID(id string) bool {
+	return id == MessagePlatformSessionID || strings.HasPrefix(id, MessagePlatformSessionPrefix)
+}

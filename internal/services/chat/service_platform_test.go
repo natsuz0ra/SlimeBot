@@ -9,11 +9,11 @@ import (
 	"slimebot/internal/repositories"
 )
 
-func TestEnsureMessagePlatformSession_StableID(t *testing.T) {
+func TestEnsureMessagePlatformSession_PerPlatform(t *testing.T) {
 	repo := repositories.New(repositories.NewSQLiteDBTest(t, "platform_session"))
 	service := &ChatService{store: repo}
 
-	session, err := service.EnsureMessagePlatformSession(context.Background())
+	session, err := service.EnsureMessagePlatformSession(context.Background(), "telegram")
 	if err != nil {
 		t.Fatalf("ensure platform session failed: %v", err)
 	}
@@ -21,12 +21,19 @@ func TestEnsureMessagePlatformSession_StableID(t *testing.T) {
 		t.Fatalf("expected fixed session id=%s, got=%s", constants.MessagePlatformSessionID, session.ID)
 	}
 
-	second, err := service.EnsureMessagePlatformSession(context.Background())
+	second, err := service.EnsureMessagePlatformSession(context.Background(), "telegram")
 	if err != nil {
 		t.Fatalf("ensure existing platform session failed: %v", err)
 	}
 	if second.ID != constants.MessagePlatformSessionID {
 		t.Fatalf("expected same fixed session id, got=%s", second.ID)
+	}
+	other, err := service.EnsureMessagePlatformSession(context.Background(), "discord")
+	if err != nil {
+		t.Fatalf("ensure second platform session failed: %v", err)
+	}
+	if other.ID != constants.MessagePlatformSessionIDFor("discord") || other.ID == session.ID {
+		t.Fatalf("expected distinct platform session id, got=%s", other.ID)
 	}
 }
 

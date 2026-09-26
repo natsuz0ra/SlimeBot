@@ -67,27 +67,26 @@ jobs:
       - name: Build release packages
         env:
           VERSION: ${{ env.RELEASE_VERSION }}
-          COMMIT: ${{ github.sha }}
         shell: bash
         run: |
+          COMMIT="$(git rev-parse HEAD)"
           BUILD_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-          export BUILD_DATE
+          export COMMIT BUILD_DATE
           scripts/package-release.sh
 
       - name: Publish GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "${RELEASE_VERSION}" \
-            dist/install.sh \
-            dist/install.ps1 \
-            dist/uninstall.sh \
-            dist/uninstall.ps1 \
-            dist/*.tar.gz \
-            dist/*.zip \
-            --verify-tag \
-            --title "${RELEASE_VERSION}" \
-            --generate-notes
+          assets=(dist/install.sh dist/install.ps1 dist/uninstall.sh dist/uninstall.ps1 dist/*.tar.gz dist/*.zip)
+          if gh release view "${RELEASE_VERSION}" >/dev/null 2>&1; then
+            gh release upload "${RELEASE_VERSION}" "${assets[@]}" --clobber
+          else
+            gh release create "${RELEASE_VERSION}" "${assets[@]}" \
+              --verify-tag \
+              --title "${RELEASE_VERSION}" \
+              --generate-notes
+          fi
 
   desktop-mac:
     name: Build macOS Desktop
@@ -116,7 +115,13 @@ jobs:
             frontend/package-lock.json
             desktop/package-lock.json
       - run: npm ci --prefix frontend && npm ci --prefix desktop
-      - run: npm --prefix desktop run package:mac
+      - name: Build macOS Desktop
+        shell: bash
+        run: |
+          if [[ -z "${CSC_LINK:-}" ]]; then
+            unset CSC_LINK CSC_KEY_PASSWORD APPLE_ID APPLE_APP_SPECIFIC_PASSWORD APPLE_TEAM_ID
+          fi
+          npm --prefix desktop run package:mac
       - name: Upload Desktop assets
         env:
           GH_TOKEN: ${{ github.token }}

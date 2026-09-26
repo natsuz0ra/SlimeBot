@@ -60,3 +60,24 @@ func TestResolveSandboxPolicyUsesWebSandboxSettingsByDefault(t *testing.T) {
 		t.Fatal("web/default sandbox network should use web network setting")
 	}
 }
+
+func TestResolveSandboxPolicyUsesWebSessionDirectory(t *testing.T) {
+	svc := &ChatService{}
+	directory := t.TempDir()
+	ctx := constants.WithClientSurface(context.Background(), constants.ClientSurfaceWeb)
+	policy, err := svc.resolveSandboxPolicy(ctx, directory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if policy.CWD() != directory {
+		t.Fatalf("cwd=%q, want %q", policy.CWD(), directory)
+	}
+	cliCtx := constants.WithClientSurface(context.Background(), constants.ClientSurfaceCLI)
+	cliPolicy, err := svc.resolveSandboxPolicy(cliCtx, directory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cliPolicy.CWD() == directory {
+		t.Fatal("CLI cwd changed by web session directory")
+	}
+}

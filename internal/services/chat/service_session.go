@@ -28,7 +28,7 @@ func (s *ChatService) EnsureSession(ctx context.Context, sessionID string) (*dom
 			return existing, nil
 		}
 	}
-	return s.store.CreateSession(ctx, "New Chat")
+	return s.store.CreateSession(ctx, "New Chat", s.runContext.WorkingDir)
 }
 
 // EnsureMessagePlatformSession ensures the bridged platform session exists with a fixed ID.

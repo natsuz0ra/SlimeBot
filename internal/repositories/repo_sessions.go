@@ -41,10 +41,13 @@ func (r *Repository) GetSessionByID(ctx context.Context, id string) (*domain.Ses
 	return &session, err
 }
 
-func (r *Repository) CreateSession(ctx context.Context, name string) (*domain.Session, error) {
+func (r *Repository) CreateSession(ctx context.Context, name string, workingDirectory ...string) (*domain.Session, error) {
 	session := &domain.Session{
 		ID:   uuid.NewString(),
 		Name: name,
+	}
+	if len(workingDirectory) > 0 {
+		session.WorkingDirectory = workingDirectory[0]
 	}
 	err := r.dbWithContext(ctx).Create(session).Error
 	return session, err

@@ -64,10 +64,10 @@ export class APIClient {
     return this.request(`/api/sessions?${params}`);
   }
 
-  createSession(name?: string): Promise<Session> {
+  createSession(name?: string, workingDirectory?: string): Promise<Session> {
     return this.request("/api/sessions", {
       method: "POST",
-      body: JSON.stringify({ name: name || "New Chat" }),
+      body: JSON.stringify({ name: name || "New Chat", workingDirectory }),
     });
   }
 

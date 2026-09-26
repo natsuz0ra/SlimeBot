@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -19,6 +21,42 @@ type stubAgentsInstructions struct {
 	globalContent  string
 	projectContent string
 	globalCalls    int
+}
+
+func TestWebSessionsKeepProjectInstructionsSeparate(t *testing.T) {
+	repo := newTestRepo(t)
+	ctx := context.Background()
+	root := t.TempDir()
+	dirs := []string{filepath.Join(root, "one"), filepath.Join(root, "two")}
+	for i, dir := range dirs {
+		if err := os.Mkdir(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "AGENTS.md"), []byte(fmt.Sprintf("project-%d", i)), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	first, err := repo.CreateSession(ctx, "first", dirs[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := repo.CreateSession(ctx, "second", dirs[1])
+	if err != nil {
+		t.Fatal(err)
+	}
+	svc := NewChatService(repo, nil, nil, nil, nil)
+	svc.SetAgentsInstructions(agentssvc.NewService(filepath.Join(root, "global", "AGENTS.md")))
+	for i, session := range []*domain.Session{first, second} {
+		messages, err := svc.BuildContextMessages(ctx, session.ID, llmsvc.ModelRuntimeConfig{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		own := fmt.Sprintf("project-%d", i)
+		other := fmt.Sprintf("project-%d", 1-i)
+		if len(messages) < 2 || !strings.Contains(messages[1].Content, own) || strings.Contains(messages[1].Content, other) {
+			t.Fatalf("project instructions leaked between sessions: %+v", messages)
+		}
+	}
 }
 
 func (s *stubAgentsInstructions) ReadGlobal(_ context.Context) (agentssvc.File, error) {

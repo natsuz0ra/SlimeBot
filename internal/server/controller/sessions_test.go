@@ -40,7 +40,7 @@ func (s sessionServiceStub) List(ctx context.Context, limit int, offset int, que
 	return sessionsvc.ListResult{}, nil
 }
 
-func (s sessionServiceStub) Create(ctx context.Context, name string) (*domain.Session, error) {
+func (s sessionServiceStub) Create(ctx context.Context, name string, workingDirectory ...string) (*domain.Session, error) {
 	return nil, nil
 }
 

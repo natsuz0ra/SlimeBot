@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	sandboxpolicy "slimebot/internal/sandbox"
 	"strings"
 	"testing"
 	"time"
@@ -348,6 +349,15 @@ func TestResolveWorkingDirectoryUsesCurrentWhenEmpty(t *testing.T) {
 	}
 	if cwd == "" {
 		t.Fatal("expected non-empty cwd")
+	}
+}
+
+func TestResolveWorkingDirectoryUsesSessionDirectory(t *testing.T) {
+	dir := t.TempDir()
+	ctx := sandboxpolicy.WithWorkingDirectory(context.Background(), dir)
+	got, err := resolveWorkingDirectory("", ctx)
+	if err != nil || got != dir {
+		t.Fatalf("working directory=%q err=%v", got, err)
 	}
 }
 

@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"slimebot/internal/constants"
+	sandboxpolicy "slimebot/internal/sandbox"
 )
 
 const (
@@ -68,13 +69,13 @@ func (g *grepTool) search(ctx context.Context, params map[string]any) (*ExecuteR
 		return nil, fmt.Errorf("pattern is required")
 	}
 	rootRaw := paramStringTrim(params, "path")
-	if rootRaw == "" && constants.ClientSurfaceFromContext(ctx) == constants.ClientSurfaceWeb {
+	if rootRaw == "" && constants.ClientSurfaceFromContext(ctx) == constants.ClientSurfaceWeb && sandboxpolicy.WorkingDirectoryFromContext(ctx) == "" {
 		return nil, fmt.Errorf("path is required when running from the web server because there is no user working directory")
 	}
 	if rootRaw == "" {
 		rootRaw = "."
 	}
-	root, err := resolveFilePath(rootRaw)
+	root, err := resolveFilePath(rootRaw, ctx)
 	if err != nil {
 		return nil, err
 	}

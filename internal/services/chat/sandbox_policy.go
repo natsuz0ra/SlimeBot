@@ -11,10 +11,13 @@ import (
 	sandboxpolicy "slimebot/internal/sandbox"
 )
 
-func (s *ChatService) resolveSandboxPolicy(ctx context.Context) (*sandboxpolicy.Policy, error) {
+func (s *ChatService) resolveSandboxPolicy(ctx context.Context, workingDirectory ...string) (*sandboxpolicy.Policy, error) {
 	cwd, err := os.Getwd()
 	if err != nil {
 		return nil, fmt.Errorf("resolve sandbox cwd: %w", err)
+	}
+	if len(workingDirectory) > 0 && strings.TrimSpace(workingDirectory[0]) != "" && constants.ClientSurfaceFromContext(ctx) != constants.ClientSurfaceCLI {
+		cwd = workingDirectory[0]
 	}
 	mode := string(sandboxpolicy.ModeWorkspaceWrite)
 	modeKey := constants.SettingSandboxMode

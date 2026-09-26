@@ -17,7 +17,7 @@ const (
 	fileWriteMaxSizeBytes   = 1024 * 1024
 )
 
-func resolveFilePath(raw string) (string, error) {
+func resolveFilePath(raw string, contexts ...context.Context) (string, error) {
 	path := strings.TrimSpace(raw)
 	if path == "" {
 		return "", fmt.Errorf("file_path is required")
@@ -30,6 +30,11 @@ func resolveFilePath(raw string) (string, error) {
 			} else if strings.HasPrefix(path, "~/") || strings.HasPrefix(path, `~\`) {
 				path = filepath.Join(home, path[2:])
 			}
+		}
+	}
+	if !filepath.IsAbs(path) && len(contexts) > 0 {
+		if directory := sandboxpolicy.WorkingDirectoryFromContext(contexts[0]); directory != "" {
+			path = filepath.Join(directory, path)
 		}
 	}
 	abs, err := filepath.Abs(path)

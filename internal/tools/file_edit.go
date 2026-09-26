@@ -184,7 +184,7 @@ func parseFileEditRequests(params map[string]any) ([]fileEditRequest, error) {
 }
 
 func (f *fileEditTool) editOne(ctx context.Context, req fileEditRequest) (FileToolMetadata, string, error) {
-	path, err := resolveFilePath(req.FilePath)
+	path, err := resolveFilePath(req.FilePath, ctx)
 	if err != nil {
 		return FileToolMetadata{}, "", err
 	}

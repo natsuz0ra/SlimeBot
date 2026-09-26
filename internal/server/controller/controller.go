@@ -24,7 +24,7 @@ type authService interface {
 
 type sessionService interface {
 	List(ctx context.Context, limit int, offset int, query string) (sessionsvc.ListResult, error)
-	Create(ctx context.Context, name string) (*domain.Session, error)
+	Create(ctx context.Context, name string, workingDirectory ...string) (*domain.Session, error)
 	RenameByUser(ctx context.Context, id, name string) error
 	Delete(ctx context.Context, id string) error
 	GetMessageHistory(ctx context.Context, sessionID string, limit int, before *time.Time, beforeSeq *int64, after *time.Time, afterSeq *int64) (sessionsvc.MessageHistoryPage, error)

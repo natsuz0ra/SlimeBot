@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"slimebot/internal/domain"
 	"slimebot/internal/logging"
+	"slimebot/internal/sandbox"
 	"strings"
 
 	"slimebot/internal/constants"
@@ -200,11 +201,12 @@ func runApprovalReview(
 		reviewCtx, cancel := context.WithTimeout(ctx, constants.AgentApprovalReviewTimeout)
 		defer cancel()
 		if got, err := review(reviewCtx, ApprovalReviewRequest{
-			ToolCallID: tc.ID,
-			ToolName:   invocation.toolName,
-			Command:    invocation.command,
-			Params:     params,
-			Preamble:   preamble,
+			ToolCallID:       tc.ID,
+			ToolName:         invocation.toolName,
+			Command:          invocation.command,
+			Params:           params,
+			Preamble:         preamble,
+			WorkingDirectory: sandbox.WorkingDirectoryFromContext(ctx),
 		}); err == nil && got != nil {
 			result = normalizeApprovalReviewResult(got)
 		}

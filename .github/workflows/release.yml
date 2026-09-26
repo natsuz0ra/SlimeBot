@@ -160,6 +160,6 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         shell: pwsh
         run: |
-          $files = Get-ChildItem desktop/dist -File | Where-Object { $_.Name -like 'SlimeBot-*-windows-x64.exe' -or $_.Extension -in '.yml', '.blockmap' }
+          $files = Get-ChildItem desktop/dist -File | Where-Object { $_.Name -eq 'latest.yml' -or $_.Name -like 'SlimeBot-*-windows-x64.exe*' }
           if ($files.Count -eq 0) { throw 'No Desktop assets were built' }
           gh release upload $env:RELEASE_VERSION @($files.FullName) --clobber

@@ -12,17 +12,16 @@ A personal AI agent demo: an extensible foundation for conversational AI apps. I
 
 - Chat sessions, real-time streaming replies, multimodal messages, and automatic title generation
 - Agent tool-call flows with approval modes, sandbox policies, command/file tools, web requests, web search, and task tracking
-- Desktop Computer Use on macOS, Windows, and Linux: inspect the foreground app through accessibility or screenshots, then click, type, press keys, and scroll on the machine running SlimeBot, subject to tool approval ([requirements and limits, in Chinese](docs/computer-use.zh-CN.md))
+- Desktop Computer Use on macOS, Windows, and Linux: let SlimeBot view and interact with apps on your computer, with approval for sensitive actions
 - Plan mode, streamed thinking, context compression, MCP configuration, skills, and AGENTS.md instructions
 - Web UI, CLI TUI, and Telegram integration
 - Web sessions grouped by working directory, with a directory picker before the first message; existing sessions without a directory appear under Uncategorized. Messaging sessions are grouped by platform.
-- macOS and Windows desktop preview: no password login, background work continues after closing the window, and the tray menu provides Quit
 
-## Desktop Apps (1.33.0)
+## Desktop App
 
-The [v1.33.0 Release](https://github.com/natsuz0ra/SlimeBot/releases/tag/v1.33.0) includes `SlimeBot-1.33.0-macos-universal.dmg` and `SlimeBot-1.33.0-windows-x64.exe` as separate, direct downloads. On macOS, open the DMG and drag the `.app` into Applications; on Windows, run the EXE installer. The Windows installer lets you choose whether to create a desktop shortcut and shows installation and uninstallation details.
+Download the macOS or Windows app from the [latest release](https://github.com/natsuz0ra/SlimeBot/releases/latest). Open the app to start chatting without signing in. Closing the window keeps it running in the background; use the tray menu to quit. On Windows, you can choose whether to create a desktop shortcut during installation.
 
-Desktop reads the same configuration as Web/CLI (`~/.slimebot/config.cfg` by default, or the directory set by `SLIMEBOT_HOME`) and honors its data paths. It uses an ephemeral local session, so no account password is needed; the script-installed Web service still uses password login. Do not run Desktop and the Web service simultaneously with the same data paths: both can start message platforms and scheduled tasks. Closing the desktop window keeps those tasks running; right-click the tray icon and choose **Quit SlimeBot** to stop them. Settings can check for releases and open the installer download page. These previews are unsigned, so the OS may require explicit permission on first launch. Installing an update currently requires downloading the new installer; macOS in-app automatic installation also requires signing and a ZIP update asset, which this DMG-only release does not provide. See the [technical design](docs/desktop-app-1.32.0-technical-design.zh-CN.md).
+If the desktop app and Web service use the same data, run only one at a time to avoid duplicate messages and scheduled tasks.
 
 ## Install From Release
 
@@ -118,13 +117,9 @@ On macOS the service label is `com.natsuzora.slimebot`, the plist is `~/Library/
 
 First-time Web login seeds a default account if no user exists yet: username **`admin`**, password **`admin`**. Change it immediately.
 
-## Manual Source Deployment
-
-For development startup, production builds from source, Docker, Docker Compose, configuration, sandbox notes, and data layout, see [Manual Deployment](docs/manual-deployment.md).
-
 ## Screenshots
 
-Captured from v1.33.0 with sample data.
+Captured with sample data.
 
 ### Sign-in
 

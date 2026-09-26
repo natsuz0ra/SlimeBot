@@ -19,7 +19,6 @@ Top-level navigation:
 ├─ desktop/                  # Electron window, tray, updater, and installers
 ├─ prompts/                  # Embedded prompts and templates
 ├─ scripts/                  # Release packaging and install scripts
-├─ docs/                     # Manual deployment and longer-form docs
 ├─ third_party/              # Third-party runtime binaries copied into release packages
 ├─ web/                      # Built frontend assets served by backend
 └─ assets/                   # README screenshots and images
@@ -141,7 +140,6 @@ Quick index (feature -> first place to inspect):
 - Desktop host entry: `internal/app/desktop.go`, `cmd/server/main.go`
 - Desktop packaging and preview CI: `desktop/`, `.github/workflows/desktop-preview.yml`
 - Bundled ripgrep binaries for release packages: `third_party/ripgrep/`
-- Manual deployment docs: `docs/`
 
 Notes:
 

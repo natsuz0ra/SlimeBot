@@ -12,17 +12,16 @@
 
 - 会话列表、实时流式回复、多模态消息、会话标题自动生成
 - Agent 多轮 tool call、审批模式、沙盒策略、命令/文件工具、网络请求、网络搜索和待办事项
-- 桌面 Computer Use：在 SlimeBot 所在机器的交互式桌面上，优先通过辅助功能识别前台应用，必要时结合截图完成点击、输入、按键和滚动；支持 macOS、Windows 和 Linux，操作遵循工具审批（[环境要求与使用限制](docs/computer-use.zh-CN.md)）
+- 桌面 Computer Use：让 SlimeBot 查看并操作电脑上的应用，支持 macOS、Windows 和 Linux，敏感操作需经过审批
 - 规划模式、流式思考、上下文压缩、MCP 配置、Skills 与 AGENTS.md 指令
 - Web UI、CLI TUI 与 Telegram 集成
 - Web 会话可在首次对话前选择工作目录，侧边栏按项目归类；旧会话归入“未分类”，消息平台会话按平台归类
-- macOS / Windows 桌面应用预览版：免账号密码登录，关窗后继续运行后台任务，可从系统托盘退出
 
-## 桌面应用（1.33.0）
+## 桌面应用
 
-[v1.33.0 正式 Release](https://github.com/natsuz0ra/SlimeBot/releases/tag/v1.33.0) 分别提供 `SlimeBot-1.33.0-macos-universal.dmg` 和 `SlimeBot-1.33.0-windows-x64.exe`，可直接下载独立文件。macOS 打开 DMG 后将 `.app` 拖到“应用程序”目录；Windows 直接运行 EXE 安装程序。Windows 安装时可选择是否创建桌面快捷方式，安装和卸载过程会显示操作明细。
+前往[最新版本下载页](https://github.com/natsuz0ra/SlimeBot/releases/latest)获取 macOS 或 Windows 桌面应用。打开后无需登录即可开始对话；关闭窗口后仍会在后台运行，可以从系统托盘退出。Windows 安装时可自行选择是否创建桌面快捷方式。
 
-桌面版与 Web/CLI 读取同一配置（默认 `~/.slimebot/config.cfg`，设置 `SLIMEBOT_HOME` 时从指定目录读取），并沿用其中的数据路径。桌面版使用随机本地会话，打开后无需输入账号密码；脚本安装的 Web 端仍保留账号密码登录。不要让桌面版与 Web 服务同时使用相同的数据路径，否则消息平台和计划任务可能重复运行。关闭窗口会隐藏到托盘，消息平台与计划任务继续运行；在托盘图标右键选择“退出 SlimeBot”才会停止后台服务。设置中的更新中心可检查新版本并打开下载页。当前预览包未签名，需按系统提示明确允许首次运行，更新时手动下载并覆盖安装。macOS 只发布 DMG，应用内自动安装还需要代码签名和 ZIP 更新包，暂不启用。详细方案见 [桌面应用技术方案](docs/desktop-app-1.32.0-technical-design.zh-CN.md)。
+如果桌面应用与 Web 服务共用同一份数据，请不要同时运行，以免消息和计划任务重复执行。
 
 ## 从 Release 安装
 
@@ -118,13 +117,9 @@ macOS 服务 label 为 `com.natsuzora.slimebot`，plist 位于 `~/Library/Launch
 
 首次 Web 登录时，若数据库中尚无用户，会种子默认账号：用户名 **`admin`**，密码 **`admin`**。请立即修改。
 
-## 手动源码部署
-
-开发启动、源码生产构建、Docker、Docker Compose、配置文件、沙盒说明和数据目录见 [手动源码部署](docs/manual-deployment.zh-CN.md)。
-
 ## UI 预览
 
-以下截图取自 1.33.0 版本，使用示例数据。
+以下截图使用示例数据。
 
 ### 登录页
 

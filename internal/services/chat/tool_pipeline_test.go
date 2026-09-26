@@ -410,9 +410,10 @@ func TestBuildApprovalReviewPromptIncludesExecAuditContext(t *testing.T) {
 	prompt := buildApprovalReviewPrompt([]llmsvc.ChatMessage{
 		{Role: "user", Content: "Please inspect the Go version."},
 	}, ApprovalReviewRequest{
-		ToolCallID: "call-exec",
-		ToolName:   constants.ExecToolName,
-		Command:    "run",
+		ToolCallID:       "call-exec",
+		ToolName:         constants.ExecToolName,
+		Command:          "run",
+		WorkingDirectory: "/tmp/session-project",
 		Params: map[string]any{
 			"command":             "go version",
 			"description":         "Check Go version for a delegated task",
@@ -429,6 +430,7 @@ func TestBuildApprovalReviewPromptIncludesExecAuditContext(t *testing.T) {
 		`"reason": "Subagent needs to verify toolchain availability"`,
 		`"working_directory": "/tmp/example"`,
 		`"sandbox_permissions": "required_approval"`,
+		`"currentWorkingDirectory": "/tmp/session-project"`,
 	} {
 		if !strings.Contains(prompt, want) {
 			t.Fatalf("approval review prompt missing %q:\n%s", want, prompt)

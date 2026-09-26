@@ -1,6 +1,7 @@
 import { computed, nextTick, onMounted, onUnmounted, ref, watch, type Ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { MESSAGE_PLATFORM_SESSION_ID, sessionAPI } from '@/api/chat'
+import { sessionAPI } from '@/api/chat'
+import { isMessagePlatformSessionId, platformSessionName } from '@/utils/messagePlatformSessions'
 import { useToast } from '@/composables/useToast'
 import { useChatStore } from '@/stores/chat'
 
@@ -47,13 +48,13 @@ export function useHomeSessionActions(options: {
   const messagePlatformPollingTimer = ref<number | null>(null)
   const MESSAGE_PLATFORM_POLLING_INTERVAL_MS = 5000
 
-  const isMessagePlatformSession = computed(() => store.currentSessionId === MESSAGE_PLATFORM_SESSION_ID)
+  const isMessagePlatformSession = computed(() => isMessagePlatformSessionId(store.currentSessionId))
   const currentSession = computed(() => {
     const current = store.sessions.find((item) => item.id === store.currentSessionId)
     if (isMessagePlatformSession.value) {
       return {
-        id: MESSAGE_PLATFORM_SESSION_ID,
-        name: t('messagePlatformSession'),
+        id: store.currentSessionId!,
+        name: platformSessionName(store.currentSessionId!, t('telegram')),
         updatedAt: current?.updatedAt ?? '',
       }
     }
@@ -80,8 +81,8 @@ export function useHomeSessionActions(options: {
   function startMessagePlatformPolling() {
     if (messagePlatformPollingTimer.value !== null) return
     messagePlatformPollingTimer.value = window.setInterval(() => {
-      if (store.currentSessionId !== MESSAGE_PLATFORM_SESSION_ID) return
-      void store.loadNewMessagesForSession(MESSAGE_PLATFORM_SESSION_ID)
+      if (!isMessagePlatformSessionId(store.currentSessionId)) return
+      void store.loadNewMessagesForSession(store.currentSessionId!)
     }, MESSAGE_PLATFORM_POLLING_INTERVAL_MS)
   }
 
@@ -94,8 +95,8 @@ export function useHomeSessionActions(options: {
       const routeSessionId = route.params.sessionId as string | undefined
       const isNewChatRoute = !routeSessionId || routeSessionId === 'new_chat'
       if (routeSessionId && routeSessionId !== 'new_chat') {
-        if (routeSessionId === MESSAGE_PLATFORM_SESSION_ID) {
-          await store.selectSession(MESSAGE_PLATFORM_SESSION_ID)
+        if (isMessagePlatformSessionId(routeSessionId)) {
+          await store.selectSession(routeSessionId)
         } else {
           const matched = store.sessions.find((s) => s.id === routeSessionId)
           if (matched) {
@@ -122,7 +123,7 @@ export function useHomeSessionActions(options: {
   }
 
   function openRename(sessionId: string, oldName: string) {
-    if (sessionId === MESSAGE_PLATFORM_SESSION_ID) return
+    if (isMessagePlatformSessionId(sessionId)) return
     uiState.renameTargetId.value = sessionId
     uiState.renameValue.value = oldName
     uiState.renameVisible.value = true
@@ -136,7 +137,7 @@ export function useHomeSessionActions(options: {
   }
 
   function removeSession(id: string) {
-    if (id === MESSAGE_PLATFORM_SESSION_ID) return
+    if (isMessagePlatformSessionId(id)) return
     uiState.deleteTargetId.value = id
     uiState.deleteConfirmVisible.value = true
     uiState.activeSessionMenu.value = null
@@ -168,9 +169,9 @@ export function useHomeSessionActions(options: {
     if (window.matchMedia('(max-width: 767px)').matches) uiState.drawerOpen.value = false
   }
 
-  async function createSession() {
+  async function createSession(workingDirectory?: string) {
     uiState.pendingFiles.value = []
-    store.resetToNewSession()
+    store.resetToNewSession(workingDirectory)
     scrollState.autoStickToBottom.value = true
     scrollState.queueScrollMessagesToBottom(true)
     if (window.matchMedia('(max-width: 767px)').matches) uiState.drawerOpen.value = false
@@ -181,7 +182,13 @@ export function useHomeSessionActions(options: {
     if (sendDisabled.value) return
     scrollState.autoStickToBottom.value = true
     scrollState.queueScrollMessagesToBottom(true)
-    const sent = await store.sendMessage(uiState.inputValue.value.trim(), modelState.selectedModelId.value, uiState.pendingFiles.value, modelState.thinkingLevel.value, modelState.subagentModelId.value)
+    let sent = false
+    try {
+      sent = await store.sendMessage(uiState.inputValue.value.trim(), modelState.selectedModelId.value, uiState.pendingFiles.value, modelState.thinkingLevel.value, modelState.subagentModelId.value)
+    } catch (error) {
+      showError(error instanceof Error ? error.message : t('workspaceInvalid'))
+      return
+    }
     if (!sent) {
       showWarning(t('sendBlockedOffline'))
       return
@@ -225,7 +232,7 @@ export function useHomeSessionActions(options: {
   watch(
     () => store.currentSessionId,
     (sessionId) => {
-      if (sessionId === MESSAGE_PLATFORM_SESSION_ID) {
+      if (isMessagePlatformSessionId(sessionId)) {
         startMessagePlatformPolling()
         return
       }
@@ -237,7 +244,7 @@ export function useHomeSessionActions(options: {
   watch(
     [() => store.currentSessionId, () => modelState.selectedModelId.value],
     ([sessionId, modelId]) => {
-      if (!sessionId || !modelId || sessionId === MESSAGE_PLATFORM_SESSION_ID) return
+      if (!sessionId || !modelId || isMessagePlatformSessionId(sessionId)) return
       void store.refreshContextUsage(modelId)
     },
     { immediate: true },

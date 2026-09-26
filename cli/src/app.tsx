@@ -1009,7 +1009,7 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
 
     if (!state.sessionId) {
       try {
-        const session = await apiRef.current.createSession();
+        const session = await apiRef.current.createSession(undefined, state.cwd);
         dispatch({ type: "SET_SESSION", sessionId: session.id, sessionName: session.name } as AppAction);
         applyTerminalTitle(session.name);
         if (!sendToSocket(session.id)) {

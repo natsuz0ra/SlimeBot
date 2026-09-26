@@ -29,7 +29,7 @@ type Dispatcher struct {
 }
 
 type platformChatService interface {
-	EnsureMessagePlatformSession(ctx context.Context) (*domain.Session, error)
+	EnsureMessagePlatformSession(ctx context.Context, platform string) (*domain.Session, error)
 	ResolvePlatformModel(ctx context.Context) (string, error)
 	ResolvePlatformRuntimeSettings(ctx context.Context) (string, string, error)
 	HandleChatStream(
@@ -80,7 +80,7 @@ func (d *Dispatcher) HandleInbound(ctx context.Context, message InboundMessage, 
 		return fmt.Errorf("chat id is required")
 	}
 
-	session, err := d.chat.EnsureMessagePlatformSession(ctx)
+	session, err := d.chat.EnsureMessagePlatformSession(ctx, message.Platform)
 	if err != nil {
 		return err
 	}

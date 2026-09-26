@@ -5,10 +5,20 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	sandboxpolicy "slimebot/internal/sandbox"
 	"strconv"
 	"strings"
 	"testing"
 )
+
+func TestRelativeFilePathUsesSessionWorkingDirectory(t *testing.T) {
+	dir := t.TempDir()
+	ctx := sandboxpolicy.WithWorkingDirectory(context.Background(), dir)
+	got, err := resolveFilePath("nested/file.txt", ctx)
+	if err != nil || got != filepath.Join(dir, "nested", "file.txt") {
+		t.Fatalf("path=%q err=%v", got, err)
+	}
+}
 
 func TestFileReadReadsTextWithLineNumbers(t *testing.T) {
 	dir := t.TempDir()

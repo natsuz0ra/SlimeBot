@@ -2,7 +2,8 @@ import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 
 import { ChatSocket, type ConnectionStatus, type ContextUsageData, type RuntimeTodoItem, type TodoUpdateData } from '@/api/chatSocket'
-import { MESSAGE_PLATFORM_SESSION_ID, sessionAPI } from '@/api/chat'
+import { sessionAPI } from '@/api/chat'
+import { isMessagePlatformSessionId } from '@/utils/messagePlatformSessions'
 import type { MessageAttachmentItem, MessageItem, SessionHistoryPayload, SessionHistoryThinkingItem, SessionItem, UploadedAttachmentItem } from '@/api/chat'
 import { i18n } from '@/i18n'
 import {
@@ -27,10 +28,22 @@ const MAX_SESSION_PAGE_SIZE = 100
 export const useChatStore = defineStore('chat', () => {
   const sessions = ref<SessionItem[]>([])
   const sessionPageSize = ref(30)
-  const hasMoreSessions = ref(true)
+  const hasMoreSessions = ref(false)
   const loadingMoreSessions = ref(false)
   const sessionSearchQuery = ref('')
   const currentSessionId = ref<string>()
+  const creatingSession = ref(false)
+  const draftWorkingDirectory = ref(typeof window !== 'undefined' ? window.localStorage.getItem('slimebot:last-working-directory') || '' : '')
+  const currentWorkingDirectory = computed(() => currentSessionId.value
+    ? sessions.value.find((item) => item.id === currentSessionId.value)?.workingDirectory || ''
+    : draftWorkingDirectory.value)
+
+  function setDraftWorkingDirectory(path: string) {
+    if (currentSessionId.value || creatingSession.value) return
+    draftWorkingDirectory.value = path
+    if (path) window.localStorage.setItem('slimebot:last-working-directory', path)
+    else window.localStorage.removeItem('slimebot:last-working-directory')
+  }
   const messages = ref<MessageItem[]>([])
   const waiting = ref(false)
   const streamingStarted = ref(false)
@@ -104,7 +117,7 @@ export const useChatStore = defineStore('chat', () => {
 
   async function refreshContextUsage(modelId: string) {
     const sessionId = currentSessionId.value
-    if (!sessionId || !modelId || sessionId === MESSAGE_PLATFORM_SESSION_ID) {
+    if (!sessionId || !modelId || isMessagePlatformSessionId(sessionId)) {
       clearContextUsage()
       return
     }
@@ -292,12 +305,13 @@ export const useChatStore = defineStore('chat', () => {
 
   async function loadSessions() {
     sessionSearchQuery.value = ''
+    hasMoreSessions.value = false
     const res = await sessionAPI.list({ limit: sessionPageSize.value, offset: 0 })
     sessions.value = res.sessions
     hasMoreSessions.value = res.hasMore
     const isVirtualMessagePlatformSession =
-      currentSessionId.value === MESSAGE_PLATFORM_SESSION_ID &&
-      !sessions.value.some((item) => item.id === MESSAGE_PLATFORM_SESSION_ID)
+      isMessagePlatformSessionId(currentSessionId.value) &&
+      !sessions.value.some((item) => item.id === currentSessionId.value)
     if (isVirtualMessagePlatformSession) return
     if (currentSessionId.value && !sessions.value.some((item) => item.id === currentSessionId.value)) {
       currentSessionId.value = undefined
@@ -329,6 +343,7 @@ export const useChatStore = defineStore('chat', () => {
   async function searchSessions(query: string) {
     const q = query.trim()
     sessionSearchQuery.value = q
+    hasMoreSessions.value = false
     if (!q) {
       await loadSessions()
       return
@@ -361,8 +376,9 @@ export const useChatStore = defineStore('chat', () => {
     }
   }
 
-  function resetToNewSession() {
+  function resetToNewSession(workingDirectory?: string) {
     currentSessionId.value = undefined
+    draftWorkingDirectory.value = workingDirectory ?? window.localStorage.getItem('slimebot:last-working-directory') ?? ''
     messages.value = []
     clearContextUsage()
     resetSessionRuntimeState()
@@ -370,13 +386,18 @@ export const useChatStore = defineStore('chat', () => {
   }
 
   async function createSession() {
-    const item = await sessionAPI.create(i18n.global.t('newSession') as string)
-    currentSessionId.value = item.id
-    sessions.value = [item, ...sessions.value]
-    messages.value = []
-    clearContextUsage()
-    resetSessionRuntimeState()
-    resetHistoryState()
+    creatingSession.value = true
+    try {
+      const item = await sessionAPI.create(i18n.global.t('newSession') as string, draftWorkingDirectory.value)
+      currentSessionId.value = item.id
+      sessions.value = [item, ...sessions.value]
+      messages.value = []
+      clearContextUsage()
+      resetSessionRuntimeState()
+      resetHistoryState()
+    } finally {
+      creatingSession.value = false
+    }
   }
 
   async function selectSession(id: string) {
@@ -391,7 +412,7 @@ export const useChatStore = defineStore('chat', () => {
       rebuildReplyBatchesFromHistory(id, history)
     } catch {
       // Message-platform session may have no DB row before the first platform message; show read-only empty state first.
-      if (id === MESSAGE_PLATFORM_SESSION_ID) {
+      if (isMessagePlatformSessionId(id)) {
         currentSessionId.value = id
         messages.value = []
         clearContextUsage()
@@ -1052,6 +1073,10 @@ export const useChatStore = defineStore('chat', () => {
 
   return {
     sessions,
+    draftWorkingDirectory,
+    currentWorkingDirectory,
+    creatingSession,
+    setDraftWorkingDirectory,
     sessionPageSize,
     setSessionPageSize,
     currentSessionId,

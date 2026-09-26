@@ -6,13 +6,14 @@ import (
 )
 
 type Session struct {
-	ID            string     `gorm:"primaryKey;size:36" json:"id"`
-	Name          string     `gorm:"size:128;not null" json:"name"`
-	IsTitleLocked bool       `gorm:"default:false;not null" json:"isTitleLocked"`
-	ModelConfigID *string    `gorm:"size:36" json:"modelConfigId,omitempty"`
-	CreatedAt     time.Time  `json:"createdAt"`
-	UpdatedAt     time.Time  `gorm:"index" json:"updatedAt"`
-	DeletedAt     *time.Time `gorm:"index" json:"-"`
+	ID               string     `gorm:"primaryKey;size:36" json:"id"`
+	Name             string     `gorm:"size:128;not null" json:"name"`
+	WorkingDirectory string     `gorm:"size:2048" json:"workingDirectory"`
+	IsTitleLocked    bool       `gorm:"default:false;not null" json:"isTitleLocked"`
+	ModelConfigID    *string    `gorm:"size:36" json:"modelConfigId,omitempty"`
+	CreatedAt        time.Time  `json:"createdAt"`
+	UpdatedAt        time.Time  `gorm:"index" json:"updatedAt"`
+	DeletedAt        *time.Time `gorm:"index" json:"-"`
 }
 
 type Message struct {

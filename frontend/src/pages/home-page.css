@@ -77,18 +77,6 @@
   color: var(--text-primary);
 }
 
-.session-item {
-  color: var(--text-secondary);
-}
-.session-item:hover {
-  background: var(--primary-alpha-08);
-  color: var(--text-primary);
-}
-.session-item-active {
-  background: var(--primary-alpha-12);
-  color: var(--text-primary);
-}
-
 .platform-badge {
   background: var(--primary-alpha-12);
   color: var(--sb-brand);

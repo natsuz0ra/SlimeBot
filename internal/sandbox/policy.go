@@ -42,6 +42,25 @@ type Policy struct {
 
 type contextKey struct{}
 type escalationGrantKey struct{}
+type workingDirectoryKey struct{}
+
+func WithWorkingDirectory(ctx context.Context, directory string) context.Context {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if directory == "" {
+		return ctx
+	}
+	return context.WithValue(ctx, workingDirectoryKey{}, directory)
+}
+
+func WorkingDirectoryFromContext(ctx context.Context) string {
+	if ctx == nil {
+		return ""
+	}
+	directory, _ := ctx.Value(workingDirectoryKey{}).(string)
+	return directory
+}
 
 func NewPolicy(cfg Config) (*Policy, error) {
 	mode := cfg.Mode

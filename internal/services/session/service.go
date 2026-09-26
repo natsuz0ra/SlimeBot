@@ -3,6 +3,13 @@ package session
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"runtime"
+	"sort"
 	"strings"
 	"time"
 
@@ -13,6 +20,151 @@ import (
 // SessionService orchestrates session use cases; controllers stay thin.
 type SessionService struct {
 	store domain.SessionStore
+}
+
+var ErrInvalidWorkingDirectory = errors.New("invalid working directory")
+
+func ValidateWorkingDirectory(path string) (string, error) {
+	path = strings.TrimSpace(path)
+	if path == "" || !filepath.IsAbs(path) {
+		return "", fmt.Errorf("%w: absolute path is required", ErrInvalidWorkingDirectory)
+	}
+	resolved, err := filepath.EvalSymlinks(filepath.Clean(path))
+	if err != nil {
+		return "", fmt.Errorf("%w: %v", ErrInvalidWorkingDirectory, err)
+	}
+	info, err := os.Stat(resolved)
+	if err != nil || !info.IsDir() {
+		return "", fmt.Errorf("%w: path must be an existing directory", ErrInvalidWorkingDirectory)
+	}
+	return resolved, nil
+}
+
+type DirectoryEntry struct {
+	Name string `json:"name"`
+	Path string `json:"path"`
+}
+
+type DirectoryListing struct {
+	Path        string           `json:"path"`
+	Parent      string           `json:"parent"`
+	Directories []DirectoryEntry `json:"directories"`
+	Places      []DirectoryPlace `json:"places"`
+}
+
+type DirectoryPlace struct {
+	Kind string `json:"kind"`
+	Path string `json:"path"`
+}
+
+func BrowseWorkingDirectory(path string) (DirectoryListing, error) {
+	if strings.TrimSpace(path) == "" {
+		var err error
+		path, err = os.UserHomeDir()
+		if err != nil {
+			return DirectoryListing{}, err
+		}
+	}
+	resolved, err := ValidateWorkingDirectory(path)
+	if err != nil {
+		return DirectoryListing{}, err
+	}
+	entries, err := os.ReadDir(resolved)
+	if err != nil {
+		return DirectoryListing{}, fmt.Errorf("%w: %v", ErrInvalidWorkingDirectory, err)
+	}
+	home, _ := os.UserHomeDir()
+	listing := DirectoryListing{Path: resolved, Parent: filepath.Dir(resolved), Directories: []DirectoryEntry{}, Places: commonDirectoryPlaces(home)}
+	for _, entry := range entries {
+		isDirectory := entry.IsDir()
+		if entry.Type()&os.ModeSymlink != 0 {
+			info, statErr := os.Stat(filepath.Join(resolved, entry.Name()))
+			isDirectory = statErr == nil && info.IsDir()
+		}
+		if !isDirectory {
+			continue
+		}
+		listing.Directories = append(listing.Directories, DirectoryEntry{Name: entry.Name(), Path: filepath.Join(resolved, entry.Name())})
+	}
+	sort.Slice(listing.Directories, func(i, j int) bool {
+		return strings.ToLower(listing.Directories[i].Name) < strings.ToLower(listing.Directories[j].Name)
+	})
+	return listing, nil
+}
+
+func commonDirectoryPlaces(home string) []DirectoryPlace {
+	places := []DirectoryPlace{}
+	seen := map[string]bool{}
+	xdgDirs := xdgUserDirectories(home)
+	add := func(kind, path string) {
+		if path == "" || !filepath.IsAbs(path) {
+			return
+		}
+		path = filepath.Clean(path)
+		key := path
+		if runtime.GOOS == "windows" {
+			key = strings.ToLower(key)
+		}
+		if info, err := os.Stat(path); err != nil || !info.IsDir() || seen[key] {
+			return
+		}
+		seen[key] = true
+		places = append(places, DirectoryPlace{Kind: kind, Path: path})
+	}
+	add("home", home)
+	for _, item := range []struct{ kind, folder, env string }{
+		{"desktop", "Desktop", "XDG_DESKTOP_DIR"},
+		{"documents", "Documents", "XDG_DOCUMENTS_DIR"},
+		{"downloads", "Downloads", "XDG_DOWNLOAD_DIR"},
+	} {
+		location := strings.Trim(os.Getenv(item.env), `"`)
+		if location == "" {
+			location = xdgDirs[item.env]
+		}
+		if location == "" {
+			location = filepath.Join(home, item.folder)
+		} else {
+			location = strings.ReplaceAll(location, "$HOME", home)
+		}
+		add(item.kind, location)
+	}
+	add("projects", filepath.Join(home, "Projects"))
+	add("onedrive", os.Getenv("OneDrive"))
+	add("computer", filepath.VolumeName(home)+string(os.PathSeparator))
+	return places
+}
+
+func xdgUserDirectories(home string) map[string]string {
+	paths := map[string]string{}
+	if runtime.GOOS != "linux" {
+		return paths
+	}
+	data, err := os.ReadFile(filepath.Join(home, ".config", "user-dirs.dirs"))
+	if err != nil {
+		return paths
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		key, value, ok := strings.Cut(strings.TrimSpace(line), "=")
+		if !ok || !strings.HasPrefix(key, "XDG_") {
+			continue
+		}
+		value = strings.Trim(strings.TrimSpace(value), `"`)
+		value = strings.ReplaceAll(value, "$HOME", home)
+		if filepath.IsAbs(value) {
+			paths[key] = value
+		}
+	}
+	return paths
+}
+
+func WorkingDirectoryGitBranch(path string) string {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	output, err := exec.CommandContext(ctx, "git", "-C", path, "symbolic-ref", "--quiet", "--short", "HEAD").Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(output))
 }
 
 type teamHistoryStore interface {
@@ -90,12 +242,20 @@ func (s *SessionService) List(ctx context.Context, limit, offset int, query stri
 	return ListResult{Sessions: sessions, HasMore: hasMore}, nil
 }
 
-func (s *SessionService) Create(ctx context.Context, name string) (*domain.Session, error) {
+func (s *SessionService) Create(ctx context.Context, name string, workingDirectory ...string) (*domain.Session, error) {
 	trimmed := strings.TrimSpace(name)
 	if trimmed == "" {
 		trimmed = "New Chat"
 	}
-	return s.store.CreateSession(ctx, trimmed)
+	path := ""
+	if len(workingDirectory) > 0 && strings.TrimSpace(workingDirectory[0]) != "" {
+		var err error
+		path, err = ValidateWorkingDirectory(workingDirectory[0])
+		if err != nil {
+			return nil, err
+		}
+	}
+	return s.store.CreateSession(ctx, trimmed, path)
 }
 
 func (s *SessionService) RenameByUser(ctx context.Context, id string, name string) error {

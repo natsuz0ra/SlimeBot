@@ -67,6 +67,8 @@ func New(cfg config.Config, tokenManager *auth.TokenManager, httpController *con
 
 			api.Get("/sessions", adapt(httpController.ListSessions))
 			api.Post("/sessions", adapt(httpController.CreateSession))
+			api.Post("/working-directory/validate", adapt(httpController.ValidateWorkingDirectory))
+			api.Get("/working-directory/browse", adapt(httpController.BrowseWorkingDirectory))
 			api.Patch("/sessions/{id}/name", adapt(httpController.RenameSession))
 			api.Delete("/sessions/{id}", adapt(httpController.DeleteSession))
 			api.Get("/sessions/{id}/context-usage", adapt(httpController.GetContextUsage))

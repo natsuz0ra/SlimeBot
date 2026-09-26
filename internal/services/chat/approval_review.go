@@ -88,7 +88,11 @@ func buildApprovalReviewPrompt(transcript []llmsvc.ChatMessage, req ApprovalRevi
 		"command":    req.Command,
 		"params":     req.Params,
 	}
-	if cwd, err := os.Getwd(); err == nil && strings.TrimSpace(cwd) != "" {
+	cwd := strings.TrimSpace(req.WorkingDirectory)
+	if cwd == "" {
+		cwd, _ = os.Getwd()
+	}
+	if cwd != "" {
 		payload["currentWorkingDirectory"] = cwd
 	}
 	if strings.TrimSpace(req.Preamble) != "" {

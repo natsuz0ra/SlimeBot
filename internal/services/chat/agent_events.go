@@ -48,11 +48,12 @@ const (
 type ApprovalReviewStatus string
 
 type ApprovalReviewRequest struct {
-	ToolCallID string
-	ToolName   string
-	Command    string
-	Params     map[string]any
-	Preamble   string
+	ToolCallID       string
+	ToolName         string
+	Command          string
+	Params           map[string]any
+	Preamble         string
+	WorkingDirectory string
 }
 
 type ApprovalReviewResult struct {

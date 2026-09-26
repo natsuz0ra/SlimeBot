@@ -141,7 +141,7 @@ func (s *ChatService) buildContextMessagesDetailed(ctx context.Context, sessionI
 		}
 	}
 
-	dynamicTail, err := s.buildDynamicContextTail(ctx)
+	dynamicTail, err := s.buildDynamicContextTail(ctx, sessionID)
 	if err != nil {
 		return contextBuildResult{}, err
 	}
@@ -179,8 +179,28 @@ func (s *ChatService) buildStableContextPrefix(ctx context.Context) ([]llmsvc.Ch
 	return []llmsvc.ChatMessage{{Role: "system", Content: systemPrompt}}, nil
 }
 
-func (s *ChatService) buildDynamicContextTail(ctx context.Context) ([]llmsvc.ChatMessage, error) {
-	runtimeEnvPrompt := s.buildRuntimeEnvironmentPrompt()
+func (s *ChatService) buildDynamicContextTail(ctx context.Context, sessionID string) ([]llmsvc.ChatMessage, error) {
+	workingDirectory := ""
+	if !s.runContext.IsCLI && sessionID != "" {
+		session, err := s.store.GetSessionByID(ctx, sessionID)
+		if err != nil && !errors.Is(err, apperrors.ErrNotFound) {
+			return nil, err
+		}
+		if session != nil {
+			workingDirectory = session.WorkingDirectory
+		}
+	}
+	runtimeEnvPrompt := s.buildRuntimeEnvironmentPrompt(workingDirectory)
+	projectPrompt := ""
+	if workingDirectory != "" && s.agents != nil {
+		content, err := s.agents.ReadProject(ctx, workingDirectory)
+		if err != nil {
+			return nil, err
+		}
+		if strings.TrimSpace(content) != "" {
+			projectPrompt = "# AGENTS.md instructions for " + workingDirectory + "\n\n<INSTRUCTIONS>\n" + strings.TrimSpace(content) + "\n</INSTRUCTIONS>"
+		}
+	}
 	memoryPrompt := ""
 	if s.memory != nil {
 		block, err := s.memory.FormatForSystemPrompt(ctx)
@@ -189,7 +209,7 @@ func (s *ChatService) buildDynamicContextTail(ctx context.Context) ([]llmsvc.Cha
 		}
 		memoryPrompt = strings.TrimSpace(block)
 	}
-	content := strings.TrimSpace(strings.Join(nonEmptyStrings(runtimeEnvPrompt, memoryPrompt), "\n\n"))
+	content := strings.TrimSpace(strings.Join(nonEmptyStrings(runtimeEnvPrompt, projectPrompt, memoryPrompt), "\n\n"))
 	if content == "" {
 		return nil, nil
 	}
@@ -725,7 +745,7 @@ func (s *ChatService) buildAgentsInstructionsPrompt(ctx context.Context) (string
 	return b.String(), nil
 }
 
-func (s *ChatService) buildRuntimeEnvironmentPrompt() string {
+func (s *ChatService) buildRuntimeEnvironmentPrompt(workingDirectory ...string) string {
 	envInfo := CollectEnvInfo()
 	body := strings.TrimSpace(envInfo.FormatForPrompt())
 	if body == "" {
@@ -756,6 +776,10 @@ func (s *ChatService) buildRuntimeEnvironmentPrompt() string {
 	if rc.IsCLI && rc.WorkingDir != "" {
 		b.WriteString("- Current working directory: ")
 		b.WriteString(rc.WorkingDir)
+		b.WriteString("\n")
+	} else if len(workingDirectory) > 0 && workingDirectory[0] != "" {
+		b.WriteString("- Current working directory: ")
+		b.WriteString(workingDirectory[0])
 		b.WriteString("\n")
 	}
 

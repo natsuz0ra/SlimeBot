@@ -4,8 +4,45 @@ import (
 	"context"
 	"testing"
 
+	"slimebot/internal/constants"
 	"slimebot/internal/domain"
 )
+
+func TestDeletingModelOrProviderClearsPlatformDefault(t *testing.T) {
+	db := NewSQLiteDBTest(t, "delete_platform_default")
+	repo := New(db)
+	ctx := context.Background()
+	provider := domain.LLMProvider{ID: "provider-one", Name: "Provider", Protocol: "openai", BaseURL: "https://example.com", APIKey: "key"}
+	if err := db.Create(&provider).Error; err != nil {
+		t.Fatal(err)
+	}
+	first, err := repo.CreateLLMConfig(ctx, domain.LLMConfig{Name: "first", ProviderID: provider.ID, Provider: "openai", BaseURL: provider.BaseURL, APIKey: provider.APIKey, Model: "one"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.SetSetting(ctx, constants.SettingMessagePlatformDefaultModel, first.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.DeleteLLMConfig(ctx, first.ID); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := repo.GetSetting(ctx, constants.SettingMessagePlatformDefaultModel); got != "" {
+		t.Fatalf("deleted model remains selected: %q", got)
+	}
+	second, err := repo.CreateLLMConfig(ctx, domain.LLMConfig{Name: "second", ProviderID: provider.ID, Provider: "openai", BaseURL: provider.BaseURL, APIKey: provider.APIKey, Model: "two"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.SetSetting(ctx, constants.SettingMessagePlatformDefaultModel, second.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.DeleteLLMProvider(ctx, provider.ID); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := repo.GetSetting(ctx, constants.SettingMessagePlatformDefaultModel); got != "" {
+		t.Fatalf("deleted provider model remains selected: %q", got)
+	}
+}
 
 func TestLegacyLLMProviderMigrationPreservesModelIDs(t *testing.T) {
 	db := NewSQLiteDBTest(t, "legacy_llm_provider")

@@ -3,6 +3,9 @@ package session
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 
@@ -24,9 +27,13 @@ func (s *storeStub) ListSessions(ctx context.Context, limit int, offset int, que
 	return s.sessions, nil
 }
 
-func (s *storeStub) CreateSession(ctx context.Context, name string) (*domain.Session, error) {
+func (s *storeStub) CreateSession(ctx context.Context, name string, workingDirectory ...string) (*domain.Session, error) {
 	s.seenCtx = ctx
-	return &domain.Session{ID: "created", Name: name}, nil
+	item := &domain.Session{ID: "created", Name: name}
+	if len(workingDirectory) > 0 {
+		item.WorkingDirectory = workingDirectory[0]
+	}
+	return item, nil
 }
 
 func (s *storeStub) RenameSessionByUser(ctx context.Context, id, name string) error {
@@ -62,6 +69,93 @@ func (s *storeStub) ListSessionTeamRunsByAssistantMessageIDs(ctx context.Context
 func (s *storeStub) ListSessionTeamMemberRunsByAssistantMessageIDs(ctx context.Context, sessionID string, messageIDs []string) ([]domain.TeamMemberRun, error) {
 	s.seenCtx = ctx
 	return s.teamMembers, nil
+}
+
+func TestCreateStoresValidatedWorkingDirectory(t *testing.T) {
+	store := &storeStub{}
+	service := NewSessionService(store)
+	dir := t.TempDir()
+	canonical, err := filepath.EvalSymlinks(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	item, err := service.Create(context.Background(), "project", dir)
+	if err != nil || item.WorkingDirectory != canonical {
+		t.Fatalf("working directory not stored: item=%+v err=%v", item, err)
+	}
+	if _, err := service.Create(context.Background(), "invalid", "relative/path"); !errors.Is(err, ErrInvalidWorkingDirectory) {
+		t.Fatalf("expected invalid working directory, got %v", err)
+	}
+}
+
+func TestBrowseWorkingDirectoryListsFoldersOnly(t *testing.T) {
+	dir := t.TempDir()
+	for _, name := range []string{"beta", "Alpha"} {
+		if err := os.Mkdir(filepath.Join(dir, name), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(dir, "note.txt"), []byte("file"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	listing, err := BrowseWorkingDirectory(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(listing.Directories) != 2 || listing.Directories[0].Name != "Alpha" || listing.Directories[1].Name != "beta" {
+		t.Fatalf("unexpected directories: %+v", listing.Directories)
+	}
+	if listing.Parent != filepath.Dir(listing.Path) {
+		t.Fatalf("unexpected parent: %s", listing.Parent)
+	}
+}
+
+func TestCommonDirectoryPlacesOnlyIncludesExistingFolders(t *testing.T) {
+	home := t.TempDir()
+	for _, name := range []string{"Documents", "Downloads"} {
+		if err := os.Mkdir(filepath.Join(home, name), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Setenv("XDG_DESKTOP_DIR", "")
+	t.Setenv("XDG_DOCUMENTS_DIR", "")
+	t.Setenv("XDG_DOWNLOAD_DIR", "")
+	t.Setenv("OneDrive", "")
+	places := commonDirectoryPlaces(home)
+	got := map[string]bool{}
+	for _, place := range places {
+		got[place.Kind] = true
+	}
+	if !got["home"] || !got["documents"] || !got["downloads"] || got["desktop"] {
+		t.Fatalf("unexpected common places: %+v", places)
+	}
+}
+
+func TestCommonDirectoryPlacesUsesXDGLocations(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("XDG user directories apply on Linux")
+	}
+	home := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(home, ".config"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(filepath.Join(home, "My Downloads"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	config := []byte(`XDG_DOWNLOAD_DIR="$HOME/My Downloads"`)
+	if err := os.WriteFile(filepath.Join(home, ".config", "user-dirs.dirs"), config, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("XDG_DOWNLOAD_DIR", "")
+	for _, place := range commonDirectoryPlaces(home) {
+		if place.Kind == "downloads" {
+			if place.Path != filepath.Join(home, "My Downloads") {
+				t.Fatalf("unexpected XDG downloads path: %s", place.Path)
+			}
+			return
+		}
+	}
+	t.Fatal("XDG downloads directory was not listed")
 }
 
 func TestGetMessageHistoryBuildsToolThinkingAndReplyTiming(t *testing.T) {

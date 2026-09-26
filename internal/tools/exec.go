@@ -108,7 +108,7 @@ func (e *execTool) Execute(ctx context.Context, command string, params map[strin
 
 // run parses params, executes command, and returns structured JSON output.
 func (e *execTool) run(ctx context.Context, params map[string]any) (*ExecuteResult, error) {
-	cfg, err := parseExecRunConfig(params)
+	cfg, err := parseExecRunConfig(params, ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -211,7 +211,7 @@ func (e *execTool) run(ctx context.Context, params map[string]any) (*ExecuteResu
 	return &ExecuteResult{Output: out}, nil
 }
 
-func parseExecRunConfig(params map[string]any) (execRunConfig, error) {
+func parseExecRunConfig(params map[string]any, contexts ...context.Context) (execRunConfig, error) {
 	cfg := execRunConfig{}
 	cfg.command = paramStringTrim(params, "command")
 	cfg.description = paramStringTrim(params, "description")
@@ -236,7 +236,7 @@ func parseExecRunConfig(params map[string]any) (execRunConfig, error) {
 	}
 	cfg.background = background
 
-	wd, err := resolveWorkingDirectory(paramString(params, "working_directory"))
+	wd, err := resolveWorkingDirectory(paramString(params, "working_directory"), contexts...)
 	if err != nil {
 		return execRunConfig{}, err
 	}
@@ -267,8 +267,17 @@ func resolveTimeoutMs(raw string) int {
 	return timeout
 }
 
-func resolveWorkingDirectory(raw string) (string, error) {
+func resolveWorkingDirectory(raw string, contexts ...context.Context) (string, error) {
 	candidate := strings.TrimSpace(raw)
+	if len(contexts) > 0 {
+		if directory := sandboxpolicy.WorkingDirectoryFromContext(contexts[0]); directory != "" {
+			if candidate == "" {
+				candidate = directory
+			} else if !filepath.IsAbs(candidate) {
+				candidate = filepath.Join(directory, candidate)
+			}
+		}
+	}
 	if candidate == "" {
 		cwd, err := os.Getwd()
 		if err != nil {

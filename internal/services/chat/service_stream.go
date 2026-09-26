@@ -13,6 +13,7 @@ import (
 
 	"slimebot/internal/constants"
 	"slimebot/internal/domain"
+	sandboxpolicy "slimebot/internal/sandbox"
 	llmsvc "slimebot/internal/services/llm"
 
 	"github.com/google/uuid"
@@ -647,9 +648,12 @@ func (s *ChatService) executeChatTurn(
 		}
 	}
 
-	sandboxPolicy, err := s.resolveSandboxPolicy(ctx)
+	sandboxPolicy, err := s.resolveSandboxPolicy(ctx, state.session.WorkingDirectory)
 	if err != nil {
 		return nil, err
+	}
+	if constants.ClientSurfaceFromContext(ctx) != constants.ClientSurfaceCLI {
+		ctx = sandboxpolicy.WithWorkingDirectory(ctx, state.session.WorkingDirectory)
 	}
 
 	agentStart := time.Now()

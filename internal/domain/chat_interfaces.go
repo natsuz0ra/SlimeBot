@@ -5,7 +5,7 @@ import "context"
 // ChatStore is the data access surface for the main chat flow.
 type ChatStore interface {
 	GetSessionByID(ctx context.Context, id string) (*Session, error)
-	CreateSession(ctx context.Context, name string) (*Session, error)
+	CreateSession(ctx context.Context, name string, workingDirectory ...string) (*Session, error)
 	CreateSessionWithID(ctx context.Context, id, name string) (*Session, error)
 	UpdateSessionTitle(ctx context.Context, id, name string) (bool, error)
 

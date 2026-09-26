@@ -7,5 +7,6 @@ interface Window {
     updateCheck: () => Promise<import('@/types/update').UpdateCheckResult>
     updateJob: () => Promise<import('@/types/update').UpdateJobStatus>
     updateApply: () => Promise<import('@/types/update').UpdateJobStatus>
+    chooseWorkingDirectory: (currentPath?: string) => Promise<string>
   }
 }

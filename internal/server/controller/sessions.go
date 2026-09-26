@@ -76,24 +76,57 @@ func (h *HTTPController) ListSessions(c WebContext) {
 // CreateSession creates a session; default name is used when name is omitted.
 func (h *HTTPController) CreateSession(c WebContext) {
 	var req struct {
-		Name string `json:"name"`
+		Name             string `json:"name"`
+		WorkingDirectory string `json:"workingDirectory"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil && !errors.Is(err, io.EOF) {
 		jsonError(c, http.StatusBadRequest, "Invalid request payload format.")
 		return
 	}
-	session, err := h.sessions.Create(c.Request().Context(), req.Name)
+	session, err := h.sessions.Create(c.Request().Context(), req.Name, req.WorkingDirectory)
 	if err != nil {
+		if errors.Is(err, sessionsvc.ErrInvalidWorkingDirectory) {
+			jsonError(c, http.StatusBadRequest, err.Error())
+			return
+		}
 		jsonInternalError(c, err)
 		return
 	}
 	c.JSON(http.StatusOK, session)
 }
 
+func (h *HTTPController) ValidateWorkingDirectory(c WebContext) {
+	var req struct {
+		Path string `json:"path"`
+	}
+	if !bindJSONOrBadRequest(c, &req, "path is required") {
+		return
+	}
+	path, err := sessionsvc.ValidateWorkingDirectory(req.Path)
+	if err != nil {
+		jsonError(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	c.JSON(http.StatusOK, map[string]string{"path": path, "branch": sessionsvc.WorkingDirectoryGitBranch(path)})
+}
+
+func (h *HTTPController) BrowseWorkingDirectory(c WebContext) {
+	listing, err := sessionsvc.BrowseWorkingDirectory(c.Query("path"))
+	if err != nil {
+		if errors.Is(err, sessionsvc.ErrInvalidWorkingDirectory) {
+			jsonError(c, http.StatusBadRequest, err.Error())
+			return
+		}
+		jsonInternalError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, listing)
+}
+
 // RenameSession renames a session.
 func (h *HTTPController) RenameSession(c WebContext) {
 	id := c.Param("id")
-	if id == constants.MessagePlatformSessionID {
+	if constants.IsMessagePlatformSessionID(id) {
 		jsonError(c, http.StatusBadRequest, "Message platform sessions cannot be renamed.")
 		return
 	}
@@ -113,7 +146,7 @@ func (h *HTTPController) RenameSession(c WebContext) {
 // DeleteSession deletes a session and related rows.
 func (h *HTTPController) DeleteSession(c WebContext) {
 	id := c.Param("id")
-	if id == constants.MessagePlatformSessionID {
+	if constants.IsMessagePlatformSessionID(id) {
 		jsonError(c, http.StatusBadRequest, "Message platform sessions cannot be deleted.")
 		return
 	}

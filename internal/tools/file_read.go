@@ -126,7 +126,7 @@ func parseFileReadRequests(params map[string]any) ([]fileReadRequest, error) {
 }
 
 func (f *fileReadTool) readOne(ctx context.Context, req fileReadRequest) (string, error) {
-	path, err := resolveFilePath(req.FilePath)
+	path, err := resolveFilePath(req.FilePath, ctx)
 	if err != nil {
 		return "", err
 	}

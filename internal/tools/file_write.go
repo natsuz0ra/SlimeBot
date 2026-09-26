@@ -109,7 +109,7 @@ func parseFileWriteRequests(params map[string]any) ([]fileWriteRequest, error) {
 }
 
 func (f *fileWriteTool) writeOne(ctx context.Context, req fileWriteRequest) (FileToolMetadata, string, error) {
-	path, err := resolveFilePath(req.FilePath)
+	path, err := resolveFilePath(req.FilePath, ctx)
 	if err != nil {
 		return FileToolMetadata{}, "", err
 	}

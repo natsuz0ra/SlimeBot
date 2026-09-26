@@ -5,14 +5,11 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-	"time"
 
 	"slimebot/internal/apperrors"
 	"slimebot/internal/constants"
 	"slimebot/internal/domain"
 )
-
-const platformModelCacheTTL = 30 * time.Second
 
 // EnsureSession ensures a normal chat session exists; reuses valid sessionID or creates one.
 func (s *ChatService) EnsureSession(ctx context.Context, sessionID string) (*domain.Session, error) {
@@ -28,22 +25,35 @@ func (s *ChatService) EnsureSession(ctx context.Context, sessionID string) (*dom
 			return existing, nil
 		}
 	}
-	return s.store.CreateSession(ctx, "New Chat")
+	return s.store.CreateSession(ctx, "New Chat", s.runContext.WorkingDir)
 }
 
-// EnsureMessagePlatformSession ensures the bridged platform session exists with a fixed ID.
-func (s *ChatService) EnsureMessagePlatformSession(ctx context.Context) (*domain.Session, error) {
+// EnsureMessagePlatformSession ensures each platform has a stable session.
+func (s *ChatService) EnsureMessagePlatformSession(ctx context.Context, platform string) (*domain.Session, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	session, err := s.store.GetSessionByID(ctx, constants.MessagePlatformSessionID)
+	platform = strings.ToLower(strings.TrimSpace(platform))
+	if platform == "" {
+		return nil, fmt.Errorf("platform is required")
+	}
+	id := constants.MessagePlatformSessionIDFor(platform)
+	session, err := s.store.GetSessionByID(ctx, id)
 	if err != nil && !errors.Is(err, apperrors.ErrNotFound) {
 		return nil, err
 	}
 	if session != nil {
 		return session, nil
 	}
-	return s.store.CreateSessionWithID(ctx, constants.MessagePlatformSessionID, constants.MessagePlatformSessionName)
+	session, err = s.store.CreateSessionWithID(ctx, id, platform)
+	if err == nil {
+		return session, nil
+	}
+	// Concurrent first messages can race to create the same platform session.
+	if existing, lookupErr := s.store.GetSessionByID(ctx, id); lookupErr == nil {
+		return existing, nil
+	}
+	return nil, err
 }
 
 // ResolvePlatformModel resolves the default model for platform ingress (platform setting, then global, then first).
@@ -51,20 +61,6 @@ func (s *ChatService) ResolvePlatformModel(ctx context.Context) (string, error) 
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	s.platformModelMu.Lock()
-	cacheID := s.platformModelID
-	cacheAt := s.platformModelAt
-	s.platformModelMu.Unlock()
-	if cacheID != "" && time.Since(cacheAt) < platformModelCacheTTL {
-		item, err := s.store.GetLLMConfigByID(ctx, cacheID)
-		if err != nil && !errors.Is(err, apperrors.ErrNotFound) {
-			return "", err
-		}
-		if item != nil {
-			return cacheID, nil
-		}
-	}
-
 	// Helper to verify a model ID exists without duplicating store lookups.
 	resolveModel := func(modelID string) (string, bool, error) {
 		trimmed := strings.TrimSpace(modelID)
@@ -88,10 +84,6 @@ func (s *ChatService) ResolvePlatformModel(ctx context.Context) (string, error) 
 	if id, ok, err := resolveModel(platformDefault); err != nil {
 		return "", err
 	} else if ok {
-		s.platformModelMu.Lock()
-		s.platformModelID = id
-		s.platformModelAt = time.Now()
-		s.platformModelMu.Unlock()
 		return id, nil
 	}
 
@@ -102,11 +94,6 @@ func (s *ChatService) ResolvePlatformModel(ctx context.Context) (string, error) 
 	if id, ok, err := resolveModel(globalDefault); err != nil {
 		return "", err
 	} else if ok {
-		_ = s.store.SetSetting(ctx, constants.SettingMessagePlatformDefaultModel, id)
-		s.platformModelMu.Lock()
-		s.platformModelID = id
-		s.platformModelAt = time.Now()
-		s.platformModelMu.Unlock()
 		return id, nil
 	}
 
@@ -121,11 +108,6 @@ func (s *ChatService) ResolvePlatformModel(ctx context.Context) (string, error) 
 	if fallbackID == "" {
 		return "", fmt.Errorf("No available model is configured.")
 	}
-	_ = s.store.SetSetting(ctx, constants.SettingMessagePlatformDefaultModel, fallbackID)
-	s.platformModelMu.Lock()
-	s.platformModelID = fallbackID
-	s.platformModelAt = time.Now()
-	s.platformModelMu.Unlock()
 	return fallbackID, nil
 }
 

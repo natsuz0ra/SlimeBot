@@ -261,7 +261,7 @@ func (w *Worker) buildInboundAttachments(ctx context.Context, adapter *Adapter, 
 		return nil, nil, nil
 	}
 
-	registered, err := w.uploads.RegisterLocalFiles(constants.MessagePlatformSessionID, inputs)
+	registered, err := w.uploads.RegisterLocalFiles(constants.MessagePlatformSessionIDFor(constants.TelegramPlatformName), inputs)
 	if err != nil {
 		return nil, nil, err
 	}

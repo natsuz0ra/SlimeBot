@@ -3,7 +3,7 @@ const { autoUpdater } = require('electron-updater')
 const { spawn } = require('node:child_process')
 const { randomBytes } = require('node:crypto')
 const path = require('node:path')
-const { mkdirSync } = require('node:fs')
+const { existsSync, mkdirSync } = require('node:fs')
 
 if (!app.isPackaged && process.env.SLIMEBOT_DESKTOP_USER_DATA_DIR) {
   mkdirSync(process.env.SLIMEBOT_DESKTOP_USER_DATA_DIR, { recursive: true })
@@ -217,6 +217,13 @@ async function requestQuit(force = false) {
 }
 
 function registerSecurity() {
+  ipcMain.handle('desktop:choose-working-directory', async (event, currentPath) => {
+    verifySender(event)
+    const options = { properties: ['openDirectory'] }
+    if (typeof currentPath === 'string' && path.isAbsolute(currentPath) && existsSync(currentPath)) options.defaultPath = currentPath
+    const result = await dialog.showOpenDialog(window, options)
+    return result.canceled ? '' : result.filePaths[0] || ''
+  })
   const webSession = session.defaultSession
   webSession.setPermissionRequestHandler((_contents, _permission, callback) => callback(false))
   webSession.webRequest.onBeforeSendHeaders((details, callback) => {

@@ -3,12 +3,13 @@ import type { ToolCallStatus } from '@/types/chat'
 
 export type { ToolCallStatus } from '@/types/chat'
 
-export const MESSAGE_PLATFORM_SESSION_ID = 'im-platform-session'
+export { MESSAGE_PLATFORM_SESSION_ID } from '@/utils/messagePlatformSessions'
 
 export interface SessionItem {
   id: string
   name: string
   updatedAt: string
+  workingDirectory?: string
 }
 
 export interface MessageItem {
@@ -198,7 +199,9 @@ export interface SubagentThinkingItem {
 export const sessionAPI = {
   list: async (query: SessionListQuery = {}) =>
     (await apiClient.get<SessionListResponse>('/api/sessions', { params: query })).data,
-  create: async (name?: string) => (await apiClient.post<SessionItem>('/api/sessions', { name })).data,
+  create: async (name?: string, workingDirectory?: string) => (await apiClient.post<SessionItem>('/api/sessions', { name, workingDirectory })).data,
+  validateWorkingDirectory: async (path: string) => (await apiClient.post<{ path: string; branch: string }>('/api/working-directory/validate', { path })).data,
+  browseWorkingDirectory: async (path = '') => (await apiClient.get<{ path: string; parent: string; directories: { name: string; path: string }[]; places: { kind: string; path: string }[] }>('/api/working-directory/browse', { params: { path } })).data,
   rename: async (id: string, name: string) => apiClient.patch(`/api/sessions/${id}/name`, { name }),
   remove: async (id: string) => apiClient.delete(`/api/sessions/${id}`),
   history: async (id: string, query: SessionHistoryQuery = {}) =>

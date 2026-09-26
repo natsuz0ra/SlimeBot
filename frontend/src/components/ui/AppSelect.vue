@@ -81,6 +81,11 @@ function closeDropdown() {
   open.value = false
 }
 
+function onScroll(event: Event) {
+  if (dropdownRef.value?.contains(event.target as Node)) return
+  closeDropdown()
+}
+
 function onGlobalClick(e: MouseEvent) {
   const target = e.target as Node
   if (
@@ -94,13 +99,13 @@ function onGlobalClick(e: MouseEvent) {
 onMounted(() => {
   document.addEventListener('click', onGlobalClick, true)
   window.addEventListener('resize', closeDropdown)
-  window.addEventListener('scroll', closeDropdown, true)
+  window.addEventListener('scroll', onScroll, true)
 })
 
 onUnmounted(() => {
   document.removeEventListener('click', onGlobalClick, true)
   window.removeEventListener('resize', closeDropdown)
-  window.removeEventListener('scroll', closeDropdown, true)
+  window.removeEventListener('scroll', onScroll, true)
 })
 </script>
 

@@ -35,13 +35,14 @@ type ServiceController interface {
 }
 
 type Options struct {
-	Args      []string
-	Stdout    io.Writer
-	RunCLI    func() error
-	RunServer func() error
-	Update    func(args []string, stdout io.Writer) error
-	Service   ServiceController
-	Version   VersionInfo
+	Args       []string
+	Stdout     io.Writer
+	RunCLI     func() error
+	RunServer  func() error
+	RunDesktop func() error
+	Update     func(args []string, stdout io.Writer) error
+	Service    ServiceController
+	Version    VersionInfo
 }
 
 func Execute(opts Options) error {
@@ -60,6 +61,8 @@ func Execute(opts Options) error {
 		return call("cli", opts.RunCLI)
 	case "server":
 		return call("server", opts.RunServer)
+	case "desktop-host":
+		return call("desktop-host", opts.RunDesktop)
 	case "service":
 		return executeService(args[1:], stdout, opts.Service)
 	case "update":

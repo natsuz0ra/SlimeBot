@@ -275,6 +275,28 @@ textarea::placeholder {
   transform: translateX(-100%);
 }
 
+@media (min-width: 768px) {
+  .sidebar-panel {
+    position: relative;
+    inset: auto;
+    flex: 0 0 16rem;
+    min-width: 0;
+  }
+
+  .sidebar-enter-active,
+  .sidebar-leave-active {
+    overflow: hidden;
+    transition: flex-basis var(--duration-slow) var(--ease-out-expo);
+  }
+
+  .sidebar-enter-from,
+  .sidebar-leave-to {
+    flex-basis: 0;
+    transform: none;
+    border-right-width: 0;
+  }
+}
+
 .mask-fade-enter-active,
 .mask-fade-leave-active {
   transition: opacity var(--duration-normal) ease-out;

@@ -22,7 +22,7 @@ apiClient.interceptors.response.use(
   (error) => {
     if (error?.response?.status === 401) {
       clearAuthStorage()
-      if (window.location.pathname !== '/login') {
+      if (!window.slimebotDesktop && window.location.pathname !== '/login') {
         window.location.href = '/login'
       }
     }

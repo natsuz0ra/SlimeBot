@@ -21,11 +21,12 @@ import (
 func main() {
 	info := buildversion.Info()
 	if err := command.Execute(command.Options{
-		Args:      os.Args[1:],
-		RunCLI:    runCLI,
-		RunServer: runServer,
-		Update:    runUpdate,
-		Service:   mustServiceController(),
+		Args:       os.Args[1:],
+		RunCLI:     runCLI,
+		RunServer:  runServer,
+		RunDesktop: runDesktop,
+		Update:     runUpdate,
+		Service:    mustServiceController(),
 		Version: command.VersionInfo{
 			Version: info.Version,
 			Commit:  info.Commit,
@@ -77,6 +78,12 @@ func runServer() error {
 		return err
 	}
 	return nil
+}
+
+func runDesktop() error {
+	_, cleanupLogs, _ := logging.Init(logging.Options{Mode: logging.ModeServer})
+	defer cleanupLogs()
+	return app.RunDesktopHost(os.Stdin, os.Stdout)
 }
 
 func mustServiceController() command.ServiceController {

@@ -1,0 +1,94 @@
+name: Desktop preview
+
+on:
+  push:
+    branches:
+      - dev/1.32.0
+    paths:
+      - desktop/**
+      - frontend/**
+      - internal/**
+      - cmd/**
+      - web/embed.go
+      - go.mod
+      - go.sum
+      - .github/workflows/desktop-preview.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  desktop:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-15
+            platform: mac
+          - os: windows-2022
+            platform: win
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            frontend/package-lock.json
+            desktop/package-lock.json
+      - name: Install dependencies
+        run: npm ci --prefix frontend && npm ci --prefix desktop
+      - name: Build macOS preview
+        if: matrix.platform == 'mac'
+        run: npm --prefix desktop run package:mac
+      - name: Build Windows preview
+        if: matrix.platform == 'win'
+        run: npm --prefix desktop run package:win
+      - name: Upload macOS DMG
+        if: matrix.platform == 'mac'
+        uses: actions/upload-artifact@v4
+        with:
+          name: SlimeBot-1.32.0-macos-universal-dmg
+          path: desktop/dist/SlimeBot-1.32.0-macos-universal.dmg
+          if-no-files-found: error
+      - name: Upload Windows installer
+        if: matrix.platform == 'win'
+        uses: actions/upload-artifact@v4
+        with:
+          name: SlimeBot-1.32.0-windows-x64-exe
+          path: desktop/dist/SlimeBot-1.32.0-windows-x64.exe
+          if-no-files-found: error
+
+  publish-preview:
+    name: Publish direct-download preview
+    needs: desktop
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: SlimeBot-1.32.0-*
+          path: dist
+          merge-multiple: true
+      - name: Publish macOS DMG and Windows EXE
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        shell: bash
+        run: |
+          tag="desktop-preview-${GITHUB_SHA:0:7}"
+          files=(dist/SlimeBot-1.32.0-macos-universal.dmg dist/SlimeBot-1.32.0-windows-x64.exe)
+          if gh release view "$tag" >/dev/null 2>&1; then
+            gh release upload "$tag" "${files[@]}" --clobber
+          else
+            gh release create "$tag" "${files[@]}" --target "$GITHUB_SHA" --prerelease \
+              --title "SlimeBot Desktop 1.32.0 Preview (${GITHUB_SHA:0:7})" \
+              --notes "Unsigned desktop preview. macOS: DMG. Windows x64: EXE."
+          fi

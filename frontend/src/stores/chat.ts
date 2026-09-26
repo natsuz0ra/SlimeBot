@@ -31,6 +31,18 @@ export const useChatStore = defineStore('chat', () => {
   const loadingMoreSessions = ref(false)
   const sessionSearchQuery = ref('')
   const currentSessionId = ref<string>()
+  const creatingSession = ref(false)
+  const draftWorkingDirectory = ref(typeof window !== 'undefined' ? window.localStorage.getItem('slimebot:last-working-directory') || '' : '')
+  const currentWorkingDirectory = computed(() => currentSessionId.value
+    ? sessions.value.find((item) => item.id === currentSessionId.value)?.workingDirectory || ''
+    : draftWorkingDirectory.value)
+
+  function setDraftWorkingDirectory(path: string) {
+    if (currentSessionId.value || creatingSession.value) return
+    draftWorkingDirectory.value = path
+    if (path) window.localStorage.setItem('slimebot:last-working-directory', path)
+    else window.localStorage.removeItem('slimebot:last-working-directory')
+  }
   const messages = ref<MessageItem[]>([])
   const waiting = ref(false)
   const streamingStarted = ref(false)
@@ -361,8 +373,9 @@ export const useChatStore = defineStore('chat', () => {
     }
   }
 
-  function resetToNewSession() {
+  function resetToNewSession(workingDirectory?: string) {
     currentSessionId.value = undefined
+    draftWorkingDirectory.value = workingDirectory ?? window.localStorage.getItem('slimebot:last-working-directory') ?? ''
     messages.value = []
     clearContextUsage()
     resetSessionRuntimeState()
@@ -370,13 +383,18 @@ export const useChatStore = defineStore('chat', () => {
   }
 
   async function createSession() {
-    const item = await sessionAPI.create(i18n.global.t('newSession') as string)
-    currentSessionId.value = item.id
-    sessions.value = [item, ...sessions.value]
-    messages.value = []
-    clearContextUsage()
-    resetSessionRuntimeState()
-    resetHistoryState()
+    creatingSession.value = true
+    try {
+      const item = await sessionAPI.create(i18n.global.t('newSession') as string, draftWorkingDirectory.value)
+      currentSessionId.value = item.id
+      sessions.value = [item, ...sessions.value]
+      messages.value = []
+      clearContextUsage()
+      resetSessionRuntimeState()
+      resetHistoryState()
+    } finally {
+      creatingSession.value = false
+    }
   }
 
   async function selectSession(id: string) {
@@ -1052,6 +1070,10 @@ export const useChatStore = defineStore('chat', () => {
 
   return {
     sessions,
+    draftWorkingDirectory,
+    currentWorkingDirectory,
+    creatingSession,
+    setDraftWorkingDirectory,
     sessionPageSize,
     setSessionPageSize,
     currentSessionId,

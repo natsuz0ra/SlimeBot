@@ -10,6 +10,7 @@ import { formatSize } from '@/utils/format'
 import { contextUsageTone, formatContextTokenCount } from '@/utils/contextSize'
 import type { ContextUsageData } from '@/api/chatSocket'
 import type { ApprovalMode } from '@/types/settings'
+import WorkspacePicker from '@/components/chat/WorkspacePicker.vue'
 import { getApprovalModeLabelKey, getApprovalModeOptions, getApprovalModeTone } from '@/utils/approvalMode'
 
 const props = defineProps<{
@@ -28,6 +29,8 @@ const props = defineProps<{
   placeholder: string
   planMode: boolean
   approvalMode: ApprovalMode
+  workingDirectory: string
+  workspaceEditable: boolean
   planConfirmationVisible?: boolean
   contextUsage?: ContextUsageData | null
 }>()
@@ -45,6 +48,7 @@ const emit = defineEmits<{
   approvalModeChange: [mode: ApprovalMode]
   planExecute: []
   planCancel: []
+  workspaceChange: [path: string]
 }>()
 
 const textareaRef = ref<HTMLTextAreaElement | null>(null)
@@ -247,6 +251,7 @@ onUnmounted(() => {
 </script>
 
 <template>
+  <WorkspacePicker v-if="workspaceEditable" :path="workingDirectory" :editable="workspaceEditable" @select="emit('workspaceChange', $event)" />
   <div class="input-container focus-ring rounded-2xl">
     <div v-if="planConfirmationVisible" class="plan-confirm-inline" data-plan-confirmation="true">
       <div class="plan-confirm-copy">{{ t('planConfirmPrompt') }}</div>

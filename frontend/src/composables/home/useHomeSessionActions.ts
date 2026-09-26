@@ -168,9 +168,9 @@ export function useHomeSessionActions(options: {
     if (window.matchMedia('(max-width: 767px)').matches) uiState.drawerOpen.value = false
   }
 
-  async function createSession() {
+  async function createSession(workingDirectory?: string) {
     uiState.pendingFiles.value = []
-    store.resetToNewSession()
+    store.resetToNewSession(workingDirectory)
     scrollState.autoStickToBottom.value = true
     scrollState.queueScrollMessagesToBottom(true)
     if (window.matchMedia('(max-width: 767px)').matches) uiState.drawerOpen.value = false
@@ -181,7 +181,13 @@ export function useHomeSessionActions(options: {
     if (sendDisabled.value) return
     scrollState.autoStickToBottom.value = true
     scrollState.queueScrollMessagesToBottom(true)
-    const sent = await store.sendMessage(uiState.inputValue.value.trim(), modelState.selectedModelId.value, uiState.pendingFiles.value, modelState.thinkingLevel.value, modelState.subagentModelId.value)
+    let sent = false
+    try {
+      sent = await store.sendMessage(uiState.inputValue.value.trim(), modelState.selectedModelId.value, uiState.pendingFiles.value, modelState.thinkingLevel.value, modelState.subagentModelId.value)
+    } catch (error) {
+      showError(error instanceof Error ? error.message : t('workspaceInvalid'))
+      return
+    }
     if (!sent) {
       showWarning(t('sendBlockedOffline'))
       return

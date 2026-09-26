@@ -15,11 +15,12 @@ A personal AI agent demo: an extensible foundation for conversational AI apps. I
 - Desktop Computer Use on macOS, Windows, and Linux: inspect the foreground app through accessibility or screenshots, then click, type, press keys, and scroll on the machine running SlimeBot, subject to tool approval ([requirements and limits, in Chinese](docs/computer-use.zh-CN.md))
 - Plan mode, streamed thinking, context compression, MCP configuration, skills, and AGENTS.md instructions
 - Web UI, CLI TUI, and Telegram integration
+- Web sessions grouped by working directory, with a directory picker before the first message; existing sessions without a directory appear under Uncategorized. Messaging sessions are grouped by platform.
 - macOS and Windows desktop preview: no password login, background work continues after closing the window, and the tray menu provides Quit
 
-## Desktop Apps (1.32.0)
+## Desktop Apps (1.33.0)
 
-The [v1.32.0 Release](https://github.com/natsuz0ra/SlimeBot/releases/tag/v1.32.0) includes `SlimeBot-1.32.0-macos-universal.dmg` and `SlimeBot-1.32.0-windows-x64.exe` as separate, direct downloads. On macOS, open the DMG and drag the `.app` into Applications; on Windows, run the EXE installer.
+The [v1.33.0 Release](https://github.com/natsuz0ra/SlimeBot/releases/tag/v1.33.0) includes `SlimeBot-1.33.0-macos-universal.dmg` and `SlimeBot-1.33.0-windows-x64.exe` as separate, direct downloads. On macOS, open the DMG and drag the `.app` into Applications; on Windows, run the EXE installer. The Windows installer lets you choose whether to create a desktop shortcut and shows installation and uninstallation details.
 
 Desktop reads the same configuration as Web/CLI (`~/.slimebot/config.cfg` by default, or the directory set by `SLIMEBOT_HOME`) and honors its data paths. It uses an ephemeral local session, so no account password is needed; the script-installed Web service still uses password login. Do not run Desktop and the Web service simultaneously with the same data paths: both can start message platforms and scheduled tasks. Closing the desktop window keeps those tasks running; right-click the tray icon and choose **Quit SlimeBot** to stop them. Settings can check for releases and open the installer download page. These previews are unsigned, so the OS may require explicit permission on first launch. Installing an update currently requires downloading the new installer; macOS in-app automatic installation also requires signing and a ZIP update asset, which this DMG-only release does not provide. See the [technical design](docs/desktop-app-1.32.0-technical-design.zh-CN.md).
 
@@ -123,33 +124,19 @@ For development startup, production builds from source, Docker, Docker Compose, 
 
 ## Screenshots
 
+Captured from v1.33.0 with sample data.
+
 ### Sign-in
 
-![Sign-in](assets/login.png)
+![Sign-in](assets/login-v1.33.0.png)
 
-### Home
+### New chat and working directory
 
-![Home](assets/home.png)
+![New chat with working directory picker](assets/home-v1.33.0.png)
 
-### Chat
+### Chat and project sidebar
 
-![Chat](assets/chat.png)
-
-### Plan mode
-
-![Plan mode](assets/plan.png)
-
-### Tool execution
-
-![Tool execution](assets/tool_exec.png)
-
-### Telegram
-
-<img src="assets/tg_chat.png" alt="Telegram preview" width="220" />
-
-### CLI
-
-<img src="assets/cli.png" alt="CLI" width="800" />
+![Chat and project sidebar](assets/chat-v1.33.0.png)
 
 ## Status & Roadmap
 

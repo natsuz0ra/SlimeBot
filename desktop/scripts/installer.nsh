@@ -1,4 +1,4 @@
-!include "nsDialogs.nsh"
+!include "MUI2.nsh"
 
 !macro customHeader
   !ifdef BUILD_UNINSTALLER

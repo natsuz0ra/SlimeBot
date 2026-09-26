@@ -33,6 +33,7 @@ module.exports = {
     oneClick: false,
     perMachine: false,
     allowToChangeInstallationDirectory: true,
+    include: 'scripts/installer.nsh',
   },
   publish: { provider: 'github', owner: 'natsuz0ra', repo: 'SlimeBot' },
 }

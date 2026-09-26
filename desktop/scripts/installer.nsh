@@ -1,8 +1,5 @@
 !include "nsDialogs.nsh"
 
-Var desktopShortcutChoice
-Var desktopShortcutCheckbox
-
 !macro customHeader
   !ifdef BUILD_UNINSTALLER
     ShowUninstDetails show
@@ -10,6 +7,10 @@ Var desktopShortcutCheckbox
     ShowInstDetails show
   !endif
 !macroend
+
+!ifndef BUILD_UNINSTALLER
+Var desktopShortcutChoice
+Var desktopShortcutCheckbox
 
 !macro customInit
   ; Silent installs and upgrades retain electron-builder's existing shortcut behavior.
@@ -68,6 +69,8 @@ FunctionEnd
   ${endIf}
   DetailPrint "安装完成 / Installation complete"
 !macroend
+
+!endif
 
 !macro customUnInstall
   SetDetailsPrint both

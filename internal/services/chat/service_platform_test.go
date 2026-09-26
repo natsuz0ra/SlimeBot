@@ -72,8 +72,15 @@ func TestResolvePlatformModel_FallbackAndPersist(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read persisted platform default failed: %v", err)
 	}
-	if persisted != second.ID {
-		t.Fatalf("expected persisted platform default=%s, got=%s", second.ID, persisted)
+	if persisted != "missing-id" {
+		t.Fatalf("runtime fallback must not change saved platform default, got=%s", persisted)
+	}
+	if err := repo.SetSetting(context.Background(), constants.SettingMessagePlatformDefaultModel, first.ID); err != nil {
+		t.Fatal(err)
+	}
+	modelID, err = service.ResolvePlatformModel(context.Background())
+	if err != nil || modelID != first.ID {
+		t.Fatalf("updated explicit model must take effect immediately: id=%s err=%v", modelID, err)
 	}
 
 	if err := repo.SetSetting(context.Background(), constants.SettingMessagePlatformDefaultModel, ""); err != nil {

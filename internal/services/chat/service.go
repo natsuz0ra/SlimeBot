@@ -48,10 +48,6 @@ type ChatService struct {
 	runContext RunContext
 	agents     agentsInstructionsReader
 
-	platformModelMu sync.Mutex
-	platformModelID string
-	platformModelAt time.Time
-
 	contextHistoryRounds int
 
 	memoryReviewMu      sync.Mutex

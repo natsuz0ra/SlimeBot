@@ -3,8 +3,10 @@ package settings
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
+	"slimebot/internal/apperrors"
 	"slimebot/internal/constants"
 	"slimebot/internal/domain"
 	"slimebot/internal/runtime"
@@ -87,6 +89,21 @@ func (s *SettingsService) Get(ctx context.Context) (*AppSettings, error) {
 	messagePlatformDefaultModel, err := s.store.GetSetting(ctx, constants.SettingMessagePlatformDefaultModel)
 	if err != nil {
 		return nil, err
+	}
+	if messagePlatformDefaultModel != "" {
+		if models, ok := s.store.(interface {
+			GetLLMConfigByID(context.Context, string) (*domain.LLMConfig, error)
+		}); ok {
+			_, lookupErr := models.GetLLMConfigByID(ctx, messagePlatformDefaultModel)
+			if errors.Is(lookupErr, apperrors.ErrNotFound) {
+				messagePlatformDefaultModel = ""
+				if err := s.store.SetSetting(ctx, constants.SettingMessagePlatformDefaultModel, ""); err != nil {
+					return nil, err
+				}
+			} else if lookupErr != nil {
+				return nil, lookupErr
+			}
+		}
 	}
 	messagePlatformThinkingLevel, err := s.store.GetSetting(ctx, constants.SettingMessagePlatformThinkingLevel)
 	if err != nil {

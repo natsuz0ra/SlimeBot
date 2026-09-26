@@ -99,6 +99,11 @@ const accountDialogVisible = ref(false)
 const messagePlatformDialogVisible = ref(false)
 const messagePlatformSubmitting = ref(false)
 const messagePlatformDefaultModel = ref('')
+watch(llmList, (models) => {
+  if (messagePlatformDefaultModel.value && !models.some((model) => model.id === messagePlatformDefaultModel.value)) {
+    messagePlatformDefaultModel.value = ''
+  }
+})
 const messagePlatformThinkingLevel = ref<ThinkingLevel>('off')
 const messagePlatformApprovalMode = ref<ApprovalMode>('standard')
 const memoryEnabled = ref(true)
@@ -252,6 +257,10 @@ async function loadData() {
     const [providers, models] = await Promise.all([llmAPI.providers(), llmAPI.list()])
     providerList.value = providers
     llmList.value = models
+    if (messagePlatformDefaultModel.value && !models.some((model) => model.id === messagePlatformDefaultModel.value)) {
+      messagePlatformDefaultModel.value = ''
+      await settingAPI.update({ messagePlatformDefaultModel: '' })
+    }
     mcpList.value = await mcpAPI.list()
     skillsList.value = await skillsAPI.list()
     const agentsInstructions = await agentsInstructionsAPI.get()

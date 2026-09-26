@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/url"
 	"slimebot/internal/apperrors"
+	"slimebot/internal/constants"
 	"slimebot/internal/domain"
 	"strings"
 
@@ -68,6 +69,11 @@ func providerRuntimeKey(item domain.LLMProvider) string {
 
 func (r *Repository) DeleteLLMProvider(ctx context.Context, id string) error {
 	return r.dbWithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Model(&domain.AppSetting{}).
+			Where("key = ? AND value IN (SELECT id FROM llm_configs WHERE provider_id = ?)", constants.SettingMessagePlatformDefaultModel, id).
+			Update("value", "").Error; err != nil {
+			return err
+		}
 		if err := tx.Where("provider_id = ?", id).Delete(&domain.LLMConfig{}).Error; err != nil {
 			return err
 		}

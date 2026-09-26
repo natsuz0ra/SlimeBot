@@ -78,7 +78,12 @@ func (r *Repository) UpdateLLMConfig(ctx context.Context, id string, item domain
 }
 
 func (r *Repository) DeleteLLMConfig(ctx context.Context, id string) error {
-	return r.dbWithContext(ctx).Where("id = ?", id).Delete(&domain.LLMConfig{}).Error
+	return r.dbWithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Model(&domain.AppSetting{}).Where("key = ? AND value = ?", constants.SettingMessagePlatformDefaultModel, id).Update("value", "").Error; err != nil {
+			return err
+		}
+		return tx.Where("id = ?", id).Delete(&domain.LLMConfig{}).Error
+	})
 }
 
 func normalizeLLMConfigs(items []domain.LLMConfig) {

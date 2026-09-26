@@ -5,14 +5,11 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-	"time"
 
 	"slimebot/internal/apperrors"
 	"slimebot/internal/constants"
 	"slimebot/internal/domain"
 )
-
-const platformModelCacheTTL = 30 * time.Second
 
 // EnsureSession ensures a normal chat session exists; reuses valid sessionID or creates one.
 func (s *ChatService) EnsureSession(ctx context.Context, sessionID string) (*domain.Session, error) {
@@ -51,20 +48,6 @@ func (s *ChatService) ResolvePlatformModel(ctx context.Context) (string, error) 
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	s.platformModelMu.Lock()
-	cacheID := s.platformModelID
-	cacheAt := s.platformModelAt
-	s.platformModelMu.Unlock()
-	if cacheID != "" && time.Since(cacheAt) < platformModelCacheTTL {
-		item, err := s.store.GetLLMConfigByID(ctx, cacheID)
-		if err != nil && !errors.Is(err, apperrors.ErrNotFound) {
-			return "", err
-		}
-		if item != nil {
-			return cacheID, nil
-		}
-	}
-
 	// Helper to verify a model ID exists without duplicating store lookups.
 	resolveModel := func(modelID string) (string, bool, error) {
 		trimmed := strings.TrimSpace(modelID)
@@ -88,10 +71,6 @@ func (s *ChatService) ResolvePlatformModel(ctx context.Context) (string, error) 
 	if id, ok, err := resolveModel(platformDefault); err != nil {
 		return "", err
 	} else if ok {
-		s.platformModelMu.Lock()
-		s.platformModelID = id
-		s.platformModelAt = time.Now()
-		s.platformModelMu.Unlock()
 		return id, nil
 	}
 
@@ -102,11 +81,6 @@ func (s *ChatService) ResolvePlatformModel(ctx context.Context) (string, error) 
 	if id, ok, err := resolveModel(globalDefault); err != nil {
 		return "", err
 	} else if ok {
-		_ = s.store.SetSetting(ctx, constants.SettingMessagePlatformDefaultModel, id)
-		s.platformModelMu.Lock()
-		s.platformModelID = id
-		s.platformModelAt = time.Now()
-		s.platformModelMu.Unlock()
 		return id, nil
 	}
 
@@ -121,11 +95,6 @@ func (s *ChatService) ResolvePlatformModel(ctx context.Context) (string, error) 
 	if fallbackID == "" {
 		return "", fmt.Errorf("No available model is configured.")
 	}
-	_ = s.store.SetSetting(ctx, constants.SettingMessagePlatformDefaultModel, fallbackID)
-	s.platformModelMu.Lock()
-	s.platformModelID = fallbackID
-	s.platformModelAt = time.Now()
-	s.platformModelMu.Unlock()
 	return fallbackID, nil
 }
 

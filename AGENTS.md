@@ -2,7 +2,7 @@
 
 ## Project Structure & Module Organization
 
-SlimeBot is a single repository with three main surfaces: Go backend, Vue web frontend, and React + Ink CLI.
+SlimeBot is a single repository with four main surfaces: Go backend, Vue web frontend, React + Ink CLI, and Electron desktop.
 
 Top-level navigation:
 
@@ -16,6 +16,7 @@ Top-level navigation:
 ├─ internal/                 # Backend application code
 ├─ frontend/                 # Vue 3 web app
 ├─ cli/                      # React + Ink terminal app
+├─ desktop/                  # Electron window, tray, updater, and installers
 ├─ prompts/                  # Embedded prompts and templates
 ├─ scripts/                  # Release packaging and install scripts
 ├─ docs/                     # Manual deployment and longer-form docs
@@ -105,6 +106,17 @@ cli/src/
 └─ ws/                       # WebSocket client logic
 ```
 
+Desktop structure (`desktop/`):
+
+```text
+desktop/
+├─ main.cjs                   # Electron process, tray, Go host, and updater
+├─ preload.cjs                # Narrow IPC bridge for desktop updates
+├─ electron-builder.config.cjs # macOS/Windows installer configuration
+├─ resources/                 # App and tray icons derived from the project logo
+└─ scripts/                   # Backend, ripgrep, and icon packaging
+```
+
 Quick index (feature -> first place to inspect):
 
 - HTTP route definitions: `internal/server/router/`
@@ -126,6 +138,8 @@ Quick index (feature -> first place to inspect):
 - Prompt templates: `prompts/`
 - Release/install packaging: `scripts/`
 - GitHub Release automation: `.github/workflows/release.yml`
+- Desktop host entry: `internal/app/desktop.go`, `cmd/server/main.go`
+- Desktop packaging and preview CI: `desktop/`, `.github/workflows/desktop-preview.yml`
 - Bundled ripgrep binaries for release packages: `third_party/ripgrep/`
 - Manual deployment docs: `docs/`
 

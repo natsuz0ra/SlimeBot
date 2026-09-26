@@ -127,7 +127,7 @@ onMounted(() => {
       <Transition name="mask-fade">
         <div
           v-if="ui.drawerOpen"
-          class="sidebar-mask absolute inset-0 z-20"
+          class="sidebar-mask absolute inset-0 z-20 md:hidden"
           @click="ui.drawerOpen = false"
         />
       </Transition>

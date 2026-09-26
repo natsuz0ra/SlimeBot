@@ -62,6 +62,10 @@ type Core struct {
 
 // NewCore wires reusable services; it does not include HTTP routes, Telegram, or auth wiring.
 func NewCore(cfg config.Config) (*Core, error) {
+	return newCore(cfg, false)
+}
+
+func newCore(cfg config.Config, desktop bool) (*Core, error) {
 	if err := os.MkdirAll(filepath.Dir(cfg.DBPath), os.ModePerm); err != nil {
 		return nil, err
 	}
@@ -81,8 +85,10 @@ func NewCore(cfg config.Config) (*Core, error) {
 		return nil, err
 	}
 	authService := authsvc.NewAuthService(repo)
-	if err := authService.EnsureDefaultAdmin(); err != nil {
-		return nil, err
+	if !desktop {
+		if err := authService.EnsureDefaultAdmin(); err != nil {
+			return nil, err
+		}
 	}
 
 	openaiClient := oaisvc.NewOpenAIClient()

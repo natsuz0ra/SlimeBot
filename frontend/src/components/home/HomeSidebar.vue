@@ -8,6 +8,7 @@ import {
   mdiDotsHorizontal,
   mdiMagnify,
   mdiFolderOutline,
+  mdiMessageTextOutline,
   mdiPlus,
   mdiWeatherNight,
   mdiWeatherSunny,
@@ -162,22 +163,20 @@ onUnmounted(() => {
     </div>
 
     <div :ref="setSidebarListRef" class="scroll-area flex-1 overflow-y-auto py-2 px-1">
-      <div
-        class="group group/tip relative flex min-w-0 items-center gap-1 px-2 h-9 rounded-xl cursor-pointer transition-all duration-150 mb-3"
-        :class="currentSessionId === MESSAGE_PLATFORM_SESSION_ID ? 'session-item-active' : 'session-item'"
-        @click="emit('pickSession', MESSAGE_PLATFORM_SESSION_ID)"
-      >
-        <span
-          v-if="currentSessionId === MESSAGE_PLATFORM_SESSION_ID"
-          class="session-active-indicator absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-5 rounded-r-full"
-        />
-        <TruncationTooltip
-          inherit-group
-          :text="t('messagePlatformSession')"
-          wrapper-class="min-w-0 flex-1"
-          content-class="sb-text-primary text-sm"
-        />
-        <span class="text-[10px] px-1.5 py-0.5 rounded-md platform-badge">IM</span>
+      <div class="workspace-platform-section mb-2 px-0.5 pb-2">
+        <button
+          type="button"
+          class="workspace-platform-row group group/tip relative flex h-10 w-full min-w-0 items-center gap-2 rounded-lg px-1.5 text-left text-[15px] font-semibold cursor-pointer"
+          :class="currentSessionId === MESSAGE_PLATFORM_SESSION_ID ? 'workspace-platform-row-active' : ''"
+          :aria-current="currentSessionId === MESSAGE_PLATFORM_SESSION_ID ? 'page' : undefined"
+          @click="emit('pickSession', MESSAGE_PLATFORM_SESSION_ID)"
+        >
+          <span v-if="currentSessionId === MESSAGE_PLATFORM_SESSION_ID" class="session-active-indicator absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-5 rounded-r-full" />
+          <span class="w-[13px] flex-shrink-0" aria-hidden="true" />
+          <MdiIcon :path="mdiMessageTextOutline" :size="19" class="flex-shrink-0" />
+          <TruncationTooltip inherit-group :text="t('messagePlatformSession')" wrapper-class="min-w-0 flex-1" content-class="text-[15px] font-semibold" />
+          <span class="platform-badge rounded-md px-1.5 py-0.5 text-[10px] font-medium leading-none">IM</span>
+        </button>
       </div>
 
       <section v-for="group in groupedSessions" :key="group.path || 'unclassified'" class="workspace-section mb-3">
@@ -281,6 +280,12 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
+.workspace-platform-section { border-bottom: 1px solid var(--sidebar-border); }
+.workspace-platform-row { color: var(--text-primary); border: 1px solid transparent; transition: background 150ms ease, border-color 150ms ease; }
+.workspace-platform-row:hover, .workspace-platform-row:focus-visible { background: var(--primary-alpha-08); }
+.workspace-platform-row:focus-visible { outline: 2px solid var(--sb-brand); outline-offset: -2px; }
+.workspace-platform-row-active { background: var(--primary-alpha-12); border-color: var(--primary-alpha-15); }
+.workspace-platform-row-active:hover, .workspace-platform-row-active:focus-visible { background: var(--primary-alpha-15); }
 .workspace-section + .workspace-section { padding-top: 8px; border-top: 1px solid var(--sidebar-border); }
 .workspace-group { color: var(--text-primary); transition: background 150ms ease, color 150ms ease; }
 .workspace-group:hover, .workspace-group:focus-visible, .workspace-group-add:hover, .workspace-group-add:focus-visible { color: var(--text-primary); background: var(--primary-alpha-08); }

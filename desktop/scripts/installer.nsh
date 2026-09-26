@@ -23,10 +23,6 @@ Var desktopShortcutCheckbox
 !macroend
 
 Function desktopShortcutPageCreate
-  ${if} ${isUpdated}
-    Abort
-  ${endIf}
-
   nsDialogs::Create 1018
   Pop $0
   ${if} $0 == error

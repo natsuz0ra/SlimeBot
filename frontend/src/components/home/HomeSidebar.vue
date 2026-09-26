@@ -163,33 +163,33 @@ onUnmounted(() => {
     </div>
 
     <div :ref="setSidebarListRef" class="scroll-area flex-1 overflow-y-auto py-2 px-1">
-      <div class="mb-2 px-0.5">
+      <div class="mb-1 px-0.5">
         <button
           type="button"
-          class="workspace-platform-row group group/tip relative flex h-10 w-full min-w-0 items-center gap-2 rounded-lg px-1.5 text-left text-[15px] font-semibold cursor-pointer"
+          class="workspace-platform-row group group/tip relative flex h-9 w-full min-w-0 items-center gap-1.5 rounded-lg px-1.5 text-left text-sm font-semibold cursor-pointer"
           :class="currentSessionId === MESSAGE_PLATFORM_SESSION_ID ? 'workspace-platform-row-active' : ''"
           :aria-current="currentSessionId === MESSAGE_PLATFORM_SESSION_ID ? 'page' : undefined"
           @click="emit('pickSession', MESSAGE_PLATFORM_SESSION_ID)"
         >
           <span v-if="currentSessionId === MESSAGE_PLATFORM_SESSION_ID" class="session-active-indicator absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-5 rounded-r-full" />
           <span class="w-[13px] flex-shrink-0" aria-hidden="true" />
-          <MdiIcon :path="mdiMessageTextOutline" :size="19" class="flex-shrink-0" />
-          <TruncationTooltip inherit-group :text="t('messagePlatformSession')" wrapper-class="min-w-0 flex-1" content-class="text-[15px] font-semibold" />
+          <MdiIcon :path="mdiMessageTextOutline" :size="18" class="flex-shrink-0" />
+          <TruncationTooltip inherit-group :text="t('messagePlatformSession')" wrapper-class="min-w-0 flex-1" content-class="text-sm font-semibold" />
           <span class="platform-badge rounded-md px-1.5 py-0.5 text-[10px] font-medium leading-none">IM</span>
         </button>
       </div>
 
-      <section v-for="group in groupedSessions" :key="group.path || 'unclassified'" class="mb-2">
+      <section v-for="group in groupedSessions" :key="group.path || 'unclassified'" class="mb-1">
         <div class="group flex items-center gap-1 px-0.5 min-w-0">
           <button
             type="button"
-            class="workspace-group flex h-10 flex-1 min-w-0 items-center gap-2 rounded-lg px-1.5 text-left text-[15px] font-semibold cursor-pointer"
+            class="workspace-group flex h-9 flex-1 min-w-0 items-center gap-1.5 rounded-lg px-1.5 text-left text-sm font-semibold cursor-pointer"
             :title="group.path || t('workspaceUnclassified')"
             :aria-expanded="isGroupExpanded(group.path)"
             @click="toggleGroup(group.path)"
           >
             <MdiIcon :path="mdiChevronDown" :size="13" class="flex-shrink-0 transition-transform duration-150" :class="!isGroupExpanded(group.path) ? '-rotate-90' : ''" />
-            <MdiIcon :path="mdiFolderOutline" :size="19" class="flex-shrink-0" />
+            <MdiIcon :path="mdiFolderOutline" :size="18" class="flex-shrink-0" />
             <span class="min-w-0 truncate">{{ group.name }}</span>
           </button>
           <button
@@ -201,7 +201,7 @@ onUnmounted(() => {
             @click="emit('createSession', group.path)"
           ><MdiIcon :path="mdiPlus" :size="15" /></button>
         </div>
-        <div v-if="isGroupExpanded(group.path)" class="workspace-session-list ml-7 mt-1 space-y-0.5 border-l pl-2">
+        <div v-if="isGroupExpanded(group.path)" class="workspace-session-list ml-7 mt-0.5 space-y-0.5 border-l pl-2">
           <div
             v-for="item in visibleSessions(group)"
             :key="item.id"

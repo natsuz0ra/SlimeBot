@@ -163,7 +163,7 @@ onUnmounted(() => {
     </div>
 
     <div :ref="setSidebarListRef" class="scroll-area flex-1 overflow-y-auto py-2 px-1">
-      <div class="workspace-platform-section mb-2 px-0.5 pb-2">
+      <div class="mb-2 px-0.5">
         <button
           type="button"
           class="workspace-platform-row group group/tip relative flex h-10 w-full min-w-0 items-center gap-2 rounded-lg px-1.5 text-left text-[15px] font-semibold cursor-pointer"
@@ -179,7 +179,7 @@ onUnmounted(() => {
         </button>
       </div>
 
-      <section v-for="group in groupedSessions" :key="group.path || 'unclassified'" class="workspace-section mb-3">
+      <section v-for="group in groupedSessions" :key="group.path || 'unclassified'" class="mb-2">
         <div class="group flex items-center gap-1 px-0.5 min-w-0">
           <button
             type="button"
@@ -242,7 +242,7 @@ onUnmounted(() => {
       </section>
 
       <button
-        v-if="store.hasMoreSessions || store.loadingMoreSessions"
+        v-if="store.hasMoreSessions"
         type="button"
         class="workspace-load-more flex w-full items-center justify-center gap-2 rounded-lg py-2 text-xs cursor-pointer disabled:cursor-default"
         :disabled="store.loadingMoreSessions"
@@ -280,13 +280,11 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
-.workspace-platform-section { border-bottom: 1px solid var(--sidebar-border); }
 .workspace-platform-row { color: var(--text-primary); border: 1px solid transparent; transition: background 150ms ease, border-color 150ms ease; }
 .workspace-platform-row:hover, .workspace-platform-row:focus-visible { background: var(--primary-alpha-08); }
 .workspace-platform-row:focus-visible { outline: 2px solid var(--sb-brand); outline-offset: -2px; }
 .workspace-platform-row-active { background: var(--primary-alpha-12); border-color: var(--primary-alpha-15); }
 .workspace-platform-row-active:hover, .workspace-platform-row-active:focus-visible { background: var(--primary-alpha-15); }
-.workspace-section + .workspace-section { padding-top: 8px; border-top: 1px solid var(--sidebar-border); }
 .workspace-group { color: var(--text-primary); transition: background 150ms ease, color 150ms ease; }
 .workspace-group:hover, .workspace-group:focus-visible, .workspace-group-add:hover, .workspace-group-add:focus-visible { color: var(--text-primary); background: var(--primary-alpha-08); }
 .workspace-group-add { color: var(--text-muted); }

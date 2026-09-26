@@ -27,7 +27,7 @@ const MAX_SESSION_PAGE_SIZE = 100
 export const useChatStore = defineStore('chat', () => {
   const sessions = ref<SessionItem[]>([])
   const sessionPageSize = ref(30)
-  const hasMoreSessions = ref(true)
+  const hasMoreSessions = ref(false)
   const loadingMoreSessions = ref(false)
   const sessionSearchQuery = ref('')
   const currentSessionId = ref<string>()
@@ -304,6 +304,7 @@ export const useChatStore = defineStore('chat', () => {
 
   async function loadSessions() {
     sessionSearchQuery.value = ''
+    hasMoreSessions.value = false
     const res = await sessionAPI.list({ limit: sessionPageSize.value, offset: 0 })
     sessions.value = res.sessions
     hasMoreSessions.value = res.hasMore
@@ -341,6 +342,7 @@ export const useChatStore = defineStore('chat', () => {
   async function searchSessions(query: string) {
     const q = query.trim()
     sessionSearchQuery.value = q
+    hasMoreSessions.value = false
     if (!q) {
       await loadSessions()
       return

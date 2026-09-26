@@ -3,7 +3,7 @@ name: Computer Use X11 smoke test
 on:
   push:
     branches:
-      - dev/1.32.0
+      - dev/1.33.0
     paths:
       - .github/workflows/computer-use-x11.yml
       - internal/tools/computer.go

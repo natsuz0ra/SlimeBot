@@ -3,7 +3,7 @@ name: Desktop preview
 on:
   push:
     branches:
-      - dev/1.32.0
+      - dev/1.33.0
     paths:
       - desktop/**
       - frontend/**
@@ -54,15 +54,15 @@ jobs:
         if: matrix.platform == 'mac'
         uses: actions/upload-artifact@v4
         with:
-          name: SlimeBot-1.32.0-macos-universal-dmg
-          path: desktop/dist/SlimeBot-1.32.0-macos-universal.dmg
+          name: SlimeBot-1.33.0-macos-universal-dmg
+          path: desktop/dist/SlimeBot-1.33.0-macos-universal.dmg
           if-no-files-found: error
       - name: Upload Windows installer
         if: matrix.platform == 'win'
         uses: actions/upload-artifact@v4
         with:
-          name: SlimeBot-1.32.0-windows-x64-exe
-          path: desktop/dist/SlimeBot-1.32.0-windows-x64.exe
+          name: SlimeBot-1.33.0-windows-x64-exe
+          path: desktop/dist/SlimeBot-1.33.0-windows-x64.exe
           if-no-files-found: error
 
   publish-preview:
@@ -74,7 +74,7 @@ jobs:
     steps:
       - uses: actions/download-artifact@v4
         with:
-          pattern: SlimeBot-1.32.0-*
+          pattern: SlimeBot-1.33.0-*
           path: dist
           merge-multiple: true
       - name: Publish macOS DMG and Windows EXE
@@ -84,11 +84,11 @@ jobs:
         shell: bash
         run: |
           tag="desktop-preview-${GITHUB_SHA:0:7}"
-          files=(dist/SlimeBot-1.32.0-macos-universal.dmg dist/SlimeBot-1.32.0-windows-x64.exe)
+          files=(dist/SlimeBot-1.33.0-macos-universal.dmg dist/SlimeBot-1.33.0-windows-x64.exe)
           if gh release view "$tag" >/dev/null 2>&1; then
             gh release upload "$tag" "${files[@]}" --clobber
           else
             gh release create "$tag" "${files[@]}" --target "$GITHUB_SHA" --prerelease \
-              --title "SlimeBot Desktop 1.32.0 Preview (${GITHUB_SHA:0:7})" \
+              --title "SlimeBot Desktop 1.33.0 Preview (${GITHUB_SHA:0:7})" \
               --notes "Unsigned desktop preview. macOS: DMG. Windows x64: EXE."
           fi

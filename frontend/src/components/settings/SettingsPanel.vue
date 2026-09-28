@@ -94,6 +94,9 @@ const agentsInstructionsPath = ref('')
 const agentsInstructionsSaving = ref(false)
 const sandboxMode = ref<SandboxMode>('workspace-write')
 const sandboxNetworkEnabled = ref(true)
+const proxyUrl = ref('')
+const savedProxyUrl = ref('')
+const savingProxy = ref(false)
 const skillsFileInputRef = ref<HTMLInputElement | null>(null)
 const accountDialogVisible = ref(false)
 const messagePlatformDialogVisible = ref(false)
@@ -247,6 +250,8 @@ async function loadData() {
     messagePlatformThinkingLevel.value = appSettings.messagePlatformThinkingLevel || 'off'
     messagePlatformApprovalMode.value = appSettings.messagePlatformApprovalMode || 'standard'
     webSearchKey.value = appSettings.webSearchKey || ''
+    proxyUrl.value = appSettings.proxyUrl || ''
+    savedProxyUrl.value = proxyUrl.value
     sandboxMode.value = toWebSandboxMode(appSettings.sandboxMode || 'workspace-write')
     sandboxNetworkEnabled.value = appSettings.sandboxNetworkEnabled !== undefined ? appSettings.sandboxNetworkEnabled : true
     memoryEnabled.value = appSettings.memoryEnabled !== undefined ? appSettings.memoryEnabled : true
@@ -302,6 +307,22 @@ async function onSandboxNetworkChange(enabled: boolean) {
     sandboxNetworkEnabled.value = previousEnabled
     const response = err as { response?: { data?: { error?: string } } }
     toast.error(response.response?.data?.error || t('sandboxSaveFailed'))
+  }
+}
+
+async function saveProxy() {
+  savingProxy.value = true
+  try {
+    const next = proxyUrl.value.trim()
+    await settingAPI.update({ proxyUrl: next })
+    proxyUrl.value = next
+    savedProxyUrl.value = next
+    toast.success(t('saveSuccess'))
+  } catch (err: unknown) {
+    const response = err as { response?: { status?: number; data?: { error?: string } } }
+    toast.error(response.response?.status === 400 ? t('proxyInvalidAddress') : response.response?.data?.error || t('proxySaveFailed'))
+  } finally {
+    savingProxy.value = false
   }
 }
 
@@ -507,12 +528,18 @@ watch(tab, (nextTab) => {
           :sandbox-mode="sandboxMode"
           :sandbox-mode-options="sandboxModeOptions"
           :sandbox-network-enabled="sandboxNetworkEnabled"
+          :proxy-url="proxyUrl"
+          :proxy-dirty="proxyUrl.trim() !== savedProxyUrl"
+          :proxy-enabled="Boolean(savedProxyUrl)"
+          :saving-proxy="savingProxy"
           @open-account="openAccountDialog"
           @open-web-search="openWebSearchDialog"
           @logout="logout"
           @language-change="onLanguageChange"
           @sandbox-mode-change="onSandboxModeChange"
           @sandbox-network-change="onSandboxNetworkChange"
+          @proxy-url-change="proxyUrl = $event"
+          @save-proxy="saveProxy"
         />
 
         <SettingsLLMTab

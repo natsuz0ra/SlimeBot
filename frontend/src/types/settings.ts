@@ -11,6 +11,7 @@ export interface AppSettings {
   messagePlatformThinkingLevel?: ThinkingLevel
   messagePlatformApprovalMode?: ApprovalMode
   webSearchKey?: string
+  proxyUrl?: string
   approvalMode?: ApprovalMode
   thinkingLevel?: ThinkingLevel
   sandboxMode?: SandboxMode

@@ -20,6 +20,7 @@ func (h *HTTPController) GetSettings(c WebContext) {
 		"messagePlatformThinkingLevel":    settings.MessagePlatformThinkingLevel,
 		"messagePlatformApprovalMode":     settings.MessagePlatformApprovalMode,
 		"webSearchApiKey":                 settings.WebSearchAPIKey,
+		"proxyUrl":                        settings.ProxyURL,
 		"approvalMode":                    settings.ApprovalMode,
 		"thinkingLevel":                   settings.ThinkingLevel,
 		"sandboxMode":                     settings.SandboxMode,
@@ -47,6 +48,7 @@ func (h *HTTPController) UpdateSettings(c WebContext) {
 		MessagePlatformThinkingLevel    *string   `json:"messagePlatformThinkingLevel"`
 		MessagePlatformApprovalMode     *string   `json:"messagePlatformApprovalMode"`
 		WebSearchAPIKey                 *string   `json:"webSearchApiKey"`
+		ProxyURL                        *string   `json:"proxyUrl"`
 		ApprovalMode                    *string   `json:"approvalMode"`
 		ThinkingLevel                   *string   `json:"thinkingLevel"`
 		SandboxMode                     *string   `json:"sandboxMode"`
@@ -73,6 +75,7 @@ func (h *HTTPController) UpdateSettings(c WebContext) {
 		MessagePlatformThinkingLevel:    req.MessagePlatformThinkingLevel,
 		MessagePlatformApprovalMode:     req.MessagePlatformApprovalMode,
 		WebSearchAPIKey:                 req.WebSearchAPIKey,
+		ProxyURL:                        req.ProxyURL,
 		ApprovalMode:                    req.ApprovalMode,
 		ThinkingLevel:                   req.ThinkingLevel,
 		SandboxMode:                     req.SandboxMode,

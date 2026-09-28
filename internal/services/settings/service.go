@@ -23,6 +23,7 @@ type AppSettings struct {
 	MessagePlatformThinkingLevel    string
 	MessagePlatformApprovalMode     string
 	WebSearchAPIKey                 string
+	ProxyURL                        string
 	ApprovalMode                    string
 	ThinkingLevel                   string
 	SandboxMode                     string
@@ -48,6 +49,7 @@ type UpdateSettingsInput struct {
 	MessagePlatformThinkingLevel    *string
 	MessagePlatformApprovalMode     *string
 	WebSearchAPIKey                 *string
+	ProxyURL                        *string
 	ApprovalMode                    *string
 	ThinkingLevel                   *string
 	SandboxMode                     *string
@@ -120,6 +122,10 @@ func (s *SettingsService) Get(ctx context.Context) (*AppSettings, error) {
 		messagePlatformApprovalMode = constants.ApprovalModeStandard
 	}
 	webSearchAPIKey, err := runtime.ReadEnvValue(constants.SettingWebSearchAPIKey)
+	if err != nil {
+		return nil, err
+	}
+	proxyURL, err := runtime.ReadEnvValue(runtime.ProxyEnvKey)
 	if err != nil {
 		return nil, err
 	}
@@ -199,6 +205,7 @@ func (s *SettingsService) Get(ctx context.Context) (*AppSettings, error) {
 		MessagePlatformThinkingLevel:    messagePlatformThinkingLevel,
 		MessagePlatformApprovalMode:     messagePlatformApprovalMode,
 		WebSearchAPIKey:                 webSearchAPIKey,
+		ProxyURL:                        proxyURL,
 		ApprovalMode:                    approvalMode,
 		ThinkingLevel:                   thinkingLevel,
 		SandboxMode:                     sandboxMode,
@@ -219,6 +226,18 @@ func (s *SettingsService) Get(ctx context.Context) (*AppSettings, error) {
 
 // Update applies only fields that are explicitly set in the request.
 func (s *SettingsService) Update(ctx context.Context, input UpdateSettingsInput) error {
+	if input.ProxyURL != nil {
+		proxy := strings.TrimSpace(*input.ProxyURL)
+		if err := runtime.ValidateProxyURL(proxy); err != nil {
+			return fmt.Errorf("%w: %v", apperrors.ErrInvalidInput, err)
+		}
+		if err := runtime.UpsertEnvValue(runtime.ProxyEnvKey, proxy); err != nil {
+			return err
+		}
+		if err := runtime.SetProxyURL(proxy); err != nil {
+			return err
+		}
+	}
 	if input.Language != nil && strings.TrimSpace(*input.Language) != "" {
 		if err := s.store.SetSetting(ctx, constants.SettingLanguage, *input.Language); err != nil {
 			return err

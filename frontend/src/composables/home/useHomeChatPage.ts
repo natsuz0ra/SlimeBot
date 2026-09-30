@@ -67,6 +67,7 @@ export function useHomeChatPage() {
       autoStickToBottom: scrollState.autoStickToBottom,
       scrollMessagesToBottom: scrollState.scrollMessagesToBottom,
       queueScrollMessagesToBottom: scrollState.queueScrollMessagesToBottom,
+      scrollToMessage: scrollState.scrollToMessage,
     },
     sendDisabled,
   })
@@ -150,6 +151,7 @@ export function useHomeChatPage() {
     removeSession: sessionActions.removeSession,
     confirmDeleteSession: sessionActions.confirmDeleteSession,
     pickSession: sessionActions.pickSession,
+    pickSearchResult: sessionActions.pickSearchResult,
     createSession: sessionActions.createSession,
     renameFromFloatingMenu: sessionActions.renameFromFloatingMenu,
     deleteFromFloatingMenu: sessionActions.deleteFromFloatingMenu,

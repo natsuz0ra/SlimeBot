@@ -23,6 +23,8 @@ type authService interface {
 }
 
 type sessionService interface {
+	Get(ctx context.Context, id string) (*domain.Session, error)
+	Search(ctx context.Context, query, scope string, limit, offset int) (sessionsvc.SearchResult, error)
 	List(ctx context.Context, limit int, offset int, query string) (sessionsvc.ListResult, error)
 	Create(ctx context.Context, name string, workingDirectory ...string) (*domain.Session, error)
 	RenameByUser(ctx context.Context, id, name string) error

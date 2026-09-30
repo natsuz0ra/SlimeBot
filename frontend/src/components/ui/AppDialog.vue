@@ -127,7 +127,7 @@ watch(
     if (visible) {
       previouslyFocused = document.activeElement instanceof HTMLElement ? document.activeElement : null
       await nextTick()
-      const firstFocusable = focusableElements()[0]
+      const firstFocusable = panelRef.value?.querySelector<HTMLElement>('[autofocus]') ?? focusableElements()[0]
       if (firstFocusable) firstFocusable.focus()
       else panelRef.value?.focus()
       return

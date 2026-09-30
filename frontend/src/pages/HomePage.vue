@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, toRef } from 'vue'
+import { computed, onMounted, ref, toRef } from 'vue'
 import { useRoute } from 'vue-router'
 import {
   mdiDeleteOutline,
@@ -13,6 +13,7 @@ import ChatComposer from '@/components/chat/ChatComposer.vue'
 import ChatMessageList from '@/components/chat/ChatMessageList.vue'
 import HomeDialogs from '@/components/home/HomeDialogs.vue'
 import HomeHeaderBar from '@/components/home/HomeHeaderBar.vue'
+import ChatSearchDialog from '@/components/home/ChatSearchDialog.vue'
 import HomeSidebar from '@/components/home/HomeSidebar.vue'
 import AppLogo from '@/components/ui/AppLogo.vue'
 import { provideChatContext } from '@/composables/chat/useChatContext'
@@ -34,6 +35,7 @@ const {
   scroll,
 } = useHomeChatPage()
 
+const searchVisible = ref(false)
 const { isDark, toggleTheme } = useTheme()
 const {
   hasUnreadUpdate,
@@ -97,6 +99,7 @@ onMounted(() => {
 </script>
 
 <template>
+  <ChatSearchDialog :visible="searchVisible" :pick-result="sessions.pickSearchResult" @close="searchVisible = false" />
   <div
     class="page-shell h-screen flex items-center justify-center p-2 sm:p-3 transition-colors duration-300"
     :class="{ 'home-login-entering': playHomeLoginEnter }"
@@ -120,6 +123,7 @@ onMounted(() => {
           @toggle-session-menu="ui.toggleSessionMenu"
           @toggle-theme="toggleTheme"
           @open-settings="ui.settingsVisible = true"
+          @open-search="searchVisible = true"
         />
       </Transition>
 
@@ -233,10 +237,14 @@ onMounted(() => {
           <div class="chat-content-scroll flex min-h-0 flex-1 flex-col overflow-hidden">
           <ChatMessageList
             :messages="store.messages"
+            :focused-message-id="store.focusedMessageId"
+            :has-newer-history="store.hasNewerHistory"
+            :loading-newer-messages="store.loadingNewerMessages"
             :show-scroll-to-bottom="scroll.showScrollToBottom"
             :loading-older-history="store.loadingOlderHistory"
             :set-messages-ref="scroll.setMessagesRef"
             @scroll-to-bottom="scroll.scrollToBottomByButton"
+            @load-newer="store.currentSessionId && store.loadNewMessagesForSession(store.currentSessionId)"
           />
           </div>
 

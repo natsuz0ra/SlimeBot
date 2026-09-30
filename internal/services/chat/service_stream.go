@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"regexp"
 	"slimebot/internal/apperrors"
 	"slimebot/internal/logging"
 	"strings"
@@ -26,11 +25,9 @@ const (
 	planEndMarker     = "\n<!-- PLAN_END -->\n"
 )
 
-var contentMarkerRegex = regexp.MustCompile(`\n?<!-- (?:TOOL_CALL:.+?|THINKING:.+?|PLAN_START|PLAN_END) -->\n?`)
-
 // StripContentMarkers removes TOOL_CALL/PLAN markers from text for real-time display.
 func StripContentMarkers(input string) string {
-	return contentMarkerRegex.ReplaceAllString(input, "")
+	return domain.StripContentMarkers(input)
 }
 
 // chatTurnState holds intermediate state while preparing a chat turn.

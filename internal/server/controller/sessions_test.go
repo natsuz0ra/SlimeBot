@@ -8,6 +8,7 @@ import (
 	"slimebot/internal/constants"
 	"slimebot/internal/domain"
 	sessionsvc "slimebot/internal/services/session"
+	"strings"
 	"testing"
 	"time"
 
@@ -274,4 +275,23 @@ func TestListMessages_NormalizesInterruptedOpenToolAndThinkingHistory(t *testing
 
 func contextWithRoute(parent context.Context, routeCtx *chi.Context) context.Context {
 	return context.WithValue(parent, chi.RouteCtxKey, routeCtx)
+}
+
+func (s sessionServiceStub) Search(ctx context.Context, query, scope string, limit, offset int) (sessionsvc.SearchResult, error) {
+	return sessionsvc.SearchResult{Hits: []domain.ChatSearchHit{}}, nil
+}
+
+func TestSearchChatsRejectsInvalidQuery(t *testing.T) {
+	controller := NewHTTPController(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	for _, query := range []string{"scope=unknown", "offset=-1", "limit=0", "offset=oops", "q=" + strings.Repeat("a", 101)} {
+		response := httptest.NewRecorder()
+		controller.SearchChats(NewChiContext(response, httptest.NewRequest(http.MethodGet, "/sessions/search?"+query, nil)))
+		if response.Code != http.StatusBadRequest {
+			t.Fatalf("query %q: %d", query, response.Code)
+		}
+	}
+}
+
+func (s sessionServiceStub) Get(ctx context.Context, id string) (*domain.Session, error) {
+	return &domain.Session{ID: id}, nil
 }

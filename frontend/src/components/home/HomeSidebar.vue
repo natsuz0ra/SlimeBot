@@ -1,8 +1,7 @@
 <script setup lang="ts">
-import { computed, onUnmounted, ref, watch } from 'vue'
+import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import {
-  mdiClose,
   mdiChevronDown,
   mdiCogOutline,
   mdiDotsHorizontal,
@@ -39,18 +38,14 @@ const emit = defineEmits<{
   toggleSessionMenu: [sessionId: string, event: MouseEvent]
   toggleTheme: []
   openSettings: []
+  openSearch: []
 }>()
 
 const { t } = useI18n()
 const store = useChatStore()
 
-const searchOpen = ref(false)
-const searchInput = ref('')
-let searchDebounceTimer: number | null = null
-
 const collapsed = ref<string[]>([])
 const platformCollapsed = ref(false)
-const searchCollapsed = ref<string[]>([])
 const groupSessionLimits = ref<Record<string, number>>({})
 const groupedSessions = computed(() => groupSessionsByDirectory(props.sessions.filter((session) => !isMessagePlatformSessionId(session.id)), t('workspaceUnclassified')))
 const platformSessions = computed(() => listPlatformSessions(props.sessions))
@@ -61,20 +56,17 @@ function platformIcon(id: string) {
     default: return mdiMessageTextOutline
   }
 }
-const searching = computed(() => searchOpen.value && !!store.sessionSearchQuery.trim())
 
 function sessionLimit(path: string) {
   return groupSessionLimits.value[path] || INITIAL_GROUP_SESSION_COUNT
 }
 
 function visibleSessions(group: SessionGroup) {
-  return searching.value
-    ? group.sessions
-    : group.sessions.slice(0, sessionLimit(group.path))
+  return group.sessions.slice(0, sessionLimit(group.path))
 }
 
 function isGroupExpanded(path: string) {
-  return searching.value ? !searchCollapsed.value.includes(path) : !collapsed.value.includes(path)
+  return !collapsed.value.includes(path)
 }
 
 function showMoreSessions(group: SessionGroup) {
@@ -86,7 +78,7 @@ function showFewerSessions(path: string) {
 }
 
 function toggleGroup(path: string) {
-  const target = searching.value ? searchCollapsed : collapsed
+  const target = collapsed
   if (isGroupExpanded(path)) {
     target.value = [...target.value, path]
     showFewerSessions(path)
@@ -95,44 +87,11 @@ function toggleGroup(path: string) {
   }
 }
 
-watch(() => store.sessionSearchQuery, () => { searchCollapsed.value = [] })
-
-function clearSearchDebounce() {
-  if (searchDebounceTimer !== null) {
-    window.clearTimeout(searchDebounceTimer)
-    searchDebounceTimer = null
-  }
-}
-
-function openSearch() {
-  searchOpen.value = true
-  searchInput.value = store.sessionSearchQuery
-}
-
-function closeSearch() {
-  searchOpen.value = false
-  searchInput.value = ''
-  clearSearchDebounce()
-  void store.searchSessions('')
-}
-
-watch(searchInput, (v) => {
-  if (!searchOpen.value) return
-  clearSearchDebounce()
-  searchDebounceTimer = window.setTimeout(() => {
-    searchDebounceTimer = null
-    void store.searchSessions(v)
-  }, 300)
-})
-
-onUnmounted(() => {
-  clearSearchDebounce()
-})
 </script>
 
 <template>
   <aside class="sidebar-panel absolute inset-y-0 left-0 w-64 flex flex-col z-30 backdrop-blur-xl">
-    <div v-if="!searchOpen" class="sidebar-header flex items-center justify-between px-4 h-14">
+    <div class="sidebar-header flex items-center justify-between px-4 h-14">
       <div class="flex items-center gap-2.5 min-w-0">
         <AppLogo :size="36" />
         <span class="sb-text-primary text-lg font-semibold tracking-wide brand-tech-font truncate">SlimeBot</span>
@@ -149,28 +108,13 @@ onUnmounted(() => {
         <button
           type="button"
           class="sb-text-muted w-8 h-8 flex items-center justify-center rounded-lg transition-all duration-150 cursor-pointer group"
-          @click="openSearch"
+          :aria-label="t('chatSearch')"
+          :title="t('chatSearch')"
+          @click="emit('openSearch')"
         >
           <MdiIcon :path="mdiMagnify" :size="20" class="group-hover:scale-110 transition-transform duration-150" />
         </button>
       </div>
-    </div>
-
-    <div v-else class="sidebar-header flex items-center gap-2 px-3 h-14">
-      <input
-        v-model="searchInput"
-        type="search"
-        autocomplete="off"
-        class="sidebar-search-input flex-1 min-w-0 h-9 px-2.5 rounded-lg text-sm outline-none transition-colors duration-150"
-        :placeholder="t('searchSessionsPlaceholder')"
-      />
-      <button
-        type="button"
-        class="sb-text-muted w-8 h-8 flex items-center justify-center rounded-lg transition-all duration-150 cursor-pointer flex-shrink-0"
-        @click="closeSearch"
-      >
-        <MdiIcon :path="mdiClose" :size="20" />
-      </button>
     </div>
 
     <div :ref="setSidebarListRef" class="scroll-area flex-1 overflow-y-auto py-2 px-1">
@@ -222,7 +166,7 @@ onUnmounted(() => {
             <span class="min-w-0 truncate">{{ group.name }}</span>
           </button>
           <button
-            v-if="group.path && !searchOpen"
+            v-if="group.path"
             type="button"
             class="workspace-group-add w-6 h-6 flex-shrink-0 flex items-center justify-center rounded-md cursor-pointer opacity-0 group-hover:opacity-100 focus-visible:opacity-100 max-md:opacity-100"
             :title="t('workspaceNewChat')"
@@ -253,7 +197,7 @@ onUnmounted(() => {
               @click.stop="emit('toggleSessionMenu', item.id, $event as MouseEvent)"
             ><MdiIcon :path="mdiDotsHorizontal" :size="15" /></button>
           </div>
-          <div v-if="!searching && group.sessions.length > INITIAL_GROUP_SESSION_COUNT" class="workspace-session-actions flex items-center gap-1">
+          <div v-if="group.sessions.length > INITIAL_GROUP_SESSION_COUNT" class="workspace-session-actions flex items-center gap-1">
             <button
               v-if="visibleSessions(group).length < group.sessions.length"
               type="button"
@@ -323,19 +267,6 @@ onUnmounted(() => {
 .workspace-session-menu:hover, .workspace-session-menu:focus-visible { color: var(--text-primary); background: var(--primary-alpha-10); }
 .workspace-session-more, .workspace-load-more { color: var(--text-muted); transition: background 150ms ease, color 150ms ease; }
 .workspace-session-more:hover, .workspace-session-more:focus-visible, .workspace-load-more:hover:not(:disabled), .workspace-load-more:focus-visible { color: var(--text-primary); background: var(--primary-alpha-08); }
-.sidebar-search-input {
-  background: var(--sidebar-bg);
-  color: var(--text-primary);
-  border: 1px solid var(--sidebar-border);
-}
-.sidebar-search-input::placeholder {
-  color: var(--text-muted);
-}
-.sidebar-search-input:focus {
-  border-color: var(--sb-brand);
-  box-shadow: 0 0 0 2px var(--primary-alpha-12);
-}
-
 .update-notice-dot {
   width: 7px;
   height: 7px;

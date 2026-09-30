@@ -12,6 +12,19 @@ export interface SessionItem {
   workingDirectory?: string
 }
 
+export interface ChatSearchHit {
+  sessionId: string
+  sessionName: string
+  workingDirectory?: string
+  messageId?: string
+  role?: 'user' | 'assistant'
+  snippet: string
+  createdAt: string
+  seq?: number
+}
+export type ChatSearchScope = 'all' | 'titles' | 'messages'
+export interface ChatSearchResponse { hits: ChatSearchHit[]; hasMore: boolean }
+
 export interface MessageItem {
   id: string
   sessionId: string
@@ -197,6 +210,9 @@ export interface SubagentThinkingItem {
 }
 
 export const sessionAPI = {
+  get: async (id: string) => (await apiClient.get<SessionItem>(`/api/sessions/${id}`)).data,
+  search: async (q: string, scope: ChatSearchScope, offset = 0, signal?: AbortSignal) =>
+    (await apiClient.get<ChatSearchResponse>('/api/sessions/search', { params: { q, scope, limit: 30, offset }, signal })).data,
   list: async (query: SessionListQuery = {}) =>
     (await apiClient.get<SessionListResponse>('/api/sessions', { params: query })).data,
   create: async (name?: string, workingDirectory?: string) => (await apiClient.post<SessionItem>('/api/sessions', { name, workingDirectory })).data,

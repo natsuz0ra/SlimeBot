@@ -1,6 +1,7 @@
 package domain
 
 import (
+	"regexp"
 	llmsvc "slimebot/internal/services/llm"
 	"time"
 )
@@ -181,4 +182,24 @@ type Skill struct {
 	UploadedAt   time.Time `json:"uploadedAt"`
 	CreatedAt    time.Time `json:"createdAt"`
 	UpdatedAt    time.Time `json:"updatedAt"`
+}
+
+// ChatSearchHit identifies either a session title or a visible message match.
+type ChatSearchHit struct {
+	SessionID        string    `json:"sessionId"`
+	SessionName      string    `json:"sessionName"`
+	WorkingDirectory string    `json:"workingDirectory,omitempty"`
+	MessageID        string    `json:"messageId,omitempty"`
+	Role             string    `json:"role,omitempty"`
+	Content          string    `json:"-"`
+	Snippet          string    `json:"snippet"`
+	CreatedAt        time.Time `json:"createdAt"`
+	Seq              int64     `json:"seq,omitempty"`
+}
+
+var contentMarkerRegex = regexp.MustCompile(`\n?<!-- (?:TOOL_CALL:.+?|THINKING:.+?|PLAN_START|PLAN_END) -->\n?`)
+
+// StripContentMarkers removes internal timeline markers from message text.
+func StripContentMarkers(input string) string {
+	return contentMarkerRegex.ReplaceAllString(input, "")
 }

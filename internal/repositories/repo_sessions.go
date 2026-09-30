@@ -105,3 +105,47 @@ func (r *Repository) DeleteSession(ctx context.Context, id string) error {
 		return tx.Table("sessions").Where("id = ?", id).Delete(nil).Error
 	})
 }
+
+// SearchChats scans SQL candidates in bounded batches so hidden timeline markers
+// do not produce hits or change the pagination of visible results.
+func (r *Repository) SearchChats(ctx context.Context, query, scope string, limit, offset int) ([]domain.ChatSearchHit, error) {
+	like := "%" + escapeSQLiteLikePattern(query) + "%"
+	sql := `SELECT s.id AS session_id, s.name AS session_name, s.working_directory, '' AS message_id,
+ '' AS role, s.name AS content, s.updated_at AS created_at, 0 AS seq, 0 AS kind
+ FROM sessions s WHERE s.deleted_at IS NULL AND s.name LIKE ? ESCAPE '\' AND ? <> 'messages'
+ UNION ALL
+ SELECT s.id, s.name, s.working_directory, m.id, m.role, m.content, m.created_at, m.seq, 1 AS kind
+ FROM messages m JOIN sessions s ON s.id = m.session_id
+ WHERE s.deleted_at IS NULL AND m.role IN ('user', 'assistant')
+ AND m.content LIKE ? ESCAPE '\' AND ? <> 'titles'
+ ORDER BY kind ASC, created_at DESC, session_id ASC, seq DESC, message_id ASC
+ LIMIT ? OFFSET ?`
+	results := make([]domain.ChatSearchHit, 0, limit)
+	skipped := 0
+	// ponytail: substring search scans SQLite rows; add FTS when archive size makes it measurably slow.
+	for cursor := 0; ; cursor += 100 {
+		var candidates []domain.ChatSearchHit
+		if err := r.dbWithContext(ctx).Raw(sql, like, scope, like, scope, 100, cursor).Scan(&candidates).Error; err != nil {
+			return nil, err
+		}
+		for _, hit := range candidates {
+			if hit.MessageID != "" {
+				hit.Content = domain.StripContentMarkers(hit.Content)
+			}
+			if !strings.Contains(strings.ToLower(hit.Content), strings.ToLower(query)) {
+				continue
+			}
+			if skipped < offset {
+				skipped++
+				continue
+			}
+			results = append(results, hit)
+			if len(results) == limit {
+				return results, nil
+			}
+		}
+		if len(candidates) < 100 {
+			return results, nil
+		}
+	}
+}

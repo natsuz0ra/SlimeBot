@@ -250,3 +250,48 @@ func (h *HTTPController) GetContextUsage(c WebContext) {
 	}
 	c.JSON(http.StatusOK, usage)
 }
+
+func (h *HTTPController) SearchChats(c WebContext) {
+	query := strings.TrimSpace(c.Query("q"))
+	if len([]rune(query)) > 100 {
+		jsonError(c, http.StatusBadRequest, "Search query must be at most 100 characters.")
+		return
+	}
+	scope := c.Query("scope")
+	if scope == "" {
+		scope = "all"
+	}
+	if scope != "all" && scope != "titles" && scope != "messages" {
+		jsonError(c, http.StatusBadRequest, "Invalid search scope.")
+		return
+	}
+	limit, offset := 30, 0
+	for key, target := range map[string]*int{"limit": &limit, "offset": &offset} {
+		if raw := c.Query(key); raw != "" {
+			value, err := strconv.Atoi(raw)
+			if err != nil || value < 0 || (key == "limit" && value == 0) {
+				jsonError(c, http.StatusBadRequest, "Invalid search pagination.")
+				return
+			}
+			*target = value
+		}
+	}
+	if limit > 50 {
+		limit = 50
+	}
+	result, err := h.sessions.Search(c.Request().Context(), query, scope, limit, offset)
+	if err != nil {
+		jsonInternalError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, result)
+}
+
+func (h *HTTPController) GetSession(c WebContext) {
+	session, err := h.sessions.Get(c.Request().Context(), c.Param("id"))
+	if err != nil {
+		jsonInternalError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, session)
+}

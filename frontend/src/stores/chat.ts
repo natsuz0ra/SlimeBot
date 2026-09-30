@@ -4,7 +4,7 @@ import { computed, ref } from 'vue'
 import { ChatSocket, type ConnectionStatus, type ContextUsageData, type RuntimeTodoItem, type TodoUpdateData } from '@/api/chatSocket'
 import { sessionAPI } from '@/api/chat'
 import { isMessagePlatformSessionId } from '@/utils/messagePlatformSessions'
-import type { MessageAttachmentItem, MessageItem, SessionHistoryPayload, SessionHistoryThinkingItem, SessionItem, UploadedAttachmentItem } from '@/api/chat'
+import type { ChatSearchHit, MessageAttachmentItem, MessageItem, SessionHistoryPayload, SessionHistoryThinkingItem, SessionItem, UploadedAttachmentItem } from '@/api/chat'
 import { i18n } from '@/i18n'
 import {
   buildInterleavedTimeline,
@@ -30,12 +30,15 @@ export const useChatStore = defineStore('chat', () => {
   const sessionPageSize = ref(30)
   const hasMoreSessions = ref(false)
   const loadingMoreSessions = ref(false)
-  const sessionSearchQuery = ref('')
+  const searchSelection = ref<SessionItem>()
+  const focusedMessageId = ref('')
+  const hasNewerHistory = ref(false)
   const currentSessionId = ref<string>()
+  let historyGeneration = 0
   const creatingSession = ref(false)
   const draftWorkingDirectory = ref(typeof window !== 'undefined' ? window.localStorage.getItem('slimebot:last-working-directory') || '' : '')
   const currentWorkingDirectory = computed(() => currentSessionId.value
-    ? sessions.value.find((item) => item.id === currentSessionId.value)?.workingDirectory || ''
+    ? (sessions.value.find((item) => item.id === currentSessionId.value) ?? (searchSelection.value?.id === currentSessionId.value ? searchSelection.value : undefined))?.workingDirectory || ''
     : draftWorkingDirectory.value)
 
   function setDraftWorkingDirectory(path: string) {
@@ -69,7 +72,7 @@ export const useChatStore = defineStore('chat', () => {
   const pendingPlanConfirmation = ref<{ sessionId: string; planId: string; content: string } | null>(null)
   const pendingApprovalToolCallIds = computed(() => replyBatches.value.flatMap((batch) => getBatchApprovalToolCallIds(batch.toolCalls)))
   const pendingEditMessageId = ref('')
-  const latestEditableUserMessageId = computed(() => pendingEditMessageId.value ? '' : findLatestEditableUserMessageId(messages.value, waiting.value, failedUserMessageIds.value))
+  const latestEditableUserMessageId = computed(() => (pendingEditMessageId.value || hasNewerHistory.value) ? '' : findLatestEditableUserMessageId(messages.value, waiting.value, failedUserMessageIds.value))
 
   interface QuestionItem {
     id: string
@@ -152,6 +155,8 @@ export const useChatStore = defineStore('chat', () => {
 
   function resetHistoryState() {
     hasMoreHistory.value = false
+    hasNewerHistory.value = false
+    focusedMessageId.value = ''
     loadingOlderHistory.value = false
     loadingNewerMessages.value = false
   }
@@ -304,54 +309,23 @@ export const useChatStore = defineStore('chat', () => {
   }
 
   async function loadSessions() {
-    sessionSearchQuery.value = ''
     hasMoreSessions.value = false
     const res = await sessionAPI.list({ limit: sessionPageSize.value, offset: 0 })
     sessions.value = res.sessions
     hasMoreSessions.value = res.hasMore
-    const isVirtualMessagePlatformSession =
-      isMessagePlatformSessionId(currentSessionId.value) &&
-      !sessions.value.some((item) => item.id === currentSessionId.value)
-    if (isVirtualMessagePlatformSession) return
-    if (currentSessionId.value && !sessions.value.some((item) => item.id === currentSessionId.value)) {
-      currentSessionId.value = undefined
-      messages.value = []
-      resetSessionRuntimeState()
-      resetHistoryState()
-    }
   }
 
   async function loadMoreSessions() {
     if (loadingMoreSessions.value || !hasMoreSessions.value) return
     loadingMoreSessions.value = true
     try {
-      const q = sessionSearchQuery.value.trim()
       const res = await sessionAPI.list({
         limit: sessionPageSize.value,
         offset: sessions.value.length,
-        ...(q ? { q } : {}),
       })
       const existing = new Set(sessions.value.map((s) => s.id))
       const next = res.sessions.filter((s) => !existing.has(s.id))
       sessions.value = [...sessions.value, ...next]
-      hasMoreSessions.value = res.hasMore
-    } finally {
-      loadingMoreSessions.value = false
-    }
-  }
-
-  async function searchSessions(query: string) {
-    const q = query.trim()
-    sessionSearchQuery.value = q
-    hasMoreSessions.value = false
-    if (!q) {
-      await loadSessions()
-      return
-    }
-    loadingMoreSessions.value = true
-    try {
-      const res = await sessionAPI.list({ q, limit: sessionPageSize.value, offset: 0 })
-      sessions.value = res.sessions
       hasMoreSessions.value = res.hasMore
     } finally {
       loadingMoreSessions.value = false
@@ -377,6 +351,8 @@ export const useChatStore = defineStore('chat', () => {
   }
 
   function resetToNewSession(workingDirectory?: string) {
+    historyGeneration++
+    searchSelection.value = undefined
     currentSessionId.value = undefined
     draftWorkingDirectory.value = workingDirectory ?? window.localStorage.getItem('slimebot:last-working-directory') ?? ''
     messages.value = []
@@ -386,6 +362,8 @@ export const useChatStore = defineStore('chat', () => {
   }
 
   async function createSession() {
+    historyGeneration++
+    searchSelection.value = undefined
     creatingSession.value = true
     try {
       const item = await sessionAPI.create(i18n.global.t('newSession') as string, draftWorkingDirectory.value)
@@ -400,19 +378,40 @@ export const useChatStore = defineStore('chat', () => {
     }
   }
 
-  async function selectSession(id: string) {
+  async function selectSession(id: string, target?: ChatSearchHit) {
+    const generation = ++historyGeneration
+    loadingOlderHistory.value = false
+    loadingNewerMessages.value = false
     try {
-      const history = await sessionAPI.history(id, { limit: HISTORY_PAGE_SIZE })
+      const selected = isMessagePlatformSessionId(id) ? undefined : await sessionAPI.get(id)
+      const history = await sessionAPI.history(id, target?.messageId ? {
+        limit: HISTORY_PAGE_SIZE, before: target.createdAt, beforeSeq: target.seq! + 1,
+      } : { limit: HISTORY_PAGE_SIZE })
+      const newer = target?.messageId ? await sessionAPI.history(id, {
+        limit: HISTORY_PAGE_SIZE, after: target.createdAt, afterSeq: target.seq,
+      }) : undefined
+      if (generation !== historyGeneration) return
+      if (target?.messageId && !history.messages.some((item) => item.id === target.messageId)) {
+        throw new Error('Search result no longer exists')
+      }
       currentSessionId.value = id
       messages.value = materializeMessages(history.messages)
       clearContextUsage()
       resetHistoryState()
       hasMoreHistory.value = history.hasMore
+      focusedMessageId.value = target?.messageId || ''
+      hasNewerHistory.value = newer?.hasMore || false
+      searchSelection.value = selected
       resetSessionRuntimeState()
       rebuildReplyBatchesFromHistory(id, history)
+      if (newer) {
+        appendUniqueMessages(materializeMessages(newer.messages))
+        mergeReplyBatchesFromHistory(id, newer, 'append')
+      }
     } catch {
+      if (generation !== historyGeneration) return
       // Message-platform session may have no DB row before the first platform message; show read-only empty state first.
-      if (isMessagePlatformSessionId(id)) {
+      if (isMessagePlatformSessionId(id) && !target?.messageId) {
         currentSessionId.value = id
         messages.value = []
         clearContextUsage()
@@ -425,6 +424,7 @@ export const useChatStore = defineStore('chat', () => {
   }
 
   async function loadOlderMessages() {
+    const generation = historyGeneration
     const sessionId = currentSessionId.value
     const first = messages.value[0]
     if (!sessionId || !first || typeof first.seq !== 'number' || !hasMoreHistory.value || loadingOlderHistory.value)
@@ -436,16 +436,18 @@ export const useChatStore = defineStore('chat', () => {
         before: first.createdAt,
         beforeSeq: first.seq,
       })
+      if (currentSessionId.value !== sessionId || generation !== historyGeneration) return false
       prependUniqueMessages(materializeMessages(history.messages))
       hasMoreHistory.value = history.hasMore
       mergeReplyBatchesFromHistory(sessionId, history, 'prepend')
       return history.messages.length > 0
     } finally {
-      loadingOlderHistory.value = false
+      if (generation === historyGeneration) loadingOlderHistory.value = false
     }
   }
 
   async function loadNewMessagesForSession(sessionId: string) {
+    const generation = historyGeneration
     const activeSessionID = currentSessionId.value
     if (!activeSessionID || activeSessionID !== sessionId || loadingNewerMessages.value) return false
     loadingNewerMessages.value = true
@@ -457,11 +459,13 @@ export const useChatStore = defineStore('chat', () => {
         after: latest.createdAt,
         afterSeq: latest.seq,
       })
+      if (currentSessionId.value !== sessionId || generation !== historyGeneration) return false
+      hasNewerHistory.value = history.hasMore
       appendUniqueMessages(materializeMessages(history.messages))
       mergeReplyBatchesFromHistory(sessionId, history, 'append')
       return history.messages.length > 0
     } finally {
-      loadingNewerMessages.value = false
+      if (generation === historyGeneration) loadingNewerMessages.value = false
     }
   }
 
@@ -911,6 +915,8 @@ export const useChatStore = defineStore('chat', () => {
     }
     const ready = await ensureSessionReady()
     if (!ready || !currentSessionId.value) return false
+    if (hasNewerHistory.value) await selectSession(currentSessionId.value)
+    focusedMessageId.value = ''
     if (!isSocketReady.value) {
       const error = 'socket is not connected'
       connectionError.value = error
@@ -1095,10 +1101,12 @@ export const useChatStore = defineStore('chat', () => {
     currentBatchId,
     loadSessions,
     loadMoreSessions,
-    searchSessions,
     hasMoreSessions,
     loadingMoreSessions,
-    sessionSearchQuery,
+    searchSelection,
+    focusedMessageId,
+    hasNewerHistory,
+    loadingNewerMessages,
     resetToNewSession,
     createSession,
     selectSession,

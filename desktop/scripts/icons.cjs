@@ -15,6 +15,9 @@ function render(svg, size) {
 
 writeFileSync(path.join(output, 'icon.png'), render(appSvg, 1024))
 writeFileSync(path.join(output, 'tray.png'), render(appSvg, 32))
+const traySvg = readFileSync(path.join(output, 'trayTemplate.svg'))
+writeFileSync(path.join(output, 'trayTemplate.png'), render(traySvg, 18))
+writeFileSync(path.join(output, 'trayTemplate@2x.png'), render(traySvg, 36))
 
 const sizes = [16, 24, 32, 48, 64, 256]
 const images = sizes.map(size => render(appSvg, size))

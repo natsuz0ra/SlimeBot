@@ -9,8 +9,10 @@ const (
 	ScheduledTaskStatusCompleted = "completed"
 	ScheduledTaskStatusError     = "error"
 
-	ScheduledTaskRunStatusOK    = "ok"
-	ScheduledTaskRunStatusError = "error"
+	ScheduledTaskRunStatusRunning     = "running"
+	ScheduledTaskRunStatusInterrupted = "interrupted"
+	ScheduledTaskRunStatusOK          = "ok"
+	ScheduledTaskRunStatusError       = "error"
 )
 
 // ScheduledTask stores one chat-driven automation.
@@ -41,6 +43,7 @@ type ScheduledTask struct {
 // ScheduledTaskRun records one execution attempt.
 type ScheduledTaskRun struct {
 	ID         string     `gorm:"primaryKey;size:36" json:"id"`
+	TaskName   string     `gorm:"->;-:migration" json:"taskName"`
 	TaskID     string     `gorm:"size:36;index;not null" json:"taskId"`
 	SessionID  string     `gorm:"size:36;index;not null" json:"sessionId"`
 	RequestID  string     `gorm:"size:36;index;not null" json:"requestId"`

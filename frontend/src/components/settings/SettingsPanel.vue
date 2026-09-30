@@ -14,6 +14,7 @@ import SettingsLLMTab from '@/components/settings/SettingsLLMTab.vue'
 import SettingsMCPTab from '@/components/settings/SettingsMCPTab.vue'
 import SettingsSkillsTab from '@/components/settings/SettingsSkillsTab.vue'
 import SettingsAgentsTab from '@/components/settings/SettingsAgentsTab.vue'
+import SettingsScheduleTab from '@/components/settings/SettingsScheduleTab.vue'
 import SettingsMemoryTab from '@/components/settings/SettingsMemoryTab.vue'
 import SettingsPlatformTab from '@/components/settings/SettingsPlatformTab.vue'
 import SettingsUpdateTab from '@/components/settings/SettingsUpdateTab.vue'
@@ -67,6 +68,7 @@ const settingsTabs: { key: SettingsTabKey; labelKey: string }[] = [
   { key: 'skills', labelKey: 'skillsSettings' },
   { key: 'agents', labelKey: 'agentsSettings' },
   { key: 'memory', labelKey: 'memorySettings' },
+  { key: 'schedule', labelKey: 'scheduleSettings' },
   { key: 'platform', labelKey: 'messagePlatformSettings' },
   { key: 'update', labelKey: 'updateSettings' },
   { key: 'about', labelKey: 'aboutSettings' },
@@ -418,6 +420,12 @@ function deleteMemoryEntry(target: MemoryTarget, index: number) {
   })
 }
 
+async function openScheduledSession(id: string) {
+  await chatStore.selectSession(id)
+  await router.push(`/chat/${encodeURIComponent(id)}`)
+  emit('close')
+}
+
 function openAccountDialog() {
   accountDialogVisible.value = true
 }
@@ -681,6 +689,8 @@ watch(tab, (nextTab) => {
         />
 
         <SettingsUpdateTab v-if="tab === 'update'" @update-check-loaded="props.setUpdateCheckResult" />
+
+        <SettingsScheduleTab v-if="tab === 'schedule'" :open-session="openScheduledSession" />
 
         <SettingsAboutTab v-if="tab === 'about'" />
       </section>

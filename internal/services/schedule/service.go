@@ -4,11 +4,13 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 
+	"slimebot/internal/apperrors"
 	"slimebot/internal/constants"
 	"slimebot/internal/domain"
 
@@ -75,6 +77,10 @@ type Store interface {
 	UpdateScheduledTask(ctx context.Context, id string, updates map[string]any) error
 	DeleteScheduledTask(ctx context.Context, id string) error
 	CreateScheduledTaskRun(ctx context.Context, run *domain.ScheduledTaskRun) error
+	ListScheduledTaskRuns(ctx context.Context, taskID, status string, limit, offset int) ([]domain.ScheduledTaskRun, error)
+	GetScheduledTaskRun(ctx context.Context, id string) (*domain.ScheduledTaskRun, error)
+	UpdateScheduledTaskRun(ctx context.Context, id string, updates map[string]any) error
+	InterruptScheduledTaskRuns(ctx context.Context, now time.Time) error
 }
 
 type Runner interface {
@@ -166,6 +172,51 @@ func (s *Service) List(ctx context.Context, includeInactive bool) ([]domain.Sche
 
 func (s *Service) Get(ctx context.Context, id string) (*domain.ScheduledTask, error) {
 	return s.store.GetScheduledTask(ctx, strings.TrimSpace(id))
+}
+
+type RunHistoryPage struct {
+	Runs    []domain.ScheduledTaskRun `json:"runs"`
+	HasMore bool                      `json:"hasMore"`
+}
+
+func (s *Service) ListRuns(ctx context.Context, taskID, status string, limit, offset int) (RunHistoryPage, error) {
+	if limit <= 0 {
+		limit = 20
+	}
+	if limit > 50 {
+		limit = 50
+	}
+	if offset < 0 {
+		offset = 0
+	}
+	runs, err := s.store.ListScheduledTaskRuns(ctx, strings.TrimSpace(taskID), status, limit+1, offset)
+	if err != nil {
+		return RunHistoryPage{}, err
+	}
+	more := len(runs) > limit
+	if more {
+		runs = runs[:limit]
+	}
+	if runs == nil {
+		runs = []domain.ScheduledTaskRun{}
+	}
+	for i := range runs {
+		answer := domain.StripContentMarkers(runs[i].Answer)
+		// A bounded preview can end in the middle of an old timeline marker.
+		if marker := strings.LastIndex(answer, "<!-- "); marker >= 0 && !strings.Contains(answer[marker:], "-->") {
+			answer = answer[:marker]
+		}
+		runs[i].Answer = strings.TrimSpace(answer)
+	}
+	return RunHistoryPage{Runs: runs, HasMore: more}, nil
+}
+
+func (s *Service) GetRun(ctx context.Context, id string) (*domain.ScheduledTaskRun, error) {
+	run, err := s.store.GetScheduledTaskRun(ctx, strings.TrimSpace(id))
+	if err == nil {
+		run.Answer = domain.StripContentMarkers(run.Answer)
+	}
+	return run, err
 }
 
 func (s *Service) Delete(ctx context.Context, id string) error {
@@ -306,6 +357,9 @@ func (s *Service) RestoreRunningTasks(ctx context.Context) error {
 	if s == nil || s.store == nil {
 		return fmt.Errorf("schedule service is not initialized")
 	}
+	if err := s.store.InterruptScheduledTaskRuns(ctx, s.now()); err != nil {
+		return err
+	}
 	tasks, err := s.store.ListScheduledTasks(ctx, true)
 	if err != nil {
 		return err
@@ -340,6 +394,10 @@ func (s *Service) RestoreRunningTasks(ctx context.Context) error {
 }
 
 func (s *Service) MarkRunComplete(ctx context.Context, taskID string, result RunResult) error {
+	return s.markRunComplete(ctx, taskID, "", result)
+}
+
+func (s *Service) markRunComplete(ctx context.Context, taskID, runID string, result RunResult) error {
 	task, err := s.Get(ctx, taskID)
 	if err != nil {
 		return err
@@ -362,20 +420,26 @@ func (s *Service) MarkRunComplete(ctx context.Context, taskID string, result Run
 		requestID = uuid.NewString()
 	}
 	runSessionID := strings.TrimSpace(result.SessionID)
-	if runSessionID == "" {
+	if runSessionID == "" && runID == "" {
 		runSessionID = task.SessionID
 	}
-	if err := s.store.CreateScheduledTaskRun(ctx, &domain.ScheduledTaskRun{
+	run := &domain.ScheduledTaskRun{
 		ID:         uuid.NewString(),
 		TaskID:     task.ID,
 		SessionID:  runSessionID,
 		RequestID:  requestID,
 		Status:     status,
-		Answer:     result.Answer,
+		Answer:     domain.StripContentMarkers(result.Answer),
 		Error:      result.Error,
 		StartedAt:  startedAt,
 		FinishedAt: &finishedAt,
-	}); err != nil {
+	}
+	if runID == "" {
+		err = s.store.CreateScheduledTaskRun(ctx, run)
+	} else {
+		err = s.store.UpdateScheduledTaskRun(ctx, runID, map[string]any{"session_id": run.SessionID, "request_id": run.RequestID, "status": run.Status, "answer": run.Answer, "error": run.Error, "finished_at": run.FinishedAt})
+	}
+	if err != nil {
 		return err
 	}
 	completedRuns := task.CompletedRuns + 1
@@ -446,9 +510,20 @@ func (s *Service) RunDue(ctx context.Context) error {
 				return err
 			}
 		}
-		result := s.runner.RunScheduledTask(ctx, task)
-		if err := s.MarkRunComplete(ctx, task.ID, result); err != nil {
+		run := &domain.ScheduledTaskRun{ID: uuid.NewString(), TaskID: task.ID, Status: domain.ScheduledTaskRunStatusRunning, StartedAt: s.now()}
+		if err := s.store.CreateScheduledTaskRun(ctx, run); err != nil {
 			return err
+		}
+		result := s.runner.RunScheduledTask(ctx, task)
+		// Persist the outcome even when shutdown cancels the execution context.
+		saveCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+		err := s.markRunComplete(saveCtx, task.ID, run.ID, result)
+		cancel()
+		if err != nil {
+			return err
+		}
+		if ctx.Err() != nil {
+			return ctx.Err()
 		}
 	}
 	return nil
@@ -837,4 +912,83 @@ func patchTask(task *domain.ScheduledTask, updates map[string]any) {
 		}
 	}
 	task.UpdatedAt = time.Now()
+}
+
+func (m *MemoryStore) ListScheduledTaskRuns(_ context.Context, taskID, status string, limit, offset int) ([]domain.ScheduledTaskRun, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	runs := []domain.ScheduledTaskRun{}
+	for _, run := range m.runs {
+		task, exists := m.tasks[run.TaskID]
+		if exists && (taskID == "" || run.TaskID == taskID) && (status == "" || run.Status == status) {
+			run.TaskName = task.Name
+			runs = append(runs, run)
+		}
+	}
+	sort.Slice(runs, func(i, j int) bool {
+		if runs[i].StartedAt.Equal(runs[j].StartedAt) {
+			return runs[i].ID > runs[j].ID
+		}
+		return runs[i].StartedAt.After(runs[j].StartedAt)
+	})
+	if offset >= len(runs) {
+		return []domain.ScheduledTaskRun{}, nil
+	}
+	return runs[offset:min(len(runs), offset+limit)], nil
+}
+
+func (m *MemoryStore) GetScheduledTaskRun(_ context.Context, id string) (*domain.ScheduledTaskRun, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, run := range m.runs {
+		if run.ID == id {
+			run.TaskName = m.tasks[run.TaskID].Name
+			return &run, nil
+		}
+	}
+	return nil, apperrors.ErrNotFound
+}
+
+func (m *MemoryStore) UpdateScheduledTaskRun(_ context.Context, id string, updates map[string]any) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for i := range m.runs {
+		if m.runs[i].ID != id {
+			continue
+		}
+		run := &m.runs[i]
+		if v, ok := updates["session_id"].(string); ok {
+			run.SessionID = v
+		}
+		if v, ok := updates["request_id"].(string); ok {
+			run.RequestID = v
+		}
+		if v, ok := updates["status"].(string); ok {
+			run.Status = v
+		}
+		if v, ok := updates["answer"].(string); ok {
+			run.Answer = v
+		}
+		if v, ok := updates["error"].(string); ok {
+			run.Error = v
+		}
+		if v, ok := updates["finished_at"].(*time.Time); ok {
+			run.FinishedAt = v
+		}
+		return nil
+	}
+	return apperrors.ErrNotFound
+}
+
+func (m *MemoryStore) InterruptScheduledTaskRuns(_ context.Context, now time.Time) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for i := range m.runs {
+		if m.runs[i].Status == domain.ScheduledTaskRunStatusRunning {
+			m.runs[i].Status = domain.ScheduledTaskRunStatusInterrupted
+			m.runs[i].FinishedAt = &now
+			m.runs[i].Error = "Execution was interrupted by an application restart."
+		}
+	}
+	return nil
 }

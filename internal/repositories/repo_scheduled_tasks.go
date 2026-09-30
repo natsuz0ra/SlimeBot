@@ -103,3 +103,11 @@ func (r *Repository) InterruptScheduledTaskRuns(ctx context.Context, now time.Ti
 		Where("status = ?", domain.ScheduledTaskRunStatusRunning).
 		Updates(map[string]any{"status": domain.ScheduledTaskRunStatusInterrupted, "finished_at": now, "error": "Execution was interrupted by an application restart."}).Error
 }
+
+func migrateScheduledRunContexts(db *gorm.DB) error {
+	return db.Exec(`UPDATE sessions SET kind = ?, is_title_locked = 1
+ WHERE kind = ? AND id IN (
+  SELECT r.session_id FROM scheduled_task_runs r JOIN scheduled_tasks t ON t.id = r.task_id
+  WHERE r.session_id <> '' AND r.session_id <> t.session_id
+ ) AND NOT EXISTS (SELECT 1 FROM scheduled_tasks t WHERE t.session_id = sessions.id)`, domain.SessionKindTaskRun, domain.SessionKindChat).Error
+}

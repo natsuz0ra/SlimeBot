@@ -17,27 +17,28 @@ const (
 
 // ScheduledTask stores one chat-driven automation.
 type ScheduledTask struct {
-	ID              string     `gorm:"primaryKey;size:36" json:"id"`
-	Name            string     `gorm:"size:128;not null" json:"name"`
-	Prompt          string     `gorm:"type:text;not null" json:"prompt"`
-	SessionID       string     `gorm:"size:36;index;not null" json:"sessionId"`
-	ScheduleKind    string     `gorm:"size:16;index;not null" json:"scheduleKind"`
-	RunAt           *time.Time `gorm:"index" json:"runAt,omitempty"`
-	IntervalMinutes int        `gorm:"not null;default:0" json:"intervalMinutes,omitempty"`
-	CronExpr        string     `gorm:"size:128" json:"cronExpr,omitempty"`
-	Timezone        string     `gorm:"size:64;not null;default:'Local'" json:"timezone"`
-	ModelConfigID   string     `gorm:"size:36" json:"modelConfigId,omitempty"`
-	ThinkingLevel   string     `gorm:"size:16;not null;default:'off'" json:"thinkingLevel"`
-	ApprovalMode    string     `gorm:"size:32;not null;default:'auto'" json:"approvalMode"`
-	MaxRuns         int        `gorm:"not null;default:0" json:"maxRuns,omitempty"`
-	CompletedRuns   int        `gorm:"not null;default:0" json:"completedRuns"`
-	Status          string     `gorm:"size:32;index;not null" json:"status"`
-	NextRunAt       *time.Time `gorm:"index" json:"nextRunAt,omitempty"`
-	LastRunAt       *time.Time `gorm:"index" json:"lastRunAt,omitempty"`
-	LastStatus      string     `gorm:"size:32" json:"lastStatus,omitempty"`
-	LastError       string     `gorm:"type:text" json:"lastError,omitempty"`
-	CreatedAt       time.Time  `json:"createdAt"`
-	UpdatedAt       time.Time  `json:"updatedAt"`
+	ID               string     `gorm:"primaryKey;size:36" json:"id"`
+	Name             string     `gorm:"size:128;not null" json:"name"`
+	Prompt           string     `gorm:"type:text;not null" json:"prompt"`
+	WorkingDirectory string     `gorm:"size:2048" json:"workingDirectory,omitempty"`
+	SessionID        string     `gorm:"size:36;index;not null" json:"sessionId"`
+	ScheduleKind     string     `gorm:"size:16;index;not null" json:"scheduleKind"`
+	RunAt            *time.Time `gorm:"index" json:"runAt,omitempty"`
+	IntervalMinutes  int        `gorm:"not null;default:0" json:"intervalMinutes,omitempty"`
+	CronExpr         string     `gorm:"size:128" json:"cronExpr,omitempty"`
+	Timezone         string     `gorm:"size:64;not null;default:'Local'" json:"timezone"`
+	ModelConfigID    string     `gorm:"size:36" json:"modelConfigId,omitempty"`
+	ThinkingLevel    string     `gorm:"size:16;not null;default:'off'" json:"thinkingLevel"`
+	ApprovalMode     string     `gorm:"size:32;not null;default:'auto'" json:"approvalMode"`
+	MaxRuns          int        `gorm:"not null;default:0" json:"maxRuns,omitempty"`
+	CompletedRuns    int        `gorm:"not null;default:0" json:"completedRuns"`
+	Status           string     `gorm:"size:32;index;not null" json:"status"`
+	NextRunAt        *time.Time `gorm:"index" json:"nextRunAt,omitempty"`
+	LastRunAt        *time.Time `gorm:"index" json:"lastRunAt,omitempty"`
+	LastStatus       string     `gorm:"size:32" json:"lastStatus,omitempty"`
+	LastError        string     `gorm:"type:text" json:"lastError,omitempty"`
+	CreatedAt        time.Time  `json:"createdAt"`
+	UpdatedAt        time.Time  `json:"updatedAt"`
 }
 
 // ScheduledTaskRun records one execution attempt.

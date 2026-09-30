@@ -6,8 +6,14 @@ import (
 	"time"
 )
 
+const (
+	SessionKindChat    = "chat"
+	SessionKindTaskRun = "task_run"
+)
+
 type Session struct {
 	ID               string     `gorm:"primaryKey;size:36" json:"id"`
+	Kind             string     `gorm:"size:16;not null;default:chat;index" json:"kind"`
 	Name             string     `gorm:"size:128;not null" json:"name"`
 	WorkingDirectory string     `gorm:"size:2048" json:"workingDirectory"`
 	IsTitleLocked    bool       `gorm:"default:false;not null" json:"isTitleLocked"`

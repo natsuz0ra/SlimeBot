@@ -183,3 +183,47 @@ END;
 		t.Fatalf("expected message rollback to keep row, count=%d", messageCount)
 	}
 }
+
+func TestMigrateScheduledRunContextsPreservesSourceChats(t *testing.T) {
+	db := NewSQLiteDBTest(t, "task_context_migration")
+	repo := New(db)
+	ctx := context.Background()
+	for _, id := range []string{"source", "execution", "other-source", "chat"} {
+		if _, err := repo.CreateSessionWithID(ctx, id, id); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, task := range []domain.ScheduledTask{{ID: "task", SessionID: "source"}, {ID: "other-task", SessionID: "other-source"}} {
+		if err := db.Create(&task).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	for i, id := range []string{"source", "execution", "other-source"} {
+		run := domain.ScheduledTaskRun{ID: uuid.NewString(), TaskID: "task", SessionID: id, RequestID: uuid.NewString(), Status: domain.ScheduledTaskRunStatusOK, Answer: "kept", StartedAt: time.Now().Add(time.Duration(i) * time.Second)}
+		if err := db.Create(&run).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	for i := 0; i < 2; i++ {
+		if err := migrateScheduledRunContexts(db); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, id := range []string{"source", "execution", "other-source", "chat"} {
+		session, err := repo.GetSessionByID(ctx, id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		expected := domain.SessionKindChat
+		if id == "execution" {
+			expected = domain.SessionKindTaskRun
+		}
+		if session.Kind != expected {
+			t.Fatalf("%s: kind %s", id, session.Kind)
+		}
+	}
+	var count int64
+	if err := db.Model(&domain.ScheduledTaskRun{}).Where("answer = ?", "kept").Count(&count).Error; err != nil || count != 3 {
+		t.Fatalf("records lost: %d, %v", count, err)
+	}
+}

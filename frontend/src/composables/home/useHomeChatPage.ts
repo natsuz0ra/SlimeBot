@@ -106,6 +106,7 @@ export function useHomeChatPage() {
   watch(
     () => store.currentSessionId,
     (id) => {
+      if (sessionActions.route.name === 'tasks') return
       const targetPath = id ? `/chat/${id}` : '/chat/new_chat'
       if (sessionActions.route.path !== targetPath) {
         void sessionActions.router.replace(targetPath)

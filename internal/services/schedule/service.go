@@ -34,14 +34,15 @@ type ScheduleSpec struct {
 }
 
 type CreateInput struct {
-	Name          string
-	Prompt        string
-	SessionID     string
-	Schedule      ScheduleSpec
-	ModelConfigID string
-	ThinkingLevel string
-	ApprovalMode  string
-	MaxRuns       int
+	WorkingDirectory string
+	Name             string
+	Prompt           string
+	SessionID        string
+	Schedule         ScheduleSpec
+	ModelConfigID    string
+	ThinkingLevel    string
+	ApprovalMode     string
+	MaxRuns          int
 }
 
 type UpdateInput struct {
@@ -121,9 +122,6 @@ func (s *Service) Create(ctx context.Context, input CreateInput) (*domain.Schedu
 	if prompt == "" {
 		return nil, fmt.Errorf("prompt is required")
 	}
-	if sessionID == "" {
-		return nil, fmt.Errorf("session_id is required")
-	}
 	spec, err := normalizeSpec(input.Schedule, s.now())
 	if err != nil {
 		return nil, err
@@ -144,21 +142,22 @@ func (s *Service) Create(ctx context.Context, input CreateInput) (*domain.Schedu
 		return nil, fmt.Errorf("invalid approval_mode: %s", approval)
 	}
 	task := &domain.ScheduledTask{
-		ID:              uuid.NewString(),
-		Name:            name,
-		Prompt:          prompt,
-		SessionID:       sessionID,
-		ScheduleKind:    string(spec.Kind),
-		RunAt:           timePtrOrNil(spec.RunAt),
-		IntervalMinutes: spec.IntervalMinutes,
-		CronExpr:        spec.CronExpr,
-		Timezone:        spec.Timezone,
-		ModelConfigID:   strings.TrimSpace(input.ModelConfigID),
-		ThinkingLevel:   thinking,
-		ApprovalMode:    approval,
-		MaxRuns:         max(0, input.MaxRuns),
-		Status:          domain.ScheduledTaskStatusScheduled,
-		NextRunAt:       nextRun,
+		ID:               uuid.NewString(),
+		Name:             name,
+		WorkingDirectory: strings.TrimSpace(input.WorkingDirectory),
+		Prompt:           prompt,
+		SessionID:        sessionID,
+		ScheduleKind:     string(spec.Kind),
+		RunAt:            timePtrOrNil(spec.RunAt),
+		IntervalMinutes:  spec.IntervalMinutes,
+		CronExpr:         spec.CronExpr,
+		Timezone:         spec.Timezone,
+		ModelConfigID:    strings.TrimSpace(input.ModelConfigID),
+		ThinkingLevel:    thinking,
+		ApprovalMode:     approval,
+		MaxRuns:          max(0, input.MaxRuns),
+		Status:           domain.ScheduledTaskStatusScheduled,
+		NextRunAt:        nextRun,
 	}
 	if err := s.store.CreateScheduledTask(ctx, task); err != nil {
 		return nil, err
@@ -215,6 +214,14 @@ func (s *Service) GetRun(ctx context.Context, id string) (*domain.ScheduledTaskR
 	run, err := s.store.GetScheduledTaskRun(ctx, strings.TrimSpace(id))
 	if err == nil {
 		run.Answer = domain.StripContentMarkers(run.Answer)
+		// Older error records sometimes reference the source chat, which has no execution history.
+		task, taskErr := s.store.GetScheduledTask(ctx, run.TaskID)
+		if taskErr != nil {
+			return nil, taskErr
+		}
+		if run.SessionID == task.SessionID {
+			run.SessionID = ""
+		}
 	}
 	return run, err
 }

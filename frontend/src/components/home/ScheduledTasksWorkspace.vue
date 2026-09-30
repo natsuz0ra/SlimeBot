@@ -1,15 +1,25 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { mdiClockOutline, mdiChevronRight, mdiRefresh, mdiOpenInNew, mdiCheckCircleOutline, mdiAlertCircleOutline, mdiPauseCircleOutline } from '@mdi/js'
+import { mdiClockOutline, mdiChevronRight, mdiRefresh, mdiCalendarClockOutline, mdiPlus, mdiPlayOutline, mdiCheckCircleOutline, mdiAlertCircleOutline, mdiPauseCircleOutline } from '@mdi/js'
 import MdiIcon from '@/components/ui/MdiIcon.vue'
 import AppDialog from '@/components/ui/AppDialog.vue'
 import LoadingSpinner from '@/components/ui/LoadingSpinner.vue'
-import { scheduleAPI, type ScheduledTask, type ScheduledTaskRun, type TaskRunStatus } from '@/api/schedule'
+import { useToast } from '@/composables/useToast'
+import AppTextInput from '@/components/ui/AppTextInput.vue'
+import TaskRunTimeline from '@/components/home/TaskRunTimeline.vue'
+import { scheduleAPI, type CreateScheduledTaskInput, type ScheduledTask, type ScheduledTaskRun, type TaskRunStatus } from '@/api/schedule'
 import { taskRunDurationSeconds, taskRunPreview } from '@/utils/scheduleHistory'
 import { renderMarkdown } from '@/utils/markdown'
 
-const props = defineProps<{ openSession: (id: string) => Promise<void> }>()
+const props = defineProps<{ modelOptions: Array<{ value: string; label: string }>; initialWorkingDirectory?: string }>()
+const toast = useToast()
+const view = ref<'tasks' | 'history'>('tasks')
+const createVisible = ref(false)
+const creating = ref(false)
+const taskActionId = ref('')
+const taskForm = ref<HTMLFormElement | null>(null)
+const draft = reactive({ name: '', prompt: '', kind: 'interval' as 'once' | 'interval' | 'cron', runAt: '', intervalMinutes: 60, cronExpr: '0 9 * * *', modelConfigId: '', workingDirectory: '' })
 const { t, locale } = useI18n()
 const tasks = ref<ScheduledTask[]>([])
 const runs = ref<ScheduledTaskRun[]>([])
@@ -23,8 +33,6 @@ const detailVisible = ref(false)
 const detail = ref<ScheduledTaskRun | null>(null)
 const detailLoading = ref(false)
 const detailError = ref(false)
-const openingChat = ref(false)
-const chatError = ref(false)
 const selectedTask = computed(() => tasks.value.find(task => task.id === taskId.value))
 const waitingCount = computed(() => tasks.value.filter(task => task.status === 'scheduled').length)
 const runningCount = computed(() => tasks.value.filter(task => task.status === 'running').length)
@@ -64,9 +72,9 @@ async function load(quiet = false) {
     if (current !== generation) return
     tasks.value = taskRows
     // Keep already loaded history in place during background status refreshes.
-    if (quiet && runs.value.length > 20) {
+    if (quiet && runs.value.length > 20 && status.value !== 'running') {
       const fresh = new Map(page.runs.map(run => [run.id, run]))
-      runs.value = runs.value.map(run => fresh.get(run.id) ?? run)
+      runs.value = [...page.runs, ...runs.value.filter(run => !fresh.has(run.id))]
     } else { runs.value = page.runs; hasMore.value = page.hasMore }
     error.value = false
   } catch {
@@ -99,7 +107,6 @@ async function openDetail(run: ScheduledTaskRun, quiet = false) {
     detailVisible.value = true
     detailLoading.value = true
     detailError.value = false
-    chatError.value = false
   }
   try {
     const result = await scheduleAPI.run(run.id, controller.signal)
@@ -108,13 +115,47 @@ async function openDetail(run: ScheduledTaskRun, quiet = false) {
     if (!controller.signal.aborted && detailVisible.value && !quiet) detailError.value = true
   } finally { if (!controller.signal.aborted) detailLoading.value = false }
 }
-async function openChat() {
-  if (!detail.value?.sessionId || openingChat.value) return
-  openingChat.value = true
-  chatError.value = false
-  try { await props.openSession(detail.value.sessionId); detailVisible.value = false }
-  catch { chatError.value = true }
-  finally { openingChat.value = false }
+function showTaskHistory(id: string) {
+  view.value = 'history'
+  taskId.value = id
+  status.value = ''
+}
+function scheduleLabel(task: ScheduledTask) {
+  if (task.scheduleKind === 'interval') return t('scheduleEveryMinutes', { count: task.intervalMinutes })
+  if (task.scheduleKind === 'cron') return t('scheduleCronLabel', { expression: task.cronExpr })
+  return t('scheduleOnceLabel', { time: date(task.runAt) })
+}
+function openCreate() {
+  const next = new Date(Date.now() + 3600000)
+  const localTime = new Date(next.getTime() - next.getTimezoneOffset() * 60000).toISOString().slice(0, 16)
+  Object.assign(draft, { name: '', prompt: '', kind: 'interval', runAt: localTime, intervalMinutes: 60, cronExpr: '0 9 * * *', modelConfigId: '', workingDirectory: props.initialWorkingDirectory ?? '' })
+  createVisible.value = true
+}
+async function createTask() {
+  if (creating.value || !taskForm.value?.reportValidity()) return
+  creating.value = true
+  try {
+    const schedule: CreateScheduledTaskInput['schedule'] = { kind: draft.kind }
+    if (draft.kind === 'once') schedule.runAt = new Date(draft.runAt).toISOString()
+    if (draft.kind === 'interval') schedule.intervalMinutes = Number(draft.intervalMinutes)
+    if (draft.kind === 'cron') schedule.cronExpr = draft.cronExpr.trim()
+    await scheduleAPI.create({ name: draft.name.trim(), prompt: draft.prompt.trim(), workingDirectory: draft.workingDirectory.trim(), modelConfigId: draft.modelConfigId, schedule })
+    createVisible.value = false
+    view.value = 'tasks'
+    await load()
+    toast.success(t('scheduleCreated'))
+  } catch { toast.error(t('scheduleCreateFailed')) }
+  finally { creating.value = false }
+}
+async function taskAction(task: ScheduledTask, action: 'pause' | 'resume' | 'run') {
+  if (taskActionId.value) return
+  taskActionId.value = task.id
+  try {
+    await scheduleAPI.action(task.id, action)
+    await load(true)
+    toast.success(t(action === 'run' ? 'scheduleQueued' : 'scheduleTaskUpdated'))
+  } catch { toast.error(t('scheduleActionFailed')) }
+  finally { taskActionId.value = '' }
 }
 watch([taskId, status], () => { runs.value = []; hasMore.value = false; void load() })
 watch(detailVisible, visible => { if (!visible) detailRequest?.abort() })
@@ -125,7 +166,7 @@ onMounted(() => {
     polling = true
     try {
       const updates: Promise<void>[] = []
-      if (runningCount.value || runs.value.some(run => run.status === 'running')) updates.push(load(true))
+      if (waitingCount.value || runningCount.value || runs.value.some(run => run.status === 'running')) updates.push(load(true))
       if (detailVisible.value && !detailLoading.value && detail.value?.status === 'running') updates.push(openDetail(detail.value, true))
       await Promise.all(updates)
     } finally { polling = false }
@@ -138,12 +179,13 @@ onUnmounted(() => { generation++; listRequest?.abort(); detailRequest?.abort(); 
   <div class="schedule-tab">
     <header class="schedule-heading">
       <div>
-        <h2>{{ t('scheduleSettings') }}</h2>
+        <div class="schedule-page-title"><span><MdiIcon :path="mdiCalendarClockOutline" :size="25" /></span><h2>{{ t('scheduleSettings') }}</h2></div>
         <p>{{ t('scheduleDescription') }}</p>
       </div>
-      <button type="button" class="schedule-button" :disabled="loading || loadingMore" @click="load()">
-        <MdiIcon :path="mdiRefresh" :size="16" />{{ t('scheduleRefresh') }}
-      </button>
+      <div class="schedule-header-actions">
+        <button type="button" class="schedule-button" :disabled="loading || loadingMore" :aria-label="t('scheduleRefresh')" @click="load()"><MdiIcon :path="mdiRefresh" :size="16" /></button>
+        <button type="button" class="schedule-button schedule-new-task" @click="openCreate"><MdiIcon :path="mdiPlus" :size="16" />{{ t('scheduleCreate') }}</button>
+      </div>
     </header>
 
     <div class="schedule-summary">
@@ -152,7 +194,33 @@ onUnmounted(() => { generation++; listRequest?.abort(); detailRequest?.abort(); 
       <div><span>{{ t('scheduleRunningTasks') }}</span><strong class="schedule-accent">{{ runningCount }}</strong></div>
     </div>
 
-    <section class="schedule-history" :aria-label="t('scheduleHistory')">
+    <div class="schedule-view-tabs" role="group" :aria-label="t('scheduleViews')">
+      <button type="button" :aria-pressed="view === 'tasks'" :class="{ active: view === 'tasks' }" @click="view = 'tasks'">{{ t('scheduleTaskList') }}<span>{{ tasks.length }}</span></button>
+      <button type="button" :aria-pressed="view === 'history'" :class="{ active: view === 'history' }" @click="view = 'history'">{{ t('scheduleHistory') }}</button>
+    </div>
+    <section v-if="view === 'tasks'" class="schedule-task-grid" :aria-label="t('scheduleTaskList')">
+      <div v-if="loading" class="schedule-empty"><LoadingSpinner /></div>
+      <div v-else-if="error" class="schedule-error" role="alert"><span>{{ t('scheduleLoadFailed') }}</span><button type="button" @click="load()">{{ t('scheduleRetry') }}</button></div>
+      <div v-else-if="!tasks.length" class="schedule-empty schedule-task-empty">
+        <span class="schedule-empty-icon"><MdiIcon :path="mdiCalendarClockOutline" :size="32" /></span>
+        <strong>{{ t('scheduleNoTasks') }}</strong><p>{{ t('scheduleTaskEmptyHint') }}</p>
+        <button type="button" class="schedule-button schedule-new-task" @click="openCreate">{{ t('scheduleCreate') }}</button>
+      </div>
+      <article v-for="task in loading ? [] : tasks" :key="task.id" class="schedule-task-card">
+        <div class="schedule-task-card-heading"><h3>{{ task.name }}</h3><span class="schedule-badge" :class="task.status === 'running' ? 'status-running' : ''">{{ t(`scheduleTaskStatus_${task.status}`) }}</span></div>
+        <p class="schedule-task-prompt">{{ task.prompt }}</p>
+        <div class="schedule-rule"><MdiIcon :path="mdiClockOutline" :size="15" /><span>{{ scheduleLabel(task) }}</span></div>
+        <dl class="schedule-task-timing"><div><dt>{{ t('scheduleNextRun') }}</dt><dd>{{ date(task.nextRunAt) }}</dd></div><div><dt>{{ t('scheduleCompletedRuns') }}</dt><dd>{{ task.completedRuns }}</dd></div></dl>
+        <div class="schedule-task-actions">
+          <button type="button" class="schedule-button schedule-primary" @click="showTaskHistory(task.id)">{{ t('scheduleViewHistory') }}</button>
+          <div>
+            <button v-if="task.status === 'scheduled' || task.status === 'paused'" type="button" class="schedule-button schedule-text-action" :disabled="!!taskActionId" @click="taskAction(task, task.status === 'paused' ? 'resume' : 'pause')">{{ t(task.status === 'paused' ? 'scheduleResume' : 'schedulePause') }}</button>
+            <button type="button" class="schedule-button schedule-text-action" :disabled="task.status === 'running' || !!taskActionId" @click="taskAction(task, 'run')"><MdiIcon :path="mdiPlayOutline" :size="16" />{{ t('scheduleRunNow') }}</button>
+          </div>
+        </div>
+      </article>
+    </section>
+    <section v-else class="schedule-history" :aria-label="t('scheduleHistory')">
       <div class="schedule-toolbar">
         <h3>{{ t('scheduleHistory') }}</h3>
         <select v-model="taskId" :aria-label="t('scheduleFilterTask')" class="schedule-select">
@@ -208,20 +276,33 @@ onUnmounted(() => { generation++; listRequest?.abort(); detailRequest?.abort(); 
         <template v-else>
           <div v-if="detail.error || detail.status === 'interrupted'" class="schedule-failure"><h4>{{ t('scheduleErrorDetail') }}</h4><p>{{ detail.status === 'interrupted' ? t('scheduleInterruptedHint') : detail.error }}</p></div>
           <section class="schedule-output"><h4>{{ t('scheduleOutput') }}</h4><div v-if="detail.answer" class="bubble-markdown" v-html="renderMarkdown(detail.answer)" /><p v-else>{{ t(detail.status === 'running' ? 'scheduleRunningHint' : 'scheduleNoOutput') }}</p></section>
-          <div class="schedule-detail-footer"><button v-if="detail.sessionId" type="button" class="schedule-button schedule-primary" :disabled="openingChat" @click="openChat()"><MdiIcon :path="mdiOpenInNew" :size="16" />{{ t('scheduleOpenChat') }}</button><span v-else>{{ t('scheduleNoChat') }}</span></div>
-          <p v-if="chatError" class="schedule-error" role="alert">{{ t('scheduleChatMissing') }}</p>
+          <TaskRunTimeline v-if="detail.sessionId" :run-id="detail.id" :run-status="detail.status" />
         </template>
       </div>
+    </AppDialog>
+    <AppDialog v-model:visible="createVisible" :title="t('scheduleCreate')" :confirm-text="t('scheduleCreate')" :confirm-loading="creating" width="540px" @confirm="createTask">
+      <form ref="taskForm" class="schedule-create-form" @submit.prevent="createTask">
+        <label>{{ t('scheduleTaskName') }}<AppTextInput v-model="draft.name" required maxlength="128" :placeholder="t('scheduleTaskNamePlaceholder')" autofocus /></label>
+        <label>{{ t('scheduleInstructions') }}<textarea v-model="draft.prompt" required maxlength="20000" rows="4" :placeholder="t('scheduleInstructionsPlaceholder')" /></label>
+        <label>{{ t('scheduleRule') }}<select v-model="draft.kind"><option value="interval">{{ t('scheduleInterval') }}</option><option value="once">{{ t('scheduleOnce') }}</option><option value="cron">{{ t('scheduleCron') }}</option></select></label>
+        <label v-if="draft.kind === 'once'">{{ t('scheduleRunAt') }}<input v-model="draft.runAt" required type="datetime-local" /></label>
+        <label v-else-if="draft.kind === 'interval'">{{ t('scheduleIntervalMinutes') }}<input v-model.number="draft.intervalMinutes" required type="number" min="1" max="525600" /></label>
+        <label v-else>{{ t('scheduleCronExpression') }}<AppTextInput v-model="draft.cronExpr" required :placeholder="'0 9 * * *'" /><span>{{ t('scheduleCronHint') }}</span></label>
+        <label>{{ t('scheduleTaskModel') }}<select v-model="draft.modelConfigId"><option value="">{{ t('scheduleDefaultModel') }}</option><option v-for="model in modelOptions" :key="model.value" :value="model.value">{{ model.label }}</option></select></label>
+        <label>{{ t('scheduleWorkingDirectory') }}<AppTextInput v-model="draft.workingDirectory" :placeholder="t('scheduleWorkingDirectoryPlaceholder')" /></label>
+        <p>{{ t('scheduleCreateHint') }}</p>
+        <button type="submit" hidden />
+      </form>
     </AppDialog>
   </div>
 </template>
 
 <style scoped>
-.schedule-tab, .schedule-detail {
+.schedule-tab, .schedule-detail, .schedule-create-form {
   --schedule-danger: #b91c1c;
   --schedule-muted: #696780;
 }
-:global(.dark .schedule-tab), :global(.dark .schedule-detail) {
+:global(.dark .schedule-tab), :global(.dark .schedule-detail), :global(.dark .schedule-create-form) {
   --schedule-danger: #f87171;
   --schedule-muted: #a7a4bd;
 }
@@ -229,6 +310,10 @@ onUnmounted(() => { generation++; listRequest?.abort(); detailRequest?.abort(); 
   color: var(--sb-brand-soft);
 }
 .schedule-tab {
+  width: 100%;
+  max-width: 1100px;
+  padding: 30px 32px 48px;
+  margin: 0 auto;
   color: var(--text-primary);
   display: flex;
   flex-direction: column;
@@ -585,15 +670,6 @@ h4 {
 .schedule-output h4 {
   color: var(--schedule-muted);
 }
-.schedule-detail-footer {
-  display: flex;
-  justify-content: flex-end;
-  padding-top: 20px;
-  margin-top: 20px;
-  border-top: 1px solid var(--card-border);
-  font-size: 12px;
-  color: var(--schedule-muted);
-}
 .schedule-primary {
   color: var(--sb-brand);
   border-color: var(--primary-alpha-20);
@@ -601,7 +677,7 @@ h4 {
 }
 @media (max-width: 480px) {
 
-    .schedule-heading {
+  .schedule-heading {
     align-items: flex-start;
   }
   .schedule-summary > div {
@@ -629,6 +705,49 @@ h4 {
   }
   dt {
     margin: 0;
+  }
 }
+
+.schedule-page-title { display: flex; align-items: center; gap: 12px; }
+.schedule-page-title > span { display: flex; align-items: center; justify-content: center; width: 44px; height: 44px; border-radius: 13px; background: var(--primary-alpha-10); color: var(--sb-brand); }
+.schedule-page-title h2 { font-size: 23px; }
+.schedule-header-actions { display: flex; gap: 8px; }
+.schedule-heading p { margin-left: 56px; }
+.schedule-new-task { background: var(--sb-brand); border-color: var(--sb-brand); color: white; padding: 9px 13px; }
+.schedule-new-task:hover:not(:disabled) { background: var(--sb-brand-hover); }
+.schedule-view-tabs { display: flex; gap: 24px; border-bottom: 1px solid var(--card-border); }
+.schedule-view-tabs button { display: flex; align-items: center; gap: 8px; padding: 5px 0 13px; font-size: 13px; font-weight: 550; cursor: pointer; color: var(--schedule-muted); border-bottom: 2px solid transparent; }
+.schedule-view-tabs button.active { color: var(--sb-brand); border-color: var(--sb-brand); }
+.schedule-view-tabs span { font-size: 10px; padding: 1px 6px; border-radius: 5px; background: var(--primary-alpha-08); }
+.schedule-task-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.schedule-task-grid > .schedule-empty, .schedule-task-grid > .schedule-error { grid-column: 1 / -1; }
+.schedule-task-card { display: flex; flex-direction: column; padding: 20px; border: 1px solid var(--card-border); border-radius: 14px; background: var(--card-bg); min-width: 0; }
+.schedule-task-card-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+.schedule-task-card h3 { line-height: 1.6; overflow-wrap: anywhere; }
+.schedule-task-prompt { font-size: 12px; color: var(--text-secondary); line-height: 1.8; margin: 10px 0 18px; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
+.schedule-rule { display: flex; align-items: center; gap: 7px; font-size: 12px; color: var(--schedule-muted); margin-top: auto; overflow-wrap: anywhere; }
+.schedule-rule > svg { flex-shrink: 0; }
+.schedule-task-timing { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 12px; padding: 15px 0; margin: 0; font-size: 11px; }
+.schedule-task-timing dd { color: var(--text-secondary); font-size: 12px; }
+.schedule-task-actions { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; border-top: 1px solid var(--card-border); padding-top: 13px; }
+.schedule-task-actions > div { display: flex; gap: 4px; }
+.schedule-text-action { border-color: transparent; background: transparent; padding-inline: 7px; }
+.schedule-task-empty { padding: 70px 15px; }
+.schedule-create-form { display: flex; flex-direction: column; gap: 16px; color-scheme: light; }
+:global(.dark .schedule-create-form) { color-scheme: dark; }
+.schedule-create-form label { display: flex; flex-direction: column; gap: 8px; color: var(--text-secondary); font-size: 12px; font-weight: 550; }
+.schedule-create-form input, .schedule-create-form select, .schedule-create-form textarea { width: 100%; padding: 9px 11px; border: 1px solid var(--input-border); border-radius: 9px; background: var(--input-bg); color: var(--text-primary); font-size: 13px; font-weight: 400; }
+.schedule-create-form textarea { min-height: 100px; resize: vertical; }
+.schedule-create-form input:focus-visible, .schedule-create-form textarea:focus-visible { outline: 2px solid var(--sb-brand); outline-offset: 2px; }
+.schedule-create-form p, .schedule-create-form label > span { color: var(--schedule-muted); font-size: 11px; line-height: 1.7; margin: 0; font-weight: 400; }
+@media (max-width: 1050px) { .schedule-task-grid { grid-template-columns: 1fr; } }
+@media (max-width: 600px) {
+  .schedule-tab { padding: 22px 16px 32px; }
+  .schedule-heading { flex-wrap: wrap; gap: 18px; }
+  .schedule-heading p { margin-left: 0; margin-top: 10px; }
+  .schedule-page-title h2 { font-size: 20px; }
+  .schedule-page-title > span { width: 36px; height: 36px; border-radius: 10px; }
+  .schedule-header-actions { margin-left: auto; }
+  .schedule-task-card { padding: 16px; }
 }
 </style>

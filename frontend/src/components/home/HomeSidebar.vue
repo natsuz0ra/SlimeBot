@@ -3,6 +3,7 @@ import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import {
   mdiChevronDown,
+  mdiCalendarClockOutline,
   mdiCogOutline,
   mdiDotsHorizontal,
   mdiMagnify,
@@ -25,6 +26,7 @@ import { isMessagePlatformSessionId, listPlatformSessions, platformFromSessionId
 const INITIAL_GROUP_SESSION_COUNT = 6
 
 const props = defineProps<{
+  tasksActive?: boolean
   sessions: SessionItem[]
   currentSessionId?: string
   isDark: boolean
@@ -39,6 +41,7 @@ const emit = defineEmits<{
   toggleTheme: []
   openSettings: []
   openSearch: []
+  openTasks: []
 }>()
 
 const { t } = useI18n()
@@ -117,6 +120,12 @@ function toggleGroup(path: string) {
       </div>
     </div>
 
+    <nav class="sidebar-primary-nav" :aria-label="t('scheduleNavigation')">
+      <button type="button" class="sidebar-task-link" :class="{ active: tasksActive }" :aria-current="tasksActive ? 'page' : undefined" @click="emit('openTasks')">
+        <MdiIcon :path="mdiCalendarClockOutline" :size="19" />
+        <span>{{ t('scheduleSettings') }}</span>
+      </button>
+    </nav>
     <div :ref="setSidebarListRef" class="scroll-area flex-1 overflow-y-auto py-2 px-1">
       <section class="mb-1 px-0.5">
         <button
@@ -253,6 +262,12 @@ function toggleGroup(path: string) {
 </template>
 
 <style scoped>
+.sidebar-primary-nav { padding: 10px 10px 4px; }
+.sidebar-task-link { width: 100%; display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 10px; font-size: 13px; font-weight: 550; color: var(--text-secondary); cursor: pointer; transition: background 150ms; }
+.sidebar-task-link:hover { background: var(--primary-alpha-08); }
+.sidebar-task-link.active { background: var(--primary-alpha-12); color: var(--sb-brand); }
+.sidebar-task-link:focus-visible { outline: 2px solid var(--sb-brand); outline-offset: -2px; }
+
 .workspace-group { color: var(--text-primary); transition: background 150ms ease, color 150ms ease; }
 .workspace-group:hover, .workspace-group:focus-visible, .workspace-group-add:hover, .workspace-group-add:focus-visible { color: var(--text-primary); background: var(--primary-alpha-08); }
 .workspace-group-add { color: var(--text-muted); }

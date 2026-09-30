@@ -94,6 +94,7 @@ export function useHomeSessionActions(options: {
       await modelState.refreshModelOptions(true)
 
       await store.loadSessions()
+      if (route.name === 'tasks') { store.connectSocket(); return }
       const routeSessionId = route.params.sessionId as string | undefined
       const isNewChatRoute = !routeSessionId || routeSessionId === 'new_chat'
       if (routeSessionId && routeSessionId !== 'new_chat') {
@@ -232,6 +233,16 @@ export function useHomeSessionActions(options: {
 
   onMounted(() => {
     void boot()
+  })
+
+  watch(() => route.params.sessionId, async (id) => {
+    if (route.name !== 'chat' || uiState.loading.value) return
+    if (!id || id === 'new_chat') {
+      if (store.currentSessionId) store.resetToNewSession()
+    } else if (typeof id === 'string' && id !== store.currentSessionId) {
+      try { await pickSession(id) }
+      catch { showError(t('chatSearchOpenFailed')) }
+    }
   })
 
   watch(

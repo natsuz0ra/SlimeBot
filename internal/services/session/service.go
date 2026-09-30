@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"slimebot/internal/apperrors"
 	"slimebot/internal/constants"
 	"slimebot/internal/domain"
 )
@@ -498,5 +499,12 @@ func searchSnippet(content, query string) string {
 }
 
 func (s *SessionService) Get(ctx context.Context, id string) (*domain.Session, error) {
-	return s.store.GetSessionByID(ctx, id)
+	session, err := s.store.GetSessionByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if session.Kind == domain.SessionKindTaskRun {
+		return nil, apperrors.ErrNotFound
+	}
+	return session, nil
 }

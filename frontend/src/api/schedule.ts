@@ -1,3 +1,4 @@
+import type { SessionHistoryPayload } from './chat'
 import { apiClient } from './client'
 
 export type TaskRunStatus = 'running' | 'ok' | 'error' | 'interrupted'
@@ -11,6 +12,7 @@ export interface ScheduledTask {
   cronExpr?: string
   runAt?: string
   nextRunAt?: string
+  workingDirectory?: string
   completedRuns: number
 }
 export interface ScheduledTaskRun {
@@ -29,7 +31,19 @@ export interface TaskRunPage {
   runs: ScheduledTaskRun[]
   hasMore: boolean
 }
+export interface CreateScheduledTaskInput {
+  name: string
+  prompt: string
+  workingDirectory?: string
+  modelConfigId?: string
+  schedule: { kind: 'once' | 'interval' | 'cron'; runAt?: string; intervalMinutes?: number; cronExpr?: string; timezone?: string }
+}
 export const scheduleAPI = {
+  create: async (input: CreateScheduledTaskInput): Promise<ScheduledTask> => (await apiClient.post('/api/scheduled-tasks', input)).data,
+  action: async (id: string, action: 'pause' | 'resume' | 'run'): Promise<ScheduledTask> => (await apiClient.post(`/api/scheduled-tasks/${encodeURIComponent(id)}/actions`, { action })).data,
+  history: async (id: string, before?: string, beforeSeq?: number, signal?: AbortSignal): Promise<SessionHistoryPayload> => (
+    await apiClient.get(`/api/scheduled-task-runs/${encodeURIComponent(id)}/history`, { params: { before, beforeSeq }, signal })
+  ).data,
   tasks: async (signal?: AbortSignal): Promise<ScheduledTask[]> => (
     await apiClient.get('/api/scheduled-tasks', { signal })
   ).data,

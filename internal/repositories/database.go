@@ -42,6 +42,9 @@ func NewSQLite(dbPath string) (*gorm.DB, error) {
 	); err != nil {
 		return nil, fmt.Errorf("auto migration failed: %w", err)
 	}
+	if err := migrateScheduledRunContexts(db); err != nil {
+		return nil, fmt.Errorf("scheduled execution migration failed: %w", err)
+	}
 	if err := migrateLegacyLLMProviders(db); err != nil {
 		return nil, fmt.Errorf("LLM provider migration failed: %w", err)
 	}

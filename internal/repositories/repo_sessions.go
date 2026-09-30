@@ -20,7 +20,7 @@ func escapeSQLiteLikePattern(s string) string {
 
 func (r *Repository) ListSessions(ctx context.Context, limit int, offset int, query string) ([]domain.Session, error) {
 	var sessions []domain.Session
-	q := r.dbWithContext(ctx).Order("updated_at desc")
+	q := r.dbWithContext(ctx).Where("kind = ?", domain.SessionKindChat).Order("updated_at desc")
 	if trimmed := strings.TrimSpace(query); trimmed != "" {
 		like := "%" + escapeSQLiteLikePattern(trimmed) + "%"
 		q = q.Where("name LIKE ? ESCAPE '\\'", like)
@@ -112,11 +112,11 @@ func (r *Repository) SearchChats(ctx context.Context, query, scope string, limit
 	like := "%" + escapeSQLiteLikePattern(query) + "%"
 	sql := `SELECT s.id AS session_id, s.name AS session_name, s.working_directory, '' AS message_id,
  '' AS role, s.name AS content, s.updated_at AS created_at, 0 AS seq, 0 AS kind
- FROM sessions s WHERE s.deleted_at IS NULL AND s.name LIKE ? ESCAPE '\' AND ? <> 'messages'
+ FROM sessions s WHERE s.deleted_at IS NULL AND s.kind = 'chat' AND s.name LIKE ? ESCAPE '\' AND ? <> 'messages'
  UNION ALL
  SELECT s.id, s.name, s.working_directory, m.id, m.role, m.content, m.created_at, m.seq, 1 AS kind
  FROM messages m JOIN sessions s ON s.id = m.session_id
- WHERE s.deleted_at IS NULL AND m.role IN ('user', 'assistant')
+ WHERE s.deleted_at IS NULL AND s.kind = 'chat' AND m.role IN ('user', 'assistant')
  AND m.content LIKE ? ESCAPE '\' AND ? <> 'titles'
  ORDER BY kind ASC, created_at DESC, session_id ASC, seq DESC, message_id ASC
  LIMIT ? OFFSET ?`
@@ -148,4 +148,12 @@ func (r *Repository) SearchChats(ctx context.Context, query, scope string, limit
 			return results, nil
 		}
 	}
+}
+
+// CreateTaskRunContext persists an isolated execution context for the chat engine.
+// Its messages belong to run history and are excluded from ordinary chat listings/search.
+func (r *Repository) CreateTaskRunContext(ctx context.Context, name, workingDirectory string) (*domain.Session, error) {
+	session := &domain.Session{ID: uuid.NewString(), Name: name, Kind: domain.SessionKindTaskRun, IsTitleLocked: true, WorkingDirectory: workingDirectory}
+	err := r.dbWithContext(ctx).Create(session).Error
+	return session, err
 }

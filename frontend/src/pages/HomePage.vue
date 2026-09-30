@@ -1,8 +1,10 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, toRef } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import {
   mdiDeleteOutline,
+  mdiMenu,
+  mdiCalendarClockOutline,
   mdiPencilOutline,
 } from '@mdi/js'
 
@@ -14,6 +16,7 @@ import ChatMessageList from '@/components/chat/ChatMessageList.vue'
 import HomeDialogs from '@/components/home/HomeDialogs.vue'
 import HomeHeaderBar from '@/components/home/HomeHeaderBar.vue'
 import ChatSearchDialog from '@/components/home/ChatSearchDialog.vue'
+import ScheduledTasksWorkspace from '@/components/home/ScheduledTasksWorkspace.vue'
 import HomeSidebar from '@/components/home/HomeSidebar.vue'
 import AppLogo from '@/components/ui/AppLogo.vue'
 import { provideChatContext } from '@/composables/chat/useChatContext'
@@ -36,6 +39,22 @@ const {
 } = useHomeChatPage()
 
 const searchVisible = ref(false)
+const router = useRouter()
+const isTasksWorkspace = computed(() => route.name === 'tasks')
+async function openTasks() {
+  ui.topMenuVisible = false
+  sessions.activeSessionMenu = null
+  await router.push('/tasks')
+  if (window.matchMedia('(max-width: 767px)').matches) ui.drawerOpen = false
+}
+async function pickChat(id: string) {
+  await sessions.pickSession(id)
+  await router.push(`/chat/${encodeURIComponent(id)}`)
+}
+async function pickSearchResult(hit: Parameters<typeof sessions.pickSearchResult>[0]) {
+  await sessions.pickSearchResult(hit)
+  await router.push(`/chat/${encodeURIComponent(hit.sessionId)}`)
+}
 const { isDark, toggleTheme } = useTheme()
 const {
   hasUnreadUpdate,
@@ -99,7 +118,7 @@ onMounted(() => {
 </script>
 
 <template>
-  <ChatSearchDialog :visible="searchVisible" :pick-result="sessions.pickSearchResult" @close="searchVisible = false" />
+  <ChatSearchDialog :visible="searchVisible" :pick-result="pickSearchResult" @close="searchVisible = false" />
   <div
     class="page-shell h-screen flex items-center justify-center p-2 sm:p-3 transition-colors duration-300"
     :class="{ 'home-login-entering': playHomeLoginEnter }"
@@ -114,16 +133,18 @@ onMounted(() => {
         <HomeSidebar
           v-if="ui.drawerOpen"
           :sessions="store.sessions"
-          :current-session-id="store.currentSessionId"
+          :current-session-id="isTasksWorkspace ? undefined : store.currentSessionId"
+          :tasks-active="isTasksWorkspace"
           :is-dark="isDark"
           :has-update-notice="hasUnreadUpdate"
           :set-sidebar-list-ref="sessions.setSidebarListRef"
           @create-session="sessions.createSession"
-          @pick-session="sessions.pickSession"
+          @pick-session="pickChat"
           @toggle-session-menu="ui.toggleSessionMenu"
           @toggle-theme="toggleTheme"
           @open-settings="ui.settingsVisible = true"
           @open-search="searchVisible = true"
+          @open-tasks="openTasks"
         />
       </Transition>
 
@@ -139,6 +160,15 @@ onMounted(() => {
       <!-- ───── Main content ───── -->
       <main class="relative z-0 flex-1 flex flex-col min-w-0">
 
+        <header v-if="isTasksWorkspace" class="header-bar flex items-center gap-3 h-14 shrink-0 px-3">
+          <button type="button" class="sb-text-muted w-9 h-9 flex items-center justify-center rounded-xl cursor-pointer" :aria-label="t('scheduleToggleSidebar')" @click="ui.toggleSidebar"><MdiIcon :path="mdiMenu" :size="19" /></button>
+          <MdiIcon :path="mdiCalendarClockOutline" :size="18" class="sb-text-muted" />
+          <span class="sb-text-primary text-sm font-semibold">{{ t('scheduleSettings') }}</span>
+        </header>
+        <div v-if="isTasksWorkspace" class="flex-1 min-h-0 overflow-y-auto">
+          <ScheduledTasksWorkspace :model-options="models.modelSelectOptions" :initial-working-directory="store.currentWorkingDirectory" />
+        </div>
+        <template v-else>
         <HomeHeaderBar
           :current-session="sessions.currentSession"
           :can-manage-current-session="sessions.canManageCurrentSession"
@@ -297,6 +327,7 @@ onMounted(() => {
           :open="store.todoPanelOpen"
           @toggle="store.toggleTodoPanel"
         />
+        </template>
       </main>
     </div>
 

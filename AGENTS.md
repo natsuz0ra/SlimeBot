@@ -76,7 +76,7 @@ frontend/src/
 ├─ api/                      # HTTP client calls
 ├─ components/
 │  ├─ chat/                  # Chat-specific UI components
-│  ├─ home/                  # Home page components
+│  ├─ home/                  # Home page, scheduled task workspace, and run detail components
 │  ├─ login/                 # Login/auth components
 │  ├─ settings/              # Settings UI components
 │  └─ ui/                    # Shared base UI components
@@ -124,7 +124,8 @@ Quick index (feature -> first place to inspect):
 - Sandbox policy and command isolation: `internal/sandbox/`
 - LLM abstraction/provider wiring: `internal/services/llm/`, `internal/services/openai/`, `internal/services/anthropic/`
 - Long-term memory store/service: `internal/services/memory/`, `internal/tools/memory.go`
-- Scheduled chat tasks: `internal/services/schedule/`, `internal/tools/schedule.go`
+- Scheduled tasks and execution history: `internal/services/schedule/`, `internal/tools/schedule.go`, `internal/app/schedule_runner.go`, `internal/server/controller/scheduled_tasks.go`
+- Home scheduled task workspace: `frontend/src/components/home/ScheduledTasksWorkspace.vue`, `frontend/src/components/home/TaskRunTimeline.vue`, `frontend/src/api/schedule.ts` (sidebar entry and `/tasks` route; execution contexts are excluded from ordinary chats)
 - Tool implementations: `internal/tools/`
 - Update checking/apply flow: `internal/updater/`, `internal/server/controller/update.go`
 - Build/version metadata: `internal/version/`

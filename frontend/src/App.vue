@@ -33,13 +33,13 @@ function normalizePath(pathLike: string | undefined) {
   return pathLike.split('?')[0]?.split('#')[0] ?? ''
 }
 
-function isChatPath(pathLike: string | undefined) {
+function isHomeWorkspacePath(pathLike: string | undefined) {
   const normalized = normalizePath(pathLike)
-  return normalized.startsWith('/chat/')
+  return normalized.startsWith('/chat/') || normalized === '/tasks'
 }
 
 function resolveRouteComponentKey(pathLike: string | undefined) {
-  if (isChatPath(pathLike)) return 'chat-home'
+  if (isHomeWorkspacePath(pathLike)) return 'chat-home'
   return pathLike || ''
 }
 
@@ -53,7 +53,7 @@ watch(
   () => route.fullPath,
   (fullPath, previousFullPath) => {
     shouldPlayLoginToHome.value = route.path === '/' && hasLoginToHomeToken()
-    skipFadeForChatSwitch.value = isChatPath(previousFullPath) && isChatPath(fullPath)
+    skipFadeForChatSwitch.value = isHomeWorkspacePath(previousFullPath) && isHomeWorkspacePath(fullPath)
   },
   { immediate: true },
 )

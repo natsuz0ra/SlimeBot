@@ -11,6 +11,7 @@ import (
 	chatsvc "slimebot/internal/services/chat"
 	configsvc "slimebot/internal/services/config"
 	memorysvc "slimebot/internal/services/memory"
+	schedulesvc "slimebot/internal/services/schedule"
 	sessionsvc "slimebot/internal/services/session"
 	settingssvc "slimebot/internal/services/settings"
 	"slimebot/internal/updater"
@@ -116,6 +117,7 @@ type HTTPController struct {
 	platforms    messagePlatformConfigService
 	plans        planService
 	chatUsage    chatContextUsageService
+	schedule     *schedulesvc.Service
 	update       updateService
 	tokenManager *auth.TokenManager
 }
@@ -164,3 +166,5 @@ func (h *HTTPController) SetUpdateService(service updateService) {
 func (h *HTTPController) SetMemoryService(service memoryService) {
 	h.memory = service
 }
+
+func (h *HTTPController) SetScheduleService(service *schedulesvc.Service) { h.schedule = service }

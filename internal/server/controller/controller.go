@@ -33,6 +33,7 @@ type sessionService interface {
 type settingsService interface {
 	Get(ctx context.Context) (*settingssvc.AppSettings, error)
 	Update(ctx context.Context, input settingssvc.UpdateSettingsInput) error
+	TestProxy(ctx context.Context, raw string) (*settingssvc.ProxyTestResult, error)
 }
 
 type memoryService interface {

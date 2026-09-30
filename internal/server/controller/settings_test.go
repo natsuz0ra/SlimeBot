@@ -6,14 +6,18 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"slimebot/internal/apperrors"
 	agentssvc "slimebot/internal/services/agents"
 	settingssvc "slimebot/internal/services/settings"
 	"testing"
 )
 
 type settingsServiceStub struct {
-	settings *settingssvc.AppSettings
-	input    settingssvc.UpdateSettingsInput
+	settings    *settingssvc.AppSettings
+	input       settingssvc.UpdateSettingsInput
+	proxy       string
+	proxyResult *settingssvc.ProxyTestResult
+	proxyError  error
 }
 
 type agentsInstructionsServiceStub struct {
@@ -29,6 +33,41 @@ func (s *settingsServiceStub) Get(_ context.Context) (*settingssvc.AppSettings, 
 func (s *settingsServiceStub) Update(_ context.Context, input settingssvc.UpdateSettingsInput) error {
 	s.input = input
 	return nil
+}
+
+func (s *settingsServiceStub) TestProxy(_ context.Context, raw string) (*settingssvc.ProxyTestResult, error) {
+	s.proxy = raw
+	return s.proxyResult, s.proxyError
+}
+
+func TestProxyConnectionReturnsDiagnosticsAndValidationErrors(t *testing.T) {
+	stub := &settingsServiceStub{proxyResult: &settingssvc.ProxyTestResult{
+		Success: false, Route: "proxy", TargetURL: "https://api.github.com", LatencyMs: 12, ErrorCode: "refused",
+	}}
+	handler := NewHTTPController(nil, nil, stub, nil, nil, nil, nil, nil, nil, nil, nil)
+	for _, test := range []struct {
+		payload string
+		err     error
+		status  int
+	}{
+		{`{"proxyUrl":"http://127.0.0.1:7890"}`, nil, http.StatusOK},
+		{`{"proxyUrl":"invalid"}`, apperrors.ErrInvalidInput, http.StatusBadRequest},
+		{`{"proxyUrl":123}`, nil, http.StatusBadRequest},
+	} {
+		stub.proxyError = test.err
+		response := httptest.NewRecorder()
+		request := httptest.NewRequest(http.MethodPost, "/settings/proxy/test", bytes.NewBufferString(test.payload))
+		handler.TestProxyConnection(NewChiContext(response, request))
+		if response.Code != test.status {
+			t.Fatalf("status = %d, body = %s", response.Code, response.Body.String())
+		}
+		if test.status == http.StatusOK {
+			var result settingssvc.ProxyTestResult
+			if err := json.Unmarshal(response.Body.Bytes(), &result); err != nil || result.ErrorCode != "refused" || result.Route != "proxy" || stub.proxy != "http://127.0.0.1:7890" {
+				t.Fatalf("diagnostic response = %+v, %v", result, err)
+			}
+		}
+	}
 }
 
 func (s *agentsInstructionsServiceStub) ReadGlobal(_ context.Context) (agentssvc.File, error) {

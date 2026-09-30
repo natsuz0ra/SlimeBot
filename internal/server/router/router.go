@@ -77,6 +77,7 @@ func New(cfg config.Config, tokenManager *auth.TokenManager, httpController *con
 
 			api.Get("/settings", adapt(httpController.GetSettings))
 			api.Put("/settings", adapt(httpController.UpdateSettings))
+			api.Post("/settings/proxy/test", adapt(httpController.TestProxyConnection))
 			api.Get("/memory", adapt(httpController.GetMemory))
 			api.Delete("/memory/{target}", adapt(httpController.ClearMemory))
 			api.Delete("/memory/{target}/entries/{index}", adapt(httpController.DeleteMemoryEntry))

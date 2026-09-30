@@ -98,3 +98,19 @@ func (h *HTTPController) UpdateSettings(c WebContext) {
 	}
 	c.Status(http.StatusNoContent)
 }
+
+// TestProxyConnection diagnoses a draft proxy without persisting it.
+func (h *HTTPController) TestProxyConnection(c WebContext) {
+	var req struct {
+		ProxyURL string `json:"proxyUrl"`
+	}
+	if !bindJSONOrBadRequest(c, &req, "Invalid request payload format.") {
+		return
+	}
+	result, err := h.settings.TestProxy(c.Request().Context(), req.ProxyURL)
+	if err != nil {
+		jsonInternalError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, result)
+}

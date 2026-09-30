@@ -26,20 +26,38 @@ func SetProxyURL(raw string) error {
 	proxyTransportOnce.Do(func() {
 		transport := http.DefaultTransport.(*http.Transport).Clone()
 		transport.Proxy = func(req *http.Request) (*url.URL, error) {
-			host := req.URL.Hostname()
-			ip := net.ParseIP(host)
-			if strings.EqualFold(host, "localhost") || ip != nil && ip.IsLoopback() {
-				return nil, nil
-			}
-			if configured := proxyURL.Load(); configured != nil {
-				return configured, nil
-			}
-			return http.ProxyFromEnvironment(req)
+			return resolveProxy(req, proxyURL.Load())
 		}
 		http.DefaultTransport = transport
 	})
 	proxyURL.Store(parsed)
 	return nil
+}
+
+// NewProxyTransport tests a draft proxy with the same routing rules as live requests.
+// It does not change the application's active proxy.
+func NewProxyTransport(raw string) (*http.Transport, error) {
+	parsed, err := parseProxyURL(raw)
+	if err != nil {
+		return nil, err
+	}
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.Proxy = func(req *http.Request) (*url.URL, error) {
+		return resolveProxy(req, parsed)
+	}
+	return transport, nil
+}
+
+func resolveProxy(req *http.Request, configured *url.URL) (*url.URL, error) {
+	host := req.URL.Hostname()
+	ip := net.ParseIP(host)
+	if strings.EqualFold(host, "localhost") || ip != nil && ip.IsLoopback() {
+		return nil, nil
+	}
+	if configured != nil {
+		return configured, nil
+	}
+	return http.ProxyFromEnvironment(req)
 }
 
 func ValidateProxyURL(raw string) error {

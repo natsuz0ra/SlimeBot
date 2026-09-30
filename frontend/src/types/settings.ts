@@ -4,6 +4,15 @@ export type SandboxMode = 'read-only' | 'workspace-write' | 'danger-full-access'
 export type SettingsTabKey = 'basic' | 'llm' | 'mcp' | 'skills' | 'agents' | 'memory' | 'platform' | 'update' | 'about'
 export type MemoryTarget = 'memory' | 'user'
 
+export interface ProxyTestResult {
+  success: boolean
+  route: 'proxy' | 'environment' | 'direct'
+  targetUrl: string
+  latencyMs: number
+  statusCode?: number
+  errorCode?: 'timeout' | 'dns' | 'tls' | 'refused' | 'network' | 'http' | 'proxy_auth' | 'proxy_http'
+}
+
 export interface AppSettings {
   language: 'zh-CN' | 'en-US'
   defaultModel?: string

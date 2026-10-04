@@ -5,6 +5,7 @@ import { createInitialState } from "../reducer.js";
 import {
   getApprovalKeyAction,
   getTeamDetailKeyAction,
+  getMenuNavigationAction,
   handleStreamingChatShortcut,
   getModelEditorFieldNavigationAction,
   getQuestionAnswerConfirmEnterAction,
@@ -316,4 +317,19 @@ test("question answer left and right arrows navigate between questions", () => {
   assert.deepEqual(getQuestionAnswerQuestionKeyActions(state, "", key({ rightArrow: true })), [
     { type: "QA_STEP_CONFIRM" },
   ]);
+});
+
+test("cooperative view owns navigation and Escape instead of mutating legacy team cursors",()=>{
+ const state={...createInitialState("http://127.0.0.1:8080","token","/tmp","1.34.0"),view:"team-detail" as const};
+ for(const input of [key({escape:true}),key({leftArrow:true}),key({rightArrow:true}),key({upArrow:true}),key({downArrow:true})]) assert.equal(getTeamDetailKeyAction(state,input,true),null);
+});
+
+test("menu navigation supports paging, boundaries and wheel scrolling", () => {
+  assert.deepEqual(getMenuNavigationAction(key({ pageDown: true }), 30, 4), { type: "MENU_NAV", delta: 4 });
+  assert.deepEqual(getMenuNavigationAction(key({ pageUp: true }), 30, 4), { type: "MENU_NAV", delta: -4 });
+  assert.deepEqual(getMenuNavigationAction(key({ home: true }), 30, 4), { type: "MENU_NAV", delta: -30 });
+  assert.deepEqual(getMenuNavigationAction(key({ end: true }), 30, 4), { type: "MENU_NAV", delta: 30 });
+  assert.deepEqual(getMenuNavigationAction(key({ wheelDown: true }), 30, 4), { type: "MENU_NAV", delta: 1 });
+  assert.deepEqual(getMenuNavigationAction(key({ pageDown: true }), 0, 0), { type: "MENU_NAV", delta: 1 });
+  assert.equal(getMenuNavigationAction(key({ return: true }), 30, 4), null);
 });

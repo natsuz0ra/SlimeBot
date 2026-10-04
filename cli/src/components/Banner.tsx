@@ -23,7 +23,7 @@ export function Banner({ version, modelName, cwd, approvalMode, thinkingLevel, u
 
   return (
     <Box flexDirection="row">
-      <Box flexDirection="column" marginRight={2}>
+      <Box flexDirection="column" marginRight={2} width={10} flexShrink={0}>
         {logoLines.map((line, i) => (
           <Text key={i} color="#a78bfa">
             {line}
@@ -31,7 +31,7 @@ export function Banner({ version, modelName, cwd, approvalMode, thinkingLevel, u
         ))}
       </Box>
 
-      <Box flexDirection="column">
+      <Box flexDirection="column" flexGrow={1} flexShrink={1} minWidth={0}>
         <Text>
           <Text bold color="white">
             SlimeBot CLI{" "}

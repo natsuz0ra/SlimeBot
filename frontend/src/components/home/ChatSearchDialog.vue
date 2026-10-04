@@ -93,7 +93,7 @@ function moveResult(direction: number) {
 </script>
 
 <template>
-  <AppDialog :visible="visible" :title="t('chatSearch')" width="680px" hide-footer @close="emit('close')">
+  <AppDialog :visible="visible" :title="t('chatSearch')" width="680px" hide-footer @cancel="emit('close')">
     <div class="chat-search" @keydown.down.prevent="moveResult(1)" @keydown.up.prevent="moveResult(-1)">
       <div class="search-field">
         <MdiIcon :path="mdiMagnify" :size="21" aria-hidden="true" />

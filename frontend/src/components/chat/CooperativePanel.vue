@@ -2,6 +2,8 @@
 import { computed, nextTick, onUnmounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { mdiAccountGroupOutline, mdiChevronRight, mdiClose, mdiStopCircleOutline, mdiSourceBranch, mdiSendOutline, mdiAlertCircleOutline, mdiClipboardCheckOutline, mdiFileDocumentOutline, mdiPlus, mdiCogOutline, mdiArrowRight, mdiRobotOutline, mdiClockOutline } from '@mdi/js'
+import AppTextInput from '@/components/ui/AppTextInput.vue'
+import { ownsModalKeyboard, modalFocusableElements } from '@/utils/dialogFocus'
 import MdiIcon from '@/components/ui/MdiIcon.vue'
 import { cooperativeAPI, type CooperativeSnapshot } from '@/api/cooperative'
 import { cooperativeStatus, cooperativeReport, cooperativeError, latestAgentTurns, orderedAgentTree } from '@/utils/cooperative'
@@ -93,9 +95,10 @@ watch(selected, () => { message.value = '' })
 async function open(event: MouseEvent) { trigger = event.currentTarget as HTMLElement; visible.value = true; document.addEventListener('keydown', onKey); await nextTick(); panel.value?.querySelector<HTMLButtonElement>('button')?.focus(); void refresh(); try { maxDepth.value = (await settingAPI.get()).subagentMaxDepth ?? 2 } catch { /* current delegation still works with saved defaults */ } }
 function close() { visible.value = false; document.removeEventListener('keydown', onKey); trigger?.focus() }
 function onKey(event: KeyboardEvent) {
+  if (!visible.value || !ownsModalKeyboard(panel.value)) return
   if (event.key === 'Escape') { event.preventDefault(); close() }
   if (event.key !== 'Tab' || !panel.value) return
-  const elements = [...panel.value.querySelectorAll<HTMLElement>('button:not(:disabled), textarea:not(:disabled), select:not(:disabled), input:not(:disabled), summary, [tabindex="0"]')].filter(e => e.offsetParent !== null && [...panel.value!.querySelectorAll('details:not([open])')].every(details => !details.contains(e) || details.querySelector(':scope > summary')?.contains(e)))
+  const elements = modalFocusableElements(panel.value)
   const first = elements[0], last = elements[elements.length - 1]
   if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus() }
   else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus() }
@@ -160,7 +163,7 @@ function approvalLabel(payload: string) { try { const p = JSON.parse(payload); r
   </div>
   <Teleport to="body">
     <div v-if="visible" class="coop-overlay" @click.self="close">
-      <section ref="panel" class="coop-panel" role="dialog" aria-modal="true" :aria-label="text('协作工作区', 'Collaboration workspace')">
+      <section ref="panel" class="coop-panel" role="dialog" aria-modal="true" data-modal-layer="300" :aria-label="text('协作工作区', 'Collaboration workspace')">
         <header class="coop-header">
           <div class="coop-heading">
             <span class="coop-brand"><MdiIcon :path="mdiAccountGroupOutline" :size="25" /></span>
@@ -222,7 +225,7 @@ function approvalLabel(payload: string) { try { const p = JSON.parse(payload); r
         </template>
         <div v-else-if="tab === 'tasks'" class="coop-collection">
           <div class="coop-section-heading"><div><h3>{{ text('任务看板', 'Task board') }}</h3><p>{{ text('从分派到完成，跟进每一项工作', 'Track each task from assignment to completion') }}</p></div><button :aria-expanded="creatingTask" @click="creatingTask = !creatingTask"><MdiIcon :path="creatingTask ? mdiClose : mdiPlus" :size="16" />{{ creatingTask ? text('收起', 'Close') : text('新建任务', 'New task') }}</button></div>
-          <form v-if="creatingTask" class="coop-new-task" @submit.prevent="createTask"><label for="cooperative-task-title">{{ text('任务名称', 'Task name') }}</label><input id="cooperative-task-title" v-model="taskTitle" :placeholder="text('这项任务需要完成什么？', 'What needs to be done?')" maxlength="120" /><label for="cooperative-task-description">{{ text('目标与验收要求', 'Goal and acceptance criteria') }}</label><textarea id="cooperative-task-description" v-model="taskDescription" :placeholder="text('补充任务说明…', 'Add task details…')" rows="2" /><div class="coop-task-actions"><button class="coop-primary" :disabled="busy || !taskTitle.trim()"><MdiIcon :path="mdiPlus" :size="16" />{{ text('添加任务', 'Add task') }}</button></div></form>
+          <form v-if="creatingTask" class="coop-new-task" @submit.prevent="createTask"><label for="cooperative-task-title">{{ text('任务名称', 'Task name') }}</label><AppTextInput id="cooperative-task-title" v-model="taskTitle" :placeholder="text('这项任务需要完成什么？', 'What needs to be done?')" maxlength="120" /><label for="cooperative-task-description">{{ text('目标与验收要求', 'Goal and acceptance criteria') }}</label><textarea id="cooperative-task-description" v-model="taskDescription" :placeholder="text('补充任务说明…', 'Add task details…')" rows="2" /><div class="coop-task-actions"><button class="coop-primary" :disabled="busy || !taskTitle.trim()"><MdiIcon :path="mdiPlus" :size="16" />{{ text('添加任务', 'Add task') }}</button></div></form>
           <div class="coop-board">
             <section v-for="group in groups" :key="group.id" class="coop-lane" :data-lane="group.id">
               <h3><i class="coop-dot" />{{ group.label }}<span>{{ group.tasks.length }}</span></h3>
@@ -248,7 +251,7 @@ function approvalLabel(payload: string) { try { const p = JSON.parse(payload); r
             <p v-if="artifact.report" class="coop-artifact-report">{{ artifact.status === 'integrated' ? text('文件变更已集成到当前工作区。', 'Changes have been integrated into the current workspace.') : artifact.report }}</p>
             <details class="coop-task-details"><summary>{{ text('工作目录', 'Workspace') }} · {{ workspaceName(artifact.parentWorkspace) }}</summary><code>{{ artifact.workspace }}</code></details>
             <details v-if="artifact.validation" class="coop-task-details"><summary><MdiIcon :path="mdiClipboardCheckOutline" :size="16" />{{ text('验证记录', 'Validation record') }}<span v-if="artifact.validatedCommit" class="coop-validation-ok">{{ text('已通过', 'Passed') }}</span></summary><pre class="coop-diff">{{ artifact.validation }}</pre></details>
-            <details v-if="['ready', 'conflict', 'validation_failed'].includes(artifact.status)" class="coop-task-details"><summary>{{ text('运行验证', 'Run verification') }}</summary><form class="coop-create" @submit.prevent="act(() => cooperativeAPI.validate(artifact.id, sessionId!, validationCommands[artifact.id] || artifact.validationCommand || ''))"><input v-model="validationCommands[artifact.id]" :aria-label="text('验证命令', 'Validation command')" :placeholder="text('例如 go test ./...', 'e.g. go test ./...')" /><button :disabled="busy || !(validationCommands[artifact.id] || artifact.validationCommand)?.trim()">{{ text('验证', 'Verify') }}</button></form></details>
+            <details v-if="['ready', 'conflict', 'validation_failed'].includes(artifact.status)" class="coop-task-details"><summary>{{ text('运行验证', 'Run verification') }}</summary><form class="coop-create" @submit.prevent="act(() => cooperativeAPI.validate(artifact.id, sessionId!, validationCommands[artifact.id] || artifact.validationCommand || ''))"><AppTextInput :model-value="validationCommands[artifact.id] || ''" @update:model-value="validationCommands[artifact.id] = $event" :aria-label="text('验证命令', 'Validation command')" :placeholder="text('例如 go test ./...', 'e.g. go test ./...')" /><button :disabled="busy || !(validationCommands[artifact.id] || artifact.validationCommand)?.trim()">{{ text('验证', 'Verify') }}</button></form></details>
             <div class="coop-artifact-actions"><button :disabled="busy || artifact.status === 'working'" @click="inspectArtifact(artifact.id)"><MdiIcon :path="mdiFileDocumentOutline" :size="16" />{{ text('查看变更', 'View changes') }}</button><button v-if="['ready', 'conflict', 'validation_failed'].includes(artifact.status)" class="coop-primary" :disabled="busy || !artifact.validatedCommit || artifact.validatedCommit !== artifact.resultCommit" :title="artifact.validatedCommit === artifact.resultCommit ? undefined : text('验证通过后即可集成', 'Verify the result before integrating')" @click="act(() => cooperativeAPI.artifact(artifact.id, sessionId!, true))">{{ text('集成成果', 'Integrate') }}<MdiIcon :path="mdiArrowRight" :size="16" /></button></div>
             <pre v-if="diff && inspectedArtifact === artifact.id" class="coop-diff">{{ diff }}</pre>
           </article>
@@ -269,7 +272,7 @@ function approvalLabel(payload: string) { try { const p = JSON.parse(payload); r
 .coop-count { font-variant-numeric: tabular-nums; border-radius: 5px; background: var(--primary-alpha-08); padding: 0 5px; }
 .coop-running { display: flex; align-items: center; gap: 5px; color: var(--tool-success-text); }
 .coop-attention { color: var(--tool-pending-text); }
-.coop-overlay { position: fixed; inset: 0; z-index: 90; display: flex; justify-content: flex-end; background: var(--overlay-backdrop); backdrop-filter: blur(3px); }
+.coop-overlay { position: fixed; inset: 0; z-index: 300; display: flex; justify-content: flex-end; background: var(--overlay-backdrop); backdrop-filter: blur(3px); }
 .coop-panel { width: min(880px, 94vw); height: 100%; display: flex; flex-direction: column; background: var(--bg-main); color: var(--text-primary); box-shadow: -16px 0 60px rgba(0, 0, 0, .16); overflow: hidden; font-size: 13px; animation: coop-enter 220ms var(--ease-out-smooth); }
 .coop-panel button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 34px; padding: 7px 11px; border: 1px solid var(--card-border); border-radius: 8px; background: var(--bg-main); color: var(--text-secondary); font: inherit; cursor: pointer; transition: background 160ms, border-color 160ms; }
 .coop-panel button:hover:not(:disabled) { background: var(--primary-alpha-06); border-color: var(--primary-alpha-22); }

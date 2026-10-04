@@ -14,7 +14,7 @@ import { CommandHints } from "./components/CommandHints.js";
 import { MCPEditor } from "./components/MCPEditor.js";
 import { MCPTemplatePicker } from "./components/MCPTemplatePicker.js";
 import { MCPToolsView } from "./components/MCPToolsView.js";
-import { CLI_HINT_COLOR, MenuView, MENU_VISIBLE_LIMIT } from "./components/MenuView.js";
+import { CLI_HINT_COLOR, MenuView, MENU_VISIBLE_LIMIT, getMenuViewport } from "./components/MenuView.js";
 import MemoryConsoleView from "./components/MemoryConsoleView.js";
 import CooperativeView from "./components/CooperativeView.js";
 import type { CooperativeSnapshot } from "./types/cooperative.js";
@@ -42,7 +42,7 @@ import {
   parseMemoryConsoleDraft,
   type MemoryConsoleEditField,
 } from "./utils/memoryConsole.js";
-import { CLI_ACCENT_COLOR, clearScreen, setTerminalTitle } from "./utils/terminal.js";
+import { CLI_ACCENT_COLOR, clearScreen, setTerminalTitle, terminalWorkspaceLayout } from "./utils/terminal.js";
 import { SHOW_CLI_THINKING } from "./utils/timelineFormat.js";
 import { CLISocket } from "./ws/socket.js";
 import type {
@@ -88,6 +88,9 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
   const { exit } = useApp();
   const { stdout } = useStdout();
   const [width, setWidth] = React.useState(() => Math.max(20, stdout?.columns || 80));
+  const [terminalRows, setTerminalRows] = React.useState(() => stdout?.rows || 24);
+  const [cooperativeLoading, setCooperativeLoading] = React.useState(false);
+  const [cooperativeError, setCooperativeError] = React.useState("");
   const [cooperativeView, setCooperativeView] = React.useState(false);
   const [cooperativeTab, setCooperativeTab] = React.useState(0);
   const [cooperativeSnapshot, setCooperativeSnapshot] = React.useState<CooperativeSnapshot|null>(null);
@@ -1034,7 +1037,7 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
     }
   }, [appendSystem, applyTerminalTitle, state.modelId, state.sessionId, state.planMode, state.thinkingLevel]);
 
-  const manageAgents = useCallback(async (command: string) => {
+  const manageAgents = useCallback(async (command: string, inline = false) => {
     if (!state.sessionId) { appendSystem("Create or open a session first."); return; }
     const root = state.sessionId;
     try {
@@ -1044,6 +1047,7 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
         await apiRef.current.cooperativeAction(id, {action: "message", message: parts.slice(2).join(" "), delivery: "queue", clientMessageId: crypto.randomUUID()});
         appendSystem("Follow-up accepted.");
       } else if (action === "stop") {
+        if (!id) throw new Error("Use stop <agent-id|all>");
         if (id === "all") await apiRef.current.cooperativeStop(root);
         else if (id) await apiRef.current.cooperativeAction(id, {action: "interrupt", scope: "subtree"});
       } else if (action === "artifact" && id) {
@@ -1073,11 +1077,27 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
       setCooperativeSnapshot(await apiRef.current.cooperativeSnapshot(root));
       if (action === "tasks" || action === "task") setCooperativeTab(1);
       else if (action === "artifacts" || action === "artifact") setCooperativeTab(2);
-      else setCooperativeTab(0);
+      else if (action === "approve") setCooperativeTab(3);
+      else if (command || !cooperativeView) setCooperativeTab(0);
+      setCooperativeError("");
       setCooperativeView(true);
       dispatch({type:"OPEN_TEAM_DETAIL"} as AppAction);
-    } catch (error) { appendSystem(`Collaboration: ${(error as Error).message}`); }
-  }, [state.sessionId, appendSystem]);
+    } catch (error) {
+      if (inline) throw error;
+      appendSystem(`Collaboration: ${(error as Error).message}`);
+    }
+  }, [state.sessionId, appendSystem, cooperativeView]);
+
+  const refreshAgents = useCallback(async () => {
+    const root = state.sessionId;
+    if (!root || cooperativeLoading) return;
+    setCooperativeLoading(true);
+    try {
+      const snapshot = await apiRef.current.cooperativeSnapshot(root);
+      if (sessionRef.current.id === root) { setCooperativeSnapshot(snapshot); setCooperativeError(""); }
+    } catch (error) { setCooperativeError(`Refresh failed: ${(error as Error).message}`); }
+    finally { setCooperativeLoading(false); }
+  }, [state.sessionId, cooperativeLoading]);
 
   useEffect(() => {
     if (!cooperativeView || state.view !== "team-detail" || !state.sessionId) return;
@@ -1086,8 +1106,8 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
     const refresh = async () => {
       try {
         const snapshot = await apiRef.current.cooperativeSnapshot(state.sessionId!);
-        if (!disposed) setCooperativeSnapshot(snapshot);
-      } catch { /* Manual refresh reports errors without repeated polling noise. */ }
+        if (!disposed) { setCooperativeSnapshot(snapshot); setCooperativeError(""); }
+      } catch (error) { if (!disposed) setCooperativeError(`Connection unavailable: ${(error as Error).message}`); }
       if (!disposed) timer = setTimeout(() => void refresh(), 2000);
     };
     void refresh();
@@ -1156,7 +1176,7 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
 
   // Terminal resize.
   useEffect(() => {
-    const handleResize = () => setWidth(Math.max(20, stdout?.columns || 80));
+    const handleResize = () => { setWidth(Math.max(20, stdout?.columns || 80)); setTerminalRows(stdout?.rows || 24); };
     stdout?.on("resize", handleResize);
     return () => { stdout?.off("resize", handleResize); };
   }, [stdout]);
@@ -1200,8 +1220,20 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
     applyTerminalTitle,
   });
 
+  const workspaceLayout = terminalWorkspaceLayout(width, terminalRows, [
+    `SlimeBot CLI ${state.version}${state.updateCheck?.updateAvailable ? " [new]" : ""}${state.approvalMode === "auto_review" ? " [auto review]" : state.approvalMode === "auto" ? " [auto]" : ""}`,
+    `${state.modelName || "(none)"}${state.thinkingLevel && state.thinkingLevel !== "off" ? ` [think:${state.thinkingLevel}]` : ""}`,
+    state.cwd,
+  ], Boolean(state.contextUsage));
+  const menuPageSize = state.view === "menu" ? getMenuViewport(
+    state.menuItems, state.menuCursor, width, workspaceLayout.height, state.menuHint,
+    state.menuKind === "session" ? MENU_VISIBLE_LIMIT : undefined,
+  ).items.length : 1;
+
   useCliKeyboard({
     state,
+    cooperativeView,
+    menuPageSize,
     dispatch,
     socketRef,
     exit,
@@ -1233,18 +1265,21 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
     entry.kind === "thinking" && entry.thinkingDone !== true
   );
 
+
   return (
     <Box flexDirection="column">
-      <Banner
+      {(state.view === "menu" || (state.view === "team-detail" && cooperativeView)) && workspaceLayout.compactBanner ? (
+        <Text bold color={CLI_ACCENT_COLOR} wrap="truncate">SlimeBot CLI {state.version} · {state.modelName || "(none)"}</Text>
+      ) : <Banner
         version={state.version}
         modelName={state.modelName}
         cwd={state.cwd}
         approvalMode={state.approvalMode}
         thinkingLevel={state.thinkingLevel}
         updateAvailable={Boolean(state.updateCheck?.updateAvailable)}
-      />
+      />}
       <Text> </Text>
-      {state.view !== "team-detail" && (state.timeline.length > 0 || state.streaming) && (
+      {state.view !== "team-detail" && state.view !== "menu" && (state.timeline.length > 0 || state.streaming) && (
         <>
           <Timeline
             entries={state.timeline}
@@ -1358,6 +1393,8 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
           items={state.menuItems}
           cursor={state.menuCursor}
           hint={state.menuHint}
+          columns={width}
+          maxHeight={workspaceLayout.height}
           maxVisibleItems={state.menuKind === "session" ? MENU_VISIBLE_LIMIT : undefined}
         />
       )}
@@ -1466,7 +1503,20 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
         />
       )}
 
-      {state.view === "team-detail" && cooperativeView && <CooperativeView snapshot={cooperativeSnapshot} initialTab={cooperativeTab} refresh={() => void manageAgents("")} />}
+      {state.view === "team-detail" && cooperativeView && <CooperativeView
+        snapshot={cooperativeSnapshot} initialTab={cooperativeTab} columns={width}
+        height={workspaceLayout.height}
+        loading={cooperativeLoading} error={cooperativeError}
+        refresh={() => void refreshAgents()}
+        onClose={() => dispatch({type:"SET_VIEW",view:"chat"} as AppAction)}
+        onCommand={command => manageAgents(command, true)}
+        loadReport={async (id, turnId) => {
+          const turns = await apiRef.current.cooperativeTurns(id, turnId);
+          const turn = turns.find(t => t.id === turnId);
+          if (!turn) throw new Error("Agent report not found");
+          return turn.answer || turn.error || "Waiting for the agent report.";
+        }}
+      />}
       {state.view === "team-detail" && !cooperativeView && (
         <TeamView
           runs={teamRuns}

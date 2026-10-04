@@ -4,6 +4,7 @@ import { useI18n } from 'vue-i18n'
 import { mdiClose } from '@mdi/js'
 import MdiIcon from '@/components/ui/MdiIcon.vue'
 import LoadingSpinner from '@/components/ui/LoadingSpinner.vue'
+import { ownsModalKeyboard, modalFocusableElements } from '@/utils/dialogFocus'
 import { isMaskSelfEvent, shouldCloseOnMaskInteraction } from '@/utils/dialogMask'
 
 const { t } = useI18n()
@@ -56,15 +57,7 @@ const panelRef = ref<HTMLElement | null>(null)
 let previouslyFocused: HTMLElement | null = null
 
 function focusableElements() {
-  if (!panelRef.value) return []
-  return Array.from(panelRef.value.querySelectorAll<HTMLElement>([
-    'button:not([disabled])',
-    'a[href]',
-    'input:not([disabled])',
-    'select:not([disabled])',
-    'textarea:not([disabled])',
-    '[tabindex]:not([tabindex="-1"])',
-  ].join(','))).filter((element) => !element.hasAttribute('hidden'))
+  return panelRef.value ? modalFocusableElements(panelRef.value) : []
 }
 
 function restoreFocus() {
@@ -82,7 +75,8 @@ function onConfirm() {
 }
 
 function onKeydown(e: KeyboardEvent) {
-  if (e.key === 'Escape' && props.visible && props.closeOnEsc) close()
+  if (!props.visible || !ownsModalKeyboard(panelRef.value)) return
+  if (e.key === 'Escape' && props.closeOnEsc) { e.preventDefault(); close(); return }
   const isTab = e.key === 'Tab'
   if (!isTab || !props.visible || !panelRef.value) return
 
@@ -160,6 +154,7 @@ onUnmounted(() => {
           :style="{ width: '100%', maxWidth: width, maxHeight: '90vh' }"
           role="dialog"
           aria-modal="true"
+          data-modal-layer="200"
           tabindex="-1"
           :aria-labelledby="title ? titleId : undefined"
           @click.stop
@@ -175,6 +170,7 @@ onUnmounted(() => {
             >{{ title }}</span>
             <button
               v-if="showClose"
+              :aria-label="t('close')"
               type="button"
               class="w-7 h-7 flex items-center justify-center rounded-lg transition-all duration-150 cursor-pointer dialog-close-btn"
               @click="close"

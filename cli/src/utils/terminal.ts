@@ -2,6 +2,17 @@
  * Terminal helpers.
  */
 
+import { wrapText } from "./format.js";
+
+// The workspace shares the terminal with the banner, spacer, separator and
+// context usage. Switch to a single-line banner when these would crowd it out.
+export function terminalWorkspaceLayout(columns: number, rows: number, banner: string[], hasContextUsage: boolean) {
+  const bannerWidth = Math.max(8, columns - 12);
+  const fullBannerHeight = Math.max(3, banner.reduce((height, text) => height + wrapText(text, bannerWidth).split("\n").length, 0));
+  const extraRows = 2 + (hasContextUsage ? 1 : 0);
+  const compactBanner = rows - fullBannerHeight - extraRows < 8;
+  return { compactBanner, height: Math.max(8, rows - (compactBanner ? 1 : fullBannerHeight) - extraRows) };
+}
 /** Clear screen and move cursor to top-left */
 export function clearScreen(): void {
   process.stdout.write("\x1b[2J\x1b[3J\x1b[H");

@@ -22,6 +22,8 @@ export type UpdateKeyAction =
 
 interface UseCliKeyboardProps {
   state: AppState;
+  cooperativeView?: boolean;
+  menuPageSize?: number;
   dispatch: React.Dispatch<AppAction>;
   socketRef: React.MutableRefObject<CLISocket | null>;
   exit: () => void;
@@ -200,8 +202,8 @@ export function getUpdateKeyAction(input: string, key: Key, confirming: boolean)
   return null;
 }
 
-export function getTeamDetailKeyAction(state: AppState, key: Key): AppAction | null {
-  if (state.view !== "team-detail") return null;
+export function getTeamDetailKeyAction(state: AppState, key: Key, cooperativeView = false): AppAction | null {
+  if (state.view !== "team-detail" || cooperativeView) return null;
   if (key.escape) return { type: "SET_VIEW", view: "chat" };
   if (key.leftArrow) return { type: "TEAM_DETAIL_NAV_TEAM", delta: -1 };
   if (key.rightArrow) return { type: "TEAM_DETAIL_NAV_TEAM", delta: 1 };
@@ -210,8 +212,20 @@ export function getTeamDetailKeyAction(state: AppState, key: Key): AppAction | n
   return null;
 }
 
+export function getMenuNavigationAction(key: Key, length: number, pageSize: number): AppAction | null {
+  if (key.upArrow || key.wheelUp) return { type: "MENU_NAV", delta: -1 };
+  if (key.downArrow || key.wheelDown) return { type: "MENU_NAV", delta: 1 };
+  if (key.pageUp) return { type: "MENU_NAV", delta: -Math.max(1, pageSize) };
+  if (key.pageDown) return { type: "MENU_NAV", delta: Math.max(1, pageSize) };
+  if (key.home) return { type: "MENU_NAV", delta: -length };
+  if (key.end) return { type: "MENU_NAV", delta: length };
+  return null;
+}
+
 export function useCliKeyboard({
   state,
+  cooperativeView,
+  menuPageSize = 5,
   dispatch,
   socketRef,
   exit,
@@ -258,7 +272,7 @@ export function useCliKeyboard({
     }
 
     if (state.view === "team-detail") {
-      const action = getTeamDetailKeyAction(state, key);
+      const action = getTeamDetailKeyAction(state, key, cooperativeView);
       if (action) dispatch(action);
       return;
     }
@@ -476,12 +490,9 @@ export function useCliKeyboard({
 
     if (state.view === "menu") {
       const current = state.menuItems[state.menuCursor];
-      if (key.upArrow) {
-        dispatch({ type: "MENU_NAV", delta: -1 });
-        return;
-      }
-      if (key.downArrow) {
-        dispatch({ type: "MENU_NAV", delta: 1 });
+      const navigation = getMenuNavigationAction(key, state.menuItems.length, menuPageSize);
+      if (navigation) {
+        dispatch(navigation);
         return;
       }
       if (key.return) {

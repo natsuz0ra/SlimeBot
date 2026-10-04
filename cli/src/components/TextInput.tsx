@@ -14,6 +14,7 @@ export interface TextInputProps {
   columns: number;
   prompt?: string;
   multiline?: boolean;
+  maxVisibleLines?: number;
   enableCtrlShortcuts?: boolean;
   mask?: string;
   cursorChar?: string;
@@ -30,6 +31,7 @@ export function TextInput({
   focus,
   columns,
   multiline = true,
+  maxVisibleLines,
   enableCtrlShortcuts = true,
   mask,
   cursorChar: cursorCharProp,
@@ -43,6 +45,7 @@ export function TextInput({
     onTab,
     onEscape,
     multiline,
+    maxVisibleLines,
     enableCtrlShortcuts,
     mask: mask ?? "",
     cursorChar: cursorCharProp ?? (focus ? " " : ""),

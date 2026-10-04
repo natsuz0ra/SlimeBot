@@ -14,6 +14,7 @@ func (h *HTTPController) GetSettings(c WebContext) {
 		return
 	}
 	c.JSON(http.StatusOK, map[string]any{
+		"subagentMaxDepth":                settings.SubagentMaxDepth,
 		"language":                        settings.Language,
 		"defaultModel":                    settings.DefaultModel,
 		"messagePlatformDefaultModel":     settings.MessagePlatformDefaultModel,
@@ -42,6 +43,7 @@ func (h *HTTPController) GetSettings(c WebContext) {
 // UpdateSettings patches global settings by field.
 func (h *HTTPController) UpdateSettings(c WebContext) {
 	var req struct {
+		SubagentMaxDepth                *int      `json:"subagentMaxDepth"`
 		Language                        *string   `json:"language"`
 		DefaultModel                    *string   `json:"defaultModel"`
 		MessagePlatformDefaultModel     *string   `json:"messagePlatformDefaultModel"`
@@ -68,7 +70,7 @@ func (h *HTTPController) UpdateSettings(c WebContext) {
 	if !bindJSONOrBadRequest(c, &req, "Invalid request payload format.") {
 		return
 	}
-	err := h.settings.Update(c.Request().Context(), settingssvc.UpdateSettingsInput{
+	err := h.settings.Update(c.Request().Context(), settingssvc.UpdateSettingsInput{SubagentMaxDepth: req.SubagentMaxDepth,
 		Language:                        req.Language,
 		DefaultModel:                    req.DefaultModel,
 		MessagePlatformDefaultModel:     req.MessagePlatformDefaultModel,

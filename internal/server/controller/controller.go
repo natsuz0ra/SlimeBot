@@ -14,6 +14,7 @@ import (
 	schedulesvc "slimebot/internal/services/schedule"
 	sessionsvc "slimebot/internal/services/session"
 	settingssvc "slimebot/internal/services/settings"
+	subagentsvc "slimebot/internal/services/subagent"
 	"slimebot/internal/updater"
 )
 
@@ -118,6 +119,7 @@ type HTTPController struct {
 	plans        planService
 	chatUsage    chatContextUsageService
 	schedule     *schedulesvc.Service
+	cooperative  *subagentsvc.Service
 	update       updateService
 	tokenManager *auth.TokenManager
 }

@@ -74,6 +74,7 @@ func newApp(cfg config.Config, desktopToken string) (*App, error) {
 		tokenManager,
 	)
 	httpController.SetChatContextUsageService(core.ChatService)
+	httpController.SetCooperativeService(core.ChatService.CooperativeService())
 	httpController.SetAgentsInstructionsService(core.AgentsService)
 	httpController.SetUpdateService(core.UpdateService)
 	httpController.SetMemoryService(core.MemoryService)
@@ -147,6 +148,7 @@ func NewHeadless(cfg config.Config) (*App, error) {
 		tokenManager,
 	)
 	httpController.SetChatContextUsageService(core.ChatService)
+	httpController.SetCooperativeService(core.ChatService.CooperativeService())
 	httpController.SetAgentsInstructionsService(core.AgentsService)
 	httpController.SetUpdateService(core.UpdateService)
 	httpController.SetMemoryService(core.MemoryService)

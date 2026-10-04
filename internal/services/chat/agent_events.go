@@ -166,6 +166,8 @@ type AgentCallbacks struct {
 
 // AgentLoopOptions configures nested agent execution.
 type AgentLoopOptions struct {
+	Cooperative          *cooperativeLoop
+	MaxIterations        int
 	ContextRun           *contextsvc.Run
 	OnPrepared           func(contextsvc.Prepared) error
 	Depth                int

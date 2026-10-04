@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"slimebot/internal/apperrors"
 	"slimebot/internal/logging"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -49,6 +50,7 @@ type chatTurnState struct {
 
 // chatTurnResult holds intermediate results after the agent runs.
 type chatTurnResult struct {
+	failed        bool
 	answer        string
 	interrupted   bool
 	planCompleted bool
@@ -111,6 +113,11 @@ func (s *ChatService) HandleEditedChatStream(
 	if strings.TrimSpace(content) == "" {
 		return nil, fmt.Errorf("Message cannot be empty.")
 	}
+	release, err := s.acquireTurn(sessionID)
+	if err != nil {
+		return nil, err
+	}
+	defer release()
 	state, err := s.prepareEditedChatTurn(ctx, sessionID, messageID, content, modelID, thinkingLevel)
 	if err != nil {
 		return nil, err
@@ -136,7 +143,31 @@ func (s *ChatService) HandleEditedChatStream(
 			Content: planModeSystemMessage,
 		})
 	}
+	// Keep the root live until its assistant message is persisted. A reconnecting
+	// client can then fetch the report when the durable request becomes terminal.
+	var interrupted bool
+	failed := true
+	defer func() {
+		if s.cooperative == nil {
+			return
+		}
+		finishCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+		defer cancel()
+		status := "completed"
+		if failed {
+			status = "failed"
+		}
+		if interrupted || ctx.Err() != nil {
+			status = "canceled"
+			_ = s.agent.getSessionProcessManager(sessionID).StopAndWait(finishCtx)
+		}
+		_ = s.cooperative.Runtime.FinishRootStatus(finishCtx, requestID, status)
+	}()
 	result, err := s.executeChatTurn(ctx, sessionID, requestID, state, callbacks, planMode, subagentModelID, approvalModeOverride)
+	if result != nil {
+		interrupted = result.interrupted
+	}
+	failed = err != nil || (result != nil && result.failed)
 	if err != nil {
 		return nil, err
 	}
@@ -144,7 +175,9 @@ func (s *ChatService) HandleEditedChatStream(
 	if result.interrupted {
 		finalizeCtx = context.Background()
 	}
-	return s.finalizeChatTurn(finalizeCtx, sessionID, requestID, state, result, planMode, callbacks)
+	stream, finalErr := s.finalizeChatTurn(finalizeCtx, sessionID, requestID, state, result, planMode, callbacks)
+	failed = finalErr != nil || result.failed
+	return stream, finalErr
 }
 
 func (s *ChatService) handleChatStreamWithReceivedAt(
@@ -166,6 +199,11 @@ func (s *ChatService) handleChatStreamWithReceivedAt(
 		return nil, fmt.Errorf("Message cannot be empty.")
 	}
 
+	release, err := s.acquireTurn(sessionID)
+	if err != nil {
+		return nil, err
+	}
+	defer release()
 	state, err := s.prepareChatTurn(ctx, sessionID, receivedAt, content, displayContent, modelID, attachmentIDs, thinkingLevel)
 	if err != nil {
 		return nil, err
@@ -190,7 +228,31 @@ func (s *ChatService) handleChatStreamWithReceivedAt(
 		})
 	}
 
+	// Keep the root live until its assistant message is persisted. A reconnecting
+	// client can then fetch the report when the durable request becomes terminal.
+	var interrupted bool
+	failed := true
+	defer func() {
+		if s.cooperative == nil {
+			return
+		}
+		finishCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+		defer cancel()
+		status := "completed"
+		if failed {
+			status = "failed"
+		}
+		if interrupted || ctx.Err() != nil {
+			status = "canceled"
+			_ = s.agent.getSessionProcessManager(sessionID).StopAndWait(finishCtx)
+		}
+		_ = s.cooperative.Runtime.FinishRootStatus(finishCtx, requestID, status)
+	}()
 	result, err := s.executeChatTurn(ctx, sessionID, requestID, state, callbacks, planMode, subagentModelID, approvalModeOverride)
+	if result != nil {
+		interrupted = result.interrupted
+	}
+	failed = err != nil || (result != nil && result.failed)
 	if err != nil {
 		return nil, err
 	}
@@ -200,7 +262,9 @@ func (s *ChatService) handleChatStreamWithReceivedAt(
 	if result.interrupted {
 		finalizeCtx = context.Background()
 	}
-	return s.finalizeChatTurn(finalizeCtx, sessionID, requestID, state, result, planMode, callbacks)
+	stream, finalErr := s.finalizeChatTurn(finalizeCtx, sessionID, requestID, state, result, planMode, callbacks)
+	failed = finalErr != nil || result.failed
+	return stream, finalErr
 }
 
 // prepareChatTurn validates input, resolves model config, saves user message, builds context in parallel.
@@ -660,6 +724,31 @@ func (s *ChatService) executeChatTurn(
 		ctx = sandboxpolicy.WithWorkingDirectory(ctx, state.session.WorkingDirectory)
 	}
 
+	var cooperative *cooperativeLoop
+	if s.cooperative != nil {
+		var rootErr error
+		ctx, rootErr = s.cooperative.Runtime.BeginRoot(ctx, sessionID, requestID)
+		if rootErr != nil {
+			return nil, rootErr
+		}
+		childModel := state.modelConfig
+		if subagentModelID != "" {
+			childModel, rootErr = s.ResolveModelRuntimeConfig(ctx, subagentModelID)
+			if rootErr != nil {
+				return nil, rootErr
+			}
+		}
+		caller := subagentCaller(sessionID, requestID, approvalMode, planMode)
+		caller.ThinkingLevel = state.modelConfig.ThinkingLevel
+		if s.settingsStore != nil {
+			if value, e := s.settingsStore.GetSetting(ctx, "SUBAGENT_MAX_DEPTH"); e == nil && value != "" {
+				if n, e := strconv.Atoi(value); e == nil && n >= 0 && n <= 4 {
+					caller.MaxDepth = n
+				}
+			}
+		}
+		cooperative = &cooperativeLoop{service: s.cooperative, caller: caller, model: childModel, workspace: state.session.WorkingDirectory, plan: planMode}
+	}
 	contextRun, err := s.beginContextRun(ctx, sessionID, requestID, state)
 	if err != nil {
 		return nil, err
@@ -673,10 +762,14 @@ func (s *ChatService) executeChatTurn(
 		}
 		return nil
 	}
+	if cooperative != nil {
+		agentCallbacks = s.cooperativeApprovals(ctx, cooperative.caller, requestID, agentCallbacks)
+	}
 	agentStart := time.Now()
 	var planCompleted bool
 	var latestUsage llmsvc.TokenUsage
 	answer, err := s.agent.RunAgentLoop(ctx, state.modelConfig, sessionID, state.contextMessages, state.enabledMCPConfigs, activatedSkills, agentCallbacks, AgentLoopOptions{
+		Cooperative:     cooperative,
 		ApprovalMode:    approvalMode,
 		PlanMode:        planMode,
 		PlanComplete:    &planCompleted,
@@ -785,6 +878,7 @@ func (s *ChatService) executeChatTurn(
 	}
 
 	return &chatTurnResult{
+		failed:        err != nil && !interrupted,
 		answer:        finalAnswer,
 		interrupted:   interrupted,
 		planCompleted: planCompleted,

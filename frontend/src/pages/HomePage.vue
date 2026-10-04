@@ -12,6 +12,7 @@ import QuestionAnswerDrawer from '@/components/chat/QuestionAnswerDrawer.vue'
 import TodoPanel from '@/components/chat/TodoPanel.vue'
 import MdiIcon from '@/components/ui/MdiIcon.vue'
 import ChatComposer from '@/components/chat/ChatComposer.vue'
+import CooperativePanel from '@/components/chat/CooperativePanel.vue'
 import ChatMessageList from '@/components/chat/ChatMessageList.vue'
 import HomeDialogs from '@/components/home/HomeDialogs.vue'
 import HomeHeaderBar from '@/components/home/HomeHeaderBar.vue'
@@ -181,6 +182,7 @@ onMounted(() => {
           @remove-current="sessions.currentSession && sessions.removeSession(sessions.currentSession.id)"
         />
 
+        <CooperativePanel v-if="!isTasksWorkspace" :session-id="store.currentSessionId" @settled="id => !store.waiting && store.loadNewMessagesForSession(id)" />
         <div
           class="chat-content-shell"
           :class="[

@@ -54,6 +54,13 @@ export class APIClient {
     return JSON.parse(text) as T;
   }
 
+  cooperativeTurns(id: string, turnId?: string): Promise<import("../types/cooperative.js").CooperativeSnapshot["turns"]> { return this.request(`/api/agents/${encodeURIComponent(id)}/turns${turnId ? `?turnId=${encodeURIComponent(turnId)}` : ""}`); }
+  cooperativeSnapshot(id: string): Promise<import("../types/cooperative.js").CooperativeSnapshot> { return this.request(`/api/sessions/${encodeURIComponent(id)}/cooperative`); }
+  cooperativeAction(id: string, input: Record<string, unknown>): Promise<unknown> { return this.request(`/api/agents/${encodeURIComponent(id)}/actions`, {method:"POST", body:JSON.stringify(input)}); }
+  cooperativeStop(id: string): Promise<unknown> { return this.request(`/api/sessions/${encodeURIComponent(id)}/cooperative/stop`, {method:"POST"}); }
+  cooperativeTask(id: string, input: Record<string, unknown>): Promise<unknown> { return this.request(`/api/sessions/${encodeURIComponent(id)}/cooperative/tasks`, {method:"POST", body:JSON.stringify(input)}); }
+  cooperativeArtifact(id: string, root: string, action: string, command?: string): Promise<{diff?: string}> { return this.request(`/api/agent-artifacts/${encodeURIComponent(id)}/actions`, {method:"POST", body:JSON.stringify({rootId:root,action,command})}); }
+  cooperativeApprove(id: string, approved: boolean): Promise<unknown> { return this.request(`/api/agent-approvals/${encodeURIComponent(id)}`, {method:"POST",body:JSON.stringify({approved})}); }
   // ===== Sessions =====
 
   listSessions(limit = 200, offset = 0, q = ""): Promise<SessionListResponse> {

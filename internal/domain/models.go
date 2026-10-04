@@ -7,8 +7,9 @@ import (
 )
 
 const (
-	SessionKindChat    = "chat"
-	SessionKindTaskRun = "task_run"
+	SessionKindChat     = "chat"
+	SessionKindTaskRun  = "task_run"
+	SessionKindSubagent = "subagent"
 )
 
 type Session struct {

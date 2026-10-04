@@ -117,6 +117,17 @@ func (r *Repository) AppendContextEntries(ctx context.Context, scope, request, r
 			if err := tx.Create(&e).Error; err != nil {
 				return err
 			}
+			if m.SourceInboxID != "" {
+				// A relay is consumed only in the same transaction that makes its
+				// model input durable. No claim/append crash gap loses the message.
+				ack := tx.Model(&domain.AgentInbox{}).Where("id = ? AND target_id = ? AND status = ? AND turn_id = ?", m.SourceInboxID, scope, "claimed", "").Update("status", "completed")
+				if ack.Error != nil {
+					return ack.Error
+				}
+				if ack.RowsAffected != 1 {
+					return domain.ErrAgentConflict
+				}
+			}
 			entries = append(entries, e)
 		}
 		return nil
@@ -188,6 +199,9 @@ func (r *Repository) VerifyContextRevision(ctx context.Context, scope string, hi
 }
 
 func contextSourceKind(m llm.ChatMessage, direct bool) string {
+	if m.SourceKind != "" {
+		return m.SourceKind
+	}
 	if m.Role == "user" {
 		if direct {
 			return "direct_user"

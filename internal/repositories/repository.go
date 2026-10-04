@@ -17,6 +17,7 @@ var (
 	_ domain.MCPConfigStore             = (*Repository)(nil)
 	_ domain.MessagePlatformConfigStore = (*Repository)(nil)
 	_ domain.SettingsStore              = (*Repository)(nil)
+	_ domain.AgentStore                 = (*Repository)(nil)
 	_ domain.TeamStore                  = (*Repository)(nil)
 )
 

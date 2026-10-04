@@ -1,11 +1,15 @@
 package controller
 
 import (
+	"context"
 	"errors"
 	"io"
 	"net/http"
+	"path/filepath"
 	"slimebot/internal/domain"
 	"slimebot/internal/logging"
+	sbruntime "slimebot/internal/runtime"
+	workspaceruntime "slimebot/internal/runtime/workspace"
 	sessionsvc "slimebot/internal/services/session"
 	"strconv"
 	"strings"
@@ -149,6 +153,26 @@ func (h *HTTPController) DeleteSession(c WebContext) {
 	if constants.IsMessagePlatformSessionID(id) {
 		jsonError(c, http.StatusBadRequest, "Message platform sessions cannot be deleted.")
 		return
+	}
+	if h.cooperative != nil {
+		ctx, cancel := context.WithTimeout(c.Request().Context(), 10*time.Second)
+		defer cancel()
+		if err := h.cooperative.DrainRoot(ctx, id); err != nil {
+			jsonError(c, http.StatusConflict, err.Error())
+			return
+		}
+		as, err := h.cooperative.Store.ListAgentArtifacts(ctx, id)
+		if err != nil {
+			jsonInternalError(c, err)
+			return
+		}
+		manager := workspaceruntime.New(filepath.Join(sbruntime.SlimeBotHomeDir(), "agent-worktrees"))
+		for i := range as {
+			if err = manager.Archive(ctx, &as[i]); err != nil {
+				jsonError(c, http.StatusConflict, err.Error())
+				return
+			}
+		}
 	}
 	if err := h.sessions.Delete(c.Request().Context(), id); err != nil {
 		jsonInternalError(c, err)

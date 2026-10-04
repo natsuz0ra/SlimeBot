@@ -23,6 +23,11 @@ func NewSQLite(dbPath string) (*gorm.DB, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect database: %w", err)
 	}
+	pool, err := db.DB()
+	if err != nil {
+		return nil, err
+	}
+	pool.SetMaxOpenConns(1)
 
 	if err := db.AutoMigrate(
 		&domain.Session{},
@@ -31,6 +36,9 @@ func NewSQLite(dbPath string) (*gorm.DB, error) {
 		&domain.ThinkingRecord{},
 		&domain.TeamRun{},
 		&domain.TeamMemberRun{},
+		&domain.AgentDescriptor{}, &domain.AgentTurn{}, &domain.AgentInbox{}, &domain.AgentRootRequest{},
+		&domain.AgentEvent{}, &domain.AgentTask{}, &domain.AgentArtifact{},
+		&domain.AgentApproval{},
 		&domain.AppSetting{},
 		&domain.LLMProvider{},
 		&domain.LLMConfig{},

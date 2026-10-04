@@ -14,6 +14,7 @@ export interface ProxyTestResult {
 }
 
 export interface AppSettings {
+  subagentMaxDepth?: number
   language: 'zh-CN' | 'en-US'
   defaultModel?: string
   messagePlatformDefaultModel?: string

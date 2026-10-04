@@ -191,7 +191,7 @@ func (r *Run) view(c llm.ModelRuntimeConfig, tools []llm.ToolDef, prune bool) ([
 	}
 	latestUser := -1
 	for i, it := range items {
-		if it.kind == "direct_user" || (it.kind == "" && it.message.Role == "user") {
+		if isAnchor(it.kind) || (it.kind == "" && it.message.Role == "user") {
 			latestUser = i
 		}
 	}
@@ -329,6 +329,7 @@ func (r *Run) Prepare(ctx context.Context, c llm.ModelRuntimeConfig, tools []llm
 		}
 		if !notified && r.OnStatus != nil {
 			if err := r.OnStatus("compacting"); err != nil {
+				r.finishAttempt(ctx, cp.ID, "compaction status delivery failed")
 				return p, err
 			}
 			notified = true
@@ -406,15 +407,7 @@ func (r *Run) Prepare(ctx context.Context, c llm.ModelRuntimeConfig, tools []llm
 			}
 		}
 		if summaryErr != nil {
-			if r.service.store != nil {
-				finishCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)
-				status := "failed"
-				if ctx.Err() != nil {
-					status = "cancelled"
-				}
-				_ = r.service.store.FinishContextAttempt(finishCtx, cp.ID, status, "summary or checkpoint validation failed")
-				cancel()
-			}
+			r.finishAttempt(ctx, cp.ID, "summary or checkpoint validation failed")
 			if ctx.Err() != nil {
 				return p, ctx.Err()
 			}
@@ -523,8 +516,27 @@ type Summary struct {
 	SourceRefs       []int64  `json:"source_refs"`
 }
 
+// Attempt cleanup must survive a cancelled request or a disconnected status
+// transport. Only terminal attempts may be reused/reported as finished.
+func (r *Run) finishAttempt(ctx context.Context, id, reason string) {
+	if r.service.store == nil {
+		return
+	}
+	finishCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)
+	defer cancel()
+	status := "failed"
+	if ctx.Err() != nil {
+		status = "cancelled"
+	}
+	_ = r.service.store.FinishContextAttempt(finishCtx, id, status, reason)
+}
+
 func (r *Run) summarize(ctx context.Context, c llm.ModelRuntimeConfig, items []item, budget int) (string, string, error) {
 	if r.service.factory == nil {
+		return "", "", fmt.Errorf("summary provider unavailable")
+	}
+	provider := r.service.factory.GetProvider(c.Provider)
+	if provider == nil {
 		return "", "", fmt.Errorf("summary provider unavailable")
 	}
 	var transcript strings.Builder
@@ -542,7 +554,7 @@ func (r *Run) summarize(ctx context.Context, c llm.ModelRuntimeConfig, items []i
 		return "", "", fmt.Errorf("摘要输入超过预算，无法安全处理该步骤")
 	}
 	var output strings.Builder
-	result, err := r.service.factory.GetProvider(c.Provider).StreamChatWithTools(ctx, c, messages, nil, llm.StreamCallbacks{OnChunk: func(text string) error {
+	result, err := provider.StreamChatWithTools(ctx, c, messages, nil, llm.StreamCallbacks{OnChunk: func(text string) error {
 		output.WriteString(text)
 		if output.Len() > budget*16 {
 			return reject("摘要输出超过上限")
@@ -608,6 +620,9 @@ func (r *Run) activeCheckpoints() []domain.ContextCheckpoint {
 }
 
 func sourceKind(m llm.ChatMessage, direct bool) string {
+	if m.SourceKind != "" {
+		return m.SourceKind
+	}
 	if m.Role == "user" {
 		if direct {
 			return "direct_user"

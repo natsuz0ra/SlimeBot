@@ -17,6 +17,7 @@ import (
 
 // AppSettings is the settings DTO exposed to the frontend.
 type AppSettings struct {
+	SubagentMaxDepth                int
 	Language                        string
 	DefaultModel                    string
 	MessagePlatformDefaultModel     string
@@ -43,6 +44,7 @@ type AppSettings struct {
 
 // UpdateSettingsInput is the domain input for partial settings updates.
 type UpdateSettingsInput struct {
+	SubagentMaxDepth                *int
 	Language                        *string
 	DefaultModel                    *string
 	MessagePlatformDefaultModel     *string
@@ -198,7 +200,11 @@ func (s *SettingsService) Get(ctx context.Context) (*AppSettings, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &AppSettings{
+	depth, err := s.getIntStringSetting(ctx, "SUBAGENT_MAX_DEPTH", 2, 0, 4)
+	if err != nil {
+		return nil, err
+	}
+	return &AppSettings{SubagentMaxDepth: depth,
 		Language:                        language,
 		DefaultModel:                    defaultModel,
 		MessagePlatformDefaultModel:     messagePlatformDefaultModel,
@@ -226,6 +232,14 @@ func (s *SettingsService) Get(ctx context.Context) (*AppSettings, error) {
 
 // Update applies only fields that are explicitly set in the request.
 func (s *SettingsService) Update(ctx context.Context, input UpdateSettingsInput) error {
+	if input.SubagentMaxDepth != nil {
+		if err := validateRange("subagent depth", *input.SubagentMaxDepth, 0, 4); err != nil {
+			return err
+		}
+		if err := s.store.SetSetting(ctx, "SUBAGENT_MAX_DEPTH", strconv.Itoa(*input.SubagentMaxDepth)); err != nil {
+			return err
+		}
+	}
 	if input.ProxyURL != nil {
 		proxy := strings.TrimSpace(*input.ProxyURL)
 		if err := runtime.ValidateProxyURL(proxy); err != nil {

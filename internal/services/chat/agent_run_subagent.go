@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	subagent "slimebot/internal/services/subagent"
 	"strings"
+	"time"
 
 	"slimebot/internal/constants"
 	"slimebot/internal/domain"
@@ -175,6 +177,89 @@ func (a *AgentService) executeRunSubagentTool(
 ) (*tools.ExecuteResult, error) {
 	if a.subagentHost == nil {
 		return &tools.ExecuteResult{Output: "subagent execution is not configured"}, nil
+	}
+	if opts.Cooperative != nil {
+		if reservationErr != nil {
+			return &tools.ExecuteResult{Error: reservationErr.Error()}, nil
+		}
+		c := opts.Cooperative
+		d, err := c.service.Spawn(ctx, c.caller, subagent.Spawn{Title: anyToTrimmedString(params["title"]), Task: anyToTrimmedString(params["task"]), Context: anyToTrimmedString(params["context"]), ModelID: c.model.ConfigID, Workspace: c.workspace, OneShot: true})
+		if err != nil {
+			return &tools.ExecuteResult{Error: err.Error()}, nil
+		}
+		// Compatibility callbacks can fail after admission; do not leave an
+		// invisible one-shot activation behind on those error paths.
+		defer func() {
+			if c.service.Runtime.IsLive(d.SessionID) {
+				finish, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+				defer cancel()
+				_ = c.service.Runtime.Interrupt(finish, d.SessionID, true)
+			}
+		}()
+		member := reservedMember
+		if opts.teamRuntime != nil && member == nil {
+			member, err = opts.teamRuntime.reserveMember(ctx, tc.ID, d.Title, d.Task, c.model.ConfigID, callbacks)
+			if err != nil {
+				return &tools.ExecuteResult{Error: err.Error()}, nil
+			}
+		}
+		meta := AgentEventMeta{ParentToolCallID: tc.ID, SubagentRunID: d.SessionID}
+		if member != nil {
+			started, e := opts.teamRuntime.startMember(ctx, member.ID, d.SessionID, c.model.ConfigID)
+			if e != nil {
+				return &tools.ExecuteResult{Error: e.Error()}, nil
+			}
+			meta.TeamRunID = started.TeamRunID
+			meta.MemberRunID = started.ID
+		}
+		if callbacks.OnSubagentStart != nil {
+			if e := callbacks.OnSubagentStart(meta, d.Title, d.Task); e != nil {
+				return nil, e
+			}
+		}
+		for c.service.Runtime.IsLive(d.SessionID) {
+			if e := c.service.Runtime.Wait(ctx, c.caller.RootID, nil, time.Second); e != nil {
+				return nil, e
+			}
+		}
+		turns, e := c.service.Store.ListAgentTurns(context.WithoutCancel(ctx), d.SessionID)
+		if e != nil {
+			return nil, e
+		}
+		if len(turns) == 0 {
+			return &tools.ExecuteResult{Error: "subagent did not produce a terminal record"}, nil
+		}
+		t := turns[0]
+		var runErr error
+		if t.Status != "succeeded" {
+			runErr = fmt.Errorf("%s: %s", t.StopReason, t.Error)
+		}
+		if t.Thinking != "" {
+			childCB := wrapSubagentCallbacks(callbacks, meta)
+			if childCB.OnThinkingStart != nil {
+				_ = childCB.OnThinkingStart(ThinkingEventMeta{})
+			}
+			if childCB.OnThinkingChunk != nil {
+				_ = childCB.OnThinkingChunk(t.Thinking, ThinkingEventMeta{})
+			}
+			if childCB.OnThinkingDone != nil {
+				_ = childCB.OnThinkingDone(ThinkingEventMeta{})
+			}
+		}
+		if callbacks.OnSubagentChunk != nil && t.Answer != "" {
+			_ = callbacks.OnSubagentChunk(meta, t.Answer)
+		}
+		if callbacks.OnSubagentDone != nil {
+			_ = callbacks.OnSubagentDone(meta, runErr)
+		}
+		if member != nil {
+			_, _ = opts.teamRuntime.finishMember(context.WithoutCancel(ctx), member.ID, teamsvc.MemberResult{Answer: t.Answer, Err: runErr})
+		}
+		result := &tools.ExecuteResult{Output: t.Answer}
+		if runErr != nil {
+			result.Error = runErr.Error()
+		}
+		return result, nil
 	}
 	if opts.Depth >= constants.MaxSubagentDepth {
 		return &tools.ExecuteResult{Output: "nested run_subagent is not allowed"}, nil

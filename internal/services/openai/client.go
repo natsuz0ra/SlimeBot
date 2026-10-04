@@ -80,7 +80,7 @@ func (c *OpenAIClient) StreamChatWithTools(
 		//Temperature: openai.Float(modelConfig.Temperature),
 	}
 
-	if modelConfig.Provider == llmsvc.ProviderDeepSeek || !supportDeveloperRole {
+	if !usesCompletionTokenLimit(modelConfig) {
 		params.MaxTokens = openai.Int(int64(modelConfig.MaxOutputTokens))
 	} else {
 		params.MaxCompletionTokens = openai.Int(int64(modelConfig.MaxOutputTokens))
@@ -147,10 +147,13 @@ func streamChatCompletion(ctx context.Context, client openai.Client, params open
 	}
 
 	if len(acc.Choices) == 0 {
-		return &llmsvc.StreamResult{Type: llmsvc.StreamResultText}, sawStreamEvent, nil
+		return nil, sawStreamEvent, fmt.Errorf("Model stream ended without a completion")
 	}
 
 	choice := acc.Choices[0]
+	if choice.FinishReason == "" {
+		return nil, sawStreamEvent, fmt.Errorf("Model stream ended before completion")
+	}
 	if len(choice.Message.ToolCalls) > 0 {
 		var calls []llmsvc.ToolCallInfo
 		for _, tc := range choice.Message.ToolCalls {
@@ -201,11 +204,42 @@ func isStreamUsageUnsupported(err error) bool {
 	return strings.Contains(msg, "stream_options") || strings.Contains(msg, "include_usage")
 }
 
+// Compatible APIs commonly ignore max_completion_tokens rather than rejecting
+// it. Select the budget field independently of developer-role support.
+func usesCompletionTokenLimit(c llmsvc.ModelRuntimeConfig) bool {
+	if isDeepSeekRequest(c) || !supportsDeveloperRole(c.BaseURL) {
+		return false
+	}
+	parsed, _ := url.Parse(strings.TrimSpace(c.BaseURL))
+	if parsed != nil && strings.EqualFold(parsed.Hostname(), "api.openai.com") {
+		return true
+	}
+	model := strings.ToLower(strings.TrimSpace(c.Model))
+	return strings.HasPrefix(model, "gpt-") || model == "o1" || strings.HasPrefix(model, "o1-") || model == "o3" || strings.HasPrefix(model, "o3-") || model == "o4" || strings.HasPrefix(model, "o4-")
+}
+
+// These official DeepSeek model IDs also occur in generic OpenAI-compatible
+// configurations. Their default thinking mode must not override an explicit off.
+func isDeepSeekRequest(c llmsvc.ModelRuntimeConfig) bool {
+	if strings.EqualFold(strings.TrimSpace(c.Provider), llmsvc.ProviderDeepSeek) {
+		return true
+	}
+	if !strings.EqualFold(strings.TrimSpace(c.Provider), llmsvc.ProviderOpenAI) {
+		return false
+	}
+	switch strings.ToLower(strings.TrimSpace(c.Model)) {
+	case "deepseek-flash", "deepseek-v4-flash", "deepseek-v4-pro":
+		return true
+	default:
+		return false
+	}
+}
+
 func applyThinkingParams(params *openai.ChatCompletionNewParams, modelConfig llmsvc.ModelRuntimeConfig) {
 	if params == nil {
 		return
 	}
-	if strings.EqualFold(strings.TrimSpace(modelConfig.Provider), llmsvc.ProviderDeepSeek) {
+	if isDeepSeekRequest(modelConfig) {
 		thinking := map[string]any{"type": "disabled"}
 		if effort := llmsvc.DeepSeekReasoningEffort(modelConfig.ThinkingLevel); effort != "" {
 			thinking["type"] = "enabled"

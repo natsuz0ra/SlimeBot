@@ -198,10 +198,16 @@ func (a *AgentService) evictOldProcessSessionsLocked(maxEvict int) {
 		var oldestSession string
 		var oldestTime time.Time
 		for sessionID, touchedAt := range a.processesAt {
+			if manager := a.processesBySess[sessionID]; manager != nil && manager.HasRunning() {
+				continue
+			}
 			if oldestSession == "" || touchedAt.Before(oldestTime) {
 				oldestSession = sessionID
 				oldestTime = touchedAt
 			}
+		}
+		if oldestSession == "" {
+			return
 		}
 		delete(a.processesBySess, oldestSession)
 		delete(a.processesAt, oldestSession)
@@ -447,6 +453,9 @@ func (a *AgentService) RunAgentLoop(
 		toolDefs = filterAllowedToolDefs(toolDefs, opts.AllowedToolFunctions)
 		mcpToolMeta = filterAllowedMCPMeta(mcpToolMeta, opts.AllowedToolFunctions)
 	}
+	if opts.Cooperative != nil {
+		ctx = llmsvc.WithRequestObserver(ctx, opts.Cooperative.observeRequest)
+	}
 	contextRun := opts.ContextRun
 	if contextRun == nil {
 		contextRun = contextsvc.Ephemeral(a.providerFactory, contextMessages)
@@ -458,6 +467,9 @@ func (a *AgentService) RunAgentLoop(
 	}
 	if contextReadAllowed {
 		toolDefs = append(toolDefs, contextReadToolDef())
+	}
+	if opts.Cooperative != nil {
+		toolDefs = append(toolDefs, cooperativeDefs()...)
 	}
 	messages := make([]llmsvc.ChatMessage, len(contextMessages))
 	copy(messages, contextMessages)
@@ -471,8 +483,27 @@ func (a *AgentService) RunAgentLoop(
 
 	overflowRecoveries := 0
 	for i := 0; ; i++ {
-		if opts.Depth == 0 && i >= constants.AgentMaxIterations {
-			return finalAnswer.String(), fmt.Errorf("agent loop reached max iterations (%d)", constants.AgentMaxIterations)
+		limit := opts.MaxIterations
+		if limit <= 0 {
+			limit = constants.AgentMaxIterations
+		}
+		if i >= limit {
+			return finalAnswer.String(), fmt.Errorf("agent loop reached max iterations (%d)", limit)
+		}
+		if opts.Cooperative != nil {
+			relays, err := opts.Cooperative.relays(ctx, false)
+			if err != nil {
+				return finalAnswer.String(), err
+			}
+			for _, relay := range relays {
+				if relay.SourceKind == "human_input" && opts.ApprovalMode == constants.ApprovalModeScheduledAuto {
+					opts.ApprovalMode = constants.ApprovalModeStandard
+					opts.Cooperative.caller.ApprovalMode = constants.ApprovalModeStandard
+				}
+			}
+			if err := contextRun.Append(ctx, relays...); err != nil {
+				return finalAnswer.String(), err
+			}
 		}
 
 		prepared, prepareErr := contextRun.Prepare(ctx, modelConfig, toolDefs, false)
@@ -530,7 +561,10 @@ func (a *AgentService) RunAgentLoop(
 				return callbacks.OnThinkingChunk(thinkingChunk, thinkingMeta)
 			},
 		}
-		result, err := provider.StreamChatWithTools(ctx, modelConfig, messages, toolDefs, streamCallbacks)
+		requestModel := func() (*llmsvc.StreamResult, error) {
+			return provider.StreamChatWithTools(ctx, modelConfig, messages, toolDefs, streamCallbacks)
+		}
+		result, err := requestModel()
 		if err != nil && llmsvc.IsContextWindowExceeded(err) && ctx.Err() == nil && chunkBuf.Len() == 0 && !thinkingStarted && overflowRecoveries < 2 {
 			recovered, recoverErr := contextRun.Prepare(ctx, modelConfig, toolDefs, true)
 			if recoverErr != nil {
@@ -545,7 +579,7 @@ func (a *AgentService) RunAgentLoop(
 						return "", err
 					}
 				}
-				result, err = provider.StreamChatWithTools(ctx, modelConfig, messages, toolDefs, streamCallbacks)
+				result, err = requestModel()
 			}
 		}
 		if err != nil {
@@ -591,6 +625,24 @@ func (a *AgentService) RunAgentLoop(
 		}
 		if result.Type == llmsvc.StreamResultText {
 			finalAnswer.WriteString(chunkBuf.String())
+			if opts.Cooperative != nil {
+				relays, err := opts.Cooperative.relays(ctx, true)
+				if err != nil {
+					return finalAnswer.String(), err
+				}
+				if len(relays) > 0 {
+					for _, relay := range relays {
+						if relay.SourceKind == "human_input" && opts.ApprovalMode == constants.ApprovalModeScheduledAuto {
+							opts.ApprovalMode = constants.ApprovalModeStandard
+							opts.Cooperative.caller.ApprovalMode = constants.ApprovalModeStandard
+						}
+					}
+					if err := contextRun.Append(ctx, relays...); err != nil {
+						return finalAnswer.String(), err
+					}
+					continue
+				}
+			}
 			return finalAnswer.String(), nil
 		}
 
@@ -636,6 +688,51 @@ func (a *AgentService) RunAgentLoop(
 			}
 			if traceErr != nil {
 				return "", fmt.Errorf("记录工具结果失败: %w", traceErr)
+			}
+			if opts.Cooperative != nil && opts.Cooperative.known(tc.Name) {
+				flushParallelJobs()
+				var params map[string]any
+				decodeErr := json.Unmarshal([]byte(tc.Arguments), &params)
+				write := tc.Name == "integrate_artifact" || tc.Name == "validate_artifact"
+				policy := toolApprovalPolicyNone
+				if write {
+					policy = determineToolApprovalPolicy(constants.ExecToolName, false, opts.ApprovalMode)
+				}
+				invocation := resolvedToolInvocation{toolName: tc.Name, command: tc.Name, modelFuncName: tc.Name, requiresApproval: policy != toolApprovalPolicyNone, approvalPolicy: policy}
+				reviewStatus := ""
+				if policy == toolApprovalPolicyAutoReview {
+					reviewStatus = string(ApprovalReviewStatusReviewing)
+				}
+				if callbacks.OnToolCallStart != nil {
+					if e := callbacks.OnToolCallStart(ApprovalRequest{ToolCallID: tc.ID, ToolName: tc.Name, Command: tc.Name, Params: params, RequiresApproval: invocation.requiresApproval, ReviewStatus: reviewStatus}); e != nil {
+						return finalAnswer.String(), e
+					}
+				}
+				output := ""
+				toolErr := decodeErr
+				rejected := false
+				if toolErr == nil {
+					approved, rejection, _ := waitApprovalIfNeeded(ctx, callbacks, tc, invocation, params, "", func(reviewCtx context.Context, req ApprovalReviewRequest) (*ApprovalReviewResult, error) {
+						return a.reviewToolApproval(reviewCtx, modelConfig, messages, req)
+					})
+					if approved {
+						output, toolErr = opts.Cooperative.execute(ctx, tc.Name, tc.Arguments)
+					} else {
+						rejected = true
+						output = rejection
+					}
+				}
+				status := constants.ToolCallStatusCompleted
+				if rejected {
+					status = constants.ToolCallStatusRejected
+				}
+				if toolErr != nil {
+					output = cooperativeError(toolErr)
+					status = constants.ToolCallStatusError
+				}
+				notifyToolResult(callbacks, ToolCallResult{ToolCallID: tc.ID, ToolName: tc.Name, Command: tc.Name, Status: status, Output: output})
+				messages = appendResult(messages, tc.ID, output)
+				continue
 			}
 			if tc.Name == "context_read" && contextReadAllowed {
 				flushParallelJobs()
@@ -1200,4 +1297,20 @@ func formatAskQuestionsAnswers(questionsJSON string, answersJSON string) string 
 		return answersJSON
 	}
 	return string(b)
+}
+
+// drainAllProcesses runs at host shutdown without holding the session-state lock.
+func (a *AgentService) drainAllProcesses(ctx context.Context) error {
+	a.readFilesMu.Lock()
+	managers := make([]*tools.ProcessManager, 0, len(a.processesBySess))
+	for _, manager := range a.processesBySess {
+		managers = append(managers, manager)
+	}
+	a.readFilesMu.Unlock()
+	for _, manager := range managers {
+		if err := manager.StopAndWait(ctx); err != nil {
+			return err
+		}
+	}
+	return nil
 }

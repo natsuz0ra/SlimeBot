@@ -7,6 +7,7 @@ import AppDialog from '@/components/ui/AppDialog.vue'
 import LoadingSpinner from '@/components/ui/LoadingSpinner.vue'
 import { useToast } from '@/composables/useToast'
 import AppTextInput from '@/components/ui/AppTextInput.vue'
+import CooperativePanel from '@/components/chat/CooperativePanel.vue'
 import TaskRunTimeline from '@/components/home/TaskRunTimeline.vue'
 import { scheduleAPI, type CreateScheduledTaskInput, type ScheduledTask, type ScheduledTaskRun, type TaskRunStatus } from '@/api/schedule'
 import { taskRunDurationSeconds, taskRunPreview } from '@/utils/scheduleHistory'
@@ -276,6 +277,7 @@ onUnmounted(() => { generation++; listRequest?.abort(); detailRequest?.abort(); 
         <template v-else>
           <div v-if="detail.error || detail.status === 'interrupted'" class="schedule-failure"><h4>{{ t('scheduleErrorDetail') }}</h4><p>{{ detail.status === 'interrupted' ? t('scheduleInterruptedHint') : detail.error }}</p></div>
           <section class="schedule-output"><h4>{{ t('scheduleOutput') }}</h4><div v-if="detail.answer" class="bubble-markdown" v-html="renderMarkdown(detail.answer)" /><p v-else>{{ t(detail.status === 'running' ? 'scheduleRunningHint' : 'scheduleNoOutput') }}</p></section>
+          <CooperativePanel v-if="detail.sessionId" :session-id="detail.sessionId" />
           <TaskRunTimeline v-if="detail.sessionId" :run-id="detail.id" :run-status="detail.status" />
         </template>
       </div>

@@ -32,6 +32,10 @@ type ModelRuntimeConfig struct {
 
 // ChatMessage is the provider-agnostic message shape.
 type ChatMessage struct {
+	// SourceInboxID ties host-delivered messages to their atomic durable receipt.
+	SourceInboxID string `json:"sourceInboxId,omitempty"`
+	// SourceKind is host metadata. Provider adapters serialize explicit wire fields.
+	SourceKind   string                   `json:"sourceKind,omitempty"`
 	Role         string                   `json:"role"`
 	Content      string                   `json:"content"`
 	ContentParts []ChatMessageContentPart `json:"contentParts,omitempty"`

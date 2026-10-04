@@ -20,6 +20,7 @@ func (s *ChatService) ResolveModelRuntimeConfig(ctx context.Context, modelID str
 		return llmsvc.ModelRuntimeConfig{}, err
 	}
 	return llmsvc.ModelRuntimeConfig{
+		ConfigID:    cfg.ID,
 		Provider:    cfg.Provider,
 		BaseURL:     cfg.BaseURL,
 		APIKey:      cfg.APIKey,

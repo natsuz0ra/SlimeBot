@@ -81,8 +81,30 @@ func (r *Repository) UpdateSessionTitle(ctx context.Context, id, name string) (b
 
 func (r *Repository) DeleteSession(ctx context.Context, id string) error {
 	return r.dbWithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var agents []domain.AgentDescriptor
+		if err := tx.Where("root_id = ?", id).Find(&agents).Error; err != nil {
+			return err
+		}
+		ids := []string{id}
+		for _, a := range agents {
+			ids = append(ids, a.SessionID)
+		}
+		for _, model := range []any{&domain.AgentDescriptor{}, &domain.AgentTurn{}, &domain.AgentTask{}, &domain.AgentArtifact{}, &domain.AgentApproval{}, &domain.AgentEvent{}} {
+			if err := tx.Where("root_id = ?", id).Delete(model).Error; err != nil {
+				return err
+			}
+		}
+		if err := tx.Where("target_id IN ?", ids).Delete(&domain.AgentInbox{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("session_id = ?", id).Delete(&domain.AgentRootRequest{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("session_id IN ?", ids).Delete(&domain.ThinkingRecord{}).Error; err != nil {
+			return err
+		}
 		var teamRunIDs []string
-		if err := tx.Model(&domain.TeamRun{}).Where("session_id = ?", id).Pluck("id", &teamRunIDs).Error; err != nil {
+		if err := tx.Model(&domain.TeamRun{}).Where("session_id IN ?", ids).Pluck("id", &teamRunIDs).Error; err != nil {
 			return err
 		}
 		if len(teamRunIDs) > 0 {
@@ -90,27 +112,27 @@ func (r *Repository) DeleteSession(ctx context.Context, id string) error {
 				return err
 			}
 		}
-		if err := tx.Where("session_id = ?", id).Delete(&domain.TeamRun{}).Error; err != nil {
+		if err := tx.Where("session_id IN ?", ids).Delete(&domain.TeamRun{}).Error; err != nil {
 			return err
 		}
 		// Delete messages.
-		if err := tx.Table("messages").Where("session_id = ?", id).Delete(nil).Error; err != nil {
+		if err := tx.Table("messages").Where("session_id IN ?", ids).Delete(nil).Error; err != nil {
 			return err
 		}
 		// Delete tool call records.
-		if err := tx.Table("tool_call_records").Where("session_id = ?", id).Delete(nil).Error; err != nil {
+		if err := tx.Table("tool_call_records").Where("session_id IN ?", ids).Delete(nil).Error; err != nil {
 			return err
 		}
 		for _, model := range []any{&domain.ContextEntry{}, &domain.ContextCheckpoint{}, &domain.ContextHead{}} {
-			if err := tx.Where("scope_id = ?", id).Delete(model).Error; err != nil {
+			if err := tx.Where("scope_id IN ?", ids).Delete(model).Error; err != nil {
 				return err
 			}
 		}
-		if err := tx.Where("session_id = ?", id).Delete(&domain.SessionContextSummary{}).Error; err != nil {
+		if err := tx.Where("session_id IN ?", ids).Delete(&domain.SessionContextSummary{}).Error; err != nil {
 			return err
 		}
 		// Delete the session row.
-		return tx.Table("sessions").Where("id = ?", id).Delete(nil).Error
+		return tx.Table("sessions").Where("id IN ?", ids).Delete(nil).Error
 	})
 }
 

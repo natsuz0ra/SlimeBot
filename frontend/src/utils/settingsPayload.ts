@@ -1,6 +1,7 @@
 import type { AppSettings, ApprovalMode, SandboxMode, ThinkingLevel } from '../types/settings'
 
 export type SettingsPayload = {
+  subagentMaxDepth?: number
   language: 'zh-CN' | 'en-US'
   defaultModel?: string
   messagePlatformDefaultModel?: string
@@ -53,6 +54,7 @@ export function normalizeSettingsPayload(data: Partial<SettingsPayload>): AppSet
 
 export function buildSettingsPayload(payload: Partial<AppSettings>): Partial<SettingsPayload> {
   const wirePayload: Partial<SettingsPayload> = {}
+  if (payload.subagentMaxDepth !== undefined) wirePayload.subagentMaxDepth = payload.subagentMaxDepth
   if (payload.language !== undefined) wirePayload.language = payload.language
   if (payload.defaultModel !== undefined) wirePayload.defaultModel = payload.defaultModel
   if (payload.messagePlatformDefaultModel !== undefined) wirePayload.messagePlatformDefaultModel = payload.messagePlatformDefaultModel

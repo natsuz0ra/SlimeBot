@@ -255,3 +255,67 @@ func TestBuildAssistantMessageParamPreservesReasoningOnlyAssistantMessage(t *tes
 		t.Fatalf("expected reasoning_content extra field, got: %s", got)
 	}
 }
+
+func TestOutputBudgetProtocolAndModel(t *testing.T) {
+	for _, tc := range []struct {
+		name, provider, model, tokenField string
+		deepseek                          bool
+	}{
+		{"generic compatible", llmsvc.ProviderOpenAI, "custom-model", "max_tokens", false},
+		{"generic DeepSeek", llmsvc.ProviderOpenAI, "deepseek-flash", "max_tokens", true},
+		{"native reasoning alias", llmsvc.ProviderOpenAI, "gpt-5-mini", "max_completion_tokens", false},
+		{"o series alias", llmsvc.ProviderOpenAI, "o3", "max_completion_tokens", false},
+		{"DeepSeek protocol", llmsvc.ProviderDeepSeek, "custom-model", "max_tokens", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				var body map[string]any
+				if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+					t.Error(err)
+					w.WriteHeader(400)
+					return
+				}
+				if body[tc.tokenField] != float64(384) {
+					t.Errorf("output reserve not enforced: %+v", body)
+				}
+				other := "max_tokens"
+				if tc.tokenField == other {
+					other = "max_completion_tokens"
+				}
+				if _, ok := body[other]; ok {
+					t.Error("conflicting output limit fields")
+				}
+				thinking, _ := body["thinking"].(map[string]any)
+				if tc.deepseek && thinking["type"] != "disabled" {
+					t.Error("DeepSeek off setting lost through generic protocol")
+				}
+				if !tc.deepseek && thinking != nil {
+					t.Error("DeepSeek extension leaked into another model")
+				}
+				w.Header().Set("Content-Type", "text/event-stream")
+				fmt.Fprint(w, "data: {\"id\":\"test\",\"object\":\"chat.completion.chunk\",\"model\":\"test\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"done\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n")
+			}))
+			defer server.Close()
+			_, err := NewOpenAIClient().StreamChatWithTools(context.Background(), llmsvc.ModelRuntimeConfig{Provider: tc.provider, BaseURL: server.URL, APIKey: "test", Model: tc.model, ContextSize: 8192, MaxOutputTokens: 384, ThinkingLevel: "off", Purpose: "compaction"}, []llmsvc.ChatMessage{{Role: "user", Content: "summarize"}}, nil, llmsvc.StreamCallbacks{})
+			if err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
+
+func TestOutputBudgetEndpointCompatibility(t *testing.T) {
+	for _, tc := range []struct {
+		base, model string
+		want        bool
+	}{
+		{"https://api.openai.com/v1", "deployment-alias", true},
+		{"https://example.com/v1", "deployment-alias", false},
+		{"https://example.com/v1", "gpt-5-mini", true},
+		{"https://dashscope.aliyuncs.com/compatible-mode/v1", "gpt-5-alias", false},
+	} {
+		if got := usesCompletionTokenLimit(llmsvc.ModelRuntimeConfig{Provider: llmsvc.ProviderOpenAI, BaseURL: tc.base, Model: tc.model}); got != tc.want {
+			t.Errorf("%s %s: completion field=%v want=%v", tc.base, tc.model, got, tc.want)
+		}
+	}
+}

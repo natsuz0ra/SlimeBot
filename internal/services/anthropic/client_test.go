@@ -107,3 +107,54 @@ func TestMergeAnthropicUsageKeepsInputAndUpdatesOutput(t *testing.T) {
 		t.Fatalf("unexpected merged usage: %+v", usage)
 	}
 }
+
+func TestStreamingPreservesInitialBlocksAndOptionalCallback(t *testing.T) {
+	for _, kind := range []string{"text", "tool_use", "fragmented_tool"} {
+		t.Run(kind, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "text/event-stream")
+				blocks := []string{
+					`{"type":"message_start","message":{"usage":{"input_tokens":5,"output_tokens":0}}}`,
+				}
+				switch kind {
+				case "text":
+					blocks = append(blocks, `{"type":"content_block_start","index":0,"content_block":{"type":"text","text":"initial "}}`, `{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"report"}}`)
+				case "tool_use":
+					blocks = append(blocks, `{"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"call_1","name":"spawn_agent","input":{"title":"worker","task":"write proof"}}}`)
+				case "fragmented_tool":
+					blocks = append(blocks, `{"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"call_1","name":"spawn_agent","input":{}}}`, `{"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"{\"title\":\"worker\","}}`, `{"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"\"task\":\"write proof\"}"}}`)
+				}
+				stop := "tool_use"
+				if kind == "text" {
+					stop = "end_turn"
+				}
+				blocks = append(blocks, `{"type":"content_block_stop","index":0}`, fmt.Sprintf(`{"type":"message_delta","delta":{"stop_reason":%q},"usage":{"output_tokens":9}}`, stop), `{"type":"message_stop"}`)
+				for _, block := range blocks {
+					var e struct {
+						Type string `json:"type"`
+					}
+					_ = json.Unmarshal([]byte(block), &e)
+					fmt.Fprintf(w, "event: %s\ndata: %s\n\n", e.Type, block)
+				}
+			}))
+			defer server.Close()
+			result, err := NewAnthropicClient().StreamChatWithTools(context.Background(), llmsvc.ModelRuntimeConfig{Provider: llmsvc.ProviderAnthropic, BaseURL: server.URL, APIKey: "test", Model: "test"}, []llmsvc.ChatMessage{{Role: "user", Content: "delegate"}}, nil, llmsvc.StreamCallbacks{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if kind == "text" {
+				if result.AssistantMessage.Content != "initial report" {
+					t.Fatalf("initial text was lost: %+v", result)
+				}
+			} else {
+				if len(result.ToolCalls) != 1 {
+					t.Fatalf("tool call missing: %+v", result)
+				}
+				var input map[string]string
+				if err := json.Unmarshal([]byte(result.ToolCalls[0].Arguments), &input); err != nil || input["title"] != "worker" || input["task"] != "write proof" {
+					t.Fatalf("tool input lost: %+v error=%v", result.ToolCalls, err)
+				}
+			}
+		})
+	}
+}

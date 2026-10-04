@@ -16,6 +16,8 @@ import { MCPTemplatePicker } from "./components/MCPTemplatePicker.js";
 import { MCPToolsView } from "./components/MCPToolsView.js";
 import { CLI_HINT_COLOR, MenuView, MENU_VISIBLE_LIMIT } from "./components/MenuView.js";
 import MemoryConsoleView from "./components/MemoryConsoleView.js";
+import CooperativeView from "./components/CooperativeView.js";
+import type { CooperativeSnapshot } from "./types/cooperative.js";
 import TeamView from "./components/TeamView.js";
 import { ModelEditor } from "./components/ModelEditor.js";
 import { ProviderEditor } from "./components/ProviderEditor.js";
@@ -86,6 +88,9 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
   const { exit } = useApp();
   const { stdout } = useStdout();
   const [width, setWidth] = React.useState(() => Math.max(20, stdout?.columns || 80));
+  const [cooperativeView, setCooperativeView] = React.useState(false);
+  const [cooperativeTab, setCooperativeTab] = React.useState(0);
+  const [cooperativeSnapshot, setCooperativeSnapshot] = React.useState<CooperativeSnapshot|null>(null);
   const [commandHintCursor, setCommandHintCursor] = React.useState(0);
   const border = "─".repeat(width);
 
@@ -1029,8 +1034,70 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
     }
   }, [appendSystem, applyTerminalTitle, state.modelId, state.sessionId, state.planMode, state.thinkingLevel]);
 
+  const manageAgents = useCallback(async (command: string) => {
+    if (!state.sessionId) { appendSystem("Create or open a session first."); return; }
+    const root = state.sessionId;
+    try {
+      const parts = command.split(/\s+/);
+      const [action, id, operation] = parts;
+      if (action === "send" && id) {
+        await apiRef.current.cooperativeAction(id, {action: "message", message: parts.slice(2).join(" "), delivery: "queue", clientMessageId: crypto.randomUUID()});
+        appendSystem("Follow-up accepted.");
+      } else if (action === "stop") {
+        if (id === "all") await apiRef.current.cooperativeStop(root);
+        else if (id) await apiRef.current.cooperativeAction(id, {action: "interrupt", scope: "subtree"});
+      } else if (action === "artifact" && id) {
+        const result = await apiRef.current.cooperativeArtifact(id, root, operation || "inspect", parts.slice(3).join(" "));
+        if (result.diff) appendSystem(result.diff);
+      } else if (action === "approve" && id) {
+        if (!["yes", "no"].includes(operation)) throw new Error("Use /agents approve <id> yes|no");
+        await apiRef.current.cooperativeApprove(id, operation === "yes");
+      } else if (action === "result" && id) {
+        const turns = await apiRef.current.cooperativeTurns(id, operation);
+        const turn = operation ? turns.find(t => t.id === operation) : turns[0];
+        if (!turn) throw new Error("Agent report not found");
+        appendSystem(`${turn.status} · ${turn.id}\n${turn.answer || turn.error || "Awaiting report"}`);
+        setCooperativeView(false);
+        dispatch({type:"SET_VIEW",view:"chat"} as AppAction);
+        return;
+      } else if (action === "task") {
+        const snapshot = await apiRef.current.cooperativeSnapshot(root);
+        if (id === "create") await apiRef.current.cooperativeTask(root, {action:"create",title:parts.slice(2).join(" ")});
+        else {
+          const task=snapshot.tasks.find(t=>t.id===operation);if (!task) throw new Error("Task not found");
+          await apiRef.current.cooperativeTask(root,{action:id,taskId:task.id,expectedRevision:task.revision,ownerId:parts[3]});
+        }
+      } else if (command && !["tasks", "artifacts", "result"].includes(action)) {
+        throw new Error("Use /agents [send|stop|task|artifact|approve]");
+      }
+      setCooperativeSnapshot(await apiRef.current.cooperativeSnapshot(root));
+      if (action === "tasks" || action === "task") setCooperativeTab(1);
+      else if (action === "artifacts" || action === "artifact") setCooperativeTab(2);
+      else setCooperativeTab(0);
+      setCooperativeView(true);
+      dispatch({type:"OPEN_TEAM_DETAIL"} as AppAction);
+    } catch (error) { appendSystem(`Collaboration: ${(error as Error).message}`); }
+  }, [state.sessionId, appendSystem]);
+
+  useEffect(() => {
+    if (!cooperativeView || state.view !== "team-detail" || !state.sessionId) return;
+    let disposed = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const refresh = async () => {
+      try {
+        const snapshot = await apiRef.current.cooperativeSnapshot(state.sessionId!);
+        if (!disposed) setCooperativeSnapshot(snapshot);
+      } catch { /* Manual refresh reports errors without repeated polling noise. */ }
+      if (!disposed) timer = setTimeout(() => void refresh(), 2000);
+    };
+    void refresh();
+    return () => { disposed = true; clearTimeout(timer); };
+  }, [cooperativeView, state.view, state.sessionId]);
+
   const handleCommand = useCallback(async (raw: string) => {
+    if (raw.trim() === "/team") setCooperativeView(false);
     await runCliCommand(raw, {
+      manageAgents,
       newSession: () => {
         dispatch({ type: "RESET_SESSION" } as AppAction);
         applyTerminalTitle("");
@@ -1058,6 +1125,7 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
     appendSystem,
     applyTerminalTitle,
     redrawTerminal,
+    manageAgents,
     loadMCPConfigs,
     loadModels,
     loadProviders,
@@ -1398,7 +1466,8 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
         />
       )}
 
-      {state.view === "team-detail" && (
+      {state.view === "team-detail" && cooperativeView && <CooperativeView snapshot={cooperativeSnapshot} initialTab={cooperativeTab} refresh={() => void manageAgents("")} />}
+      {state.view === "team-detail" && !cooperativeView && (
         <TeamView
           runs={teamRuns}
           entries={state.timeline}
@@ -1515,7 +1584,7 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
         </Text>
       )}
 
-      {state.view === "team-detail" && (
+      {state.view === "team-detail" && !cooperativeView && (
         <Text color={CLI_HINT_COLOR}>
           ←/→ Team | ↑/↓ member | Esc back
         </Text>

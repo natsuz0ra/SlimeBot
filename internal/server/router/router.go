@@ -74,6 +74,13 @@ func New(cfg config.Config, tokenManager *auth.TokenManager, httpController *con
 			api.Patch("/sessions/{id}/name", adapt(httpController.RenameSession))
 			api.Delete("/sessions/{id}", adapt(httpController.DeleteSession))
 			api.Get("/sessions/{id}/context-usage", adapt(httpController.GetContextUsage))
+			api.Get("/sessions/{id}/cooperative", adapt(httpController.ListCooperative))
+			api.Post("/sessions/{id}/cooperative/stop", adapt(httpController.StopCooperative))
+			api.Post("/sessions/{id}/cooperative/tasks", adapt(httpController.CooperativeTask))
+			api.Get("/agents/{id}/turns", adapt(httpController.GetAgentTurns))
+			api.Post("/agents/{id}/actions", adapt(httpController.AgentAction))
+			api.Post("/agent-approvals/{id}", adapt(httpController.ApproveCooperative))
+			api.Post("/agent-artifacts/{id}/actions", adapt(httpController.CooperativeArtifact))
 			api.Get("/sessions/{id}/messages", adapt(httpController.ListMessages))
 			api.Post("/sessions/{id}/attachments", adapt(httpController.UploadSessionAttachments))
 

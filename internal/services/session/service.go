@@ -503,7 +503,7 @@ func (s *SessionService) Get(ctx context.Context, id string) (*domain.Session, e
 	if err != nil {
 		return nil, err
 	}
-	if session.Kind == domain.SessionKindTaskRun {
+	if session.Kind != domain.SessionKindChat {
 		return nil, apperrors.ErrNotFound
 	}
 	return session, nil

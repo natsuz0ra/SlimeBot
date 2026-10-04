@@ -27,7 +27,7 @@ func project(entries []domain.ContextEntry, checkpoints []domain.ContextCheckpoi
 	latestUser := int64(0)
 	for i, e := range entries {
 		positions[e.ID] = i
-		if e.SourceKind == "direct_user" {
+		if isAnchor(e.SourceKind) {
 			latestUser = e.ID
 		} else if e.SourceKind == "" {
 			m, err := e.Message()
@@ -183,7 +183,7 @@ func region(items []item, maxTokens, retain int, force bool) (int, int) {
 	estimateRange := func(start, end int) int { return 3 + costs[end] - costs[start] }
 	user := -1
 	for i, it := range items {
-		if it.checkpoint == "" && it.message.Role == "user" && it.kind != "tool_artifact" {
+		if it.checkpoint == "" && (isAnchor(it.kind) || (it.kind == "" && it.message.Role == "user")) {
 			user = i
 		}
 	}

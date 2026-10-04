@@ -145,6 +145,7 @@ export function useHomeSessionActions(options: {
     try {
       const isDeletingCurrent = uiState.deleteTargetId.value === store.currentSessionId
       await sessionAPI.remove(uiState.deleteTargetId.value)
+      store.forgetSession(uiState.deleteTargetId.value)
       await store.loadSessions()
       if (isDeletingCurrent) {
         store.resetToNewSession()
@@ -231,7 +232,14 @@ export function useHomeSessionActions(options: {
     void removeSession(menu.id)
   }
 
+  function onVisibilityChange() {
+    if (document.visibilityState === 'visible') store.markSessionRead(store.currentSessionId)
+  }
+
+  watch(() => route.name, (name) => store.setChatViewActive(name === 'chat'), { immediate: true })
+
   onMounted(() => {
+    document.addEventListener('visibilitychange', onVisibilityChange)
     void boot()
   })
 
@@ -267,8 +275,9 @@ export function useHomeSessionActions(options: {
   )
 
   onUnmounted(() => {
+    document.removeEventListener('visibilitychange', onVisibilityChange)
     stopMessagePlatformPolling()
-    store.disconnectSocket()
+    store.setChatViewActive(false)
   })
 
   return {

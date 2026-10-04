@@ -2,6 +2,9 @@ import { createI18n } from 'vue-i18n'
 
 const messages = {
   'zh-CN': {
+    sessionRunning: '正在运行',
+    sessionUnread: '有未读回复',
+    sessionMenu: '会话菜单',
     scheduleNavigation: '主要功能',
     scheduleToggleSidebar: '切换侧边栏',
     scheduleViews: '任务视图',
@@ -525,6 +528,9 @@ const messages = {
     qaNotSelected: '未选择',
   },
   'en-US': {
+    sessionRunning: 'Running',
+    sessionUnread: 'Unread reply',
+    sessionMenu: 'Session menu',
     scheduleNavigation: 'Main navigation',
     scheduleToggleSidebar: 'Toggle sidebar',
     scheduleViews: 'Task views',

@@ -1,26 +1,11 @@
 import { defineStore } from 'pinia'
-import { computed, ref } from 'vue'
-
-import { ChatSocket, type ConnectionStatus, type ContextUsageData, type RuntimeTodoItem, type TodoUpdateData } from '@/api/chatSocket'
-import { sessionAPI } from '@/api/chat'
+import { computed, ref, shallowReactive, shallowRef, type Ref } from 'vue'
+import { sessionAPI, type ChatSearchHit, type MessageAttachmentItem, type MessageItem, type SessionItem, type UploadedAttachmentItem } from '@/api/chat'
 import { isMessagePlatformSessionId } from '@/utils/messagePlatformSessions'
-import type { ChatSearchHit, MessageAttachmentItem, MessageItem, SessionHistoryPayload, SessionHistoryThinkingItem, SessionItem, UploadedAttachmentItem } from '@/api/chat'
 import { i18n } from '@/i18n'
-import {
-  buildInterleavedTimeline,
-  buildLegacyTimeline,
-  buildReplyBatchesFromHistory,
-  normalizeToolStatus,
-  type AssistantReplyBatch,
-  type AssistantReplyTimelineItem,
-} from '@/utils/replyBatchBuilder'
-import { hasContentMarkers, parseContentMarkers, stripContentMarkers } from '@/utils/contentMarkers'
-import { appendPlanBodyToBatch, appendPlanChunkToBatch, appendSubagentThinkingChunk, appendTextChunkToBatch, finalizeOpenReplyRuntimeState, finalizeReplyBatchTiming, finishOpenThinkingEntries, finishSubagentThinking, markLastThinkingDone, markToolCallError, startSubagentThinking } from '@/utils/liveReplyTimeline'
-import { getBatchApprovalToolCallIds, markToolApprovalDecision } from '@/utils/toolApprovals'
-import { materializeStoppedMessages } from '@/utils/chatMessages'
-import { applyEditedUserMessage, findLatestEditableUserMessageId } from '@/utils/messageEditing'
 import { createClientId } from '@/utils/uuid'
-import { createAgentTeamState, mergeAgentTeamMember, mergeAgentTeamRun } from '@/utils/agentTeam'
+import { markToolApprovalDecision } from '@/utils/toolApprovals'
+import { createChatSessionRuntime } from './chatSessionRuntime'
 
 const HISTORY_PAGE_SIZE = 10
 const MAX_SESSION_PAGE_SIZE = 100
@@ -31,8 +16,7 @@ export const useChatStore = defineStore('chat', () => {
   const hasMoreSessions = ref(false)
   const loadingMoreSessions = ref(false)
   const searchSelection = ref<SessionItem>()
-  const focusedMessageId = ref('')
-  const hasNewerHistory = ref(false)
+  const sessionMetadata = new Map<string, SessionItem>()
   const currentSessionId = ref<string>()
   let historyGeneration = 0
   const creatingSession = ref(false)
@@ -47,262 +31,131 @@ export const useChatStore = defineStore('chat', () => {
     if (path) window.localStorage.setItem('slimebot:last-working-directory', path)
     else window.localStorage.removeItem('slimebot:last-working-directory')
   }
-  const messages = ref<MessageItem[]>([])
-  const waiting = ref(false)
-  const streamingStarted = ref(false)
-  const hasMoreHistory = ref(false)
-  const loadingOlderHistory = ref(false)
-  const loadingNewerMessages = ref(false)
-  const connectionStatus = ref<ConnectionStatus>('disconnected')
-  const connectionError = ref('')
-  const suppressNextConnectionNotice = ref(false)
+  function createSessionRuntime(id?: string) {
+    return createChatSessionRuntime(id, {
+      onCompleted: completeSession,
+      onTitle: (sessionId, title) => {
+        const item = sessions.value.find((session) => session.id === sessionId)
+        if (item) item.name = title
+        const selected = sessionMetadata.get(sessionId)
+        if (selected) selected.name = title
+      },
+      onSessionsChanged: loadSessions,
+    })
+  }
+
   const planMode = ref(false)
-  const planGenerating = ref(false)
-  const isSocketReady = computed(() => connectionStatus.value === 'connected')
-  const runtimeTodos = ref<RuntimeTodoItem[]>([])
-  const runtimeTodoNote = ref('')
-  const runtimeTodoUpdatedAt = ref<number>()
-  const todoPanelOpen = ref(false)
-  const contextUsage = ref<ContextUsageData | null>(null)
-
-  const replyBatches = ref<AssistantReplyBatch[]>([])
-  const currentBatchId = ref<string>('')
-  const assistantErrorIds = ref(new Set<string>())
-  const failedUserMessageIds = ref(new Set<string>())
-  const pendingPlanConfirmation = ref<{ sessionId: string; planId: string; content: string } | null>(null)
-  const pendingApprovalToolCallIds = computed(() => replyBatches.value.flatMap((batch) => getBatchApprovalToolCallIds(batch.toolCalls)))
-  const pendingEditMessageId = ref('')
-  const latestEditableUserMessageId = computed(() => (pendingEditMessageId.value || hasNewerHistory.value) ? '' : findLatestEditableUserMessageId(messages.value, waiting.value, failedUserMessageIds.value))
-
-  interface QuestionItem {
-    id: string
-    question: string
-    options: string[]
-    option_descriptions?: string[]
-  }
-  const pendingQuestions = ref<{ toolCallId: string; questions: QuestionItem[] } | null>(null)
-
-  const ws = new ChatSocket()
-
-  function resetSessionRuntimeState() {
-    replyBatches.value = []
-    currentBatchId.value = ''
-    assistantErrorIds.value.clear()
-    failedUserMessageIds.value.clear()
-    pendingQuestions.value = null
-    pendingEditMessageId.value = ''
-    clearRuntimeTodos()
-  }
-
-  function clearContextUsage() {
-    contextUsage.value = null
-  }
-
-  function applyContextUsage(usage: ContextUsageData, sessionId?: string) {
-    const targetSessionId = sessionId || usage.sessionId
-    if (!targetSessionId || targetSessionId !== currentSessionId.value) return
-    contextUsage.value = { ...usage, sessionId: targetSessionId }
-  }
-
-  function appendContextCompactedNotice(sessionId?: string) {
-    if (!sessionId || sessionId !== currentSessionId.value) return
-    const batch = getCurrentBatch()
-    if (!batch) return
-    const content = i18n.global.t('contextCompactedNotice') as string
-    const lastNotice = [...batch.timeline].reverse().find((entry) => entry.kind === 'notice')
-    if (lastNotice?.kind === 'notice' && lastNotice.content === content) return
-    batch.timeline.push({
-      id: createClientId(),
-      kind: 'notice',
-      content,
-    })
-  }
-
-  async function refreshContextUsage(modelId: string) {
-    const sessionId = currentSessionId.value
-    if (!sessionId || !modelId || isMessagePlatformSessionId(sessionId)) {
-      clearContextUsage()
-      return
+  const suppressNextConnectionNotice = ref(false)
+  const chatViewActive = ref(false)
+  let socketEnabled = false
+  const unreadSessionIds = ref(new Set<string>())
+  const sessionRuntimes = shallowReactive(new Map<string, ReturnType<typeof createSessionRuntime>>())
+  const draftRuntime = shallowRef(createSessionRuntime())
+  const activeRuntime = computed(() => {
+    const id = currentSessionId.value
+    if (!id) return draftRuntime.value
+    let runtime = sessionRuntimes.get(id)
+    if (!runtime) {
+      runtime = createSessionRuntime(id)
+      sessionRuntimes.set(id, runtime)
     }
-    try {
-      const usage = await sessionAPI.contextUsage(sessionId, modelId)
-      if (currentSessionId.value === sessionId) {
-        contextUsage.value = usage
-      }
-    } catch {
-      clearContextUsage()
+    return runtime
+  })
+  const runningSessionIds = computed(() => new Set(
+    [...sessionRuntimes].filter(([, runtime]) => runtime.waiting.value).map(([id]) => id),
+  ))
+
+  function isSessionVisible(id: string) {
+    return currentSessionId.value === id && chatViewActive.value && (typeof document === 'undefined' || document.visibilityState !== 'hidden')
+  }
+
+  function markSessionRead(id?: string) {
+    if (id && isSessionVisible(id)) unreadSessionIds.value.delete(id)
+  }
+
+  function setChatViewActive(active: boolean) {
+    chatViewActive.value = active
+    if (active) markSessionRead(currentSessionId.value)
+  }
+
+  function completeSession(id: string) {
+    if (isSessionVisible(id)) unreadSessionIds.value.delete(id)
+    else unreadSessionIds.value.add(id)
+    if (currentSessionId.value !== id) sessionRuntimes.get(id)?.closeSocket()
+  }
+
+  function connectSocket() {
+    socketEnabled = true
+    activeRuntime.value.connectSocket()
+  }
+
+  function releaseIdleSocket() {
+    if (!activeRuntime.value.waiting.value) activeRuntime.value.closeSocket()
+    if (sessionRuntimes.size <= 20) return
+    for (const [id, runtime] of sessionRuntimes) {
+      if (sessionRuntimes.size <= 20) break
+      const latest = runtime.messages.value[runtime.messages.value.length - 1]
+      if (id === currentSessionId.value || runtime.waiting.value || runtime.pendingPlanConfirmation.value || unreadSessionIds.value.has(id) || (latest && runtime.assistantErrorIds.value.has(latest.id))) continue
+      runtime.closeSocket()
+      sessionRuntimes.delete(id)
+      sessionMetadata.delete(id)
     }
   }
 
-  function clearRuntimeTodos() {
-    runtimeTodos.value = []
-    runtimeTodoNote.value = ''
-    runtimeTodoUpdatedAt.value = undefined
-    todoPanelOpen.value = false
+  function forgetSession(id: string) {
+    const runtime = sessionRuntimes.get(id)
+    if (runtime?.waiting.value) runtime.ws.sendStop(id)
+    runtime?.closeSocket()
+    sessionRuntimes.delete(id)
+    sessionMetadata.delete(id)
+    unreadSessionIds.value.delete(id)
   }
 
-  function applyRuntimeTodoUpdate(update: TodoUpdateData, sessionId?: string) {
-    if (!sessionId || sessionId !== currentSessionId.value) return
-    runtimeTodos.value = update.items.map((item) => ({ ...item }))
-    runtimeTodoNote.value = update.note || ''
-    runtimeTodoUpdatedAt.value = parseSocketTimestamp(update.updatedAt)
-    todoPanelOpen.value = runtimeTodos.value.length > 0
-  }
-
-  function toggleTodoPanel() {
-    todoPanelOpen.value = !todoPanelOpen.value
-  }
-
-  function resetHistoryState() {
-    hasMoreHistory.value = false
-    hasNewerHistory.value = false
-    focusedMessageId.value = ''
-    loadingOlderHistory.value = false
-    loadingNewerMessages.value = false
-  }
-
-  function getStoppedPlaceholderText() {
-    return i18n.global.t('assistantStopped') as string
-  }
-
-  function materializeMessages(items: MessageItem[]): MessageItem[] {
-    return materializeStoppedMessages(items, getStoppedPlaceholderText())
-  }
-
-  function rebuildReplyBatchesFromHistory(sessionId: string, history: SessionHistoryPayload) {
-    replyBatches.value = buildReplyBatchesFromHistory(sessionId, history)
-    currentBatchId.value = ''
-  }
-
-  function mergeReplyBatchesFromHistory(sessionId: string, history: SessionHistoryPayload, position: 'prepend' | 'append') {
-    const incoming = buildReplyBatchesFromHistory(sessionId, history)
-    if (incoming.length === 0) return
-    const existingAssistantIDs = new Set(replyBatches.value.map((item) => item.assistantMessageId))
-    const filtered = incoming.filter((item) => !existingAssistantIDs.has(item.assistantMessageId))
-    if (filtered.length === 0) return
-    replyBatches.value = position === 'prepend' ? [...filtered, ...replyBatches.value] : [...replyBatches.value, ...filtered]
-  }
-
-  function getCurrentBatch() {
-    if (!currentBatchId.value) return undefined
-    return replyBatches.value.find((item) => item.id === currentBatchId.value)
-  }
-
-  function parseSocketTimestamp(value: string | undefined, fallback = Date.now()) {
-    if (!value) return fallback
-    const parsed = Date.parse(value)
-    return Number.isFinite(parsed) ? parsed : fallback
-  }
-
-  function isStreamingMessage(messageId: string): boolean {
-    if (!currentBatchId.value) return false
-    const batch = getCurrentBatch()
-    return batch?.assistantMessageId === messageId
-  }
-
-  function formatAssistantError(rawError: string) {
-    const safeError = rawError?.trim() || 'unknown error'
-    return i18n.global.t('assistantReplyFailed', { error: safeError }) as string
-  }
-
-  function markAssistantError(messageId: string) {
-    assistantErrorIds.value.add(messageId)
-  }
-
-  function clearAssistantError(messageId: string) {
-    assistantErrorIds.value.delete(messageId)
-  }
-
-  function isAssistantErrorMessage(messageId: string) {
-    return assistantErrorIds.value.has(messageId)
-  }
-
-  function markFailedUserMessage(messageId: string) {
-    failedUserMessageIds.value.add(messageId)
-  }
-
-  function isFailedUserMessage(messageId: string) {
-    return failedUserMessageIds.value.has(messageId)
-  }
-
-  function buildLiveThinkingHistory(content: string, timeline: AssistantReplyTimelineItem[]): SessionHistoryThinkingItem[] {
-    const thinkingEntries = timeline.filter((entry) => entry.kind === 'thinking')
-    if (thinkingEntries.length === 0) return []
-    const thinkingIds = parseContentMarkers(content)
-      .filter((segment) => segment.type === 'thinking_marker' && segment.thinkingId)
-      .map((segment) => segment.thinkingId as string)
-    return thinkingIds.map((thinkingId, index) => {
-      const entry = thinkingEntries[index]
-      return {
-        thinkingId,
-        content: entry?.kind === 'thinking' ? entry.content : '',
-        status: entry?.kind === 'thinking' && !entry.done ? 'streaming' : 'completed',
-        durationMs: entry?.kind === 'thinking' ? entry.durationMs : undefined,
-      }
+  // The public store exposes the selected session; event reducers retain their own runtime refs.
+  function bindRuntimeRef<T>(select: (runtime: ReturnType<typeof createSessionRuntime>) => Ref<T>) {
+    return computed({
+      get: () => select(activeRuntime.value).value,
+      set: (value) => { select(activeRuntime.value).value = value },
     })
   }
 
-  function pushFailedUserMessage(content: string) {
-    const sessionId = currentSessionId.value
-    if (!sessionId) return
-    const messageId = createClientId()
-    messages.value.push({
-      id: messageId,
-      sessionId,
-      role: 'user',
-      content,
-      createdAt: new Date().toISOString(),
-    })
-    markFailedUserMessage(messageId)
-  }
-
-  function finalizeAssistantError(rawError: string, sessionId?: string) {
-    const targetSessionId = sessionId || currentSessionId.value
-    if (!targetSessionId || targetSessionId !== currentSessionId.value) return
-    const errorMessage = formatAssistantError(rawError)
-    const batch = getCurrentBatch()
-    if (batch) {
-      const assistant = messages.value.find((msg) => msg.id === batch.assistantMessageId)
-      if (assistant) {
-        assistant.content = errorMessage
-        markAssistantError(assistant.id)
-      }
-      const textEntry: AssistantReplyTimelineItem = {
-        id: createClientId(),
-        kind: 'text',
-        content: errorMessage,
-      }
-      const rebuiltTimeline: AssistantReplyTimelineItem[] = []
-      let inserted = false
-      for (const entry of batch.timeline) {
-        if (entry.kind === 'text') {
-          if (!inserted) {
-            rebuiltTimeline.push(textEntry)
-            inserted = true
-          }
-          continue
-        }
-        rebuiltTimeline.push(entry)
-      }
-      if (!inserted) {
-        rebuiltTimeline.push(textEntry)
-      }
-      batch.timeline = rebuiltTimeline
-      finalizeReplyBatchTiming(batch)
-      currentBatchId.value = ''
-      return
-    }
-
-    const assistantMessageId = createClientId()
-    messages.value.push({
-      id: assistantMessageId,
-      sessionId: targetSessionId,
-      role: 'assistant',
-      content: errorMessage,
-      createdAt: new Date().toISOString(),
-    })
-    markAssistantError(assistantMessageId)
-  }
+  const messages = bindRuntimeRef((runtime) => runtime.messages)
+  const waiting = bindRuntimeRef((runtime) => runtime.waiting)
+  const streamingStarted = bindRuntimeRef((runtime) => runtime.streamingStarted)
+  const hasMoreHistory = bindRuntimeRef((runtime) => runtime.hasMoreHistory)
+  const loadingOlderHistory = bindRuntimeRef((runtime) => runtime.loadingOlderHistory)
+  const loadingNewerMessages = bindRuntimeRef((runtime) => runtime.loadingNewerMessages)
+  const focusedMessageId = bindRuntimeRef((runtime) => runtime.focusedMessageId)
+  const hasNewerHistory = bindRuntimeRef((runtime) => runtime.hasNewerHistory)
+  const connectionStatus = bindRuntimeRef((runtime) => runtime.connectionStatus)
+  const connectionError = bindRuntimeRef((runtime) => runtime.connectionError)
+  const planGenerating = bindRuntimeRef((runtime) => runtime.planGenerating)
+  const runtimeTodos = bindRuntimeRef((runtime) => runtime.runtimeTodos)
+  const runtimeTodoNote = bindRuntimeRef((runtime) => runtime.runtimeTodoNote)
+  const runtimeTodoUpdatedAt = bindRuntimeRef((runtime) => runtime.runtimeTodoUpdatedAt)
+  const todoPanelOpen = bindRuntimeRef((runtime) => runtime.todoPanelOpen)
+  const contextUsage = bindRuntimeRef((runtime) => runtime.contextUsage)
+  const replyBatches = bindRuntimeRef((runtime) => runtime.replyBatches)
+  const currentBatchId = bindRuntimeRef((runtime) => runtime.currentBatchId)
+  const pendingPlanConfirmation = bindRuntimeRef((runtime) => runtime.pendingPlanConfirmation)
+  const pendingEditMessageId = bindRuntimeRef((runtime) => runtime.pendingEditMessageId)
+  const pendingQuestions = bindRuntimeRef((runtime) => runtime.pendingQuestions)
+  const isSocketReady = computed(() => activeRuntime.value.isSocketReady.value)
+  const pendingApprovalToolCallIds = computed(() => activeRuntime.value.pendingApprovalToolCallIds.value)
+  const latestEditableUserMessageId = computed(() => activeRuntime.value.latestEditableUserMessageId.value)
+  const resetSessionRuntimeState = (...args: Parameters<ReturnType<typeof createSessionRuntime>['resetSessionRuntimeState']>) => activeRuntime.value.resetSessionRuntimeState(...args)
+  const clearContextUsage = (...args: Parameters<ReturnType<typeof createSessionRuntime>['clearContextUsage']>) => activeRuntime.value.clearContextUsage(...args)
+  const refreshContextUsage = (...args: Parameters<ReturnType<typeof createSessionRuntime>['refreshContextUsage']>) => activeRuntime.value.refreshContextUsage(...args)
+  const clearRuntimeTodos = (...args: Parameters<ReturnType<typeof createSessionRuntime>['clearRuntimeTodos']>) => activeRuntime.value.clearRuntimeTodos(...args)
+  const applyRuntimeTodoUpdate = (...args: Parameters<ReturnType<typeof createSessionRuntime>['applyRuntimeTodoUpdate']>) => activeRuntime.value.applyRuntimeTodoUpdate(...args)
+  const toggleTodoPanel = (...args: Parameters<ReturnType<typeof createSessionRuntime>['toggleTodoPanel']>) => activeRuntime.value.toggleTodoPanel(...args)
+  const resetHistoryState = (...args: Parameters<ReturnType<typeof createSessionRuntime>['resetHistoryState']>) => activeRuntime.value.resetHistoryState(...args)
+  const materializeMessages = (...args: Parameters<ReturnType<typeof createSessionRuntime>['materializeMessages']>) => activeRuntime.value.materializeMessages(...args)
+  const rebuildReplyBatchesFromHistory = (...args: Parameters<ReturnType<typeof createSessionRuntime>['rebuildReplyBatchesFromHistory']>) => activeRuntime.value.rebuildReplyBatchesFromHistory(...args)
+  const mergeReplyBatchesFromHistory = (...args: Parameters<ReturnType<typeof createSessionRuntime>['mergeReplyBatchesFromHistory']>) => activeRuntime.value.mergeReplyBatchesFromHistory(...args)
+  const isStreamingMessage = (...args: Parameters<ReturnType<typeof createSessionRuntime>['isStreamingMessage']>) => activeRuntime.value.isStreamingMessage(...args)
+  const isAssistantErrorMessage = (...args: Parameters<ReturnType<typeof createSessionRuntime>['isAssistantErrorMessage']>) => activeRuntime.value.isAssistantErrorMessage(...args)
+  const isFailedUserMessage = (...args: Parameters<ReturnType<typeof createSessionRuntime>['isFailedUserMessage']>) => activeRuntime.value.isFailedUserMessage(...args)
 
   function setSessionPageSize(size: number) {
     sessionPageSize.value = Math.min(Math.max(size, 10), MAX_SESSION_PAGE_SIZE)
@@ -353,7 +206,12 @@ export const useChatStore = defineStore('chat', () => {
   function resetToNewSession(workingDirectory?: string) {
     historyGeneration++
     searchSelection.value = undefined
+    releaseIdleSocket()
+    // Keep any running session's channel alive when opening a new draft.
+    draftRuntime.value.closeSocket()
+    draftRuntime.value = createSessionRuntime()
     currentSessionId.value = undefined
+    if (socketEnabled) connectSocket()
     draftWorkingDirectory.value = workingDirectory ?? window.localStorage.getItem('slimebot:last-working-directory') ?? ''
     messages.value = []
     clearContextUsage()
@@ -362,17 +220,25 @@ export const useChatStore = defineStore('chat', () => {
   }
 
   async function createSession() {
-    historyGeneration++
+    const generation = ++historyGeneration
+    const runtime = draftRuntime.value
     searchSelection.value = undefined
     creatingSession.value = true
     try {
       const item = await sessionAPI.create(i18n.global.t('newSession') as string, draftWorkingDirectory.value)
-      currentSessionId.value = item.id
       sessions.value = [item, ...sessions.value]
+      sessionMetadata.set(item.id, item)
+      if (generation !== historyGeneration) return undefined
+      runtime.sessionId.value = item.id
+      sessionRuntimes.set(item.id, runtime)
+      draftRuntime.value = createSessionRuntime()
+      currentSessionId.value = item.id
+      connectSocket()
       messages.value = []
       clearContextUsage()
       resetSessionRuntimeState()
       resetHistoryState()
+      return item.id
     } finally {
       creatingSession.value = false
     }
@@ -382,6 +248,18 @@ export const useChatStore = defineStore('chat', () => {
     const generation = ++historyGeneration
     loadingOlderHistory.value = false
     loadingNewerMessages.value = false
+    const cached = sessionRuntimes.get(id)
+    const latestCachedMessage = cached?.messages.value[cached.messages.value.length - 1]
+    const preserveRuntime = cached && (cached.waiting.value || cached.pendingPlanConfirmation.value || (latestCachedMessage && cached.assistantErrorIds.value.has(latestCachedMessage.id)))
+    if (preserveRuntime && cached.messages.value.length > 0 && (!target?.messageId || cached.messages.value.some((item) => item.id === target.messageId))) {
+      releaseIdleSocket()
+      currentSessionId.value = id
+      focusedMessageId.value = target?.messageId || ''
+      searchSelection.value = sessionMetadata.get(id)
+      connectSocket()
+      markSessionRead(id)
+      return
+    }
     try {
       const selected = isMessagePlatformSessionId(id) ? undefined : await sessionAPI.get(id)
       const history = await sessionAPI.history(id, target?.messageId ? {
@@ -394,7 +272,24 @@ export const useChatStore = defineStore('chat', () => {
       if (target?.messageId && !history.messages.some((item) => item.id === target.messageId)) {
         throw new Error('Search result no longer exists')
       }
+      releaseIdleSocket()
+      if (selected) sessionMetadata.set(id, selected)
       currentSessionId.value = id
+      // Search may load an older page while the live reply continues. Keep its runtime intact.
+      if (preserveRuntime && cached) {
+        prependUniqueMessages(materializeMessages(history.messages))
+        mergeReplyBatchesFromHistory(id, history, 'prepend')
+        if (newer) {
+          prependUniqueMessages(materializeMessages(newer.messages))
+          mergeReplyBatchesFromHistory(id, newer, 'prepend')
+        }
+        hasMoreHistory.value = history.hasMore
+        focusedMessageId.value = target?.messageId || ''
+        searchSelection.value = selected
+        connectSocket()
+        markSessionRead(id)
+        return
+      }
       messages.value = materializeMessages(history.messages)
       clearContextUsage()
       resetHistoryState()
@@ -404,14 +299,17 @@ export const useChatStore = defineStore('chat', () => {
       searchSelection.value = selected
       resetSessionRuntimeState()
       rebuildReplyBatchesFromHistory(id, history)
+      connectSocket()
+      markSessionRead(id)
       if (newer) {
         appendUniqueMessages(materializeMessages(newer.messages))
         mergeReplyBatchesFromHistory(id, newer, 'append')
       }
-    } catch {
+    } catch (error) {
       if (generation !== historyGeneration) return
       // Message-platform session may have no DB row before the first platform message; show read-only empty state first.
       if (isMessagePlatformSessionId(id) && !target?.messageId) {
+        releaseIdleSocket()
         currentSessionId.value = id
         messages.value = []
         clearContextUsage()
@@ -419,7 +317,7 @@ export const useChatStore = defineStore('chat', () => {
         resetHistoryState()
         return
       }
-      throw new Error('load session history failed')
+      throw Object.assign(new Error('load session history failed'), { cause: error })
     }
   }
 
@@ -469,417 +367,10 @@ export const useChatStore = defineStore('chat', () => {
     }
   }
 
-  function connectSocket() {
-    ws.connect({
-      onSession: (id) => {
-        if (!currentSessionId.value) {
-          currentSessionId.value = id
-        }
-      },
-      onStart: (sessionId, meta) => {
-        if (!sessionId || sessionId !== currentSessionId.value) return
-        waiting.value = true
-        streamingStarted.value = false
-        clearRuntimeTodos()
-        const assistantMessageId = createClientId()
-        messages.value.push({
-          id: assistantMessageId,
-          sessionId: currentSessionId.value || '',
-          role: 'assistant',
-          content: '',
-          createdAt: new Date().toISOString(),
-        })
-        clearAssistantError(assistantMessageId)
-        const batchId = createClientId()
-        currentBatchId.value = batchId
-        replyBatches.value.push({
-          id: batchId,
-          sessionId: sessionId,
-          assistantMessageId,
-          toolCalls: [],
-          teamRuns: [],
-          timeline: [],
-          collapsed: false,
-          startedAt: parseSocketTimestamp(meta?.startedAt),
-        })
-      },
-      onMessageEdited: (data, sessionId) => {
-        if (!sessionId || sessionId !== currentSessionId.value) return
-        if (!data.messageId || (pendingEditMessageId.value && data.messageId !== pendingEditMessageId.value)) return
-        const applied = applyEditedUserMessage(messages.value, replyBatches.value, data.messageId, data.content, data.createdAt)
-        messages.value = applied.messages
-        replyBatches.value = applied.replyBatches
-        currentBatchId.value = ''
-        pendingPlanConfirmation.value = null
-        clearContextUsage()
-        clearRuntimeTodos()
-        pendingEditMessageId.value = ''
-      },
-      onChunk: (chunk, sessionId) => {
-        if (!sessionId || sessionId !== currentSessionId.value) return
-        const batch = getCurrentBatch()
-        if (!batch) return
-        const assistant = messages.value.find((msg) => msg.id === batch.assistantMessageId)
-        if (!assistant) return
-        assistant.content += chunk
-        appendTextChunkToBatch(batch, chunk)
-        streamingStarted.value = true
-      },
-      onSessionTitle: (title, sessionId) => {
-        if (!sessionId || !title) return
-        const item = sessions.value.find((session) => session.id === sessionId)
-        if (!item) return
-        item.name = title
-      },
-      onDone: async (sessionId, answer, meta) => {
-        if (!sessionId || sessionId !== currentSessionId.value) return
-        waiting.value = false
-        streamingStarted.value = false
-        planGenerating.value = false
-        const batch = getCurrentBatch()
-        if (batch) {
-          finalizeOpenReplyRuntimeState(batch, 'Execution cancelled.', parseSocketTimestamp(meta?.finishedAt))
-          const assistant = messages.value.find((msg) => msg.id === batch.assistantMessageId)
-          if (assistant) {
-            assistant.isInterrupted = !!meta?.isInterrupted
-            assistant.isStopPlaceholder = !!meta?.isStopPlaceholder
-          }
-          const finalAnswer =
-            typeof answer === 'string' && answer !== ''
-              ? answer
-              : (meta?.isStopPlaceholder ? getStoppedPlaceholderText() : '')
-          if (finalAnswer !== '') {
-            if (assistant) {
-              assistant.content = stripContentMarkers(finalAnswer)
-              clearAssistantError(assistant.id)
-            }
-            const liveThinking = buildLiveThinkingHistory(finalAnswer, batch.timeline)
-            batch.timeline = hasContentMarkers(finalAnswer)
-              ? buildInterleavedTimeline(batch.toolCalls, finalAnswer, liveThinking)
-              : buildLegacyTimeline(batch.toolCalls, stripContentMarkers(finalAnswer))
-          }
-          finalizeReplyBatchTiming(batch, parseSocketTimestamp(meta?.finishedAt), meta?.durationMs)
-        }
-        currentBatchId.value = ''
-        if (meta?.planId) {
-          pendingPlanConfirmation.value = {
-            sessionId,
-            planId: meta.planId,
-            content: meta.planBody || (answer ? stripContentMarkers(answer) : ''),
-          }
-        }
-        await loadSessions()
-      },
-      onError: (error, sessionId) => {
-        if (!sessionId || sessionId !== currentSessionId.value) return
-        waiting.value = false
-        streamingStarted.value = false
-        connectionError.value = error
-        pendingEditMessageId.value = ''
-        const batch = getCurrentBatch()
-        if (batch) {
-          finalizeOpenReplyRuntimeState(batch, error || 'Execution cancelled.')
-        }
-        finalizeAssistantError(error, sessionId)
-      },
-      onToolCallStart: (data, sessionId) => {
-        if (!sessionId || sessionId !== currentSessionId.value) return
-        const batch = getCurrentBatch()
-        if (!batch) return
-        finishOpenThinkingEntries(batch)
-        // Handle ask_questions tool: parse questions and show Q&A drawer.
-        if (data.toolName === 'ask_questions' && data.params?.questions) {
-          try {
-            const questions = JSON.parse(String(data.params.questions)) as QuestionItem[]
-            if (Array.isArray(questions) && questions.length > 0) {
-              pendingQuestions.value = { toolCallId: data.toolCallId, questions }
-            }
-          } catch { /* ignore parse errors, tool will timeout */ }
-        }
-        const existingToolCall = batch.toolCalls.find((tc) => tc.toolCallId === data.toolCallId)
-        const startedToolCall = {
-          toolCallId: data.toolCallId,
-          toolName: data.toolName,
-          command: data.command,
-          params: data.params,
-          preamble: data.preamble,
-          requiresApproval: data.requiresApproval,
-          reviewStatus: data.reviewStatus,
-          reviewRisk: data.reviewRisk,
-          reviewReason: data.reviewReason,
-          status: data.reviewStatus === 'reviewing' ? 'reviewing' as const : data.requiresApproval ? 'pending' as const : 'executing' as const,
-          startedAt: parseSocketTimestamp(data.startedAt),
-          parentToolCallId: data.parentToolCallId,
-          subagentRunId: data.subagentRunId,
-          teamRunId: data.teamRunId,
-          memberRunId: data.memberRunId,
-        }
-        if (existingToolCall) {
-          Object.assign(existingToolCall, startedToolCall)
-        } else {
-          batch.toolCalls.push(startedToolCall)
-        }
-        if (!data.parentToolCallId) {
-          batch.timeline.push({
-            id: createClientId(),
-            kind: 'tool_start',
-            toolCallId: data.toolCallId,
-          })
-        }
-      },
-      onToolCallReview: (data, sessionId) => {
-        if (!sessionId || sessionId !== currentSessionId.value) return
-        const batch = getCurrentBatch()
-        if (!batch) return
-        const item = batch.toolCalls.find((tc) => tc.toolCallId === data.toolCallId)
-        if (!item) return
-        item.reviewStatus = data.reviewStatus
-        item.reviewRisk = data.reviewRisk
-        item.reviewReason = data.reviewReason
-        if (data.reviewStatus === 'reviewing') item.status = 'reviewing'
-        if (data.reviewStatus === 'approved') item.status = 'executing'
-      },
-      onToolApprovalRequired: (data, sessionId) => {
-        if (!sessionId || sessionId !== currentSessionId.value) return
-        const batch = getCurrentBatch()
-        if (!batch) return
-        const item = batch.toolCalls.find((tc) => tc.toolCallId === data.toolCallId)
-        if (item) {
-          item.requiresApproval = data.requiresApproval
-          item.reviewStatus = data.reviewStatus
-          item.reviewRisk = data.reviewRisk
-          item.reviewReason = data.reviewReason
-          item.status = 'pending'
-        }
-      },
-      onToolCallResult: (data, sessionId) => {
-        if (!sessionId || sessionId !== currentSessionId.value) return
-        const batch = getCurrentBatch()
-        if (!batch) return
-        const item = batch.toolCalls.find((tc) => tc.toolCallId === data.toolCallId)
-        if (item) {
-          item.status = normalizeToolStatus(data.status, data.error)
-          item.output = data.output
-          item.error = data.error
-          item.metadata = data.metadata
-          item.requiresApproval = data.requiresApproval
-          item.finishedAt = parseSocketTimestamp(data.finishedAt)
-          if (data.parentToolCallId) item.parentToolCallId = data.parentToolCallId
-          if (data.subagentRunId) item.subagentRunId = data.subagentRunId
-          if (data.teamRunId) item.teamRunId = data.teamRunId
-          if (data.memberRunId) item.memberRunId = data.memberRunId
-          // Auto-close ask_questions drawer when tool times out or is rejected
-          if (item.toolName === 'ask_questions' && (item.status === 'error' || item.status === 'rejected')) {
-            pendingQuestions.value = null
-          }
-        }
-        if (!data.parentToolCallId) {
-          batch.timeline.push({
-            id: createClientId(),
-            kind: 'tool_result',
-            toolCallId: data.toolCallId,
-          })
-        }
-      },
-      onSubagentStart: (data, sessionId) => {
-        if (!sessionId || sessionId !== currentSessionId.value) return
-        const batch = getCurrentBatch()
-        if (!batch) return
-        const parent = batch.toolCalls.find((tc) => tc.toolCallId === data.parentToolCallId)
-        if (parent) {
-          parent.subagentRunId = data.subagentRunId
-          parent.subagentTitle = data.title
-          parent.subagentTask = data.task
-          if (parent.subagentStream === undefined) parent.subagentStream = ''
-          if (data.teamRunId) parent.teamRunId = data.teamRunId
-          if (data.memberRunId) parent.memberRunId = data.memberRunId
-        }
-        if (data.teamRunId && data.memberRunId) {
-          const state = createAgentTeamState(batch.teamRuns)
-          mergeAgentTeamMember(state, {
-            id: data.memberRunId,
-            teamRunId: data.teamRunId,
-            toolCallId: data.parentToolCallId,
-            subagentRunId: data.subagentRunId,
-            title: data.title,
-            task: data.task,
-            status: 'running',
-            startedAt: new Date().toISOString(),
-          })
-          batch.teamRuns = state.runs
-        }
-      },
-      onSubagentChunk: (data, sessionId) => {
-        if (!sessionId || sessionId !== currentSessionId.value) return
-        const batch = getCurrentBatch()
-        if (!batch) return
-        const parent = batch.toolCalls.find((tc) => tc.toolCallId === data.parentToolCallId)
-        if (parent) {
-          if (parent.subagentStream === undefined) parent.subagentStream = ''
-          parent.subagentStream += data.content
-        }
-      },
-      onSubagentDone: (data, sessionId) => {
-        if (!sessionId || sessionId !== currentSessionId.value) return
-        const batch = getCurrentBatch()
-        if (!batch) return
-        finishSubagentThinking(batch, data.parentToolCallId)
-        if (data.error) {
-          const parent = batch.toolCalls.find((tc) => tc.toolCallId === data.parentToolCallId)
-          if (parent && (parent.status === 'pending' || parent.status === 'reviewing' || parent.status === 'executing')) {
-            markToolCallError(batch, data.parentToolCallId, data.error)
-          }
-        }
-        if (data.teamRunId && data.memberRunId) {
-          const state = createAgentTeamState(batch.teamRuns)
-          mergeAgentTeamMember(state, {
-            id: data.memberRunId,
-            teamRunId: data.teamRunId,
-            toolCallId: data.parentToolCallId,
-            subagentRunId: data.subagentRunId,
-            title: '',
-            task: '',
-            status: data.error ? 'failed' : 'succeeded',
-            error: data.error,
-            finishedAt: new Date().toISOString(),
-          })
-          batch.teamRuns = state.runs
-        }
-      },
-      onTeamStart: (data, sessionId) => {
-        if (!sessionId || sessionId !== currentSessionId.value) return
-        const batch = getCurrentBatch()
-        if (!batch) return
-        const state = createAgentTeamState(batch.teamRuns)
-        mergeAgentTeamRun(state, data)
-        batch.teamRuns = state.runs
-      },
-      onTeamMemberQueued: (data, sessionId) => {
-        if (!sessionId || sessionId !== currentSessionId.value) return
-        const batch = getCurrentBatch()
-        if (!batch) return
-        const state = createAgentTeamState(batch.teamRuns)
-        mergeAgentTeamMember(state, data)
-        batch.teamRuns = state.runs
-      },
-      onTeamDone: (data, sessionId) => {
-        if (!sessionId || sessionId !== currentSessionId.value) return
-        const batch = getCurrentBatch()
-        if (!batch) return
-        const state = createAgentTeamState(batch.teamRuns)
-        mergeAgentTeamRun(state, data)
-        batch.teamRuns = state.runs
-      },
-      onThinkingStart: (data, sessionId) => {
-        if (!sessionId || sessionId !== currentSessionId.value) return
-        const batch = getCurrentBatch()
-        if (!batch) return
-        if (data.parentToolCallId && data.subagentRunId) {
-          startSubagentThinking(batch, data.parentToolCallId, parseSocketTimestamp(data.startedAt))
-          return
-        }
-        batch.timeline.push({
-          id: createClientId(),
-          kind: 'thinking',
-          content: '',
-          done: false,
-          startedAt: parseSocketTimestamp(data.startedAt),
-        })
-      },
-      onThinkingChunk: (data, sessionId) => {
-        if (!sessionId || sessionId !== currentSessionId.value) return
-        const batch = getCurrentBatch()
-        if (!batch) return
-        if (data.parentToolCallId && data.subagentRunId) {
-          appendSubagentThinkingChunk(batch, data.parentToolCallId, data.content || '', parseSocketTimestamp(data.startedAt))
-          return
-        }
-        const entries = [...batch.timeline]
-        for (let i = entries.length - 1; i >= 0; i--) {
-          const e = entries[i]
-          // @ts-ignore
-          if (e.kind === 'thinking' && !e.done) {
-            // @ts-ignore
-            entries[i] = { ...e, content: (e.content || '') + (data.content || '') }
-            batch.timeline = entries
-            break
-          }
-        }
-      },
-      onThinkingDone: (data, sessionId) => {
-        if (!sessionId || sessionId !== currentSessionId.value) return
-        const batch = getCurrentBatch()
-        if (!batch) return
-        if (data.parentToolCallId && data.subagentRunId) {
-          finishSubagentThinking(batch, data.parentToolCallId, parseSocketTimestamp(data.finishedAt))
-          return
-        }
-        batch.timeline = markLastThinkingDone(batch.timeline, parseSocketTimestamp(data.finishedAt))
-      },
-      onTodoUpdate: applyRuntimeTodoUpdate,
-      onContextUsage: (usage, sessionId) => {
-        applyContextUsage(usage, sessionId)
-      },
-      onContextCompacted: (usage, sessionId) => {
-        applyContextUsage(usage, sessionId)
-        appendContextCompactedNotice(sessionId)
-      },
-      onPlanStart: (sessionId) => {
-        if (!sessionId || sessionId !== currentSessionId.value) return
-        const batch = getCurrentBatch()
-        if (!batch) return
-        finishOpenThinkingEntries(batch)
-        planGenerating.value = true
-      },
-      onPlanChunk: (chunk, sessionId) => {
-        if (!sessionId || sessionId !== currentSessionId.value) return
-        const batch = getCurrentBatch()
-        if (!batch) return
-        appendPlanChunkToBatch(batch, chunk)
-      },
-      onPlanBody: (content, sessionId) => {
-        if (!sessionId || sessionId !== currentSessionId.value) return
-        const batch = getCurrentBatch()
-        if (!batch) return
-        appendPlanBodyToBatch(batch, content)
-        planGenerating.value = false
-      },
-      onSocketError: (error) => {
-        waiting.value = false
-        streamingStarted.value = false
-        pendingEditMessageId.value = ''
-        connectionError.value = error
-        const batch = getCurrentBatch()
-        if (batch) {
-          finalizeOpenReplyRuntimeState(batch, error || 'Execution cancelled.')
-        }
-        clearRuntimeTodos()
-      },
-      onClose: () => {
-        waiting.value = false
-        streamingStarted.value = false
-        pendingEditMessageId.value = ''
-        const batch = getCurrentBatch()
-        if (batch) {
-          finalizeOpenReplyRuntimeState(batch)
-        }
-        clearRuntimeTodos()
-      },
-      onStatusChange: (status, error) => {
-        connectionStatus.value = status
-        if (error) {
-          connectionError.value = error
-        } else if (status === 'connected') {
-          connectionError.value = ''
-        }
-      },
-    })
-  }
-
   async function ensureSessionReady() {
-    if (currentSessionId.value) return true
-    await createSession()
-    return !!currentSessionId.value
+    if (currentSessionId.value) return currentSessionId.value
+    if (creatingSession.value) return undefined
+    return createSession()
   }
 
   function toMessageAttachments(items: UploadedAttachmentItem[]): MessageAttachmentItem[] {
@@ -894,55 +385,47 @@ export const useChatStore = defineStore('chat', () => {
     }))
   }
 
-  async function uploadAttachmentsForCurrentSession(files: File[]) {
-    if (files.length === 0 || !currentSessionId.value) {
-      return [] as UploadedAttachmentItem[]
-    }
-    const response = await sessionAPI.uploadAttachments(currentSessionId.value, files)
-    return response.items || []
-  }
-
   async function sendMessage(content: string, modelId: string, files: File[] = [], thinkingLevel: string = 'off', subagentModelId: string = '') {
     const trimmed = content.trim()
-    if (!trimmed && files.length === 0) {
-      return false
-    }
+    if (!trimmed && files.length === 0) return false
     if (!modelId) {
-      const error = 'modelId is required'
-      connectionError.value = error
-      pushFailedUserMessage(trimmed)
+      activeRuntime.value.connectionError.value = 'modelId is required'
+      activeRuntime.value.pushFailedUserMessage(trimmed)
       return false
     }
-    const ready = await ensureSessionReady()
-    if (!ready || !currentSessionId.value) return false
-    if (hasNewerHistory.value) await selectSession(currentSessionId.value)
-    focusedMessageId.value = ''
-    if (!isSocketReady.value) {
-      const error = 'socket is not connected'
-      connectionError.value = error
-      pushFailedUserMessage(trimmed)
+    const sessionId = await ensureSessionReady()
+    if (!sessionId) return false
+    const runtime = sessionRuntimes.get(sessionId)
+    if (!runtime) return false
+    if (runtime.waiting.value) return false
+    if (runtime.hasNewerHistory.value) await selectSession(sessionId)
+    runtime.focusedMessageId.value = ''
+    if (!runtime.isSocketReady.value) {
+      runtime.connectionError.value = 'socket is not connected'
+      runtime.pushFailedUserMessage(trimmed)
       return false
     }
-    let uploaded: UploadedAttachmentItem[] = []
-    if (files.length > 0) {
-      uploaded = await uploadAttachmentsForCurrentSession(files)
+    const usePlanMode = planMode.value
+    runtime.waiting.value = true
+    unreadSessionIds.value.delete(sessionId)
+    try {
+      const uploaded = files.length > 0 ? (await sessionAPI.uploadAttachments(sessionId, files)).items || [] : []
+      const sent = runtime.ws.send(trimmed, sessionId, modelId, uploaded.map((item) => item.id), thinkingLevel, usePlanMode, subagentModelId)
+      if (!sent) {
+        runtime.waiting.value = false
+        runtime.connectionError.value = 'socket is not connected'
+        runtime.pushFailedUserMessage(trimmed)
+        return false
+      }
+      runtime.messages.value.push({
+        id: createClientId(), sessionId, role: 'user', content: trimmed,
+        attachments: toMessageAttachments(uploaded), createdAt: new Date().toISOString(),
+      })
+      return true
+    } catch (error) {
+      runtime.waiting.value = false
+      throw error
     }
-    const sent = ws.send(trimmed, currentSessionId.value, modelId, uploaded.map((item) => item.id), thinkingLevel, planMode.value, subagentModelId)
-    if (!sent) {
-      const error = 'socket is not connected'
-      connectionError.value = error
-      pushFailedUserMessage(trimmed)
-      return false
-    }
-    messages.value.push({
-      id: createClientId(),
-      sessionId: currentSessionId.value,
-      role: 'user',
-      content: trimmed,
-      attachments: toMessageAttachments(uploaded),
-      createdAt: new Date().toISOString(),
-    })
-    return true
   }
 
   async function sendEditedMessage(messageId: string, content: string, modelId: string, thinkingLevel: string = 'off', subagentModelId: string = '') {
@@ -959,7 +442,7 @@ export const useChatStore = defineStore('chat', () => {
       connectionError.value = 'socket is not connected'
       return false
     }
-    const sent = ws.sendEdit(messageId, trimmed, sessionId, modelId, thinkingLevel, planMode.value, subagentModelId)
+    const sent = activeRuntime.value.ws.sendEdit(messageId, trimmed, sessionId, modelId, thinkingLevel, planMode.value, subagentModelId)
     if (!sent) {
       connectionError.value = 'socket is not connected'
       return false
@@ -973,13 +456,13 @@ export const useChatStore = defineStore('chat', () => {
   function stopCurrentResponse() {
     const sessionId = currentSessionId.value
     if (!sessionId || !waiting.value) return false
-    return ws.sendStop(sessionId)
+    return activeRuntime.value.ws.sendStop(sessionId)
   }
 
   function approveToolCall(toolCallId: string, approved: boolean) {
     const batch = replyBatches.value.find((group) => group.toolCalls.some((tc) => tc.toolCallId === toolCallId))
     if (batch) markToolApprovalDecision(batch.toolCalls, toolCallId, approved)
-    ws.sendToolApproval(toolCallId, approved)
+    activeRuntime.value.ws.sendToolApproval(toolCallId, approved)
   }
 
   function approveAllPendingToolCalls() {
@@ -1000,7 +483,7 @@ export const useChatStore = defineStore('chat', () => {
     if (item) {
       item.status = 'executing'
     }
-    ws.sendToolApproval(toolCallId, true, answers)
+    activeRuntime.value.ws.sendToolApproval(toolCallId, true, answers)
     pendingQuestions.value = null
   }
 
@@ -1014,20 +497,21 @@ export const useChatStore = defineStore('chat', () => {
     const nullAnswers = JSON.stringify(
       questions.map((q) => ({ questionId: q.id, selectedOption: -2, customAnswer: '' })),
     )
-    ws.sendToolApproval(toolCallId, true, nullAnswers)
+    activeRuntime.value.ws.sendToolApproval(toolCallId, true, nullAnswers)
     pendingQuestions.value = null
   }
 
   function disconnectSocket(options?: { silentConnectionNotice?: boolean }) {
+    socketEnabled = false
     if (options?.silentConnectionNotice) {
       markSuppressNextConnectionNotice()
     }
-    waiting.value = false
-    streamingStarted.value = false
-    pendingEditMessageId.value = ''
-    clearRuntimeTodos()
-    ws.close()
-    currentBatchId.value = ''
+    for (const runtime of sessionRuntimes.values()) runtime.closeSocket()
+    sessionRuntimes.clear()
+    sessionMetadata.clear()
+    draftRuntime.value.closeSocket()
+    draftRuntime.value = createSessionRuntime()
+    unreadSessionIds.value.clear()
   }
 
   function markSuppressNextConnectionNotice() {
@@ -1045,7 +529,7 @@ export const useChatStore = defineStore('chat', () => {
   }
 
   function approvePlan(modelId: string, displayContent: string) {
-    if (!pendingPlanConfirmation.value) return
+    if (!pendingPlanConfirmation.value || !isSocketReady.value) return
     const { planId } = pendingPlanConfirmation.value
     const sessionId = currentSessionId.value
     if (!sessionId) return
@@ -1059,17 +543,20 @@ export const useChatStore = defineStore('chat', () => {
       content: visibleContent,
       createdAt: new Date().toISOString(),
     })
-    ws.sendPlanApprove(planId, sessionId, modelId, visibleContent)
-    pendingPlanConfirmation.value = null
+    if (activeRuntime.value.ws.sendPlanApprove(planId, sessionId, modelId, visibleContent)) {
+      waiting.value = true
+      unreadSessionIds.value.delete(sessionId)
+      pendingPlanConfirmation.value = null
+    }
   }
 
   function rejectPlan() {
-    if (!pendingPlanConfirmation.value) return
+    if (!pendingPlanConfirmation.value || !isSocketReady.value) return
     const { planId } = pendingPlanConfirmation.value
     const sessionId = currentSessionId.value
     if (!sessionId) return
     if (pendingPlanConfirmation.value.sessionId !== sessionId) return
-    ws.sendPlanReject(planId, sessionId)
+    activeRuntime.value.ws.sendPlanReject(planId, sessionId)
     pendingPlanConfirmation.value = null
   }
 
@@ -1079,6 +566,11 @@ export const useChatStore = defineStore('chat', () => {
 
   return {
     sessions,
+    runningSessionIds,
+    unreadSessionIds,
+    setChatViewActive,
+    markSessionRead,
+    forgetSession,
     draftWorkingDirectory,
     currentWorkingDirectory,
     creatingSession,

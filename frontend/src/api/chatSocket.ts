@@ -548,10 +548,8 @@ export class ChatSocket {
     this.manualClose = true
     this.clearReconnectTimer()
     this.clearHeartbeat()
-    if (this.ws) {
-      this.ws.close()
-      this.ws = null
-    }
+    // Detach callbacks before closing: an old close event must not clear a newly reopened channel.
+    this.teardownSocket()
     this.emitStatus('disconnected')
   }
 

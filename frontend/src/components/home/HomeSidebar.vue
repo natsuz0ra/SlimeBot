@@ -18,6 +18,7 @@ import {
 import type { SessionItem } from '@/api/chat'
 import MdiIcon from '@/components/ui/MdiIcon.vue'
 import AppLogo from '@/components/ui/AppLogo.vue'
+import LoadingSpinner from '@/components/ui/LoadingSpinner.vue'
 import TruncationTooltip from '@/components/ui/TruncationTooltip.vue'
 import { useChatStore } from '@/stores/chat'
 import { groupSessionsByDirectory, type SessionGroup } from '@/utils/sessionGroups'
@@ -199,10 +200,20 @@ function toggleGroup(path: string) {
               <span v-if="item.id === currentSessionId" class="session-active-indicator absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-4 rounded-r-full" />
               <TruncationTooltip inherit-group :text="item.name" wrapper-class="min-w-0 flex-1" content-class="text-sm" />
             </button>
+            <span
+              v-if="store.runningSessionIds.has(item.id) || store.unreadSessionIds.has(item.id)"
+              class="session-activity absolute right-2.5 top-1/2 flex h-4 w-4 -translate-y-1/2 items-center justify-center pointer-events-none"
+              role="img"
+              :aria-label="t(store.runningSessionIds.has(item.id) ? 'sessionRunning' : 'sessionUnread')"
+              :title="t(store.runningSessionIds.has(item.id) ? 'sessionRunning' : 'sessionUnread')"
+            >
+              <LoadingSpinner v-if="store.runningSessionIds.has(item.id)" size-class="w-3.5 h-3.5" class="session-running-spinner" aria-hidden="true" />
+              <span v-else class="session-unread-dot h-1.5 w-1.5 rounded-full" />
+            </span>
             <button
               type="button"
-              class="workspace-session-menu absolute right-1 top-1/2 -translate-y-1/2 w-7 h-7 flex items-center justify-center rounded-md transition-colors duration-150 cursor-pointer opacity-0 group-hover:opacity-100 focus-visible:opacity-100 flex-shrink-0"
-              :class="item.id === currentSessionId ? '!opacity-100' : ''"
+              class="workspace-session-menu absolute right-1 top-1/2 -translate-y-1/2 w-7 h-7 flex items-center justify-center rounded-md transition-colors duration-150 cursor-pointer flex-shrink-0"
+              :aria-label="t('sessionMenu')"
               @click.stop="emit('toggleSessionMenu', item.id, $event as MouseEvent)"
             ><MdiIcon :path="mdiDotsHorizontal" :size="15" /></button>
           </div>
@@ -276,9 +287,14 @@ function toggleGroup(path: string) {
 .workspace-session-row:hover, .workspace-session-row:focus-within { color: var(--text-primary); background: var(--primary-alpha-06); }
 .workspace-session-row-active { color: var(--text-primary); background: var(--primary-alpha-12); border-color: var(--primary-alpha-15); }
 .workspace-session-row-active:hover, .workspace-session-row-active:focus-within { background: var(--primary-alpha-15); }
+.session-running-spinner.loading-spinner-accent { color: var(--text-muted); }
+.session-unread-dot { background: var(--sb-brand); }
+@media (prefers-reduced-motion: reduce) { .session-running-spinner { animation-duration: 2.5s; } }
 .workspace-session-row-active .workspace-session-main { font-weight: 600; }
 .workspace-session-main:focus-visible { outline: 2px solid var(--sb-brand); outline-offset: -2px; }
-.workspace-session-menu { color: var(--text-muted); }
+.workspace-session-menu { color: var(--text-muted); opacity: 0; }
+.workspace-session-row:hover .workspace-session-menu, .workspace-session-menu:focus-visible { opacity: 1; }
+.workspace-session-row:hover .session-activity, .workspace-session-row:has(.workspace-session-menu:focus-visible) .session-activity { opacity: 0; }
 .workspace-session-menu:hover, .workspace-session-menu:focus-visible { color: var(--text-primary); background: var(--primary-alpha-10); }
 .workspace-session-more, .workspace-load-more { color: var(--text-muted); transition: background 150ms ease, color 150ms ease; }
 .workspace-session-more:hover, .workspace-session-more:focus-visible, .workspace-load-more:hover:not(:disabled), .workspace-load-more:focus-visible { color: var(--text-primary); background: var(--primary-alpha-08); }

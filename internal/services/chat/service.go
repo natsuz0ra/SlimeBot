@@ -10,6 +10,7 @@ import (
 	"slimebot/internal/domain"
 	"slimebot/internal/mcp"
 	agentssvc "slimebot/internal/services/agents"
+	contextsvc "slimebot/internal/services/context"
 	llmsvc "slimebot/internal/services/llm"
 	memorysvc "slimebot/internal/services/memory"
 	plansvc "slimebot/internal/services/plan"
@@ -28,6 +29,7 @@ type ChatService struct {
 	store           domain.ChatStore
 	settingsStore   domain.SettingsStore
 	providerFactory *llmsvc.Factory
+	contexts        *contextsvc.Service
 	agent           *AgentService
 	memory          *memorysvc.Service
 	schedule        *schedulesvc.Service
@@ -90,6 +92,9 @@ func NewChatService(store domain.ChatStore, settingsStore domain.SettingsStore, 
 		memoryReviewTurns:    make(map[string]int),
 		memoryReviewTouched:  make(map[string]time.Time),
 		contextHistoryRounds: constants.DefaultContextHistoryRounds,
+	}
+	if store, ok := store.(contextsvc.Store); ok {
+		s.contexts = contextsvc.New(store, providerFactory)
 	}
 	s.agent = NewAgentService(providerFactory, mcpManager, skillRuntime)
 	s.agent.SetSubagentHost(s)

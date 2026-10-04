@@ -35,12 +35,18 @@ func NewSQLite(dbPath string) (*gorm.DB, error) {
 		&domain.LLMProvider{},
 		&domain.LLMConfig{},
 		&domain.SessionContextSummary{},
+		&domain.ContextEntry{},
+		&domain.ContextHead{},
+		&domain.ContextCheckpoint{},
 		&domain.MCPConfig{},
 		&domain.MessagePlatformConfig{},
 		&domain.ScheduledTask{},
 		&domain.ScheduledTaskRun{},
 	); err != nil {
 		return nil, fmt.Errorf("auto migration failed: %w", err)
+	}
+	if err := db.Model(&domain.ContextCheckpoint{}).Where("status = ?", "pending").Update("status", "interrupted").Error; err != nil {
+		return nil, err
 	}
 	if err := migrateScheduledRunContexts(db); err != nil {
 		return nil, fmt.Errorf("scheduled execution migration failed: %w", err)

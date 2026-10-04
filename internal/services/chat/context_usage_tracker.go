@@ -23,7 +23,7 @@ func (t *contextUsageTracker) calibrateProviderUsage(usage llmsvc.TokenUsage) er
 	if usage.IsZero() {
 		return nil
 	}
-	return t.setUsedTokens(usage.ContextWindowTokens())
+	return t.setUsedTokens(usage.InputContextTokens(llmsvc.ProviderOpenAI))
 }
 
 func (t *contextUsageTracker) setUsedTokens(usedTokens int) error {
@@ -32,6 +32,7 @@ func (t *contextUsageTracker) setUsedTokens(usedTokens int) error {
 	}
 	t.mu.Lock()
 	t.usage.UsedTokens = usedTokens
+	t.usage.Source = "provider-reported"
 	usage := normalizeContextUsagePercentages(t.usage)
 	t.usage = usage
 	t.mu.Unlock()

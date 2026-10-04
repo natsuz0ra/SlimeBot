@@ -101,6 +101,14 @@ func (r *Repository) DeleteSession(ctx context.Context, id string) error {
 		if err := tx.Table("tool_call_records").Where("session_id = ?", id).Delete(nil).Error; err != nil {
 			return err
 		}
+		for _, model := range []any{&domain.ContextEntry{}, &domain.ContextCheckpoint{}, &domain.ContextHead{}} {
+			if err := tx.Where("scope_id = ?", id).Delete(model).Error; err != nil {
+				return err
+			}
+		}
+		if err := tx.Where("session_id = ?", id).Delete(&domain.SessionContextSummary{}).Error; err != nil {
+			return err
+		}
 		// Delete the session row.
 		return tx.Table("sessions").Where("id = ?", id).Delete(nil).Error
 	})

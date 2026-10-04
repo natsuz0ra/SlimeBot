@@ -6,6 +6,7 @@ import (
 
 	"slimebot/internal/domain"
 	sandboxpolicy "slimebot/internal/sandbox"
+	contextsvc "slimebot/internal/services/context"
 	llmsvc "slimebot/internal/services/llm"
 )
 
@@ -118,14 +119,21 @@ type AgentEventMeta struct {
 }
 
 type ContextUsage struct {
-	SessionID        string `json:"sessionId"`
-	ModelConfigID    string `json:"modelConfigId"`
-	UsedTokens       int    `json:"usedTokens"`
-	TotalTokens      int    `json:"totalTokens"`
-	UsedPercent      int    `json:"usedPercent"`
-	AvailablePercent int    `json:"availablePercent"`
-	IsCompacted      bool   `json:"isCompacted"`
-	CompactedAt      string `json:"compactedAt,omitempty"`
+	SessionID              string `json:"sessionId"`
+	ModelConfigID          string `json:"modelConfigId"`
+	UsedTokens             int    `json:"usedTokens"`
+	TotalTokens            int    `json:"totalTokens"`
+	UsedPercent            int    `json:"usedPercent"`
+	AvailablePercent       int    `json:"availablePercent"`
+	IsCompacted            bool   `json:"isCompacted"`
+	CompactedAt            string `json:"compactedAt,omitempty"`
+	InputBudget            int    `json:"inputBudget,omitempty"`
+	OutputReserve          int    `json:"outputReserve,omitempty"`
+	CompactionBeforeTokens int    `json:"compactionBeforeTokens,omitempty"`
+	CompactionAfterTokens  int    `json:"compactionAfterTokens,omitempty"`
+	CompactionReason       string `json:"compactionReason,omitempty"`
+	Source                 string `json:"source,omitempty"`
+	State                  string `json:"state,omitempty"`
 }
 
 // AgentCallbacks wires the agent loop to the outside world (streaming, approval, results).
@@ -158,6 +166,8 @@ type AgentCallbacks struct {
 
 // AgentLoopOptions configures nested agent execution.
 type AgentLoopOptions struct {
+	ContextRun           *contextsvc.Run
+	OnPrepared           func(contextsvc.Prepared) error
 	Depth                int
 	ApprovalMode         string
 	PlanMode             bool

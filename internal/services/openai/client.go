@@ -47,6 +47,11 @@ func (c *OpenAIClient) StreamChatWithTools(
 	toolDefs []llmsvc.ToolDef,
 	callbacks llmsvc.StreamCallbacks,
 ) (*llmsvc.StreamResult, error) {
+	var configErr error
+	modelConfig, configErr = llmsvc.ResolveRequestConfig(modelConfig)
+	if configErr != nil {
+		return nil, configErr
+	}
 	baseURL := strings.TrimRight(strings.TrimSpace(modelConfig.BaseURL), "/")
 	apiKey := strings.TrimSpace(modelConfig.APIKey)
 	model := strings.TrimSpace(modelConfig.Model)
@@ -75,6 +80,11 @@ func (c *OpenAIClient) StreamChatWithTools(
 		//Temperature: openai.Float(modelConfig.Temperature),
 	}
 
+	if modelConfig.Provider == llmsvc.ProviderDeepSeek || !supportDeveloperRole {
+		params.MaxTokens = openai.Int(int64(modelConfig.MaxOutputTokens))
+	} else {
+		params.MaxCompletionTokens = openai.Int(int64(modelConfig.MaxOutputTokens))
+	}
 	applyThinkingParams(&params, modelConfig)
 
 	if len(toolDefs) > 0 {
@@ -87,7 +97,7 @@ func (c *OpenAIClient) StreamChatWithTools(
 		result, _, err = streamChatCompletion(ctx, client, params, callbacks)
 	}
 	if err != nil {
-		return nil, err
+		return nil, llmsvc.ClassifyContextError(err)
 	}
 	return result, nil
 }
@@ -125,7 +135,7 @@ func streamChatCompletion(ctx context.Context, client openai.Client, params open
 				}
 			}
 
-			if delta.Content != "" {
+			if delta.Content != "" && callbacks.OnChunk != nil {
 				if err := callbacks.OnChunk(delta.Content); err != nil {
 					return nil, sawStreamEvent, err
 				}
@@ -151,9 +161,10 @@ func streamChatCompletion(ctx context.Context, client openai.Client, params open
 			})
 		}
 		return &llmsvc.StreamResult{
-			Type:       llmsvc.StreamResultToolCalls,
-			TokenUsage: nonZeroUsage(tokenUsage),
-			ToolCalls:  calls,
+			FinishReason: string(choice.FinishReason),
+			Type:         llmsvc.StreamResultToolCalls,
+			TokenUsage:   nonZeroUsage(tokenUsage),
+			ToolCalls:    calls,
 			AssistantMessage: llmsvc.ChatMessage{
 				Role:             "assistant",
 				Content:          choice.Message.Content,
@@ -163,7 +174,7 @@ func streamChatCompletion(ctx context.Context, client openai.Client, params open
 		}, sawStreamEvent, nil
 	}
 
-	return &llmsvc.StreamResult{Type: llmsvc.StreamResultText, TokenUsage: nonZeroUsage(tokenUsage)}, sawStreamEvent, nil
+	return &llmsvc.StreamResult{Type: llmsvc.StreamResultText, FinishReason: string(choice.FinishReason), TokenUsage: nonZeroUsage(tokenUsage), AssistantMessage: llmsvc.ChatMessage{Role: "assistant", Content: choice.Message.Content, ReasoningContent: reasoningBuf.String()}}, sawStreamEvent, nil
 }
 
 func tokenUsageFromOpenAIChunkUsage(promptTokens, cachedTokens, completionTokens, totalTokens int64) llmsvc.TokenUsage {
@@ -250,7 +261,7 @@ func supportsDeveloperRole(baseURL string) bool {
 func buildRequestMessages(messages []llmsvc.ChatMessage, supportDeveloperRole bool) []openai.ChatCompletionMessageParamUnion {
 	var result []openai.ChatCompletionMessageParamUnion
 	for _, msg := range messages {
-		content := strings.TrimSpace(msg.Content)
+		content := msg.Content
 
 		switch strings.ToLower(strings.TrimSpace(msg.Role)) {
 		case "system":
@@ -341,7 +352,7 @@ func buildRequestUserContentParts(parts []llmsvc.ChatMessageContentPart) []opena
 	for _, part := range parts {
 		switch part.Type {
 		case llmsvc.ChatMessageContentPartTypeText:
-			text := strings.TrimSpace(part.Text)
+			text := part.Text
 			if text == "" {
 				continue
 			}

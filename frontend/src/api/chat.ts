@@ -145,6 +145,13 @@ export interface ContextUsageData {
   availablePercent: number
   isCompacted: boolean
   compactedAt?: string
+  inputBudget?: number
+  outputReserve?: number
+  compactionBeforeTokens?: number
+  compactionAfterTokens?: number
+  compactionReason?: string
+  source?: 'estimated' | 'provider-reported'
+  state?: 'compacting' | 'ready'
 }
 
 export interface SessionHistoryQuery {

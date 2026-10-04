@@ -13,6 +13,7 @@ import (
 	"slimebot/internal/constants"
 	"slimebot/internal/domain"
 	sandboxpolicy "slimebot/internal/sandbox"
+	contextsvc "slimebot/internal/services/context"
 	llmsvc "slimebot/internal/services/llm"
 
 	"github.com/google/uuid"
@@ -32,6 +33,9 @@ func StripContentMarkers(input string) string {
 
 // chatTurnState holds intermediate state while preparing a chat turn.
 type chatTurnState struct {
+	userMessageID     string
+	modelUser         llmsvc.ChatMessage
+	contextRequestID  string
 	session           *domain.Session
 	modelConfig       llmsvc.ModelRuntimeConfig
 	contextMessages   []llmsvc.ChatMessage
@@ -237,7 +241,7 @@ func (s *ChatService) prepareChatTurn(
 		return nil, err
 	}
 
-	userContentForLLM := strings.TrimSpace(content)
+	userContentForLLM := content
 	userContentForDisplay := content
 	if strings.TrimSpace(displayContent) != "" {
 		userContentForDisplay = displayContent
@@ -255,14 +259,15 @@ func (s *ChatService) prepareChatTurn(
 	for _, item := range attachments {
 		userMessageAttachments = append(userMessageAttachments, item.ToMessageAttachment())
 	}
-	if _, err := s.store.AddMessageWithInput(ctx, domain.AddMessageInput{
+	userMessage, addErr := s.store.AddMessageWithInput(ctx, domain.AddMessageInput{
 		SessionID:   sessionID,
 		Role:        "user",
 		Content:     userContentForDisplay,
 		Attachments: userMessageAttachments,
 		CreatedAt:   receivedAt,
-	}); err != nil {
-		return nil, err
+	})
+	if addErr != nil {
+		return nil, addErr
 	}
 
 	// Build context messages and enabled MCP configs in parallel to reduce turn latency.
@@ -300,6 +305,7 @@ func (s *ChatService) prepareChatTurn(
 		overrideLatestUserTurn(contextResult.messages, userContentForLLM)
 	}
 	return &chatTurnState{
+		userMessageID: userMessage.ID, modelUser: llmsvc.ChatMessage{Role: "user", Content: userContentForLLM, ContentParts: userMessageParts},
 		session:           session,
 		modelConfig:       modelConfig,
 		contextMessages:   contextResult.messages,
@@ -371,6 +377,7 @@ func (s *ChatService) prepareEditedChatTurn(
 	}
 
 	return &chatTurnState{
+		userMessageID: updatedUser.ID, modelUser: historyToChatMessages([]domain.Message{*updatedUser}, nil)[0],
 		session:           session,
 		modelConfig:       modelConfig,
 		contextMessages:   contextResult.messages,
@@ -653,6 +660,19 @@ func (s *ChatService) executeChatTurn(
 		ctx = sandboxpolicy.WithWorkingDirectory(ctx, state.session.WorkingDirectory)
 	}
 
+	contextRun, err := s.beginContextRun(ctx, sessionID, requestID, state)
+	if err != nil {
+		return nil, err
+	}
+	defer contextRun.Close()
+	contextRun.OnStatus = func(phase string) error {
+		usage := state.contextUsage
+		usage.State = phase
+		if callbacks.OnContextUsage != nil {
+			return callbacks.OnContextUsage(usage)
+		}
+		return nil
+	}
 	agentStart := time.Now()
 	var planCompleted bool
 	var latestUsage llmsvc.TokenUsage
@@ -662,9 +682,43 @@ func (s *ChatService) executeChatTurn(
 		PlanComplete:    &planCompleted,
 		SubagentModelID: subagentModelID,
 		LatestUsage:     &latestUsage,
-		OnProviderUsage: usageTracker.calibrateProviderUsage,
-		SandboxPolicy:   sandboxPolicy,
-		teamRuntime:     requestTeamRuntime,
+		OnProviderUsage: func(usage llmsvc.TokenUsage) error {
+			return usageTracker.setUsedTokens(usage.InputContextTokens(state.modelConfig.Provider))
+		},
+		ContextRun: contextRun,
+		OnPrepared: func(p contextsvc.Prepared) error {
+			if p.CompactedAt == "" {
+				p.CompactedAt = state.contextUsage.CompactedAt
+			}
+			usage := buildContextUsage(sessionID, state.modelConfig, p.Messages, nil, nil, state.contextUsage.IsCompacted || p.Compacted, p.CompactedAt)
+			usage.InputBudget = p.Budget.HardInput
+			usage.OutputReserve = p.Budget.Output
+			usage.CompactionBeforeTokens = state.contextUsage.CompactionBeforeTokens
+			usage.CompactionAfterTokens = state.contextUsage.CompactionAfterTokens
+			usage.CompactionReason = state.contextUsage.CompactionReason
+			if p.Compacted {
+				usage.CompactionBeforeTokens = p.CompactionBeforeTokens
+				usage.CompactionAfterTokens = p.CompactionAfterTokens
+				usage.CompactionReason = p.Reason
+			}
+			usage.UsedTokens = p.InputTokens
+			usage = normalizeContextUsagePercentages(usage)
+			state.contextUsage = usage
+			usageTracker.mu.Lock()
+			usageTracker.usage = usage
+			usageTracker.mu.Unlock()
+			if callbacks.OnContextUsage != nil {
+				if err := callbacks.OnContextUsage(usage); err != nil {
+					return err
+				}
+			}
+			if p.Compacted && callbacks.OnContextCompacted != nil {
+				return callbacks.OnContextCompacted(usage)
+			}
+			return nil
+		},
+		SandboxPolicy: sandboxPolicy,
+		teamRuntime:   requestTeamRuntime,
 	})
 	logging.Span("agent_loop", agentStart)
 	s.mergeSessionActivatedSkills(sessionID, activatedSkills)
@@ -762,6 +816,11 @@ func (s *ChatService) finalizeChatTurn(
 	})
 	if err != nil {
 		return nil, err
+	}
+	if store, ok := s.store.(contextsvc.Store); ok && state.contextRequestID != "" {
+		if err := store.BindContextRequest(ctx, sessionID, state.contextRequestID, assistantMessage.ID); err != nil {
+			return nil, err
+		}
 	}
 	if result.interrupted {
 		if err := s.store.FinishOpenToolCallsForRequest(ctx, sessionID, requestID, "Execution cancelled."); err != nil {

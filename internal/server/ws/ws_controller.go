@@ -567,6 +567,8 @@ func buildTodoUpdatePayload(sessionID string, update chatsvc.TodoUpdate, updated
 
 func buildContextUsagePayload(sessionID string, usage chatsvc.ContextUsage) map[string]any {
 	return map[string]any{
+		"state": usage.State, "source": usage.Source, "inputBudget": usage.InputBudget, "outputReserve": usage.OutputReserve,
+		"compactionBeforeTokens": usage.CompactionBeforeTokens, "compactionAfterTokens": usage.CompactionAfterTokens, "compactionReason": usage.CompactionReason,
 		"type":             "context_usage",
 		"sessionId":        sessionID,
 		"modelConfigId":    usage.ModelConfigID,

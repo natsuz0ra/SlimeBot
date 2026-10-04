@@ -13,7 +13,13 @@ import (
 )
 
 func TestStreamChatWithToolsCapturesCompatibleReasoningContentAsThinking(t *testing.T) {
+	var request map[string]any
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Error(err)
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
 		if r.URL.Path != "/v1/messages" {
 			t.Fatalf("unexpected path: %s", r.URL.Path)
 		}
@@ -51,7 +57,7 @@ func TestStreamChatWithToolsCapturesCompatibleReasoningContentAsThinking(t *test
 			Model:         "deepseek-compatible",
 			ThinkingLevel: "low",
 		},
-		[]llmsvc.ChatMessage{{Role: "user", Content: "inspect"}},
+		[]llmsvc.ChatMessage{{Role: "user", ContentParts: []llmsvc.ChatMessageContentPart{{Type: llmsvc.ChatMessageContentPartTypeText, Text: "  inspect 🚀\n "}}}},
 		[]llmsvc.ToolDef{{
 			Name:        "exec__run",
 			Description: "Run command",
@@ -64,6 +70,14 @@ func TestStreamChatWithToolsCapturesCompatibleReasoningContentAsThinking(t *test
 	}
 	if result.Type != llmsvc.StreamResultToolCalls {
 		t.Fatalf("result type = %v, want tool calls", result.Type)
+	}
+	if request["max_tokens"] != float64(llmsvc.ThinkingBudgetTokens("low")+1) || result.FinishReason != "tool_use" {
+		t.Fatalf("thinking output budget/termination lost: request=%v finish=%s", request, result.FinishReason)
+	}
+	messages := request["messages"].([]any)
+	parts := messages[0].(map[string]any)["content"].([]any)
+	if parts[0].(map[string]any)["text"] != "  inspect 🚀\n " {
+		t.Fatal("wire adapter changed user content block")
 	}
 	if len(result.AssistantMessage.ThinkingBlocks) != 1 {
 		t.Fatalf("expected one thinking block, got %+v", result.AssistantMessage.ThinkingBlocks)

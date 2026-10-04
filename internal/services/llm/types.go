@@ -25,6 +25,9 @@ type ModelRuntimeConfig struct {
 	Temperature float64
 	// Thinking level: off, low, medium, high, max. Empty or "off" = no extended thinking.
 	ThinkingLevel string
+	// MaxOutputTokens is resolved once and shared with context budgeting.
+	MaxOutputTokens int
+	Purpose         string
 }
 
 // ChatMessage is the provider-agnostic message shape.
@@ -183,6 +186,8 @@ const (
 type StreamResult struct {
 	// Result kind: text or tool calls.
 	Type StreamResultType
+	// FinishReason distinguishes complete summaries from truncated/refused output.
+	FinishReason string
 	// TokenUsage is provider-reported usage for this API response when available.
 	TokenUsage *TokenUsage
 	// Tool calls from the model (only when Type is StreamResultToolCalls).

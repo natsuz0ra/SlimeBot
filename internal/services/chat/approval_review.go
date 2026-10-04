@@ -7,6 +7,7 @@ import (
 	"os"
 	"strings"
 
+	contextsvc "slimebot/internal/services/context"
 	llmsvc "slimebot/internal/services/llm"
 )
 
@@ -41,11 +42,19 @@ func (a *AgentService) reviewToolApproval(
 	}
 	reviewModel := modelConfig
 	reviewModel.ThinkingLevel = ""
+	reviewModel.Purpose = "approval_review"
+	reviewModel.MaxOutputTokens = 512
+	messages := []llmsvc.ChatMessage{{Role: "system", Content: approvalReviewSystemPrompt}, {Role: "user", Content: buildApprovalReviewPrompt(transcript, req)}}
+	budget, err := contextsvc.RequestBudget(reviewModel)
+	if err != nil {
+		return nil, err
+	}
+	if contextsvc.Estimate(messages, nil) > budget.HardInput {
+		return nil, fmt.Errorf("审批评审输入超过预算，无法确认完整授权范围")
+	}
+
 	var output strings.Builder
-	result, err := provider.StreamChatWithTools(ctx, reviewModel, []llmsvc.ChatMessage{
-		{Role: "system", Content: approvalReviewSystemPrompt},
-		{Role: "user", Content: buildApprovalReviewPrompt(transcript, req)},
-	}, nil, llmsvc.StreamCallbacks{
+	result, err := provider.StreamChatWithTools(ctx, reviewModel, messages, nil, llmsvc.StreamCallbacks{
 		OnChunk: func(chunk string) error {
 			output.WriteString(chunk)
 			return nil

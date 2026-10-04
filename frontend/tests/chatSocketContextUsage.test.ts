@@ -26,6 +26,13 @@ test('dispatchChatSocketMessage routes context_usage payloads', () => {
     availablePercent: 58,
     isCompacted: true,
     compactedAt: '2026-05-03T01:02:03Z',
+    inputBudget: 940000,
+    outputReserve: 4096,
+    source: 'estimated',
+    state: 'compacting',
+    compactionBeforeTokens: 20000,
+    compactionAfterTokens: 2000,
+    compactionReason: 'pressure',
   }), handlers)
 
   assert.deepEqual(calls, [{
@@ -39,6 +46,13 @@ test('dispatchChatSocketMessage routes context_usage payloads', () => {
       availablePercent: 58,
       isCompacted: true,
       compactedAt: '2026-05-03T01:02:03Z',
+      inputBudget: 940000,
+      outputReserve: 4096,
+      source: 'estimated',
+      state: 'compacting',
+      compactionBeforeTokens: 20000,
+      compactionAfterTokens: 2000,
+      compactionReason: 'pressure',
     },
   }])
 })

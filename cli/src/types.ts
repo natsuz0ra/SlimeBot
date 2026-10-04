@@ -343,6 +343,13 @@ export interface ContextUsage {
   availablePercent: number;
   isCompacted: boolean;
   compactedAt?: string;
+  inputBudget?: number;
+  outputReserve?: number;
+  compactionBeforeTokens?: number;
+  compactionAfterTokens?: number;
+  compactionReason?: string;
+  source?: "estimated" | "provider-reported";
+  state?: "compacting" | "ready";
 }
 
 // ===== UI state types =====

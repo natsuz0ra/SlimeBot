@@ -1,8 +1,11 @@
 package openai
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
@@ -10,6 +13,37 @@ import (
 
 	"github.com/openai/openai-go/v3"
 )
+
+func TestStreamingOutputBudgetAndFinishReason(t *testing.T) {
+	for _, finish := range []string{"stop", "length"} {
+		t.Run(finish, func(t *testing.T) {
+			var request map[string]any
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+					t.Error(err)
+					w.WriteHeader(http.StatusBadRequest)
+					return
+				}
+				w.Header().Set("Content-Type", "text/event-stream")
+				fmt.Fprint(w, "data: {\"id\":\"test\",\"object\":\"chat.completion.chunk\",\"created\":1,\"model\":\"test\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"summary\"},\"finish_reason\":null}]}\n\n")
+				fmt.Fprintf(w, "data: {\"id\":\"test\",\"object\":\"chat.completion.chunk\",\"created\":1,\"model\":\"test\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":%q}]}\n\ndata: [DONE]\n\n", finish)
+			}))
+			defer server.Close()
+			user := "  当前请求 🚀\n保留缩进。  \n"
+			result, err := NewOpenAIClient().StreamChatWithTools(context.Background(), llmsvc.ModelRuntimeConfig{Provider: llmsvc.ProviderDeepSeek, BaseURL: server.URL, APIKey: "test-key", Model: "test", ContextSize: 8192, MaxOutputTokens: 384, ThinkingLevel: "off", Purpose: "compaction"}, []llmsvc.ChatMessage{{Role: "user", Content: user}}, nil, llmsvc.StreamCallbacks{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if request["max_tokens"] != float64(384) || request["max_completion_tokens"] != nil || result.FinishReason != finish || result.AssistantMessage.Content != "summary" {
+				t.Fatalf("wire budget/termination lost: request=%v result=%+v", request, result)
+			}
+			messages := request["messages"].([]any)
+			if messages[0].(map[string]any)["content"] != user {
+				t.Fatal("wire adapter changed user whitespace")
+			}
+		})
+	}
+}
 
 func TestSupportsDeveloperRole(t *testing.T) {
 	t.Run("dashscope compatible mode should disable developer role", func(t *testing.T) {

@@ -36,6 +36,11 @@ func (c *AnthropicClient) StreamChatWithTools(
 	toolDefs []llmsvc.ToolDef,
 	callbacks llmsvc.StreamCallbacks,
 ) (*llmsvc.StreamResult, error) {
+	var configErr error
+	modelConfig, configErr = llmsvc.ResolveRequestConfig(modelConfig)
+	if configErr != nil {
+		return nil, configErr
+	}
 	baseURL := strings.TrimRight(strings.TrimSpace(modelConfig.BaseURL), "/")
 	apiKey := strings.TrimSpace(modelConfig.APIKey)
 	model := strings.TrimSpace(modelConfig.Model)
@@ -60,7 +65,7 @@ func (c *AnthropicClient) StreamChatWithTools(
 	}
 
 	budget := llmsvc.ThinkingBudgetTokens(modelConfig.ThinkingLevel)
-	maxTokens := int64(defaultMaxTokens)
+	maxTokens := int64(modelConfig.MaxOutputTokens)
 	if budget > 0 && maxTokens < int64(budget)+1 {
 		maxTokens = int64(budget) + 1
 	}
@@ -93,6 +98,7 @@ func (c *AnthropicClient) StreamChatWithTools(
 		toolUseBlocks     []pendingToolUse
 		currentToolUseIdx = -1
 		inThinkingBlock   = false
+		finishReason      string
 		tokenUsage        llmsvc.TokenUsage
 	)
 
@@ -179,12 +185,13 @@ func (c *AnthropicClient) StreamChatWithTools(
 		case "message_start":
 			mergeAnthropicUsage(&tokenUsage, event.Message.Usage.InputTokens, event.Message.Usage.OutputTokens, event.Message.Usage.CacheCreationInputTokens, event.Message.Usage.CacheReadInputTokens)
 		case "message_delta":
+			finishReason = string(event.Delta.StopReason)
 			mergeAnthropicUsage(&tokenUsage, event.Usage.InputTokens, event.Usage.OutputTokens, event.Usage.CacheCreationInputTokens, event.Usage.CacheReadInputTokens)
 		}
 	}
 	finishThinkingBlock()
 	if err := stream.Err(); err != nil {
-		return nil, fmt.Errorf("Model request failed: %w", err)
+		return nil, llmsvc.ClassifyContextError(fmt.Errorf("Model request failed: %w", err))
 	}
 
 	// If there are tool_use blocks, return tool call results
@@ -218,6 +225,7 @@ func (c *AnthropicClient) StreamChatWithTools(
 			ToolCalls:      calls,
 		}
 		return &llmsvc.StreamResult{
+			FinishReason:     finishReason,
 			Type:             llmsvc.StreamResultToolCalls,
 			TokenUsage:       nonZeroUsage(tokenUsage),
 			ToolCalls:        calls,
@@ -225,7 +233,7 @@ func (c *AnthropicClient) StreamChatWithTools(
 		}, nil
 	}
 
-	return &llmsvc.StreamResult{Type: llmsvc.StreamResultText, TokenUsage: nonZeroUsage(tokenUsage)}, nil
+	return &llmsvc.StreamResult{Type: llmsvc.StreamResultText, FinishReason: finishReason, TokenUsage: nonZeroUsage(tokenUsage), AssistantMessage: llmsvc.ChatMessage{Role: "assistant", Content: textBuilder.String(), ThinkingBlocks: thinkingBlocks}}, nil
 }
 
 func mergeAnthropicUsage(target *llmsvc.TokenUsage, inputTokens, outputTokens, cacheCreationInputTokens, cacheReadInputTokens int64) {

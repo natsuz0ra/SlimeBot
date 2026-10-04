@@ -18,7 +18,7 @@ func buildAnthropicMessages(messages []llmsvc.ChatMessage) ([]anthropic.TextBloc
 
 	for _, msg := range messages {
 		role := strings.ToLower(strings.TrimSpace(msg.Role))
-		content := strings.TrimSpace(msg.Content)
+		content := msg.Content
 
 		switch role {
 		case "system", "developer":
@@ -105,7 +105,7 @@ func buildAssistantBlocks(msg llmsvc.ChatMessage) []anthropic.ContentBlockParamU
 
 func newThinkingBlock(signature string, thinking string) anthropic.ContentBlockParamUnion {
 	block := anthropic.ThinkingBlockParam{
-		Signature: strings.TrimSpace(signature),
+		Signature: signature,
 		Thinking:  thinking,
 	}
 	if block.Signature == "" {
@@ -120,7 +120,7 @@ func buildContentParts(parts []llmsvc.ChatMessageContentPart) []anthropic.Conten
 	for _, part := range parts {
 		switch part.Type {
 		case llmsvc.ChatMessageContentPartTypeText:
-			text := strings.TrimSpace(part.Text)
+			text := part.Text
 			if text != "" {
 				result = append(result, anthropic.NewTextBlock(text))
 			}

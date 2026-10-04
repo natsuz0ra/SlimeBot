@@ -139,7 +139,7 @@ const contextCircleStyle = computed(() => {
 })
 const contextUsedLabel = computed(() => formatContextTokenCount(props.contextUsage?.usedTokens ?? 0))
 const contextTotalLabel = computed(() => formatContextTokenCount(props.contextUsage?.totalTokens ?? 0))
-const contextStatusLabel = computed(() => props.contextUsage?.isCompacted ? t('contextStatusCompacted') : t('contextStatusFull'))
+const contextStatusLabel = computed(() => props.contextUsage?.state === 'compacting' ? t('contextStatusCompacting') : props.contextUsage?.isCompacted ? t('contextStatusCompacted') : t('contextStatusFull'))
 
 function calcMenuStyle() {
   if (!menuTriggerRef.value) return
@@ -346,8 +346,38 @@ onUnmounted(() => {
               <span class="text-right">{{ contextUsedLabel }}</span>
               <span class="opacity-75">{{ t('contextTotalTokens') }}</span>
               <span class="text-right">{{ contextTotalLabel }}</span>
+              <template v-if="contextUsage.inputBudget">
+                <span class="opacity-75">{{ t('contextInputBudget') }}</span>
+                <span class="text-right">{{ formatContextTokenCount(contextUsage.inputBudget) }}</span>
+              </template>
+              <template v-if="contextUsage.outputReserve">
+                <span class="opacity-75">{{ t('contextOutputReserve') }}</span>
+                <span class="text-right">{{ formatContextTokenCount(contextUsage.outputReserve) }}</span>
+              </template>
+              <template v-if="contextUsage.source">
+                <span class="opacity-75">{{ t('contextMeasurement') }}</span>
+                <span class="text-right">{{ t(contextUsage.source === 'provider-reported' ? 'contextProviderReported' : 'contextEstimated') }}</span>
+              </template>
               <span class="opacity-75">{{ t('contextStatus') }}</span>
               <span class="text-right">{{ contextStatusLabel }}</span>
+              <template v-if="contextUsage.compactionBeforeTokens && contextUsage.compactionAfterTokens">
+                <div class="col-span-2 mt-1 pt-2 border-t border-white/15">
+                  <div class="opacity-75">{{ t('contextLastCompaction') }}</div>
+                  <div class="mt-1 flex items-center justify-between gap-2">
+                    <span>{{ formatContextTokenCount(contextUsage.compactionBeforeTokens) }}</span>
+                    <span class="opacity-60">→</span>
+                    <span>{{ formatContextTokenCount(contextUsage.compactionAfterTokens) }}</span>
+                  </div>
+                </div>
+              </template>
+              <template v-if="contextUsage.compactionReason">
+                <span class="opacity-75">{{ t('contextCompactionReason') }}</span>
+                <span class="text-right">{{ t(contextUsage.compactionReason === 'overflow' ? 'contextReasonOverflow' : 'contextReasonPressure') }}</span>
+              </template>
+              <template v-if="contextUsage.compactedAt">
+                <span class="opacity-75">{{ t('contextCompactedTime') }}</span>
+                <span class="text-right">{{ new Date(contextUsage.compactedAt).toLocaleTimeString() }}</span>
+              </template>
             </div>
           </div>
         </div>

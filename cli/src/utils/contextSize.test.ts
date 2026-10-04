@@ -52,6 +52,13 @@ test("adjustContextSize clamps keyboard deltas", () => {
   assert.equal(adjustContextSize(999_500, 1_000), CONTEXT_SIZE_MAX);
 });
 
+test("context status shows estimated and busy states without wrapping narrow terminals", () => {
+  const usage = { usedTokens: 4000, totalTokens: 8000, usedPercent: 50, source: "estimated" as const, state: "compacting" as const };
+  assert.equal(formatContextUsageStatus(usage, 18), "CTX 50%");
+  assert.equal(formatContextUsageStatus(usage, 30), "CTX 50% · organizing");
+  assert.match(formatContextUsageStatus(usage, 100), /organizing.*est\./);
+});
+
 test("renderContextSizeBar returns stable width", () => {
   assert.equal(renderContextSizeBar(8_000, 10), "----------");
   assert.equal(renderContextSizeBar(1_000_000, 10), "==========");

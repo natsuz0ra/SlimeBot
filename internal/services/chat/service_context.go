@@ -14,6 +14,7 @@ import (
 
 	"slimebot/internal/constants"
 	"slimebot/internal/domain"
+	contextsvc "slimebot/internal/services/context"
 	llmsvc "slimebot/internal/services/llm"
 	"slimebot/internal/tools"
 	prompts "slimebot/prompts"
@@ -33,10 +34,13 @@ type RunContext struct {
 }
 
 type contextCompressionResult struct {
-	messages     []llmsvc.ChatMessage
-	compacted    bool
-	compactedNow bool
-	compactedAt  string
+	messages       []llmsvc.ChatMessage
+	compacted      bool
+	compactedNow   bool
+	compactedAt    string
+	meterTools     []llmsvc.ToolDef
+	meterConfig    *llmsvc.ModelRuntimeConfig
+	lastCheckpoint *domain.ContextCheckpoint
 }
 
 type contextBuildResult struct {
@@ -86,7 +90,8 @@ func (s *ChatService) GetContextUsageDetailed(ctx context.Context, sessionID str
 	return result.usage, result.compactedNow, nil
 }
 
-const contextCompressionMaxMessages = 10000
+// A negative limit explicitly reads all history; never silently omit the newest input.
+const contextCompressionMaxMessages = -1
 
 // buildContextMessages loads context prefix and history in parallel, then orders stable prefix -> dynamic tail -> optional compact summary -> history.
 func (s *ChatService) buildContextMessages(ctx context.Context, sessionID string, modelConfig llmsvc.ModelRuntimeConfig) ([]llmsvc.ChatMessage, error) {
@@ -158,7 +163,26 @@ func (s *ChatService) buildContextMessagesDetailed(ctx context.Context, sessionI
 	if compression.compacted {
 		mode = "compact_summary_plus_recent"
 	}
-	usage := buildContextUsage(sessionID, modelConfig, msgs, history, toolRecords, compression.compacted, compression.compactedAt)
+	meterConfig := modelConfig
+	meterTools := compression.meterTools
+	if compression.meterConfig != nil {
+		meterConfig = *compression.meterConfig
+	} else if s.agent != nil {
+		// Built-in definitions can be read without connecting to MCP or invoking a model.
+		meterTools, _, err = s.agent.buildRuntimeToolDefs(ctx, nil, 0)
+		if err != nil {
+			return contextBuildResult{}, err
+		}
+		meterTools = append(meterTools, contextReadToolDef())
+	}
+	usage := buildContextUsage(sessionID, meterConfig, msgs, history, toolRecords, compression.compacted, compression.compactedAt)
+	usage.UsedTokens = contextsvc.Estimate(msgs, meterTools)
+	if cp := compression.lastCheckpoint; cp != nil {
+		usage.CompactionBeforeTokens = cp.BeforeTokens
+		usage.CompactionAfterTokens = cp.AfterTokens
+		usage.CompactionReason = cp.Reason
+	}
+	usage = normalizeContextUsagePercentages(usage)
 	logging.Info(
 		"chat_context_ready",
 		"session", sessionID,
@@ -226,107 +250,69 @@ func nonEmptyStrings(values ...string) []string {
 	return result
 }
 
+// Projection is read-only. Actual compaction happens after all runtime input and tool definitions are known.
 func (s *ChatService) applyContextCompression(ctx context.Context, sessionID string, modelConfig llmsvc.ModelRuntimeConfig, prefix []llmsvc.ChatMessage, history []domain.Message, toolRecords []domain.ToolCallRecord) (contextCompressionResult, error) {
-	historyMessages := historyToChatMessages(history, toolRecords)
-	if len(historyMessages) == 0 {
-		return contextCompressionResult{messages: historyMessages}, nil
+	fallback := historyToChatMessages(history, toolRecords)
+	store, ok := s.store.(contextsvc.Store)
+	if !ok {
+		return contextCompressionResult{messages: fallback}, nil
 	}
-	contextSize := modelConfig.ContextSize
-	if contextSize <= 0 {
-		contextSize = constants.DefaultContextSize
+	snapshot, err := store.GetContextSnapshot(ctx, sessionID)
+	if err != nil {
+		return contextCompressionResult{}, err
 	}
-	preserveLatestUser := history[len(history)-1].Role == "user"
-	if preserveLatestUser {
-		latest := historyToChatMessages(history[len(history)-1:], toolRecordsForHistory(history[len(history)-1:], toolRecords))
-		if estimateChatMessagesTokens(append(append([]llmsvc.ChatMessage{}, prefix...), latest...)) > contextSize {
-			return contextCompressionResult{}, fmt.Errorf("最新输入超过模型上下文窗口，请缩短输入或调大上下文大小。")
+	if len(snapshot.Entries) == 0 {
+		return contextCompressionResult{messages: fallback}, nil
+	}
+	if s.contexts != nil && !s.contexts.Enabled() {
+		snapshot.Checkpoints = nil
+	}
+	known := map[string]bool{}
+	for _, e := range snapshot.Entries {
+		if e.SourceMessageID != "" {
+			known[e.SourceMessageID] = true
 		}
 	}
-
-	modelConfigID := strings.TrimSpace(modelConfig.ConfigID)
-	existing, err := s.store.GetSessionContextSummary(ctx, sessionID, modelConfigID)
-	if err == nil && strings.TrimSpace(existing.Summary) != "" {
-		kept := messagesAfterSeq(history, existing.SummarizedUntilSeq)
-		keptToolRecords := toolRecordsForHistory(kept, toolRecords)
-		existingSummary := []llmsvc.ChatMessage{buildCompactSummaryMessage(existing.Summary)}
-		withExisting := append(append([]llmsvc.ChatMessage{}, existingSummary...), historyToChatMessages(kept, keptToolRecords)...)
-		if estimateChatMessagesTokens(append(append([]llmsvc.ChatMessage{}, prefix...), withExisting...)) <= contextSize {
-			return contextCompressionResult{messages: withExisting, compacted: true, compactedAt: existing.UpdatedAt.Format(time.RFC3339Nano)}, nil
+	// New UI messages are merged into a temporary projection; this performs no migration or writes.
+	id := int64(-1)
+	for _, m := range history {
+		if known[m.ID] {
+			continue
 		}
-
-		if len(kept) == 0 {
-			return contextCompressionResult{}, fmt.Errorf("压缩摘要仍超过模型上下文窗口，请调大 context size 或新建会话。")
+		for _, cm := range historyToChatMessages([]domain.Message{m}, toolRecordsForHistory([]domain.Message{m}, toolRecords)) {
+			b, err := json.Marshal(cm)
+			if err != nil {
+				return contextCompressionResult{}, err
+			}
+			kind := cm.Role
+			if m.Role == "user" {
+				kind = "direct_user"
+			} else if cm.Role == "user" {
+				kind = "tool_artifact"
+			}
+			snapshot.Entries = append(snapshot.Entries, domain.ContextEntry{ID: id, MessageSeq: m.Seq, Payload: string(b), SourceKind: kind})
+			id--
 		}
-		summary, compactErr := s.generateContextSummary(ctx, modelConfig, kept, keptToolRecords, existing.Summary)
-		if compactErr != nil {
-			logging.Warn("context_summary_generate_failed", "session", sessionID, "error", compactErr)
-			return contextCompressionResult{}, fmt.Errorf("上下文压缩失败: %w", compactErr)
-		}
-		if strings.TrimSpace(summary) == "" {
-			return contextCompressionResult{}, fmt.Errorf("上下文压缩失败: 压缩摘要为空")
-		}
-		compactedMessages := []llmsvc.ChatMessage{buildCompactSummaryMessage(summary)}
-		if estimateChatMessagesTokens(append(append([]llmsvc.ChatMessage{}, prefix...), compactedMessages...)) > contextSize {
-			return contextCompressionResult{}, fmt.Errorf("压缩摘要仍超过模型上下文窗口，请调大 context size 或新建会话。")
-		}
-		lastSeq := kept[len(kept)-1].Seq
-		compactedAt := time.Now()
-		if err := s.store.UpsertSessionContextSummary(ctx, &domain.SessionContextSummary{
-			SessionID:               sessionID,
-			ModelConfigID:           modelConfigID,
-			Summary:                 summary,
-			SummarizedUntilSeq:      lastSeq,
-			PreCompactTokenEstimate: estimateChatMessagesTokens(historyToChatMessages(kept, keptToolRecords)),
-			UpdatedAt:               compactedAt,
-		}); err != nil {
-			logging.Warn("context_summary_save_failed", "session", sessionID, "error", err)
-		}
-		return contextCompressionResult{
-			messages:     compactedMessages,
-			compacted:    true,
-			compactedNow: true,
-			compactedAt:  compactedAt.Format(time.RFC3339Nano),
-		}, nil
 	}
-	if err != nil && !errors.Is(err, apperrors.ErrNotFound) {
-		logging.Warn("context_summary_load_failed", "session", sessionID, "error", err)
+	messages, compacted, at, err := contextsvc.SnapshotView(snapshot, nil)
+	if err != nil {
+		return contextCompressionResult{}, err
 	}
-
-	if estimateChatMessagesTokens(append(append([]llmsvc.ChatMessage{}, prefix...), historyMessages...)) <= contextSize {
-		return contextCompressionResult{messages: historyMessages}, nil
-	}
-
-	summary, compactErr := s.generateContextSummary(ctx, modelConfig, history, toolRecords, "")
-	if compactErr != nil || strings.TrimSpace(summary) == "" {
-		if compactErr != nil {
-			logging.Warn("context_summary_generate_failed", "session", sessionID, "error", compactErr)
-			return contextCompressionResult{}, fmt.Errorf("上下文压缩失败: %w", compactErr)
+	result := contextCompressionResult{messages: messages, compacted: compacted, compactedAt: at}
+	for _, cp := range snapshot.Checkpoints {
+		if result.lastCheckpoint == nil || cp.UpdatedAt.After(result.lastCheckpoint.UpdatedAt) {
+			latest := cp
+			result.lastCheckpoint = &latest
 		}
-		return contextCompressionResult{}, fmt.Errorf("上下文压缩失败: 压缩摘要为空")
 	}
-	compactedMessages := []llmsvc.ChatMessage{buildCompactSummaryMessage(summary)}
-	if estimateChatMessagesTokens(append(append([]llmsvc.ChatMessage{}, prefix...), compactedMessages...)) > contextSize {
-		return contextCompressionResult{}, fmt.Errorf("压缩摘要仍超过模型上下文窗口，请调大 context size 或新建会话。")
+	if snapshot.Head.LastConfigID == modelConfig.ConfigID && snapshot.Head.LastModel == modelConfig.Model && snapshot.Head.LastWindow == modelConfig.ContextSize && snapshot.Head.LastToolsJSON != "" {
+		if json.Unmarshal([]byte(snapshot.Head.LastToolsJSON), &result.meterTools) == nil {
+			cfg := modelConfig
+			cfg.MaxOutputTokens = snapshot.Head.LastOutputReserve
+			result.meterConfig = &cfg
+		}
 	}
-	lastSeq := history[len(history)-1].Seq
-	preCompactEstimate := estimateChatMessagesTokens(historyMessages)
-	compactedAt := time.Now()
-	if err := s.store.UpsertSessionContextSummary(ctx, &domain.SessionContextSummary{
-		SessionID:               sessionID,
-		ModelConfigID:           modelConfigID,
-		Summary:                 summary,
-		SummarizedUntilSeq:      lastSeq,
-		PreCompactTokenEstimate: preCompactEstimate,
-		UpdatedAt:               compactedAt,
-	}); err != nil {
-		logging.Warn("context_summary_save_failed", "session", sessionID, "error", err)
-	}
-	return contextCompressionResult{
-		messages:     compactedMessages,
-		compacted:    true,
-		compactedNow: true,
-		compactedAt:  compactedAt.Format(time.RFC3339Nano),
-	}, nil
+	return result, nil
 }
 
 func buildContextUsage(sessionID string, modelConfig llmsvc.ModelRuntimeConfig, messages []llmsvc.ChatMessage, history []domain.Message, toolRecords []domain.ToolCallRecord, compacted bool, compactedAt string) ContextUsage {
@@ -335,11 +321,6 @@ func buildContextUsage(sessionID string, modelConfig llmsvc.ModelRuntimeConfig, 
 		total = constants.DefaultContextSize
 	}
 	used := estimateChatMessagesTokens(messages)
-	if !compacted {
-		if exactUsed, ok := contextUsageFromPersistedTokenUsage(history, toolRecords); ok {
-			used = exactUsed
-		}
-	}
 	usedPercent := 0
 	if total > 0 {
 		usedPercent = int(float64(used)*100/float64(total) + 0.5)
@@ -350,7 +331,9 @@ func buildContextUsage(sessionID string, modelConfig llmsvc.ModelRuntimeConfig, 
 	if usedPercent > 100 {
 		usedPercent = 100
 	}
+	budget, _ := contextsvc.RequestBudget(modelConfig)
 	return ContextUsage{
+		InputBudget: budget.HardInput, OutputReserve: budget.Output, Source: "estimated",
 		SessionID:        sessionID,
 		ModelConfigID:    strings.TrimSpace(modelConfig.ConfigID),
 		UsedTokens:       used,
@@ -362,59 +345,11 @@ func buildContextUsage(sessionID string, modelConfig llmsvc.ModelRuntimeConfig, 
 	}
 }
 
-func contextUsageFromPersistedTokenUsage(history []domain.Message, toolRecords []domain.ToolCallRecord) (int, bool) {
-	for i := len(history) - 1; i >= 0; i-- {
-		item := history[i]
-		if item.Role != "assistant" || item.TokenUsage == nil || item.TokenUsage.IsZero() {
-			continue
-		}
-		used := item.TokenUsage.ContextWindowTokens()
-		if i+1 < len(history) {
-			tail := history[i+1:]
-			used += estimateChatMessagesTokens(historyToChatMessages(tail, toolRecordsForHistory(tail, toolRecords)))
-		}
-		return used, true
-	}
-	return 0, false
-}
-
 func nonZeroTokenUsage(usage llmsvc.TokenUsage) *llmsvc.TokenUsage {
 	if usage.IsZero() {
 		return nil
 	}
 	return &usage
-}
-
-func (s *ChatService) generateContextSummary(ctx context.Context, modelConfig llmsvc.ModelRuntimeConfig, history []domain.Message, toolRecords []domain.ToolCallRecord, priorSummary string) (string, error) {
-	if s.providerFactory == nil {
-		return "", fmt.Errorf("provider factory is not initialized")
-	}
-	var transcript strings.Builder
-	if strings.TrimSpace(priorSummary) != "" {
-		transcript.WriteString("已有摘要：\n")
-		transcript.WriteString(strings.TrimSpace(priorSummary))
-		transcript.WriteString("\n\n")
-	}
-	for _, item := range historyToChatMessages(history, toolRecords) {
-		transcript.WriteString(strings.ToUpper(item.Role))
-		transcript.WriteString(": ")
-		transcript.WriteString(strings.TrimSpace(formatChatMessageForSummary(item)))
-		transcript.WriteString("\n\n")
-	}
-	prompt := "请对以下对话生成压缩总结，用于后续继续上下文。压缩总结必须保留用户意图、关键决策、涉及的文件/代码、错误与修复、待办和下一步；不要调用工具，只输出摘要正文。\n\n压缩总结输入：\n" + transcript.String()
-	provider := s.providerFactory.GetProvider(modelConfig.Provider)
-	var summary strings.Builder
-	_, err := provider.StreamChatWithTools(ctx, modelConfig, []llmsvc.ChatMessage{
-		{Role: "system", Content: "你是会话上下文压缩器。只输出压缩总结正文，不要使用工具。"},
-		{Role: "user", Content: prompt},
-	}, nil, llmsvc.StreamCallbacks{OnChunk: func(chunk string) error {
-		summary.WriteString(chunk)
-		return nil
-	}})
-	if err != nil {
-		return "", err
-	}
-	return strings.TrimSpace(summary.String()), nil
 }
 
 func historyToChatMessages(history []domain.Message, toolRecords []domain.ToolCallRecord) []llmsvc.ChatMessage {
@@ -575,79 +510,8 @@ func historicalToolResultContent(record domain.ToolCallRecord) string {
 	return fmt.Sprintf("Execution result:\n%s\nError: %s", output, errText)
 }
 
-func formatChatMessageForSummary(msg llmsvc.ChatMessage) string {
-	var parts []string
-	if strings.TrimSpace(msg.Content) != "" {
-		parts = append(parts, strings.TrimSpace(msg.Content))
-	}
-	for _, tc := range msg.ToolCalls {
-		name := strings.TrimSpace(tc.Name)
-		if name == "" {
-			name = "unknown_tool"
-		}
-		args := historicalToolArguments(tc.Arguments)
-		parts = append(parts, fmt.Sprintf("Tool call %s: %s", name, args))
-	}
-	if msg.Role == "tool" && strings.TrimSpace(msg.ToolCallID) != "" && len(parts) > 0 {
-		parts[0] = fmt.Sprintf("Tool result for %s:\n%s", strings.TrimSpace(msg.ToolCallID), parts[0])
-	}
-	return strings.Join(parts, "\n")
-}
-
-func buildCompactSummaryMessage(summary string) llmsvc.ChatMessage {
-	return llmsvc.ChatMessage{
-		Role: "system",
-		Content: "The earlier conversation has been compacted by the system. Use this summary as hidden continuity context, " +
-			"and follow newer user messages if they conflict.\n\n<context_summary>\n" +
-			strings.TrimSpace(summary) +
-			"\n</context_summary>",
-	}
-}
-
-func messagesAfterSeq(history []domain.Message, seq int64) []domain.Message {
-	var kept []domain.Message
-	for _, item := range history {
-		if item.Seq > seq {
-			kept = append(kept, item)
-		}
-	}
-	return kept
-}
-
-func estimateChatMessagesTokens(msgs []llmsvc.ChatMessage) int {
-	total := 0
-	for _, msg := range msgs {
-		total += 4
-		total += estimateTextTokens(msg.Role)
-		total += estimateTextTokens(msg.Content)
-		total += estimateTextTokens(msg.ToolCallID)
-		total += estimateTextTokens(msg.ReasoningContent)
-		for _, tc := range msg.ToolCalls {
-			total += estimateTextTokens(tc.ID)
-			total += estimateTextTokens(tc.Name)
-			total += estimateTextTokens(tc.Arguments)
-		}
-		for _, block := range msg.ThinkingBlocks {
-			total += estimateTextTokens(block.Thinking)
-			total += estimateTextTokens(block.Signature)
-			total += estimateTextTokens(block.RedactedData)
-		}
-		for _, part := range msg.ContentParts {
-			total += estimateTextTokens(part.Text)
-			total += estimateTextTokens(part.ImageURL)
-			total += estimateTextTokens(part.Filename)
-		}
-	}
-	return total
-}
-
-func estimateTextTokens(text string) int {
-	runes := len([]rune(text))
-	if runes == 0 {
-		return 0
-	}
-	return (runes + 3) / 4
-}
+func estimateChatMessagesTokens(msgs []llmsvc.ChatMessage) int { return contextsvc.Estimate(msgs, nil) }
+func estimateTextTokens(text string) int                       { return contextsvc.EstimateText(text) }
 
 // loadSystemPrompt reads and caches the embedded system prompt.
 func (s *ChatService) loadSystemPrompt() (string, error) {

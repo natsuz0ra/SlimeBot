@@ -14,6 +14,7 @@ import (
 	"slimebot/internal/constants"
 	"slimebot/internal/mcp"
 	sandboxpolicy "slimebot/internal/sandbox"
+	contextsvc "slimebot/internal/services/context"
 	llmsvc "slimebot/internal/services/llm"
 	memorysvc "slimebot/internal/services/memory"
 	schedulesvc "slimebot/internal/services/schedule"
@@ -426,6 +427,11 @@ func (a *AgentService) RunAgentLoop(
 	callbacks AgentCallbacks,
 	opts AgentLoopOptions,
 ) (string, error) {
+	var configErr error
+	modelConfig, configErr = llmsvc.ResolveRequestConfig(modelConfig)
+	if configErr != nil {
+		return "", configErr
+	}
 	toolDefs, mcpToolMeta, err := a.buildRuntimeToolDefs(ctx, mcpConfigs, opts.Depth)
 	if err != nil {
 		return "", fmt.Errorf("failed to load MCP tools: %w", err)
@@ -441,6 +447,18 @@ func (a *AgentService) RunAgentLoop(
 		toolDefs = filterAllowedToolDefs(toolDefs, opts.AllowedToolFunctions)
 		mcpToolMeta = filterAllowedMCPMeta(mcpToolMeta, opts.AllowedToolFunctions)
 	}
+	contextRun := opts.ContextRun
+	if contextRun == nil {
+		contextRun = contextsvc.Ephemeral(a.providerFactory, contextMessages)
+		defer contextRun.Close()
+	}
+	contextReadAllowed := len(opts.AllowedToolFunctions) == 0
+	if _, ok := opts.AllowedToolFunctions["context_read"]; ok {
+		contextReadAllowed = true
+	}
+	if contextReadAllowed {
+		toolDefs = append(toolDefs, contextReadToolDef())
+	}
 	messages := make([]llmsvc.ChatMessage, len(contextMessages))
 	copy(messages, contextMessages)
 
@@ -451,11 +469,22 @@ func (a *AgentService) RunAgentLoop(
 
 	provider := a.providerFactory.GetProvider(modelConfig.Provider)
 
+	overflowRecoveries := 0
 	for i := 0; ; i++ {
 		if opts.Depth == 0 && i >= constants.AgentMaxIterations {
 			return finalAnswer.String(), fmt.Errorf("agent loop reached max iterations (%d)", constants.AgentMaxIterations)
 		}
 
+		prepared, prepareErr := contextRun.Prepare(ctx, modelConfig, toolDefs, false)
+		if prepareErr != nil {
+			return "", prepareErr
+		}
+		messages = prepared.Messages
+		if opts.OnPrepared != nil {
+			if err := opts.OnPrepared(prepared); err != nil {
+				return "", err
+			}
+		}
 		logging.Info("agent_iteration", "iteration", i+1, "messages", len(messages), "agent_depth", opts.Depth)
 
 		var chunkBuf strings.Builder
@@ -473,7 +502,7 @@ func (a *AgentService) RunAgentLoop(
 			thinkingDone = true
 			return nil
 		}
-		result, err := provider.StreamChatWithTools(ctx, modelConfig, messages, toolDefs, llmsvc.StreamCallbacks{
+		streamCallbacks := llmsvc.StreamCallbacks{
 			OnChunk: func(chunk string) error {
 				if chunk != "" {
 					if err := finishThinking(); err != nil {
@@ -500,9 +529,34 @@ func (a *AgentService) RunAgentLoop(
 				}
 				return callbacks.OnThinkingChunk(thinkingChunk, thinkingMeta)
 			},
-		})
+		}
+		result, err := provider.StreamChatWithTools(ctx, modelConfig, messages, toolDefs, streamCallbacks)
+		if err != nil && llmsvc.IsContextWindowExceeded(err) && ctx.Err() == nil && chunkBuf.Len() == 0 && !thinkingStarted && overflowRecoveries < 2 {
+			recovered, recoverErr := contextRun.Prepare(ctx, modelConfig, toolDefs, true)
+			if recoverErr != nil {
+				return "", recoverErr
+			}
+			if recovered.InputTokens < prepared.InputTokens {
+				overflowRecoveries++
+				messages = recovered.Messages
+				prepared = recovered
+				if opts.OnPrepared != nil {
+					if err := opts.OnPrepared(recovered); err != nil {
+						return "", err
+					}
+				}
+				result, err = provider.StreamChatWithTools(ctx, modelConfig, messages, toolDefs, streamCallbacks)
+			}
+		}
 		if err != nil {
 			return "", fmt.Errorf("agent LLM call failed at iteration %d: %w", i+1, err)
+		}
+		if result == nil {
+			return "", fmt.Errorf("模型返回空响应")
+		}
+
+		if result.TokenUsage != nil {
+			contextRun.Calibrate(*result.TokenUsage, modelConfig.Provider, contextsvc.Estimate(messages, toolDefs))
 		}
 		if result != nil && result.TokenUsage != nil && !result.TokenUsage.IsZero() {
 			if opts.LatestUsage != nil {
@@ -521,32 +575,89 @@ func (a *AgentService) RunAgentLoop(
 			}
 		}
 
+		assistant := result.AssistantMessage
+		assistant.Role = "assistant"
+		if assistant.Content == "" {
+			assistant.Content = chunkBuf.String()
+		}
+		if len(assistant.ToolCalls) == 0 {
+			assistant.ToolCalls = result.ToolCalls
+		}
+		if err := contextRun.Append(ctx, assistant); err != nil {
+			return "", fmt.Errorf("记录模型步骤失败: %w", err)
+		}
+		if err := ctx.Err(); err != nil {
+			return "", err
+		}
 		if result.Type == llmsvc.StreamResultText {
 			finalAnswer.WriteString(chunkBuf.String())
 			return finalAnswer.String(), nil
 		}
 
 		// tool_calls: append assistant message (with tool_calls) to context.
-		messages = append(messages, result.AssistantMessage)
+		messages = append(messages, assistant)
 		//preamble := strings.TrimSpace(result.AssistantMessage.Content)
 
+		var traceErr error
+		appendResult := func(messages []llmsvc.ChatMessage, id, content string) []llmsvc.ChatMessage {
+			m := llmsvc.ChatMessage{Role: "tool", ToolCallID: id, Content: content}
+			if traceErr == nil {
+				traceErr = contextRun.Append(ctx, m)
+			}
+			return append(messages, m)
+		}
 		var activatedSkillsMu sync.Mutex
 		var parallelJobs []parallelToolJob
+		var deferredImages []llmsvc.ChatMessage
 		flushParallelJobs := func() {
 			if len(parallelJobs) == 0 {
 				return
 			}
 			outcomes := runParallelToolJobs(ctx, parallelJobs, constants.MaxParallelToolCalls, func(result ToolCallResult) {
 				notifyToolResult(callbacks, result)
+			}, func(outcome parallelToolOutcome) {
+				if traceErr == nil {
+					traceErr = contextRun.Append(ctx, llmsvc.ChatMessage{Role: "tool", ToolCallID: outcome.toolCallID, Content: outcome.messageContent})
+				}
 			})
-			messages = appendToolOutcomes(messages, outcomes)
+			for _, m := range appendToolOutcomes(nil, outcomes) {
+				if m.Role == "tool" {
+					messages = append(messages, m)
+				} else {
+					deferredImages = append(deferredImages, m)
+				}
+			}
 			parallelJobs = nil
 		}
 
 		for toolIndex, tc := range result.ToolCalls {
+			if err := ctx.Err(); err != nil {
+				return "", err
+			}
+			if traceErr != nil {
+				return "", fmt.Errorf("记录工具结果失败: %w", traceErr)
+			}
+			if tc.Name == "context_read" && contextReadAllowed {
+				flushParallelJobs()
+				if traceErr != nil {
+					return "", fmt.Errorf("记录工具结果失败: %w", traceErr)
+				}
+				text, image, readErr := executeContextRead(contextRun, tc.Arguments)
+				if image != nil {
+					deferredImages = append(deferredImages, *image)
+				}
+				if readErr != nil {
+					text = readErr.Error()
+				}
+				messages = appendResult(messages, tc.ID, text)
+				continue
+			}
 			// Handle plan_start: signal transition from research to plan writing.
 			if tc.Name == constants.PlanStartTool {
 				flushParallelJobs()
+				if traceErr != nil {
+					return "", fmt.Errorf("记录工具结果失败: %w", traceErr)
+				}
 				if opts.PlanStarted != nil {
 					*opts.PlanStarted = true
 				}
@@ -555,30 +666,39 @@ func (a *AgentService) RunAgentLoop(
 						return "", fmt.Errorf("OnPlanStart callback failed: %w", err)
 					}
 				}
-				messages = appendToolMessage(messages, tc.ID, "Plan writing phase started.")
+				messages = appendResult(messages, tc.ID, "Plan writing phase started.")
 				continue
 			}
 
 			// Handle plan_complete: signal plan completion and skip regular execution.
 			if tc.Name == constants.PlanCompleteTool {
 				flushParallelJobs()
+				if traceErr != nil {
+					return "", fmt.Errorf("记录工具结果失败: %w", traceErr)
+				}
 				if opts.PlanComplete != nil {
 					*opts.PlanComplete = true
 				}
-				messages = appendToolMessage(messages, tc.ID, "Plan submitted for review.")
+				messages = appendResult(messages, tc.ID, "Plan submitted for review.")
 				continue
 			}
 
 			// Plan mode: block non-read-only tools.
 			if opts.PlanMode && !isPlanModeAllowedTool(tc.Name) {
 				flushParallelJobs()
-				messages = appendToolMessage(messages, tc.ID, "This tool is blocked in plan mode. Only read-only tools (web_search, file_read) are allowed.")
+				if traceErr != nil {
+					return "", fmt.Errorf("记录工具结果失败: %w", traceErr)
+				}
+				messages = appendResult(messages, tc.ID, "This tool is blocked in plan mode. Only read-only tools (web_search, file_read) are allowed.")
 				continue
 			}
 			if len(opts.AllowedToolFunctions) > 0 {
 				if _, ok := opts.AllowedToolFunctions[tc.Name]; !ok {
 					flushParallelJobs()
-					messages = appendToolMessage(messages, tc.ID, "This tool is not available in this restricted agent run.")
+					if traceErr != nil {
+						return "", fmt.Errorf("记录工具结果失败: %w", traceErr)
+					}
+					messages = appendResult(messages, tc.ID, "This tool is not available in this restricted agent run.")
 					continue
 				}
 			}
@@ -586,14 +706,20 @@ func (a *AgentService) RunAgentLoop(
 			invocation, err := resolveToolInvocation(tc, mcpToolMeta, opts.ApprovalMode)
 			if err != nil {
 				flushParallelJobs()
-				messages = appendToolMessage(messages, tc.ID, fmt.Sprintf("failed to parse tool invocation: %s", err.Error()))
+				if traceErr != nil {
+					return "", fmt.Errorf("记录工具结果失败: %w", traceErr)
+				}
+				messages = appendResult(messages, tc.ID, fmt.Sprintf("failed to parse tool invocation: %s", err.Error()))
 				continue
 			}
 
 			params, err := parseToolCallArgs(tc.Arguments)
 			if err != nil {
 				flushParallelJobs()
-				messages = appendToolMessage(messages, tc.ID, fmt.Sprintf("failed to parse arguments: %s", err.Error()))
+				if traceErr != nil {
+					return "", fmt.Errorf("记录工具结果失败: %w", traceErr)
+				}
+				messages = appendResult(messages, tc.ID, fmt.Sprintf("failed to parse arguments: %s", err.Error()))
 				continue
 			}
 			invocation = applyParamApprovalPolicy(invocation, params)
@@ -601,19 +727,25 @@ func (a *AgentService) RunAgentLoop(
 
 			if tc.Name == constants.ActivateSkillTool && a.skillRuntime != nil {
 				flushParallelJobs()
+				if traceErr != nil {
+					return "", fmt.Errorf("记录工具结果失败: %w", traceErr)
+				}
 				execCtx := tools.WithSkillRuntime(ctx, a.skillRuntime)
 				execCtx = tools.WithActivatedSkills(execCtx, activatedSkills)
 				execResult := executeToolCall(execCtx, constants.ActivateSkillTool, "activate", params)
 				if strings.TrimSpace(execResult.Error) != "" {
-					messages = appendToolMessage(messages, tc.ID, fmt.Sprintf("failed to activate skill: %s", execResult.Error))
+					messages = appendResult(messages, tc.ID, fmt.Sprintf("failed to activate skill: %s", execResult.Error))
 					continue
 				}
-				messages = appendToolMessage(messages, tc.ID, execResult.Output)
+				messages = appendResult(messages, tc.ID, execResult.Output)
 				continue
 			}
 
 			if invocation.toolName == constants.AskQuestionsTool {
 				flushParallelJobs()
+				if traceErr != nil {
+					return "", fmt.Errorf("记录工具结果失败: %w", traceErr)
+				}
 				if callbacks.OnToolCallStart != nil {
 					if err := callbacks.OnToolCallStart(ApprovalRequest{
 						ToolCallID:       tc.ID,
@@ -628,7 +760,7 @@ func (a *AgentService) RunAgentLoop(
 				}
 				approved, rejectionMessage, answers := waitApprovalIfNeeded(ctx, callbacks, tc, invocation, params, "", nil)
 				if !approved {
-					messages = appendToolMessage(messages, tc.ID, rejectionMessage)
+					messages = appendResult(messages, tc.ID, rejectionMessage)
 					continue
 				}
 				formattedAnswers := formatAskQuestionsAnswers(fmt.Sprintf("%v", params["questions"]), answers)
@@ -641,7 +773,7 @@ func (a *AgentService) RunAgentLoop(
 					Status:           constants.ToolCallStatusCompleted,
 					Output:           formattedAnswers,
 				})
-				messages = appendToolMessage(messages, tc.ID, "User answers:\n"+formattedAnswers)
+				messages = appendResult(messages, tc.ID, "User answers:\n"+formattedAnswers)
 				continue
 			}
 
@@ -760,14 +892,22 @@ func (a *AgentService) RunAgentLoop(
 			})
 		}
 		flushParallelJobs()
+		if traceErr != nil {
+			return "", fmt.Errorf("记录工具结果失败: %w", traceErr)
+		}
 
+		if len(deferredImages) > 0 {
+			if err := contextRun.Append(ctx, deferredImages...); err != nil {
+				return "", err
+			}
+			messages = append(messages, deferredImages...)
+		}
 		// If plan_complete was called, return immediately so the caller can save the plan.
 		if opts.PlanComplete != nil && *opts.PlanComplete {
 			return finalAnswer.String(), nil
 		}
 	}
 
-	return finalAnswer.String(), nil
 }
 
 // isPlanModeAllowedTool returns true if the tool function name is allowed in plan mode.

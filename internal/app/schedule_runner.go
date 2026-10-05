@@ -38,7 +38,11 @@ func (r scheduleChatRunner) RunScheduledTask(ctx context.Context, task domain.Sc
 		result.FinishedAt = time.Now()
 		return result
 	}
-	session, err := r.core.Repo.CreateSession(ctx, "New Chat")
+	workingDirectory := task.WorkingDirectory
+	if source, sourceErr := r.core.Repo.GetSessionByID(ctx, task.SessionID); sourceErr == nil && workingDirectory == "" {
+		workingDirectory = source.WorkingDirectory
+	}
+	session, err := r.core.Repo.CreateTaskRunContext(ctx, task.Name, workingDirectory)
 	if err != nil {
 		result.Success = false
 		result.Error = err.Error()
@@ -57,14 +61,14 @@ func (r scheduleChatRunner) RunScheduledTask(ctx context.Context, task domain.Sc
 		session.ID,
 		requestID,
 		buildScheduledTaskPrompt(task, startedAt),
-		"定时任务："+task.Name,
+		task.Prompt,
 		modelID,
 		nil,
 		task.ThinkingLevel,
 		false,
 		"",
 		approvalMode,
-		chatsvc.AgentCallbacks{TitlePrefix: "定时："},
+		chatsvc.AgentCallbacks{},
 	)
 	result.FinishedAt = time.Now()
 	if err != nil {

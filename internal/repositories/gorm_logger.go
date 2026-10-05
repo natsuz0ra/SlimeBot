@@ -33,6 +33,12 @@ func (l *gormSlogLogger) Error(ctx context.Context, msg string, data ...any) {
 	logging.Error(msg, "data", data)
 }
 
+// Keep placeholders in SQL logs: message bodies, context payloads and credentials
+// must not be expanded into slow-query or database-error diagnostics.
+func (l *gormSlogLogger) ParamsFilter(ctx context.Context, sql string, params ...any) (string, []any) {
+	return sql, nil
+}
+
 func (l *gormSlogLogger) Trace(ctx context.Context, begin time.Time, fc func() (string, int64), err error) {
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return

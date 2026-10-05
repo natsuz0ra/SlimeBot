@@ -399,10 +399,18 @@ func (w *Controller) handleChatIncoming(
 	startSentAt := time.Now()
 	var firstChunkSentAt time.Time
 	requestID := uuid.NewString()
-	chatCtx, cancel := context.WithTimeout(sessionCtx, constants.WSChatTimeout)
+	chatCtx, cancel := context.WithTimeout(context.WithoutCancel(sessionCtx), constants.WSChatTimeout)
 	activeCancel.Set(cancel)
 	defer activeCancel.Clear(cancel)
-	callbacks := w.buildCallbacks(enqueue, broker, session.ID, &firstChunkSentAt)
+	defer cancel()
+	taskEnqueue := func(payload any) bool {
+		if sessionCtx.Err() != nil {
+			return true
+		}
+		ok := enqueue(payload)
+		return ok || sessionCtx.Err() != nil
+	}
+	callbacks := w.buildCallbacks(taskEnqueue, broker, session.ID, &firstChunkSentAt)
 	var streamResult *chatsvc.ChatStreamResult
 	if incoming.Type == "chat_edit" {
 		startEnqueued := false
@@ -567,6 +575,8 @@ func buildTodoUpdatePayload(sessionID string, update chatsvc.TodoUpdate, updated
 
 func buildContextUsagePayload(sessionID string, usage chatsvc.ContextUsage) map[string]any {
 	return map[string]any{
+		"state": usage.State, "source": usage.Source, "inputBudget": usage.InputBudget, "outputReserve": usage.OutputReserve,
+		"compactionBeforeTokens": usage.CompactionBeforeTokens, "compactionAfterTokens": usage.CompactionAfterTokens, "compactionReason": usage.CompactionReason,
 		"type":             "context_usage",
 		"sessionId":        sessionID,
 		"modelConfigId":    usage.ModelConfigID,

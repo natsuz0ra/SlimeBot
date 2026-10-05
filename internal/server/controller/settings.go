@@ -14,12 +14,14 @@ func (h *HTTPController) GetSettings(c WebContext) {
 		return
 	}
 	c.JSON(http.StatusOK, map[string]any{
+		"subagentMaxDepth":                settings.SubagentMaxDepth,
 		"language":                        settings.Language,
 		"defaultModel":                    settings.DefaultModel,
 		"messagePlatformDefaultModel":     settings.MessagePlatformDefaultModel,
 		"messagePlatformThinkingLevel":    settings.MessagePlatformThinkingLevel,
 		"messagePlatformApprovalMode":     settings.MessagePlatformApprovalMode,
 		"webSearchApiKey":                 settings.WebSearchAPIKey,
+		"proxyUrl":                        settings.ProxyURL,
 		"approvalMode":                    settings.ApprovalMode,
 		"thinkingLevel":                   settings.ThinkingLevel,
 		"sandboxMode":                     settings.SandboxMode,
@@ -41,12 +43,14 @@ func (h *HTTPController) GetSettings(c WebContext) {
 // UpdateSettings patches global settings by field.
 func (h *HTTPController) UpdateSettings(c WebContext) {
 	var req struct {
+		SubagentMaxDepth                *int      `json:"subagentMaxDepth"`
 		Language                        *string   `json:"language"`
 		DefaultModel                    *string   `json:"defaultModel"`
 		MessagePlatformDefaultModel     *string   `json:"messagePlatformDefaultModel"`
 		MessagePlatformThinkingLevel    *string   `json:"messagePlatformThinkingLevel"`
 		MessagePlatformApprovalMode     *string   `json:"messagePlatformApprovalMode"`
 		WebSearchAPIKey                 *string   `json:"webSearchApiKey"`
+		ProxyURL                        *string   `json:"proxyUrl"`
 		ApprovalMode                    *string   `json:"approvalMode"`
 		ThinkingLevel                   *string   `json:"thinkingLevel"`
 		SandboxMode                     *string   `json:"sandboxMode"`
@@ -66,13 +70,14 @@ func (h *HTTPController) UpdateSettings(c WebContext) {
 	if !bindJSONOrBadRequest(c, &req, "Invalid request payload format.") {
 		return
 	}
-	err := h.settings.Update(c.Request().Context(), settingssvc.UpdateSettingsInput{
+	err := h.settings.Update(c.Request().Context(), settingssvc.UpdateSettingsInput{SubagentMaxDepth: req.SubagentMaxDepth,
 		Language:                        req.Language,
 		DefaultModel:                    req.DefaultModel,
 		MessagePlatformDefaultModel:     req.MessagePlatformDefaultModel,
 		MessagePlatformThinkingLevel:    req.MessagePlatformThinkingLevel,
 		MessagePlatformApprovalMode:     req.MessagePlatformApprovalMode,
 		WebSearchAPIKey:                 req.WebSearchAPIKey,
+		ProxyURL:                        req.ProxyURL,
 		ApprovalMode:                    req.ApprovalMode,
 		ThinkingLevel:                   req.ThinkingLevel,
 		SandboxMode:                     req.SandboxMode,
@@ -94,4 +99,20 @@ func (h *HTTPController) UpdateSettings(c WebContext) {
 		return
 	}
 	c.Status(http.StatusNoContent)
+}
+
+// TestProxyConnection diagnoses a draft proxy without persisting it.
+func (h *HTTPController) TestProxyConnection(c WebContext) {
+	var req struct {
+		ProxyURL string `json:"proxyUrl"`
+	}
+	if !bindJSONOrBadRequest(c, &req, "Invalid request payload format.") {
+		return
+	}
+	result, err := h.settings.TestProxy(c.Request().Context(), req.ProxyURL)
+	if err != nil {
+		jsonInternalError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, result)
 }

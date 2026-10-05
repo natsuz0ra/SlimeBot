@@ -74,9 +74,11 @@ func newApp(cfg config.Config, desktopToken string) (*App, error) {
 		tokenManager,
 	)
 	httpController.SetChatContextUsageService(core.ChatService)
+	httpController.SetCooperativeService(core.ChatService.CooperativeService())
 	httpController.SetAgentsInstructionsService(core.AgentsService)
 	httpController.SetUpdateService(core.UpdateService)
 	httpController.SetMemoryService(core.MemoryService)
+	httpController.SetScheduleService(core.ScheduleService)
 	wsController := ws.NewController(core.ChatService, core.PlanService, cfg.Frontend)
 	subDist, err := fs.Sub(web.DistFS, "dist")
 	if err != nil {
@@ -146,9 +148,11 @@ func NewHeadless(cfg config.Config) (*App, error) {
 		tokenManager,
 	)
 	httpController.SetChatContextUsageService(core.ChatService)
+	httpController.SetCooperativeService(core.ChatService.CooperativeService())
 	httpController.SetAgentsInstructionsService(core.AgentsService)
 	httpController.SetUpdateService(core.UpdateService)
 	httpController.SetMemoryService(core.MemoryService)
+	httpController.SetScheduleService(core.ScheduleService)
 	wsController := ws.NewController(core.ChatService, core.PlanService)
 	subDist, _ := fs.Sub(web.DistFS, "dist") // fs required by router; unused in headless UI
 	engine := router.New(cfg, tokenManager, httpController, wsController, subDist,

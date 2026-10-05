@@ -43,6 +43,7 @@ export interface CliCommandHandlers {
   loadSkills: () => Promise<void>;
   loadMCPConfigs: () => Promise<void>;
   openTeamDetail: () => void;
+  manageAgents?: (command: string) => Promise<void>;
   showHelp: () => void;
   togglePlanMode: () => void;
   unknownCommand: (cmd: string) => void;
@@ -104,6 +105,10 @@ export async function runCliCommand(raw: string, handlers: CliCommandHandlers): 
   }
   if (cmd === "/mcp") {
     await handlers.loadMCPConfigs();
+    return;
+  }
+  if (cmd === "/agents" || cmd.startsWith("/agents ")) {
+    await handlers.manageAgents?.(cmd.slice(7).trim());
     return;
   }
   if (cmd === "/team") {

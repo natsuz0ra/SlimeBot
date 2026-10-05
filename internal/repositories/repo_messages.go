@@ -135,13 +135,13 @@ func (r *Repository) ListRecentSessionMessages(ctx context.Context, sessionID st
 }
 
 func (r *Repository) ListAllSessionMessages(ctx context.Context, sessionID string, limit int) ([]domain.Message, error) {
-	if limit <= 0 {
+	if limit == 0 {
 		limit = 10000
 	}
 	var messages []domain.Message
 	err := r.dbWithContext(ctx).
 		Where("session_id = ?", sessionID).
-		Order("created_at asc, seq asc").
+		Order("seq asc").
 		Limit(limit).
 		Find(&messages).
 		Error
@@ -180,6 +180,9 @@ func (r *Repository) AddMessageWithInput(ctx context.Context, input domain.AddMe
 		}
 		message.Seq = last.Seq + 1
 		if err := tx.Create(message).Error; err != nil {
+			return err
+		}
+		if err := bumpContextHistory(tx, input.SessionID); err != nil {
 			return err
 		}
 		return tx.Model(&domain.Session{}).
@@ -263,6 +266,9 @@ func (r *Repository) UpdateUserMessageAndPruneAfter(ctx context.Context, session
 			return err
 		}
 
+		if err := invalidateContext(tx, trimmedSessionID, target.Seq); err != nil {
+			return err
+		}
 		now := time.Now()
 		if err := tx.Model(&domain.Message{}).
 			Where("id = ?", target.ID).

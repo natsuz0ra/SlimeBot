@@ -67,6 +67,7 @@ export function useHomeChatPage() {
       autoStickToBottom: scrollState.autoStickToBottom,
       scrollMessagesToBottom: scrollState.scrollMessagesToBottom,
       queueScrollMessagesToBottom: scrollState.queueScrollMessagesToBottom,
+      scrollToMessage: scrollState.scrollToMessage,
     },
     sendDisabled,
   })
@@ -105,6 +106,7 @@ export function useHomeChatPage() {
   watch(
     () => store.currentSessionId,
     (id) => {
+      if (sessionActions.route.name === 'tasks') return
       const targetPath = id ? `/chat/${id}` : '/chat/new_chat'
       if (sessionActions.route.path !== targetPath) {
         void sessionActions.router.replace(targetPath)
@@ -150,6 +152,7 @@ export function useHomeChatPage() {
     removeSession: sessionActions.removeSession,
     confirmDeleteSession: sessionActions.confirmDeleteSession,
     pickSession: sessionActions.pickSession,
+    pickSearchResult: sessionActions.pickSearchResult,
     createSession: sessionActions.createSession,
     renameFromFloatingMenu: sessionActions.renameFromFloatingMenu,
     deleteFromFloatingMenu: sessionActions.deleteFromFloatingMenu,

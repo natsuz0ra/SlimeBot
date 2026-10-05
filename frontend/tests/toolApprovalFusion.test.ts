@@ -98,7 +98,7 @@ test('parent tool call does not auto-expand after nested approval is resolved', 
 })
 
 test('chat store only promotes done.planId to pending plan confirmation', () => {
-  const chatStoreSource = readFileSync(resolve(import.meta.dirname, '../src/stores/chat.ts'), 'utf8')
+  const chatStoreSource = readFileSync(resolve(import.meta.dirname, '../src/stores/chat.ts'), 'utf8') + readFileSync(resolve(import.meta.dirname, '../src/stores/chatSessionRuntime.ts'), 'utf8')
 
   assert.match(chatStoreSource, /if \(meta\?\.planId\) \{/)
   assert.match(chatStoreSource, /pendingPlanConfirmation\.value = \{[\s\S]*planId: meta\.planId/s)
@@ -119,7 +119,7 @@ test('plan confirmation is only visible for the owning session', () => {
 })
 
 test('plan approval actions ignore confirmations from another session', () => {
-  const chatStoreSource = readFileSync(resolve(import.meta.dirname, '../src/stores/chat.ts'), 'utf8')
+  const chatStoreSource = readFileSync(resolve(import.meta.dirname, '../src/stores/chat.ts'), 'utf8') + readFileSync(resolve(import.meta.dirname, '../src/stores/chatSessionRuntime.ts'), 'utf8')
 
   assert.match(
     chatStoreSource,
@@ -176,7 +176,7 @@ test('chat socket done event forwards plan metadata while plan_body stays separa
 
 test('chat socket and store forward subagent title from start event', () => {
   const chatSocketSource = readFileSync(resolve(import.meta.dirname, '../src/api/chatSocket.ts'), 'utf8')
-  const chatStoreSource = readFileSync(resolve(import.meta.dirname, '../src/stores/chat.ts'), 'utf8')
+  const chatStoreSource = readFileSync(resolve(import.meta.dirname, '../src/stores/chat.ts'), 'utf8') + readFileSync(resolve(import.meta.dirname, '../src/stores/chatSessionRuntime.ts'), 'utf8')
 
   assert.match(chatSocketSource, /interface SubagentStartData[\s\S]*title: string/s)
   assert.match(chatSocketSource, /title: data\.title \|\| ''/)
@@ -185,7 +185,7 @@ test('chat socket and store forward subagent title from start event', () => {
 
 test('chat socket forwards backend event timestamps for tool and thinking ordering', () => {
   const chatSocketSource = readFileSync(resolve(import.meta.dirname, '../src/api/chatSocket.ts'), 'utf8')
-  const chatStoreSource = readFileSync(resolve(import.meta.dirname, '../src/stores/chat.ts'), 'utf8')
+  const chatStoreSource = readFileSync(resolve(import.meta.dirname, '../src/stores/chat.ts'), 'utf8') + readFileSync(resolve(import.meta.dirname, '../src/stores/chatSessionRuntime.ts'), 'utf8')
 
   assert.match(chatSocketSource, /startedAt\?: string/)
   assert.match(chatSocketSource, /finishedAt\?: string/)
@@ -199,7 +199,7 @@ test('chat socket forwards backend event timestamps for tool and thinking orderi
 
 test('chat socket and store forward backend reply timing for live batches', () => {
   const chatSocketSource = readFileSync(resolve(import.meta.dirname, '../src/api/chatSocket.ts'), 'utf8')
-  const chatStoreSource = readFileSync(resolve(import.meta.dirname, '../src/stores/chat.ts'), 'utf8')
+  const chatStoreSource = readFileSync(resolve(import.meta.dirname, '../src/stores/chat.ts'), 'utf8') + readFileSync(resolve(import.meta.dirname, '../src/stores/chatSessionRuntime.ts'), 'utf8')
 
   assert.match(chatSocketSource, /onStart: \(sessionId\?: string, meta\?: \{ startedAt\?: string \}\) => void/)
   assert.match(chatSocketSource, /durationMs\?: number/)

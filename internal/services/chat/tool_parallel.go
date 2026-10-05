@@ -47,6 +47,7 @@ func runParallelToolJobs(
 	jobs []parallelToolJob,
 	maxParallel int,
 	onResult func(ToolCallResult),
+	onTerminal ...func(parallelToolOutcome),
 ) []parallelToolOutcome {
 	if len(jobs) == 0 {
 		return nil
@@ -148,7 +149,11 @@ func runParallelToolJobs(
 
 	outcomes := make([]parallelToolOutcome, 0, len(jobs))
 	for range jobs {
-		outcomes = append(outcomes, <-outCh)
+		outcome := <-outCh
+		if len(onTerminal) > 0 && onTerminal[0] != nil {
+			onTerminal[0](outcome)
+		}
+		outcomes = append(outcomes, outcome)
 	}
 	sort.Slice(outcomes, func(i, j int) bool {
 		return outcomes[i].index < outcomes[j].index

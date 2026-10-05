@@ -4,13 +4,24 @@ export type SandboxMode = 'read-only' | 'workspace-write' | 'danger-full-access'
 export type SettingsTabKey = 'basic' | 'llm' | 'mcp' | 'skills' | 'agents' | 'memory' | 'platform' | 'update' | 'about'
 export type MemoryTarget = 'memory' | 'user'
 
+export interface ProxyTestResult {
+  success: boolean
+  route: 'proxy' | 'environment' | 'direct'
+  targetUrl: string
+  latencyMs: number
+  statusCode?: number
+  errorCode?: 'timeout' | 'dns' | 'tls' | 'refused' | 'network' | 'http' | 'proxy_auth' | 'proxy_http'
+}
+
 export interface AppSettings {
+  subagentMaxDepth?: number
   language: 'zh-CN' | 'en-US'
   defaultModel?: string
   messagePlatformDefaultModel?: string
   messagePlatformThinkingLevel?: ThinkingLevel
   messagePlatformApprovalMode?: ApprovalMode
   webSearchKey?: string
+  proxyUrl?: string
   approvalMode?: ApprovalMode
   thinkingLevel?: ThinkingLevel
   sandboxMode?: SandboxMode

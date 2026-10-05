@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"slimebot/internal/apperrors"
 	"slimebot/internal/constants"
 	"slimebot/internal/domain"
 )
@@ -445,4 +446,65 @@ func buildReplyTiming(messages []domain.Message) map[string]ReplyTiming {
 		}
 	}
 	return byAssistantID
+}
+
+type SearchResult struct {
+	Hits    []domain.ChatSearchHit `json:"hits"`
+	HasMore bool                   `json:"hasMore"`
+}
+
+func (s *SessionService) Search(ctx context.Context, query, scope string, limit, offset int) (SearchResult, error) {
+	query = strings.TrimSpace(query)
+	if limit <= 0 || limit > 50 {
+		limit = 30
+	}
+	if offset < 0 {
+		offset = 0
+	}
+	if query == "" {
+		return SearchResult{Hits: []domain.ChatSearchHit{}}, nil
+	}
+	hits, err := s.store.SearchChats(ctx, query, scope, limit+1, offset)
+	if err != nil {
+		return SearchResult{}, err
+	}
+	hits, hasMore := fetchWindow(hits, limit)
+	for i := range hits {
+		hits[i].Snippet = searchSnippet(hits[i].Content, query)
+	}
+	return SearchResult{Hits: hits, HasMore: hasMore}, nil
+}
+
+func searchSnippet(content, query string) string {
+	text := []rune(strings.TrimSpace(content))
+	lower := []rune(strings.ToLower(string(text)))
+	needle := []rune(strings.ToLower(query))
+	match := 0
+	for i := 0; i+len(needle) <= len(lower); i++ {
+		if string(lower[i:i+len(needle)]) == string(needle) {
+			match = i
+			break
+		}
+	}
+	start := max(0, match-55)
+	end := min(len(text), max(start+180, match+len(needle)))
+	snippet := string(text[start:end])
+	if start > 0 {
+		snippet = "…" + snippet
+	}
+	if end < len(text) {
+		snippet += "…"
+	}
+	return snippet
+}
+
+func (s *SessionService) Get(ctx context.Context, id string) (*domain.Session, error) {
+	session, err := s.store.GetSessionByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if session.Kind != domain.SessionKindChat {
+		return nil, apperrors.ErrNotFound
+	}
+	return session, nil
 }

@@ -36,6 +36,11 @@ func (c *AnthropicClient) StreamChatWithTools(
 	toolDefs []llmsvc.ToolDef,
 	callbacks llmsvc.StreamCallbacks,
 ) (*llmsvc.StreamResult, error) {
+	var configErr error
+	modelConfig, configErr = llmsvc.ResolveRequestConfig(modelConfig)
+	if configErr != nil {
+		return nil, configErr
+	}
 	baseURL := strings.TrimRight(strings.TrimSpace(modelConfig.BaseURL), "/")
 	apiKey := strings.TrimSpace(modelConfig.APIKey)
 	model := strings.TrimSpace(modelConfig.Model)
@@ -60,7 +65,7 @@ func (c *AnthropicClient) StreamChatWithTools(
 	}
 
 	budget := llmsvc.ThinkingBudgetTokens(modelConfig.ThinkingLevel)
-	maxTokens := int64(defaultMaxTokens)
+	maxTokens := int64(modelConfig.MaxOutputTokens)
 	if budget > 0 && maxTokens < int64(budget)+1 {
 		maxTokens = int64(budget) + 1
 	}
@@ -73,6 +78,8 @@ func (c *AnthropicClient) StreamChatWithTools(
 	}
 	if budget > 0 {
 		params.Thinking = anthropic.ThinkingConfigParamOfEnabled(int64(budget))
+	} else {
+		params.Thinking = anthropic.ThinkingConfigParamUnion{OfDisabled: &anthropic.ThinkingConfigDisabledParam{}}
 	}
 	if len(systemBlocks) > 0 {
 		params.System = systemBlocks
@@ -93,6 +100,8 @@ func (c *AnthropicClient) StreamChatWithTools(
 		toolUseBlocks     []pendingToolUse
 		currentToolUseIdx = -1
 		inThinkingBlock   = false
+		finishReason      string
+		messageStopped    bool
 		tokenUsage        llmsvc.TokenUsage
 	)
 
@@ -135,14 +144,23 @@ func (c *AnthropicClient) StreamChatWithTools(
 				}
 			} else if event.ContentBlock.Type == "tool_use" {
 				toolUseBlocks = append(toolUseBlocks, pendingToolUse{
-					ID:   event.ContentBlock.ID,
-					Name: event.ContentBlock.Name,
+					ID:          event.ContentBlock.ID,
+					Name:        event.ContentBlock.Name,
+					InitialJSON: initialToolInputJSON(event.RawJSON()),
 				})
 				currentToolUseIdx = len(toolUseBlocks) - 1
 				inThinkingBlock = false
 			} else {
 				currentToolUseIdx = -1
 				inThinkingBlock = false
+				if event.ContentBlock.Type == "text" && event.ContentBlock.Text != "" {
+					textBuilder.WriteString(event.ContentBlock.Text)
+					if callbacks.OnChunk != nil {
+						if err := callbacks.OnChunk(event.ContentBlock.Text); err != nil {
+							return nil, err
+						}
+					}
+				}
 			}
 
 		case "content_block_delta":
@@ -165,8 +183,10 @@ func (c *AnthropicClient) StreamChatWithTools(
 			}
 			if !inThinkingBlock && event.Delta.Type == "text_delta" && event.Delta.Text != "" {
 				textBuilder.WriteString(event.Delta.Text)
-				if err := callbacks.OnChunk(event.Delta.Text); err != nil {
-					return nil, err
+				if callbacks.OnChunk != nil {
+					if err := callbacks.OnChunk(event.Delta.Text); err != nil {
+						return nil, err
+					}
 				}
 			}
 			if event.Delta.Type == "input_json_delta" && currentToolUseIdx >= 0 {
@@ -178,13 +198,20 @@ func (c *AnthropicClient) StreamChatWithTools(
 			currentToolUseIdx = -1
 		case "message_start":
 			mergeAnthropicUsage(&tokenUsage, event.Message.Usage.InputTokens, event.Message.Usage.OutputTokens, event.Message.Usage.CacheCreationInputTokens, event.Message.Usage.CacheReadInputTokens)
+		case "message_stop":
+			messageStopped = true
 		case "message_delta":
+			finishReason = string(event.Delta.StopReason)
 			mergeAnthropicUsage(&tokenUsage, event.Usage.InputTokens, event.Usage.OutputTokens, event.Usage.CacheCreationInputTokens, event.Usage.CacheReadInputTokens)
 		}
 	}
 	finishThinkingBlock()
 	if err := stream.Err(); err != nil {
-		return nil, fmt.Errorf("Model request failed: %w", err)
+		return nil, llmsvc.ClassifyContextError(fmt.Errorf("Model request failed: %w", err))
+	}
+
+	if !messageStopped || finishReason == "" {
+		return nil, fmt.Errorf("Model stream ended before message completion")
 	}
 
 	// If there are tool_use blocks, return tool call results
@@ -196,7 +223,7 @@ func (c *AnthropicClient) StreamChatWithTools(
 			contentBlocks = append(contentBlocks, anthropic.NewTextBlock(text))
 		}
 		for _, tu := range toolUseBlocks {
-			inputJSON := normalizeInputJSON(tu.InputJSON)
+			inputJSON := normalizeInputJSON(firstNonEmpty(tu.InputJSON, tu.InitialJSON))
 			calls = append(calls, llmsvc.ToolCallInfo{
 				ID:        tu.ID,
 				Name:      tu.Name,
@@ -218,6 +245,7 @@ func (c *AnthropicClient) StreamChatWithTools(
 			ToolCalls:      calls,
 		}
 		return &llmsvc.StreamResult{
+			FinishReason:     finishReason,
 			Type:             llmsvc.StreamResultToolCalls,
 			TokenUsage:       nonZeroUsage(tokenUsage),
 			ToolCalls:        calls,
@@ -225,7 +253,7 @@ func (c *AnthropicClient) StreamChatWithTools(
 		}, nil
 	}
 
-	return &llmsvc.StreamResult{Type: llmsvc.StreamResultText, TokenUsage: nonZeroUsage(tokenUsage)}, nil
+	return &llmsvc.StreamResult{Type: llmsvc.StreamResultText, FinishReason: finishReason, TokenUsage: nonZeroUsage(tokenUsage), AssistantMessage: llmsvc.ChatMessage{Role: "assistant", Content: textBuilder.String(), ThinkingBlocks: thinkingBlocks}}, nil
 }
 
 func mergeAnthropicUsage(target *llmsvc.TokenUsage, inputTokens, outputTokens, cacheCreationInputTokens, cacheReadInputTokens int64) {
@@ -255,9 +283,23 @@ func nonZeroUsage(usage llmsvc.TokenUsage) *llmsvc.TokenUsage {
 
 // pendingToolUse accumulates parameters from streaming tool_use events.
 type pendingToolUse struct {
-	ID        string
-	Name      string
-	InputJSON string
+	ID          string
+	Name        string
+	InputJSON   string
+	InitialJSON string
+}
+
+// Keep raw JSON from the start event to preserve integers and strings exactly.
+func initialToolInputJSON(raw string) string {
+	var event struct {
+		ContentBlock struct {
+			Input json.RawMessage `json:"input"`
+		} `json:"content_block"`
+	}
+	if json.Unmarshal([]byte(raw), &event) != nil {
+		return ""
+	}
+	return string(event.ContentBlock.Input)
 }
 
 // normalizeInputJSON ensures accumulated JSON fragments form valid JSON.

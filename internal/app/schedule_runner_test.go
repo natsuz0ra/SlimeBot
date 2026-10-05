@@ -4,7 +4,6 @@ import (
 	"context"
 	"strings"
 	"testing"
-	"time"
 
 	"slimebot/internal/domain"
 	"slimebot/internal/repositories"
@@ -37,11 +36,11 @@ func (p *scheduledRunnerProvider) StreamChatWithTools(
 	return &llmsvc.StreamResult{Type: llmsvc.StreamResultText}, nil
 }
 
-func TestScheduleChatRunnerCreatesNewSessionForEachRun(t *testing.T) {
+func TestScheduleChatRunnerCreatesIsolatedTaskExecution(t *testing.T) {
 	db := repositories.NewSQLiteDBTest(t, "app_schedule_runner_new_session")
 	repo := repositories.New(db)
 	ctx := context.Background()
-	sourceSession, err := repo.CreateSession(ctx, "来源会话")
+	sourceSession, err := repo.CreateSession(ctx, "来源会话", "/tmp")
 	if err != nil {
 		t.Fatalf("CreateSession failed: %v", err)
 	}
@@ -92,25 +91,36 @@ func TestScheduleChatRunnerCreatesNewSessionForEachRun(t *testing.T) {
 	if len(runMessages) != 2 {
 		t.Fatalf("new session messages = %d, want 2", len(runMessages))
 	}
-	if runMessages[0].Role != "user" || runMessages[0].Content != "定时任务：每日摘要" {
+	if runMessages[0].Role != "user" || runMessages[0].Content != task.Prompt {
 		t.Fatalf("stored scheduled user message = (%s, %q), want display content", runMessages[0].Role, runMessages[0].Content)
 	}
 	if runMessages[1].Role != "assistant" || runMessages[1].Content != "scheduled answer" {
 		t.Fatalf("stored scheduled assistant message = (%s, %q), want scheduled answer", runMessages[1].Role, runMessages[1].Content)
 	}
 
-	deadline := time.Now().Add(2 * time.Second)
-	for {
-		session, err := repo.GetSessionByID(ctx, result.SessionID)
-		if err != nil {
-			t.Fatalf("GetSessionByID failed: %v", err)
-		}
-		if session.Name == "定时：任务摘要" {
-			break
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("new session title = %q, want 定时：任务摘要", session.Name)
-		}
-		time.Sleep(10 * time.Millisecond)
+	execution, err := repo.GetSessionByID(ctx, result.SessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if execution.Kind != domain.SessionKindTaskRun || execution.Name != task.Name || !execution.IsTitleLocked || execution.WorkingDirectory != "/tmp" {
+		t.Fatalf("execution context: %+v", execution)
+	}
+	chats, err := repo.ListSessions(ctx, 100, 0, "")
+	if err != nil || len(chats) != 1 || chats[0].ID != sourceSession.ID {
+		t.Fatalf("ordinary chats polluted: %+v, %v", chats, err)
+	}
+	hits, err := repo.SearchChats(ctx, "scheduled answer", "all", 30, 0)
+	if err != nil || len(hits) != 0 {
+		t.Fatalf("task execution appears in chat search: %+v, %v", hits, err)
+	}
+	task.SessionID = ""
+	task.WorkingDirectory = t.TempDir()
+	next := scheduleChatRunner{core: core}.RunScheduledTask(ctx, task)
+	if !next.Success || next.SessionID == result.SessionID {
+		t.Fatalf("executions share a context: %+v", next)
+	}
+	independent, err := repo.GetSessionByID(ctx, next.SessionID)
+	if err != nil || independent.WorkingDirectory != task.WorkingDirectory || independent.Kind != domain.SessionKindTaskRun {
+		t.Fatalf("independent task context: %+v, %v", independent, err)
 	}
 }

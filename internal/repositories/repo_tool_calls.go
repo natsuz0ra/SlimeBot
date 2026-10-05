@@ -137,12 +137,12 @@ func (r *Repository) ListSessionToolCallRecordsByAssistantMessageIDs(ctx context
 		return []domain.ToolCallRecord{}, nil
 	}
 	var records []domain.ToolCallRecord
-	err := r.dbWithContext(ctx).
-		Where("session_id = ?", sessionID).
-		Where("assistant_message_id IN ?", filtered).
-		Order("started_at asc").
-		Order("created_at asc").
-		Find(&records).
-		Error
-	return records, err
+	for start := 0; start < len(filtered); start += 500 {
+		var batch []domain.ToolCallRecord
+		if err := r.dbWithContext(ctx).Where("session_id = ?", sessionID).Where("assistant_message_id IN ?", filtered[start:min(start+500, len(filtered))]).Order("started_at asc").Order("created_at asc").Find(&batch).Error; err != nil {
+			return nil, err
+		}
+		records = append(records, batch...)
+	}
+	return records, nil
 }

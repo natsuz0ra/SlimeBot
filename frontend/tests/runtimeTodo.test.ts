@@ -12,7 +12,7 @@ function extractHandler(source: string, handlerName: string, nextHandlerName: st
 
 test('chat socket and store wire runtime todo updates outside history', () => {
   const chatSocketSource = readFileSync(resolve(import.meta.dirname, '../src/api/chatSocket.ts'), 'utf8')
-  const chatStoreSource = readFileSync(resolve(import.meta.dirname, '../src/stores/chat.ts'), 'utf8')
+  const chatStoreSource = readFileSync(resolve(import.meta.dirname, '../src/stores/chatSessionRuntime.ts'), 'utf8')
 
   assert.match(chatSocketSource, /export interface TodoUpdateData/)
   assert.match(chatSocketSource, /if \(data\.type === 'todo_update'\) handlers\?\.onTodoUpdate\?\.\(/)
@@ -42,7 +42,7 @@ test('HomePage mounts the runtime todo panel outside message history', () => {
 })
 
 test('runtime todo persists after a response finishes until the next turn starts', () => {
-  const chatStoreSource = readFileSync(resolve(import.meta.dirname, '../src/stores/chat.ts'), 'utf8')
+  const chatStoreSource = readFileSync(resolve(import.meta.dirname, '../src/stores/chatSessionRuntime.ts'), 'utf8')
   const onStart = extractHandler(chatStoreSource, 'onStart', 'onChunk')
   const onDone = extractHandler(chatStoreSource, 'onDone', 'onError')
   const onError = extractHandler(chatStoreSource, 'onError', 'onToolCallStart')

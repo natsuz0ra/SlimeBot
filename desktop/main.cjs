@@ -185,7 +185,9 @@ function makeWindow(origin) {
 }
 
 function makeTray() {
-  tray = new Tray(nativeImage.createFromPath(path.join(__dirname, 'resources', 'tray.png')))
+  const trayImage = nativeImage.createFromPath(path.join(__dirname, 'resources', process.platform === 'darwin' ? 'trayTemplate.png' : 'tray.png'))
+  if (process.platform === 'darwin') trayImage.setTemplateImage(true)
+  tray = new Tray(trayImage)
   tray.setToolTip('SlimeBot')
   tray.setContextMenu(Menu.buildFromTemplate([
     { label: label('打开 SlimeBot', 'Open SlimeBot'), click: showWindow },

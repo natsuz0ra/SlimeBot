@@ -46,7 +46,7 @@ FunctionEnd
 
 Function installFilesPageShow
   SetDetailsPrint both
-  DetailPrint "正在复制 SlimeBot 程序文件 / Copying SlimeBot application files"
+  DetailPrint "正在准备 SlimeBot 程序文件 / Preparing SlimeBot application files"
 FunctionEnd
 
 !macro customInstall

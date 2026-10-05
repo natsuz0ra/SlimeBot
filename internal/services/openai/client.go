@@ -47,6 +47,11 @@ func (c *OpenAIClient) StreamChatWithTools(
 	toolDefs []llmsvc.ToolDef,
 	callbacks llmsvc.StreamCallbacks,
 ) (*llmsvc.StreamResult, error) {
+	var configErr error
+	modelConfig, configErr = llmsvc.ResolveRequestConfig(modelConfig)
+	if configErr != nil {
+		return nil, configErr
+	}
 	baseURL := strings.TrimRight(strings.TrimSpace(modelConfig.BaseURL), "/")
 	apiKey := strings.TrimSpace(modelConfig.APIKey)
 	model := strings.TrimSpace(modelConfig.Model)
@@ -75,6 +80,11 @@ func (c *OpenAIClient) StreamChatWithTools(
 		//Temperature: openai.Float(modelConfig.Temperature),
 	}
 
+	if !usesCompletionTokenLimit(modelConfig) {
+		params.MaxTokens = openai.Int(int64(modelConfig.MaxOutputTokens))
+	} else {
+		params.MaxCompletionTokens = openai.Int(int64(modelConfig.MaxOutputTokens))
+	}
 	applyThinkingParams(&params, modelConfig)
 
 	if len(toolDefs) > 0 {
@@ -87,7 +97,7 @@ func (c *OpenAIClient) StreamChatWithTools(
 		result, _, err = streamChatCompletion(ctx, client, params, callbacks)
 	}
 	if err != nil {
-		return nil, err
+		return nil, llmsvc.ClassifyContextError(err)
 	}
 	return result, nil
 }
@@ -125,7 +135,7 @@ func streamChatCompletion(ctx context.Context, client openai.Client, params open
 				}
 			}
 
-			if delta.Content != "" {
+			if delta.Content != "" && callbacks.OnChunk != nil {
 				if err := callbacks.OnChunk(delta.Content); err != nil {
 					return nil, sawStreamEvent, err
 				}
@@ -137,10 +147,13 @@ func streamChatCompletion(ctx context.Context, client openai.Client, params open
 	}
 
 	if len(acc.Choices) == 0 {
-		return &llmsvc.StreamResult{Type: llmsvc.StreamResultText}, sawStreamEvent, nil
+		return nil, sawStreamEvent, fmt.Errorf("Model stream ended without a completion")
 	}
 
 	choice := acc.Choices[0]
+	if choice.FinishReason == "" {
+		return nil, sawStreamEvent, fmt.Errorf("Model stream ended before completion")
+	}
 	if len(choice.Message.ToolCalls) > 0 {
 		var calls []llmsvc.ToolCallInfo
 		for _, tc := range choice.Message.ToolCalls {
@@ -151,9 +164,10 @@ func streamChatCompletion(ctx context.Context, client openai.Client, params open
 			})
 		}
 		return &llmsvc.StreamResult{
-			Type:       llmsvc.StreamResultToolCalls,
-			TokenUsage: nonZeroUsage(tokenUsage),
-			ToolCalls:  calls,
+			FinishReason: string(choice.FinishReason),
+			Type:         llmsvc.StreamResultToolCalls,
+			TokenUsage:   nonZeroUsage(tokenUsage),
+			ToolCalls:    calls,
 			AssistantMessage: llmsvc.ChatMessage{
 				Role:             "assistant",
 				Content:          choice.Message.Content,
@@ -163,7 +177,7 @@ func streamChatCompletion(ctx context.Context, client openai.Client, params open
 		}, sawStreamEvent, nil
 	}
 
-	return &llmsvc.StreamResult{Type: llmsvc.StreamResultText, TokenUsage: nonZeroUsage(tokenUsage)}, sawStreamEvent, nil
+	return &llmsvc.StreamResult{Type: llmsvc.StreamResultText, FinishReason: string(choice.FinishReason), TokenUsage: nonZeroUsage(tokenUsage), AssistantMessage: llmsvc.ChatMessage{Role: "assistant", Content: choice.Message.Content, ReasoningContent: reasoningBuf.String()}}, sawStreamEvent, nil
 }
 
 func tokenUsageFromOpenAIChunkUsage(promptTokens, cachedTokens, completionTokens, totalTokens int64) llmsvc.TokenUsage {
@@ -190,11 +204,42 @@ func isStreamUsageUnsupported(err error) bool {
 	return strings.Contains(msg, "stream_options") || strings.Contains(msg, "include_usage")
 }
 
+// Compatible APIs commonly ignore max_completion_tokens rather than rejecting
+// it. Select the budget field independently of developer-role support.
+func usesCompletionTokenLimit(c llmsvc.ModelRuntimeConfig) bool {
+	if isDeepSeekRequest(c) || !supportsDeveloperRole(c.BaseURL) {
+		return false
+	}
+	parsed, _ := url.Parse(strings.TrimSpace(c.BaseURL))
+	if parsed != nil && strings.EqualFold(parsed.Hostname(), "api.openai.com") {
+		return true
+	}
+	model := strings.ToLower(strings.TrimSpace(c.Model))
+	return strings.HasPrefix(model, "gpt-") || model == "o1" || strings.HasPrefix(model, "o1-") || model == "o3" || strings.HasPrefix(model, "o3-") || model == "o4" || strings.HasPrefix(model, "o4-")
+}
+
+// These official DeepSeek model IDs also occur in generic OpenAI-compatible
+// configurations. Their default thinking mode must not override an explicit off.
+func isDeepSeekRequest(c llmsvc.ModelRuntimeConfig) bool {
+	if strings.EqualFold(strings.TrimSpace(c.Provider), llmsvc.ProviderDeepSeek) {
+		return true
+	}
+	if !strings.EqualFold(strings.TrimSpace(c.Provider), llmsvc.ProviderOpenAI) {
+		return false
+	}
+	switch strings.ToLower(strings.TrimSpace(c.Model)) {
+	case "deepseek-flash", "deepseek-v4-flash", "deepseek-v4-pro":
+		return true
+	default:
+		return false
+	}
+}
+
 func applyThinkingParams(params *openai.ChatCompletionNewParams, modelConfig llmsvc.ModelRuntimeConfig) {
 	if params == nil {
 		return
 	}
-	if strings.EqualFold(strings.TrimSpace(modelConfig.Provider), llmsvc.ProviderDeepSeek) {
+	if isDeepSeekRequest(modelConfig) {
 		thinking := map[string]any{"type": "disabled"}
 		if effort := llmsvc.DeepSeekReasoningEffort(modelConfig.ThinkingLevel); effort != "" {
 			thinking["type"] = "enabled"
@@ -250,7 +295,7 @@ func supportsDeveloperRole(baseURL string) bool {
 func buildRequestMessages(messages []llmsvc.ChatMessage, supportDeveloperRole bool) []openai.ChatCompletionMessageParamUnion {
 	var result []openai.ChatCompletionMessageParamUnion
 	for _, msg := range messages {
-		content := strings.TrimSpace(msg.Content)
+		content := msg.Content
 
 		switch strings.ToLower(strings.TrimSpace(msg.Role)) {
 		case "system":
@@ -341,7 +386,7 @@ func buildRequestUserContentParts(parts []llmsvc.ChatMessageContentPart) []opena
 	for _, part := range parts {
 		switch part.Type {
 		case llmsvc.ChatMessageContentPartTypeText:
-			text := strings.TrimSpace(part.Text)
+			text := part.Text
 			if text == "" {
 				continue
 			}

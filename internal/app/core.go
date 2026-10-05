@@ -13,6 +13,7 @@ import (
 	"slimebot/internal/mcp"
 	"slimebot/internal/repositories"
 	sbruntime "slimebot/internal/runtime"
+	agentruntime "slimebot/internal/runtime/agent"
 	agentssvc "slimebot/internal/services/agents"
 	antsvc "slimebot/internal/services/anthropic"
 	authsvc "slimebot/internal/services/auth"
@@ -33,8 +34,9 @@ import (
 
 // Core holds shared dependencies for server and CLI entrypoints.
 type Core struct {
-	Config config.Config
-	Repo   *repositories.Repository
+	runtimeOwner *agentruntime.Owner
+	Config       config.Config
+	Repo         *repositories.Repository
 
 	AuthService      *authsvc.AuthService
 	ChatService      *chatsvc.ChatService
@@ -75,11 +77,29 @@ func newCore(cfg config.Config, desktop bool) (*Core, error) {
 	if err := os.MkdirAll(cfg.ChatUploadRoot, os.ModePerm); err != nil {
 		return nil, err
 	}
+	owner, err := agentruntime.AcquireOwner(cfg.DBPath + ".runtime.lock")
+	if err != nil {
+		return nil, err
+	}
+	owned := false
+	defer func() {
+		if !owned {
+			_ = owner.Close()
+		}
+	}()
 	db, err := repositories.NewSQLite(cfg.DBPath)
 	if err != nil {
 		return nil, err
 	}
 	repo := repositories.New(db)
+	defer func() {
+		if !owned {
+			_ = repo.Close()
+		}
+	}()
+	if err := repo.RecoverAgentRuntime(context.Background()); err != nil {
+		return nil, err
+	}
 	teamService := teamsvc.NewService(repo, teamsvc.Options{})
 	if err := teamService.RecoverInterrupted(context.Background()); err != nil {
 		return nil, err
@@ -118,6 +138,9 @@ func newCore(cfg config.Config, desktop bool) (*Core, error) {
 	chatService.SetMemoryService(memoryService)
 	chatService.SetScheduleService(scheduleService)
 	chatService.SetAgentsInstructions(agentsService)
+	if err := chatService.RecoverCooperativeWorkspaces(context.Background()); err != nil {
+		logging.Warn("agent_workspace_recovery", "err", err)
+	}
 	chatService.SetUploadService(chatUpload)
 	chatService.SetContextHistoryRounds(cfg.ContextHistoryRounds)
 
@@ -129,9 +152,11 @@ func newCore(cfg config.Config, desktop bool) (*Core, error) {
 	info := buildversion.Info()
 	updateService := updater.NewService(updater.ServiceOptions{CurrentVersion: info.Version})
 
+	owned = true
 	return &Core{
 		Config:           cfg,
 		Repo:             repo,
+		runtimeOwner:     owner,
 		AuthService:      authService,
 		ChatService:      chatService,
 		MemoryService:    memoryService,
@@ -191,6 +216,11 @@ func (c *Core) Close(ctx context.Context) {
 		}
 	}
 
+	if c.ChatService != nil {
+		if err := c.ChatService.CloseCooperative(ctx); err != nil {
+			logging.Warn("agent_runtime_close", "err", err)
+		}
+	}
 	if c.MCPManager != nil {
 		c.MCPManager.CloseAll()
 	}
@@ -199,6 +229,7 @@ func (c *Core) Close(ctx context.Context) {
 			logging.Warn("db_close", "err", err)
 		}
 	}
+	_ = c.runtimeOwner.Close()
 }
 
 // buildRunContext builds ChatService RunContext for CLI vs server.

@@ -2,6 +2,7 @@ package chat
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"sync"
 	"time"
@@ -9,12 +10,15 @@ import (
 	"slimebot/internal/constants"
 	"slimebot/internal/domain"
 	"slimebot/internal/mcp"
+	agentruntime "slimebot/internal/runtime/agent"
 	agentssvc "slimebot/internal/services/agents"
+	contextsvc "slimebot/internal/services/context"
 	llmsvc "slimebot/internal/services/llm"
 	memorysvc "slimebot/internal/services/memory"
 	plansvc "slimebot/internal/services/plan"
 	schedulesvc "slimebot/internal/services/schedule"
 	skillsvc "slimebot/internal/services/skill"
+	subagentsvc "slimebot/internal/services/subagent"
 	teamsvc "slimebot/internal/services/team"
 )
 
@@ -28,14 +32,18 @@ type ChatService struct {
 	store           domain.ChatStore
 	settingsStore   domain.SettingsStore
 	providerFactory *llmsvc.Factory
+	contexts        *contextsvc.Service
 	agent           *AgentService
 	memory          *memorysvc.Service
 	schedule        *schedulesvc.Service
 	skillRuntime    *skillsvc.SkillRuntimeService
 	planService     *plansvc.PlanService
 	teamService     *teamsvc.Service
+	cooperative     *subagentsvc.Service
 	uploads         *ChatUploadService
 	titleGen        *titleGenerator
+	turnsMu         sync.Mutex
+	turns           map[string]bool
 	skillsMu        sync.Mutex
 	skillsBySess    map[string]map[string]struct{}
 	skillTouchedAt  map[string]time.Time
@@ -86,13 +94,21 @@ func NewChatService(store domain.ChatStore, settingsStore domain.SettingsStore, 
 		skillRuntime:         skillRuntime,
 		titleGen:             newTitleGenerator(providerFactory, store),
 		skillsBySess:         make(map[string]map[string]struct{}),
+		turns:                make(map[string]bool),
 		skillTouchedAt:       make(map[string]time.Time),
 		memoryReviewTurns:    make(map[string]int),
 		memoryReviewTouched:  make(map[string]time.Time),
 		contextHistoryRounds: constants.DefaultContextHistoryRounds,
 	}
+	if store, ok := store.(contextsvc.Store); ok {
+		s.contexts = contextsvc.New(store, providerFactory)
+	}
 	s.agent = NewAgentService(providerFactory, mcpManager, skillRuntime)
 	s.agent.SetSubagentHost(s)
+	if store, ok := store.(domain.AgentStore); ok {
+		s.cooperative = subagentsvc.New(store, agentruntime.New(store, s.runCooperativeTurn))
+		s.configureCooperative()
+	}
 	return s
 }
 
@@ -245,4 +261,19 @@ func (s *ChatService) setStableSystemPromptCached(prompt string, catalog string,
 	s.stablePrompt = prompt
 	s.stableCatalog = catalog
 	s.stableAgents = agents
+}
+
+func (s *ChatService) acquireTurn(session string) (func(), error) {
+	s.turnsMu.Lock()
+	defer s.turnsMu.Unlock()
+	if s.turns[session] {
+		return nil, fmt.Errorf("session already has an active request")
+	}
+	if s.cooperative != nil {
+		if _, _, ok := s.cooperative.Runtime.CurrentRoot(session); ok {
+			return nil, fmt.Errorf("session already has an active request")
+		}
+	}
+	s.turns[session] = true
+	return func() { s.turnsMu.Lock(); delete(s.turns, session); s.turnsMu.Unlock() }, nil
 }

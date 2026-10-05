@@ -152,6 +152,13 @@ export interface ContextUsageData {
   availablePercent: number
   isCompacted: boolean
   compactedAt?: string
+  inputBudget?: number
+  outputReserve?: number
+  compactionBeforeTokens?: number
+  compactionAfterTokens?: number
+  compactionReason?: string
+  source?: 'estimated' | 'provider-reported'
+  state?: 'compacting' | 'ready'
 }
 
 type WSIncoming = {
@@ -203,6 +210,13 @@ type WSIncoming = {
   availablePercent?: number
   isCompacted?: boolean
   compactedAt?: string
+  inputBudget?: number
+  outputReserve?: number
+  compactionBeforeTokens?: number
+  compactionAfterTokens?: number
+  compactionReason?: string
+  source?: 'estimated' | 'provider-reported'
+  state?: 'compacting' | 'ready'
 }
 
 function normalizeTeamRun(data: WSIncoming): TeamRunItem {
@@ -261,6 +275,13 @@ function normalizeContextUsage(data: WSIncoming | ContextUsageData | undefined, 
     availablePercent: Math.max(0, Math.min(100, Math.round(availablePercent))),
     isCompacted: !!source.isCompacted,
     compactedAt: source.compactedAt,
+    ...(Number.isFinite(source.inputBudget) ? { inputBudget: Math.max(0, Number(source.inputBudget)) } : {}),
+    ...(Number.isFinite(source.outputReserve) ? { outputReserve: Math.max(0, Number(source.outputReserve)) } : {}),
+    ...(Number.isFinite(source.compactionBeforeTokens) ? { compactionBeforeTokens: Math.max(0, Number(source.compactionBeforeTokens)) } : {}),
+    ...(Number.isFinite(source.compactionAfterTokens) ? { compactionAfterTokens: Math.max(0, Number(source.compactionAfterTokens)) } : {}),
+    ...(source.compactionReason ? { compactionReason: source.compactionReason } : {}),
+    ...(source.source ? { source: source.source } : {}),
+    ...(source.state ? { state: source.state } : {}),
   }
 }
 
@@ -527,10 +548,8 @@ export class ChatSocket {
     this.manualClose = true
     this.clearReconnectTimer()
     this.clearHeartbeat()
-    if (this.ws) {
-      this.ws.close()
-      this.ws = null
-    }
+    // Detach callbacks before closing: an old close event must not clear a newly reopened channel.
+    this.teardownSocket()
     this.emitStatus('disconnected')
   }
 

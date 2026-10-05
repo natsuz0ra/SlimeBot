@@ -1,6 +1,6 @@
 import { computed, nextTick, onMounted, onUnmounted, ref, watch, type Ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { sessionAPI } from '@/api/chat'
+import { sessionAPI, type ChatSearchHit } from '@/api/chat'
 import { isMessagePlatformSessionId, platformSessionName } from '@/utils/messagePlatformSessions'
 import { useToast } from '@/composables/useToast'
 import { useChatStore } from '@/stores/chat'
@@ -30,6 +30,7 @@ type ScrollState = {
   autoStickToBottom: Ref<boolean>
   scrollMessagesToBottom: (force?: boolean) => void
   queueScrollMessagesToBottom: (force?: boolean) => void
+  scrollToMessage: (id: string) => Promise<void>
 }
 
 export function useHomeSessionActions(options: {
@@ -59,6 +60,7 @@ export function useHomeSessionActions(options: {
       }
     }
     if (current) return current
+    if (store.searchSelection?.id === store.currentSessionId) return store.searchSelection
     return undefined
   })
   const canManageCurrentSession = computed(() => !isMessagePlatformSession.value)
@@ -92,21 +94,15 @@ export function useHomeSessionActions(options: {
       await modelState.refreshModelOptions(true)
 
       await store.loadSessions()
+      if (route.name === 'tasks') { store.connectSocket(); return }
       const routeSessionId = route.params.sessionId as string | undefined
       const isNewChatRoute = !routeSessionId || routeSessionId === 'new_chat'
       if (routeSessionId && routeSessionId !== 'new_chat') {
-        if (isMessagePlatformSessionId(routeSessionId)) {
+        try {
           await store.selectSession(routeSessionId)
-        } else {
-          const matched = store.sessions.find((s) => s.id === routeSessionId)
-          if (matched) {
-            await store.selectSession(matched.id)
-          } else if (store.sessions.length > 0) {
-            const first = store.sessions[0]
-            if (first) await store.selectSession(first.id)
-          } else {
-            store.resetToNewSession()
-          }
+        } catch {
+          store.resetToNewSession()
+          showError(t('chatSearchOpenFailed'))
         }
       } else if (isNewChatRoute || store.sessions.length === 0) {
         store.resetToNewSession()
@@ -149,6 +145,7 @@ export function useHomeSessionActions(options: {
     try {
       const isDeletingCurrent = uiState.deleteTargetId.value === store.currentSessionId
       await sessionAPI.remove(uiState.deleteTargetId.value)
+      store.forgetSession(uiState.deleteTargetId.value)
       await store.loadSessions()
       if (isDeletingCurrent) {
         store.resetToNewSession()
@@ -169,6 +166,15 @@ export function useHomeSessionActions(options: {
     if (window.matchMedia('(max-width: 767px)').matches) uiState.drawerOpen.value = false
   }
 
+  async function pickSearchResult(hit: ChatSearchHit) {
+    uiState.pendingFiles.value = []
+    await store.selectSession(hit.sessionId, hit)
+    await nextTick()
+    if (hit.messageId) await scrollState.scrollToMessage(hit.messageId)
+    else scrollState.scrollMessagesToBottom(true)
+    if (window.matchMedia('(max-width: 767px)').matches) uiState.drawerOpen.value = false
+  }
+
   async function createSession(workingDirectory?: string) {
     uiState.pendingFiles.value = []
     store.resetToNewSession(workingDirectory)
@@ -180,6 +186,7 @@ export function useHomeSessionActions(options: {
 
   async function sendMessage() {
     if (sendDisabled.value) return
+    store.focusedMessageId = ''
     scrollState.autoStickToBottom.value = true
     scrollState.queueScrollMessagesToBottom(true)
     let sent = false
@@ -225,8 +232,25 @@ export function useHomeSessionActions(options: {
     void removeSession(menu.id)
   }
 
+  function onVisibilityChange() {
+    if (document.visibilityState === 'visible') store.markSessionRead(store.currentSessionId)
+  }
+
+  watch(() => route.name, (name) => store.setChatViewActive(name === 'chat'), { immediate: true })
+
   onMounted(() => {
+    document.addEventListener('visibilitychange', onVisibilityChange)
     void boot()
+  })
+
+  watch(() => route.params.sessionId, async (id) => {
+    if (route.name !== 'chat' || uiState.loading.value) return
+    if (!id || id === 'new_chat') {
+      if (store.currentSessionId) store.resetToNewSession()
+    } else if (typeof id === 'string' && id !== store.currentSessionId) {
+      try { await pickSession(id) }
+      catch { showError(t('chatSearchOpenFailed')) }
+    }
   })
 
   watch(
@@ -251,8 +275,9 @@ export function useHomeSessionActions(options: {
   )
 
   onUnmounted(() => {
+    document.removeEventListener('visibilitychange', onVisibilityChange)
     stopMessagePlatformPolling()
-    store.disconnectSocket()
+    store.setChatViewActive(false)
   })
 
   return {
@@ -264,6 +289,7 @@ export function useHomeSessionActions(options: {
     removeSession,
     confirmDeleteSession,
     pickSession,
+    pickSearchResult,
     createSession,
     sendMessage,
     stopMessage,

@@ -51,8 +51,14 @@ export function useHomeNetworkNotice(options: {
   }
 
   watch(
-    () => store.connectionStatus,
-    (status, prev) => {
+    [() => store.connectionStatus, () => store.currentSessionId],
+    ([status, sessionId], [prev, previousSessionId]) => {
+      if (sessionId !== previousSessionId) {
+        hasConnectedOnce.value = false
+        showInitialConnectionNotice.value = false
+        suppressConnectionNoticeDisplay.value = false
+        clearInitialConnectionNoticeTimer()
+      }
       if (status === 'connected') {
         hasConnectedOnce.value = true
         suppressConnectionNoticeDisplay.value = false
@@ -60,7 +66,7 @@ export function useHomeNetworkNotice(options: {
         clearInitialConnectionNoticeTimer()
         return
       }
-      if (status === prev) return
+      if (status === prev && sessionId === previousSessionId) return
       if (store.consumeSuppressNextConnectionNotice()) {
         suppressConnectionNoticeDisplay.value = true
         showInitialConnectionNotice.value = false

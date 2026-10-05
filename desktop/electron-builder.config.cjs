@@ -7,7 +7,7 @@ module.exports = {
   productName: 'SlimeBot',
   extraMetadata: { slimebotSigned: process.platform === 'win32' && Boolean(process.env.CSC_LINK) },
   directories: { output: 'dist' },
-  files: ['main.cjs', 'preload.cjs', 'package.json', 'resources/icon.png', 'resources/tray.png'],
+  files: ['main.cjs', 'preload.cjs', 'package.json', 'resources/icon.png', 'resources/tray.png', 'resources/trayTemplate.png', 'resources/trayTemplate@2x.png'],
   extraResources: [
     {
       from: path.join('build', windows ? 'slimebot.exe' : 'slimebot'),

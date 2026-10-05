@@ -38,7 +38,14 @@ func (f *Factory) Register(name string, p Provider) {
 // Unknown names fall back to OpenAI.
 func (f *Factory) GetProvider(provider string) Provider {
 	if p, ok := f.providers[provider]; ok {
-		return p
+		if p == nil {
+			return nil
+		}
+		return observedProvider{p}
 	}
-	return f.providers[ProviderOpenAI]
+	p := f.providers[ProviderOpenAI]
+	if p == nil {
+		return nil
+	}
+	return observedProvider{p}
 }

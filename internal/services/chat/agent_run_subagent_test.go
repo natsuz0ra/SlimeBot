@@ -525,7 +525,8 @@ func TestHandleRunSubagentTool_InheritsParentModelForEmptyOrDefaultModelID(t *te
 			if len(provider.modelConfigs) != 1 {
 				t.Fatalf("expected one child model config, got %d", len(provider.modelConfigs))
 			}
-			if got := provider.modelConfigs[0]; got != parentModel {
+			effectiveParent, _ := llmsvc.ResolveRequestConfig(parentModel)
+			if got := provider.modelConfigs[0]; got != effectiveParent {
 				t.Fatalf("child model did not inherit parent config:\n got=%+v\nwant=%+v", got, parentModel)
 			}
 		})
@@ -578,6 +579,7 @@ func TestHandleRunSubagentTool_UserConfiguredModelKeepsParentThinkingLevel(t *te
 	}
 	want := host.resolved
 	want.ThinkingLevel = "medium"
+	want, _ = llmsvc.ResolveRequestConfig(want)
 	if got := provider.modelConfigs[0]; got != want {
 		t.Fatalf("child override did not keep parent thinking level:\n got=%+v\nwant=%+v", got, want)
 	}

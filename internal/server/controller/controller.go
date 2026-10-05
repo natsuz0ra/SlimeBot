@@ -11,8 +11,10 @@ import (
 	chatsvc "slimebot/internal/services/chat"
 	configsvc "slimebot/internal/services/config"
 	memorysvc "slimebot/internal/services/memory"
+	schedulesvc "slimebot/internal/services/schedule"
 	sessionsvc "slimebot/internal/services/session"
 	settingssvc "slimebot/internal/services/settings"
+	subagentsvc "slimebot/internal/services/subagent"
 	"slimebot/internal/updater"
 )
 
@@ -23,6 +25,8 @@ type authService interface {
 }
 
 type sessionService interface {
+	Get(ctx context.Context, id string) (*domain.Session, error)
+	Search(ctx context.Context, query, scope string, limit, offset int) (sessionsvc.SearchResult, error)
 	List(ctx context.Context, limit int, offset int, query string) (sessionsvc.ListResult, error)
 	Create(ctx context.Context, name string, workingDirectory ...string) (*domain.Session, error)
 	RenameByUser(ctx context.Context, id, name string) error
@@ -33,6 +37,7 @@ type sessionService interface {
 type settingsService interface {
 	Get(ctx context.Context) (*settingssvc.AppSettings, error)
 	Update(ctx context.Context, input settingssvc.UpdateSettingsInput) error
+	TestProxy(ctx context.Context, raw string) (*settingssvc.ProxyTestResult, error)
 }
 
 type memoryService interface {
@@ -113,6 +118,8 @@ type HTTPController struct {
 	platforms    messagePlatformConfigService
 	plans        planService
 	chatUsage    chatContextUsageService
+	schedule     *schedulesvc.Service
+	cooperative  *subagentsvc.Service
 	update       updateService
 	tokenManager *auth.TokenManager
 }
@@ -161,3 +168,5 @@ func (h *HTTPController) SetUpdateService(service updateService) {
 func (h *HTTPController) SetMemoryService(service memoryService) {
 	h.memory = service
 }
+
+func (h *HTTPController) SetScheduleService(service *schedulesvc.Service) { h.schedule = service }

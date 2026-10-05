@@ -1,12 +1,14 @@
 import type { AppSettings, ApprovalMode, SandboxMode, ThinkingLevel } from '../types/settings'
 
 export type SettingsPayload = {
+  subagentMaxDepth?: number
   language: 'zh-CN' | 'en-US'
   defaultModel?: string
   messagePlatformDefaultModel?: string
   messagePlatformThinkingLevel?: ThinkingLevel
   messagePlatformApprovalMode?: ApprovalMode
   webSearchApiKey?: string
+  proxyUrl?: string
   approvalMode?: ApprovalMode
   thinkingLevel?: ThinkingLevel
   sandboxMode?: SandboxMode
@@ -29,6 +31,7 @@ export function normalizeSettingsPayload(data: Partial<SettingsPayload>): AppSet
     ...(data as SettingsPayload),
     language: data.language || 'zh-CN',
     webSearchKey: data.webSearchApiKey,
+    proxyUrl: data.proxyUrl || '',
     approvalMode: data.approvalMode || 'standard',
     thinkingLevel: data.thinkingLevel || 'off',
     messagePlatformThinkingLevel: data.messagePlatformThinkingLevel || 'off',
@@ -51,12 +54,14 @@ export function normalizeSettingsPayload(data: Partial<SettingsPayload>): AppSet
 
 export function buildSettingsPayload(payload: Partial<AppSettings>): Partial<SettingsPayload> {
   const wirePayload: Partial<SettingsPayload> = {}
+  if (payload.subagentMaxDepth !== undefined) wirePayload.subagentMaxDepth = payload.subagentMaxDepth
   if (payload.language !== undefined) wirePayload.language = payload.language
   if (payload.defaultModel !== undefined) wirePayload.defaultModel = payload.defaultModel
   if (payload.messagePlatformDefaultModel !== undefined) wirePayload.messagePlatformDefaultModel = payload.messagePlatformDefaultModel
   if (payload.messagePlatformThinkingLevel !== undefined) wirePayload.messagePlatformThinkingLevel = payload.messagePlatformThinkingLevel
   if (payload.messagePlatformApprovalMode !== undefined) wirePayload.messagePlatformApprovalMode = payload.messagePlatformApprovalMode
   if (payload.webSearchKey !== undefined) wirePayload.webSearchApiKey = payload.webSearchKey
+  if (payload.proxyUrl !== undefined) wirePayload.proxyUrl = payload.proxyUrl
   if (payload.approvalMode !== undefined) wirePayload.approvalMode = payload.approvalMode
   if (payload.thinkingLevel !== undefined) wirePayload.thinkingLevel = payload.thinkingLevel
   if (payload.sandboxMode !== undefined) wirePayload.sandboxMode = payload.sandboxMode

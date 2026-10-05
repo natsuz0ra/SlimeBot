@@ -494,22 +494,25 @@ func TestHandleChatStreamPushesAuthoritativeContextUsageOnly(t *testing.T) {
 	if err != nil {
 		t.Fatalf("HandleChatStream failed: %v", err)
 	}
-	if len(usages) != 3 {
-		t.Fatalf("expected initial and provider usage updates only, got %d: %+v", len(usages), usages)
+	var reported []ContextUsage
+	for _, u := range usages {
+		if u.Source == "provider-reported" {
+			reported = append(reported, u)
+		} else if u.Source != "estimated" {
+			t.Fatalf("missing usage source: %+v", u)
+		}
 	}
-	if usages[1].UsedTokens != 20_000 || usages[1].UsedPercent != 20 || usages[1].AvailablePercent != 80 {
-		t.Fatalf("expected first provider usage calibration, got %+v", usages[1])
-	}
-	if usages[2].UsedTokens != 45_000 || usages[2].UsedPercent != 45 || usages[2].AvailablePercent != 55 {
-		t.Fatalf("expected final provider usage calibration, got %+v", usages[2])
+	if len(reported) != 2 || reported[0].UsedTokens != 20_000 || reported[1].UsedTokens != 45_000 {
+		t.Fatalf("wrong input usage: %+v", usages)
 	}
 	finalUsage, err := svc.GetContextUsage(ctx, session.ID, model.ID)
 	if err != nil {
-		t.Fatalf("GetContextUsage failed: %v", err)
+		t.Fatal(err)
 	}
-	if finalUsage.UsedTokens != usages[2].UsedTokens || finalUsage.UsedPercent != usages[2].UsedPercent || finalUsage.AvailablePercent != usages[2].AvailablePercent {
-		t.Fatalf("expected saved context usage to match final provider usage, final=%+v streamed=%+v", finalUsage, usages[2])
+	if finalUsage.Source != "estimated" || finalUsage.InputBudget <= 0 {
+		t.Fatalf("GET must measure the current view read-only: %+v", finalUsage)
 	}
+
 }
 
 func TestHandleChatStreamContextUsageDoesNotSpikeFromToolCallOutputTokens(t *testing.T) {
@@ -544,19 +547,16 @@ func TestHandleChatStreamContextUsageDoesNotSpikeFromToolCallOutputTokens(t *tes
 	if err != nil {
 		t.Fatalf("HandleChatStream failed: %v", err)
 	}
-	if len(usages) != 3 {
-		t.Fatalf("expected initial and provider usage updates, got %d: %+v", len(usages), usages)
+	var reported []ContextUsage
+	for _, u := range usages {
+		if u.Source == "provider-reported" {
+			reported = append(reported, u)
+		}
 	}
-	if usages[1].UsedPercent >= 20 {
-		t.Fatalf("tool-call output tokens should not spike context usage, got %+v", usages[1])
+	if len(reported) != 2 || reported[0].UsedTokens != 10_000 || reported[1].UsedTokens != 11_000 {
+		t.Fatalf("output tokens must not be counted as input: %+v", usages)
 	}
-	finalUsage, err := svc.GetContextUsage(ctx, session.ID, model.ID)
-	if err != nil {
-		t.Fatalf("GetContextUsage failed: %v", err)
-	}
-	if finalUsage.UsedTokens != usages[2].UsedTokens || finalUsage.UsedPercent != usages[2].UsedPercent {
-		t.Fatalf("expected final usage to match streamed final provider usage, final=%+v streamed=%+v", finalUsage, usages[2])
-	}
+
 }
 
 func TestRunAgentLoopPreservesThinkingBlocksAcrossToolIterations(t *testing.T) {

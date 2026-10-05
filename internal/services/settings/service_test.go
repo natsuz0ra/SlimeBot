@@ -47,6 +47,29 @@ func TestSettingsService_GetIncludesWebSearchAPIKey(t *testing.T) {
 	}
 }
 
+func TestSettingsService_ProxyRoundTrip(t *testing.T) {
+	t.Setenv("SLIMEBOT_HOME", t.TempDir())
+	t.Cleanup(func() { _ = runtime.SetProxyURL("") })
+	store := &memorySettingsStore{values: map[string]string{}}
+	svc := NewSettingsService(store)
+	proxy := "http://127.0.0.1:7890"
+	if err := svc.Update(context.Background(), UpdateSettingsInput{ProxyURL: &proxy}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := svc.Get(context.Background())
+	if err != nil || got.ProxyURL != proxy {
+		t.Fatalf("proxy round trip = %v, %v", got, err)
+	}
+	invalid := "http://127.0.0.1"
+	if err := svc.Update(context.Background(), UpdateSettingsInput{ProxyURL: &invalid}); err == nil {
+		t.Fatal("expected invalid proxy error")
+	}
+	got, err = svc.Get(context.Background())
+	if err != nil || got.ProxyURL != proxy {
+		t.Fatalf("invalid proxy overwrote saved value: %v, %v", got, err)
+	}
+}
+
 func TestSettingsService_UpdatePreservesOtherSettingsStoreWrites(t *testing.T) {
 	store := &memorySettingsStore{values: map[string]string{}}
 	svc := NewSettingsService(store)

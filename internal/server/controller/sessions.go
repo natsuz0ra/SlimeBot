@@ -1,11 +1,15 @@
 package controller
 
 import (
+	"context"
 	"errors"
 	"io"
 	"net/http"
+	"path/filepath"
 	"slimebot/internal/domain"
 	"slimebot/internal/logging"
+	sbruntime "slimebot/internal/runtime"
+	workspaceruntime "slimebot/internal/runtime/workspace"
 	sessionsvc "slimebot/internal/services/session"
 	"strconv"
 	"strings"
@@ -150,6 +154,26 @@ func (h *HTTPController) DeleteSession(c WebContext) {
 		jsonError(c, http.StatusBadRequest, "Message platform sessions cannot be deleted.")
 		return
 	}
+	if h.cooperative != nil {
+		ctx, cancel := context.WithTimeout(c.Request().Context(), 10*time.Second)
+		defer cancel()
+		if err := h.cooperative.DrainRoot(ctx, id); err != nil {
+			jsonError(c, http.StatusConflict, err.Error())
+			return
+		}
+		as, err := h.cooperative.Store.ListAgentArtifacts(ctx, id)
+		if err != nil {
+			jsonInternalError(c, err)
+			return
+		}
+		manager := workspaceruntime.New(filepath.Join(sbruntime.SlimeBotHomeDir(), "agent-worktrees"))
+		for i := range as {
+			if err = manager.Archive(ctx, &as[i]); err != nil {
+				jsonError(c, http.StatusConflict, err.Error())
+				return
+			}
+		}
+	}
 	if err := h.sessions.Delete(c.Request().Context(), id); err != nil {
 		jsonInternalError(c, err)
 		return
@@ -249,4 +273,49 @@ func (h *HTTPController) GetContextUsage(c WebContext) {
 		return
 	}
 	c.JSON(http.StatusOK, usage)
+}
+
+func (h *HTTPController) SearchChats(c WebContext) {
+	query := strings.TrimSpace(c.Query("q"))
+	if len([]rune(query)) > 100 {
+		jsonError(c, http.StatusBadRequest, "Search query must be at most 100 characters.")
+		return
+	}
+	scope := c.Query("scope")
+	if scope == "" {
+		scope = "all"
+	}
+	if scope != "all" && scope != "titles" && scope != "messages" {
+		jsonError(c, http.StatusBadRequest, "Invalid search scope.")
+		return
+	}
+	limit, offset := 30, 0
+	for key, target := range map[string]*int{"limit": &limit, "offset": &offset} {
+		if raw := c.Query(key); raw != "" {
+			value, err := strconv.Atoi(raw)
+			if err != nil || value < 0 || (key == "limit" && value == 0) {
+				jsonError(c, http.StatusBadRequest, "Invalid search pagination.")
+				return
+			}
+			*target = value
+		}
+	}
+	if limit > 50 {
+		limit = 50
+	}
+	result, err := h.sessions.Search(c.Request().Context(), query, scope, limit, offset)
+	if err != nil {
+		jsonInternalError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, result)
+}
+
+func (h *HTTPController) GetSession(c WebContext) {
+	session, err := h.sessions.Get(c.Request().Context(), c.Param("id"))
+	if err != nil {
+		jsonInternalError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, session)
 }

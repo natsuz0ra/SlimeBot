@@ -4,9 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"regexp"
 	"slimebot/internal/apperrors"
 	"slimebot/internal/logging"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -14,6 +14,7 @@ import (
 	"slimebot/internal/constants"
 	"slimebot/internal/domain"
 	sandboxpolicy "slimebot/internal/sandbox"
+	contextsvc "slimebot/internal/services/context"
 	llmsvc "slimebot/internal/services/llm"
 
 	"github.com/google/uuid"
@@ -26,15 +27,16 @@ const (
 	planEndMarker     = "\n<!-- PLAN_END -->\n"
 )
 
-var contentMarkerRegex = regexp.MustCompile(`\n?<!-- (?:TOOL_CALL:.+?|THINKING:.+?|PLAN_START|PLAN_END) -->\n?`)
-
 // StripContentMarkers removes TOOL_CALL/PLAN markers from text for real-time display.
 func StripContentMarkers(input string) string {
-	return contentMarkerRegex.ReplaceAllString(input, "")
+	return domain.StripContentMarkers(input)
 }
 
 // chatTurnState holds intermediate state while preparing a chat turn.
 type chatTurnState struct {
+	userMessageID     string
+	modelUser         llmsvc.ChatMessage
+	contextRequestID  string
 	session           *domain.Session
 	modelConfig       llmsvc.ModelRuntimeConfig
 	contextMessages   []llmsvc.ChatMessage
@@ -48,6 +50,7 @@ type chatTurnState struct {
 
 // chatTurnResult holds intermediate results after the agent runs.
 type chatTurnResult struct {
+	failed        bool
 	answer        string
 	interrupted   bool
 	planCompleted bool
@@ -110,6 +113,11 @@ func (s *ChatService) HandleEditedChatStream(
 	if strings.TrimSpace(content) == "" {
 		return nil, fmt.Errorf("Message cannot be empty.")
 	}
+	release, err := s.acquireTurn(sessionID)
+	if err != nil {
+		return nil, err
+	}
+	defer release()
 	state, err := s.prepareEditedChatTurn(ctx, sessionID, messageID, content, modelID, thinkingLevel)
 	if err != nil {
 		return nil, err
@@ -135,7 +143,31 @@ func (s *ChatService) HandleEditedChatStream(
 			Content: planModeSystemMessage,
 		})
 	}
+	// Keep the root live until its assistant message is persisted. A reconnecting
+	// client can then fetch the report when the durable request becomes terminal.
+	var interrupted bool
+	failed := true
+	defer func() {
+		if s.cooperative == nil {
+			return
+		}
+		finishCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+		defer cancel()
+		status := "completed"
+		if failed {
+			status = "failed"
+		}
+		if interrupted || ctx.Err() != nil {
+			status = "canceled"
+			_ = s.agent.getSessionProcessManager(sessionID).StopAndWait(finishCtx)
+		}
+		_ = s.cooperative.Runtime.FinishRootStatus(finishCtx, requestID, status)
+	}()
 	result, err := s.executeChatTurn(ctx, sessionID, requestID, state, callbacks, planMode, subagentModelID, approvalModeOverride)
+	if result != nil {
+		interrupted = result.interrupted
+	}
+	failed = err != nil || (result != nil && result.failed)
 	if err != nil {
 		return nil, err
 	}
@@ -143,7 +175,9 @@ func (s *ChatService) HandleEditedChatStream(
 	if result.interrupted {
 		finalizeCtx = context.Background()
 	}
-	return s.finalizeChatTurn(finalizeCtx, sessionID, requestID, state, result, planMode, callbacks)
+	stream, finalErr := s.finalizeChatTurn(finalizeCtx, sessionID, requestID, state, result, planMode, callbacks)
+	failed = finalErr != nil || result.failed
+	return stream, finalErr
 }
 
 func (s *ChatService) handleChatStreamWithReceivedAt(
@@ -165,6 +199,11 @@ func (s *ChatService) handleChatStreamWithReceivedAt(
 		return nil, fmt.Errorf("Message cannot be empty.")
 	}
 
+	release, err := s.acquireTurn(sessionID)
+	if err != nil {
+		return nil, err
+	}
+	defer release()
 	state, err := s.prepareChatTurn(ctx, sessionID, receivedAt, content, displayContent, modelID, attachmentIDs, thinkingLevel)
 	if err != nil {
 		return nil, err
@@ -189,7 +228,31 @@ func (s *ChatService) handleChatStreamWithReceivedAt(
 		})
 	}
 
+	// Keep the root live until its assistant message is persisted. A reconnecting
+	// client can then fetch the report when the durable request becomes terminal.
+	var interrupted bool
+	failed := true
+	defer func() {
+		if s.cooperative == nil {
+			return
+		}
+		finishCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+		defer cancel()
+		status := "completed"
+		if failed {
+			status = "failed"
+		}
+		if interrupted || ctx.Err() != nil {
+			status = "canceled"
+			_ = s.agent.getSessionProcessManager(sessionID).StopAndWait(finishCtx)
+		}
+		_ = s.cooperative.Runtime.FinishRootStatus(finishCtx, requestID, status)
+	}()
 	result, err := s.executeChatTurn(ctx, sessionID, requestID, state, callbacks, planMode, subagentModelID, approvalModeOverride)
+	if result != nil {
+		interrupted = result.interrupted
+	}
+	failed = err != nil || (result != nil && result.failed)
 	if err != nil {
 		return nil, err
 	}
@@ -199,7 +262,9 @@ func (s *ChatService) handleChatStreamWithReceivedAt(
 	if result.interrupted {
 		finalizeCtx = context.Background()
 	}
-	return s.finalizeChatTurn(finalizeCtx, sessionID, requestID, state, result, planMode, callbacks)
+	stream, finalErr := s.finalizeChatTurn(finalizeCtx, sessionID, requestID, state, result, planMode, callbacks)
+	failed = finalErr != nil || result.failed
+	return stream, finalErr
 }
 
 // prepareChatTurn validates input, resolves model config, saves user message, builds context in parallel.
@@ -240,7 +305,7 @@ func (s *ChatService) prepareChatTurn(
 		return nil, err
 	}
 
-	userContentForLLM := strings.TrimSpace(content)
+	userContentForLLM := content
 	userContentForDisplay := content
 	if strings.TrimSpace(displayContent) != "" {
 		userContentForDisplay = displayContent
@@ -258,14 +323,15 @@ func (s *ChatService) prepareChatTurn(
 	for _, item := range attachments {
 		userMessageAttachments = append(userMessageAttachments, item.ToMessageAttachment())
 	}
-	if _, err := s.store.AddMessageWithInput(ctx, domain.AddMessageInput{
+	userMessage, addErr := s.store.AddMessageWithInput(ctx, domain.AddMessageInput{
 		SessionID:   sessionID,
 		Role:        "user",
 		Content:     userContentForDisplay,
 		Attachments: userMessageAttachments,
 		CreatedAt:   receivedAt,
-	}); err != nil {
-		return nil, err
+	})
+	if addErr != nil {
+		return nil, addErr
 	}
 
 	// Build context messages and enabled MCP configs in parallel to reduce turn latency.
@@ -303,6 +369,7 @@ func (s *ChatService) prepareChatTurn(
 		overrideLatestUserTurn(contextResult.messages, userContentForLLM)
 	}
 	return &chatTurnState{
+		userMessageID: userMessage.ID, modelUser: llmsvc.ChatMessage{Role: "user", Content: userContentForLLM, ContentParts: userMessageParts},
 		session:           session,
 		modelConfig:       modelConfig,
 		contextMessages:   contextResult.messages,
@@ -374,6 +441,7 @@ func (s *ChatService) prepareEditedChatTurn(
 	}
 
 	return &chatTurnState{
+		userMessageID: updatedUser.ID, modelUser: historyToChatMessages([]domain.Message{*updatedUser}, nil)[0],
 		session:           session,
 		modelConfig:       modelConfig,
 		contextMessages:   contextResult.messages,
@@ -656,18 +724,94 @@ func (s *ChatService) executeChatTurn(
 		ctx = sandboxpolicy.WithWorkingDirectory(ctx, state.session.WorkingDirectory)
 	}
 
+	var cooperative *cooperativeLoop
+	if s.cooperative != nil {
+		var rootErr error
+		ctx, rootErr = s.cooperative.Runtime.BeginRoot(ctx, sessionID, requestID)
+		if rootErr != nil {
+			return nil, rootErr
+		}
+		childModel := state.modelConfig
+		if subagentModelID != "" {
+			childModel, rootErr = s.ResolveModelRuntimeConfig(ctx, subagentModelID)
+			if rootErr != nil {
+				return nil, rootErr
+			}
+		}
+		caller := subagentCaller(sessionID, requestID, approvalMode, planMode)
+		caller.ThinkingLevel = state.modelConfig.ThinkingLevel
+		if s.settingsStore != nil {
+			if value, e := s.settingsStore.GetSetting(ctx, "SUBAGENT_MAX_DEPTH"); e == nil && value != "" {
+				if n, e := strconv.Atoi(value); e == nil && n >= 0 && n <= 4 {
+					caller.MaxDepth = n
+				}
+			}
+		}
+		cooperative = &cooperativeLoop{service: s.cooperative, caller: caller, model: childModel, workspace: state.session.WorkingDirectory, plan: planMode}
+	}
+	contextRun, err := s.beginContextRun(ctx, sessionID, requestID, state)
+	if err != nil {
+		return nil, err
+	}
+	defer contextRun.Close()
+	contextRun.OnStatus = func(phase string) error {
+		usage := state.contextUsage
+		usage.State = phase
+		if callbacks.OnContextUsage != nil {
+			return callbacks.OnContextUsage(usage)
+		}
+		return nil
+	}
+	if cooperative != nil {
+		agentCallbacks = s.cooperativeApprovals(ctx, cooperative.caller, requestID, agentCallbacks)
+	}
 	agentStart := time.Now()
 	var planCompleted bool
 	var latestUsage llmsvc.TokenUsage
 	answer, err := s.agent.RunAgentLoop(ctx, state.modelConfig, sessionID, state.contextMessages, state.enabledMCPConfigs, activatedSkills, agentCallbacks, AgentLoopOptions{
+		Cooperative:     cooperative,
 		ApprovalMode:    approvalMode,
 		PlanMode:        planMode,
 		PlanComplete:    &planCompleted,
 		SubagentModelID: subagentModelID,
 		LatestUsage:     &latestUsage,
-		OnProviderUsage: usageTracker.calibrateProviderUsage,
-		SandboxPolicy:   sandboxPolicy,
-		teamRuntime:     requestTeamRuntime,
+		OnProviderUsage: func(usage llmsvc.TokenUsage) error {
+			return usageTracker.setUsedTokens(usage.InputContextTokens(state.modelConfig.Provider))
+		},
+		ContextRun: contextRun,
+		OnPrepared: func(p contextsvc.Prepared) error {
+			if p.CompactedAt == "" {
+				p.CompactedAt = state.contextUsage.CompactedAt
+			}
+			usage := buildContextUsage(sessionID, state.modelConfig, p.Messages, nil, nil, state.contextUsage.IsCompacted || p.Compacted, p.CompactedAt)
+			usage.InputBudget = p.Budget.HardInput
+			usage.OutputReserve = p.Budget.Output
+			usage.CompactionBeforeTokens = state.contextUsage.CompactionBeforeTokens
+			usage.CompactionAfterTokens = state.contextUsage.CompactionAfterTokens
+			usage.CompactionReason = state.contextUsage.CompactionReason
+			if p.Compacted {
+				usage.CompactionBeforeTokens = p.CompactionBeforeTokens
+				usage.CompactionAfterTokens = p.CompactionAfterTokens
+				usage.CompactionReason = p.Reason
+			}
+			usage.UsedTokens = p.InputTokens
+			usage = normalizeContextUsagePercentages(usage)
+			state.contextUsage = usage
+			usageTracker.mu.Lock()
+			usageTracker.usage = usage
+			usageTracker.mu.Unlock()
+			if callbacks.OnContextUsage != nil {
+				if err := callbacks.OnContextUsage(usage); err != nil {
+					return err
+				}
+			}
+			if p.Compacted && callbacks.OnContextCompacted != nil {
+				return callbacks.OnContextCompacted(usage)
+			}
+			return nil
+		},
+		SandboxPolicy: sandboxPolicy,
+		teamRuntime:   requestTeamRuntime,
 	})
 	logging.Span("agent_loop", agentStart)
 	s.mergeSessionActivatedSkills(sessionID, activatedSkills)
@@ -734,6 +878,7 @@ func (s *ChatService) executeChatTurn(
 	}
 
 	return &chatTurnResult{
+		failed:        err != nil && !interrupted,
 		answer:        finalAnswer,
 		interrupted:   interrupted,
 		planCompleted: planCompleted,
@@ -765,6 +910,11 @@ func (s *ChatService) finalizeChatTurn(
 	})
 	if err != nil {
 		return nil, err
+	}
+	if store, ok := s.store.(contextsvc.Store); ok && state.contextRequestID != "" {
+		if err := store.BindContextRequest(ctx, sessionID, state.contextRequestID, assistantMessage.ID); err != nil {
+			return nil, err
+		}
 	}
 	if result.interrupted {
 		if err := s.store.FinishOpenToolCallsForRequest(ctx, sessionID, requestID, "Execution cancelled."); err != nil {

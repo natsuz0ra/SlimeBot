@@ -3,6 +3,7 @@ package chat
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"sync"
 	"time"
@@ -10,6 +11,7 @@ import (
 	"slimebot/internal/domain"
 	"slimebot/internal/logging"
 
+	contextsvc "slimebot/internal/services/context"
 	llmsvc "slimebot/internal/services/llm"
 )
 
@@ -87,6 +89,15 @@ func (g *titleGenerator) generate(ctx context.Context, modelConfig llmsvc.ModelR
 	var buf strings.Builder
 	cfg := modelConfig
 	cfg.ThinkingLevel = "" // no thinking for title generation
+	cfg.MaxOutputTokens = 256
+	cfg.Purpose = "title"
+	budget, budgetErr := contextsvc.RequestBudget(cfg)
+	if budgetErr != nil {
+		return "", budgetErr
+	}
+	if contextsvc.Estimate(messages, nil) > budget.HardInput {
+		return "", fmt.Errorf("标题生成输入超过预算")
+	}
 
 	_, err := provider.StreamChatWithTools(ctx, cfg, messages, nil, llmsvc.StreamCallbacks{
 		OnChunk: func(chunk string) error {

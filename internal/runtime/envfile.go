@@ -25,7 +25,14 @@ func getLegacyEnvPath() string {
 }
 
 func EnsureAndLoadEnv() error {
-	return ensureAndLoadEnv(getEnvPath(), EnvTemplate())
+	if err := ensureAndLoadEnv(getEnvPath(), EnvTemplate()); err != nil {
+		return err
+	}
+	proxy, err := ReadEnvValue(ProxyEnvKey)
+	if err != nil {
+		return err
+	}
+	return SetProxyURL(proxy)
 }
 
 func ensureAndLoadEnv(envPath string, template string) error {

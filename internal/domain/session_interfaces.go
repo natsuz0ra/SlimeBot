@@ -7,6 +7,8 @@ import (
 
 // SessionStore persists sessions: CRUD, message pagination, and tool-call records.
 type SessionStore interface {
+	GetSessionByID(ctx context.Context, id string) (*Session, error)
+	SearchChats(ctx context.Context, query, scope string, limit, offset int) ([]ChatSearchHit, error)
 	ListSessions(ctx context.Context, limit int, offset int, query string) ([]Session, error)
 	CreateSession(ctx context.Context, name string, workingDirectory ...string) (*Session, error)
 	RenameSessionByUser(ctx context.Context, id, name string) error

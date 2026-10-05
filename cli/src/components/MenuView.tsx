@@ -7,6 +7,8 @@ import type React from "react";
 import type { MenuItem } from "../types.js";
 import { wrapText } from "../utils/format.js";
 import { CLI_ACCENT_COLOR } from "../utils/terminal.js";
+import { stringWidth } from "../utils/stringWidth.js";
+import { getGraphemeSegmenter } from "../utils/intl.js";
 
 interface MenuViewProps {
 	title: string;
@@ -14,6 +16,8 @@ interface MenuViewProps {
 	cursor: number;
 	hint: string;
 	maxVisibleItems?: number;
+	maxHeight?: number;
+	columns?: number;
 }
 
 const MAX_MENU_TITLE_LENGTH = 25;
@@ -107,36 +111,98 @@ export function getVisibleMenuItems(
 	};
 }
 
+function fitMenuLine(value: string, columns: number): string {
+	const text = value.replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, "").replace(/[\x00-\x1f\x7f-\x9f]/g, " ");
+	if (stringWidth(text) <= columns) return text;
+	let result = "";
+	for (const { segment } of getGraphemeSegmenter().segment(text)) {
+		if (stringWidth(result + segment) > columns - 1) break;
+		result += segment;
+	}
+	return result + "…";
+}
+
+// Budget display rows, including descriptions and footer, rather than merely
+// counting items. The selected model always remains inside the visible window.
+export function getMenuViewport(items: MenuItem[], cursor: number, columns: number, maxHeight: number, hint: string, maxVisibleItems = items.length) {
+	const width = Math.max(8, columns);
+	const height = Math.max(6, Math.floor(maxHeight));
+	const selected = clampMenuCursor(cursor, items.length);
+	const allHints = hint ? wrapText(hint, width).split("\n") : [];
+	const hintLimit = Math.max(0, height - 5);
+	const hintLines = allHints.slice(0, hintLimit);
+	if (allHints.length > hintLines.length && hintLines.length) {
+		hintLines[hintLines.length - 1] = fitMenuLine(hintLines.at(-1)! + "…", width);
+	}
+	const bodyHeight = Math.max(1, height - 2 - 1 - (hintLines.length ? hintLines.length + 1 : 0));
+	const formatted = items.map((item, index) => {
+		const allLines = formatMenuDescriptionLines(item.desc, width);
+		const descriptionLines = allLines.slice(0, Math.min(2, bodyHeight - 1));
+		if (allLines.length > descriptionLines.length && descriptionLines.length) {
+			descriptionLines[descriptionLines.length - 1] = fitMenuLine(descriptionLines.at(-1)! + "…", width - 2);
+		}
+		return { item, index, title: fitMenuLine(item.title, width - 2), descriptionLines };
+	});
+	let startIndex = selected;
+	let endIndex = Math.min(items.length, selected + 1);
+	let usedRows = formatted[selected] ? 1 + formatted[selected]!.descriptionLines.length : 0;
+	const itemLimit = Math.max(1, maxVisibleItems);
+	while (startIndex > 0 && endIndex - startIndex < itemLimit) {
+		const cost = 1 + formatted[startIndex - 1]!.descriptionLines.length;
+		if (usedRows + cost > bodyHeight) break;
+		usedRows += cost;
+		startIndex--;
+	}
+	while (endIndex < items.length && endIndex - startIndex < itemLimit) {
+		const cost = 1 + formatted[endIndex]!.descriptionLines.length;
+		if (usedRows + cost > bodyHeight) break;
+		usedRows += cost;
+		endIndex++;
+	}
+	return {
+		items: formatted.slice(startIndex, endIndex), startIndex, endIndex,
+		hintLines,
+		position: items.length ? fitMenuLine(`${selected + 1}/${items.length} · ↑↓ · PgUp/PgDn · Enter · Esc`, width) : "",
+	};
+}
+
 export function MenuView({
 	title,
 	items,
 	cursor,
 	hint,
 	maxVisibleItems,
+	maxHeight,
+	columns,
 }: MenuViewProps): React.ReactElement {
 	const { stdout } = useStdout();
-	const terminalWidth = Math.max(20, stdout?.columns || 80);
+	const terminalWidth = Math.max(20, columns || stdout?.columns || 80);
 	const visible = getVisibleMenuItems(
 		items,
 		cursor,
 		maxVisibleItems ?? items.length,
 	);
+	const viewport = maxHeight === undefined ? undefined : getMenuViewport(items, cursor, terminalWidth, maxHeight, hint, maxVisibleItems);
+	const rows = viewport?.items ?? visible.items.map((item, index) => ({
+		item, index: visible.startIndex + index,
+		title: truncateMenuTitle(item.title),
+		descriptionLines: formatMenuDescriptionLines(item.desc, terminalWidth),
+	}));
 
 	return (
-		<Box flexDirection="column">
-			<Text bold color={MENU_ITEM_COLORS.title}>
+		<Box flexDirection="column" width={viewport ? terminalWidth : undefined}>
+			<Text bold color={MENU_ITEM_COLORS.title} wrap={viewport ? "truncate" : "wrap"}>
 				{title}
 			</Text>
 			{MENU_TITLE_GAP_LINES > 0 && <Text> </Text>}
 			{items.length === 0 ? (
 				<Text color={MENU_ITEM_COLORS.empty}>(empty)</Text>
 			) : (
-				visible.items.map((item, i) => {
-					const absoluteIndex = visible.startIndex + i;
-					const selected = absoluteIndex === cursor;
+				rows.map(({ item, index, title: itemTitle, descriptionLines }) => {
+					const selected = index === clampMenuCursor(cursor, items.length);
 					return (
 						<Box key={menuItemKey(item)} flexDirection="column">
-							<Text>
+							<Text wrap={viewport ? "truncate" : "wrap"}>
 								<Text
 									color={
 										selected
@@ -155,14 +221,15 @@ export function MenuView({
 											: MENU_ITEM_COLORS.inactiveTitle
 									}
 								>
-									{truncateMenuTitle(item.title)}
+									{itemTitle}
 								</Text>
 							</Text>
-							{formatMenuDescriptionLines(item.desc, terminalWidth).map(
-								(line) => (
+							{descriptionLines.map(
+								(line, lineIndex) => (
 									<Text
-										key={`${item.title}-desc-${line}`}
+										key={`${item.title}-desc-${lineIndex}`}
 										color={MENU_ITEM_COLORS.description}
+										wrap={viewport ? "truncate" : "wrap"}
 									>
 										{`  ${line}`}
 									</Text>
@@ -172,10 +239,11 @@ export function MenuView({
 					);
 				})
 			)}
-			{hint && (
+			{viewport?.position && <Text color={MENU_ITEM_COLORS.description} wrap="truncate">{viewport.position}</Text>}
+			{(viewport ? viewport.hintLines.length > 0 : hint) && (
 				<Box flexDirection="column">
 					<Text> </Text>
-					<Text color={MENU_ITEM_COLORS.hint}>{hint}</Text>
+					{(viewport?.hintLines ?? [hint]).map((line, index) => <Text key={index} color={MENU_ITEM_COLORS.hint} wrap={viewport ? "truncate" : "wrap"}>{line}</Text>)}
 				</Box>
 			)}
 		</Box>

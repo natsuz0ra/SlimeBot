@@ -27,6 +27,7 @@ type managedProcess struct {
 	EndedAt   time.Time
 	Status    string
 	Result    processRunResult
+	done      chan struct{}
 	cancel    context.CancelFunc
 }
 
@@ -55,12 +56,14 @@ func (m *ProcessManager) Start(command string, runner func(context.Context) proc
 		StartedAt: time.Now(),
 		Status:    "running",
 		cancel:    cancel,
+		done:      make(chan struct{}),
 	}
 	m.items[id] = item
 	m.trimLocked()
 	m.mu.Unlock()
 
 	go func() {
+		defer close(item.done)
 		result := runner(ctx)
 		m.mu.Lock()
 		defer m.mu.Unlock()
@@ -236,4 +239,38 @@ func formatManagedProcess(item managedProcess, includeOutput bool) string {
 		}
 	}
 	return out.String()
+}
+
+// StopAndWait drains owned commands before a worktree is captured or removed.
+func (m *ProcessManager) StopAndWait(ctx context.Context) error {
+	m.mu.Lock()
+	var done []chan struct{}
+	for _, p := range m.items {
+		if p.Status == "running" || p.Status == "stopping" {
+			p.Status = "stopping"
+			p.cancel()
+			done = append(done, p.done)
+		}
+	}
+	m.mu.Unlock()
+	for _, ch := range done {
+		select {
+		case <-ch:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+	return nil
+}
+
+// HasRunning keeps an eviction from detaching processes that still need draining.
+func (m *ProcessManager) HasRunning() bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, item := range m.items {
+		if item.Status == "running" || item.Status == "stopping" {
+			return true
+		}
+	}
+	return false
 }

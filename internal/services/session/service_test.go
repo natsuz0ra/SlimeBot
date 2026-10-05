@@ -2,18 +2,22 @@ package session
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"slimebot/internal/domain"
 )
 
 type storeStub struct {
 	seenCtx         context.Context
+	searchHits      []domain.ChatSearchHit
 	sessions        []domain.Session
 	messages        []domain.Message
 	toolRecords     []domain.ToolCallRecord
@@ -273,4 +277,40 @@ func TestSessionServicePassesContextToStore(t *testing.T) {
 	if !errors.Is(store.seenCtx.Err(), context.Canceled) {
 		t.Fatalf("expected canceled context to reach store, got %v", store.seenCtx.Err())
 	}
+}
+
+func (s *storeStub) SearchChats(ctx context.Context, query, scope string, limit, offset int) ([]domain.ChatSearchHit, error) {
+	return s.searchHits, nil
+}
+
+func TestSearchSnippetKeepsUnicodeMatch(t *testing.T) {
+	content := strings.Repeat("前文🌟", 100) + "部署计划" + strings.Repeat("后文", 100)
+	got := searchSnippet(content, "部署计划")
+	if !strings.Contains(got, "部署计划") || !strings.HasPrefix(got, "…") || !strings.HasSuffix(got, "…") || len([]rune(got)) > 182 || !utf8.ValidString(got) {
+		t.Fatalf("invalid snippet: %q", got)
+	}
+}
+
+func TestSearchReturnsSnippetsWithPagination(t *testing.T) {
+	store := &storeStub{}
+	for i := 0; i < 31; i++ {
+		store.searchHits = append(store.searchHits, domain.ChatSearchHit{Content: strings.Repeat("前文", 100) + "部署计划"})
+	}
+	result, err := NewSessionService(store).Search(context.Background(), "部署计划", "all", 30, 0)
+	if err != nil || len(result.Hits) != 30 || !result.HasMore {
+		t.Fatalf("page: %+v %v", result, err)
+	}
+	for _, hit := range result.Hits {
+		if !strings.Contains(hit.Snippet, "部署计划") {
+			t.Fatalf("missing match: %+v", hit)
+		}
+	}
+	data, err := json.Marshal(result)
+	if err != nil || strings.Contains(string(data), "Content") || strings.Contains(string(data), strings.Repeat("前文", 100)) {
+		t.Fatalf("raw content exposed: %s %v", data, err)
+	}
+}
+
+func (s *storeStub) GetSessionByID(ctx context.Context, id string) (*domain.Session, error) {
+	return &domain.Session{ID: id, Name: "Test"}, nil
 }

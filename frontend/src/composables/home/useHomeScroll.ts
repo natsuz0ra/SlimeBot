@@ -30,7 +30,7 @@ export function useHomeScroll(options: {
   let messagesResizeObserver: ResizeObserver | null = null
   let observedMessagesContent: Element | null = null
 
-  const showScrollToBottom = computed(() => !isEmptySession.value && !autoStickToBottom.value)
+  const showScrollToBottom = computed(() => !isEmptySession.value && (!autoStickToBottom.value || store.hasNewerHistory))
 
   function setMessagesRef(el: unknown) {
     messagesRef.value = (el as { $el?: HTMLElement } | null)?.$el ?? (el as HTMLElement | null)
@@ -150,6 +150,7 @@ export function useHomeScroll(options: {
   function scrollMessagesToBottom(force = false) {
     const el = messagesRef.value
     if (!el) return
+    if (store.focusedMessageId) return
     if (!force && !autoStickToBottom.value) return
     el.scrollTop = el.scrollHeight
     autoStickToBottom.value = true
@@ -281,7 +282,22 @@ export function useHomeScroll(options: {
     return next.some((value, index) => value !== '' && value !== previous[index])
   }
 
-  function scrollToBottomByButton() {
+  async function scrollToMessage(id: string) {
+    clearScrollToBottomPendingTimer()
+    clearScrollToBottomEndHandler()
+    scrollToBottomPending.value = false
+    autoStickToBottom.value = false
+    await nextTick()
+    await waitForAnimationFrame()
+    const target = Array.from(messagesRef.value?.querySelectorAll<HTMLElement>('[data-message-id]') || [])
+      .find((item) => item.dataset.messageId === id)
+    target?.scrollIntoView({ block: 'center', behavior: 'instant' })
+  }
+
+  async function scrollToBottomByButton() {
+    if (store.hasNewerHistory && store.currentSessionId) await store.selectSession(store.currentSessionId)
+    store.focusedMessageId = ''
+    await nextTick()
     const el = messagesRef.value
     if (!el) return
     scrollToBottomPending.value = true
@@ -375,7 +391,7 @@ export function useHomeScroll(options: {
   watch(
     () => store.currentSessionId,
     () => {
-      autoStickToBottom.value = true
+      autoStickToBottom.value = !store.focusedMessageId
       loadingOlderFromScroll.value = false
       queueScrollMessagesToBottom(true)
     },
@@ -480,5 +496,6 @@ export function useHomeScroll(options: {
     scrollMessagesToBottom,
     queueScrollMessagesToBottom,
     scrollToBottomByButton,
+    scrollToMessage,
   }
 }

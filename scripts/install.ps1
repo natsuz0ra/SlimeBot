@@ -109,6 +109,9 @@ if (Test-Path (Join-Path $sourceDir "docs")) {
   Copy-Item -Recurse -Force (Join-Path $sourceDir "docs") $installDir
 }
 Copy-Item -Force (Join-Path $sourceDir "README.md"), (Join-Path $sourceDir "README.zh-CN.md"), (Join-Path $sourceDir "LICENSE") $installDir
+if (Test-Path (Join-Path $sourceDir "README.en.md")) {
+  Copy-Item -Force (Join-Path $sourceDir "README.en.md") $installDir
+}
 
 $slimebotCmd = Join-Path $shimDir "slimebot.cmd"
 $slimebotCliCmd = Join-Path $shimDir "slimebot-cli.cmd"

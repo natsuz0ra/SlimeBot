@@ -229,7 +229,7 @@ for target in "${TARGETS[@]}"; do
   cp scripts/install.ps1 "${package_dir}/install.ps1"
   cp scripts/uninstall.sh "${package_dir}/uninstall.sh"
   cp scripts/uninstall.ps1 "${package_dir}/uninstall.ps1"
-  cp README.md README.zh-CN.md LICENSE "${package_dir}/"
+  cp README.md README.en.md README.zh-CN.md LICENSE "${package_dir}/"
   if [[ -d docs ]]; then
     cp -R docs "${package_dir}/docs"
   fi

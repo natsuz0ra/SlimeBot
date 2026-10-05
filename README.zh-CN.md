@@ -1,7 +1,7 @@
 <p align="center">
   <img src="assets/title.png" alt="SlimeBot Logo" width="420" />
   <br /><br />
-  <a href="README.md">English</a> | <strong>简体中文</strong>
+  <strong>简体中文</strong> | <a href="README.en.md">English</a>
 </p>
 
 # SlimeBot

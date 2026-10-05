@@ -138,6 +138,9 @@ if [ -d "$SOURCE_DIR/docs" ]; then
   cp -R "$SOURCE_DIR/docs" "$INSTALL_DIR/"
 fi
 cp "$SOURCE_DIR/README.md" "$SOURCE_DIR/README.zh-CN.md" "$SOURCE_DIR/LICENSE" "$INSTALL_DIR/"
+if [ -f "$SOURCE_DIR/README.en.md" ]; then
+  cp "$SOURCE_DIR/README.en.md" "$INSTALL_DIR/"
+fi
 
 cat > "$SHIM_DIR/slimebot" <<EOF
 #!/usr/bin/env sh

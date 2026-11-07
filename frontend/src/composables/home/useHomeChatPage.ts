@@ -36,7 +36,7 @@ export function useHomeChatPage() {
   const canSend = computed(() => {
     if (isMessagePlatformSession.value) return false
     const hasInput = uiState.inputValue.value.trim() !== '' || uiState.pendingFiles.value.length > 0
-    return modelState.hasModel.value && !!modelState.selectedModelId.value && hasInput && !store.waiting && store.isSocketReady
+    return modelState.hasModel.value && !!modelState.selectedModelId.value && hasInput && (!store.waiting || (!!store.activeTurnId && uiState.pendingFiles.value.length === 0)) && store.isSocketReady
   })
   const sendDisabled = computed(() => !canSend.value)
   const stopDisabled = computed(() => !store.waiting || !store.isSocketReady)

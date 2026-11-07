@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 ﻿/**
  * App — Ink CLI root component.
  * Centralizes state, WebSocket events, menu behavior, and keyboard input dispatch.
@@ -1003,6 +1004,11 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
   ]);
 
   const sendMessage = useCallback(async (content: string) => {
+    if (state.streaming || state.assistantWaiting) {
+      if (!socketRef.current?.sendSteering(content, state.sessionId, randomUUID())) { dispatch({ type: "SET_INPUT", value: content } as AppAction); appendSystem("The active turn is not ready for changes. Your input has been kept."); }
+      return;
+    }
+
     if (!state.modelId) {
       appendSystem("Please select a model first with /model.");
       return;
@@ -1035,7 +1041,7 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
     if (!sendToSocket(state.sessionId)) {
       dispatch({ type: "STREAM_DONE", error: "WebSocket is not connected." } as AppAction);
     }
-  }, [appendSystem, applyTerminalTitle, state.modelId, state.sessionId, state.planMode, state.thinkingLevel]);
+  }, [appendSystem, applyTerminalTitle, state.modelId, state.sessionId, state.planMode, state.thinkingLevel, state.streaming, state.assistantWaiting]);
 
   const manageAgents = useCallback(async (command: string, inline = false) => {
     if (!state.sessionId) { appendSystem("Create or open a session first."); return; }
@@ -1381,7 +1387,7 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
               if (state.view !== "chat" || state.streaming) return;
               handleChatShortcut(input, key, dispatch);
             }}
-            focus={state.view === "chat" && !state.streaming}
+            focus={state.view === "chat"}
             columns={Math.max(20, width - 3)}
           />
         </Box>

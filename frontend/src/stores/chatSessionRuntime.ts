@@ -31,6 +31,7 @@ export function createChatSessionRuntime(sessionId: string | undefined, callback
   const hasNewerHistory = ref(false)
   let connectionRequested = false
   const messages = ref<MessageItem[]>([])
+  const activeTurnId = ref('')
   const waiting = ref(false)
   const streamingStarted = ref(false)
   const hasMoreHistory = ref(false)
@@ -296,6 +297,7 @@ export function createChatSessionRuntime(sessionId: string | undefined, callback
       },
       onStart: (sessionId, meta) => {
         if (!sessionId || sessionId !== currentSessionId.value) return
+        activeTurnId.value = meta?.turnId || ''
         waiting.value = true
         streamingStarted.value = false
         clearRuntimeTodos()
@@ -319,6 +321,24 @@ export function createChatSessionRuntime(sessionId: string | undefined, callback
           timeline: [],
           collapsed: false,
           startedAt: parseSocketTimestamp(meta?.startedAt),
+        })
+      },
+      onSteering: (data, sessionId) => {
+        if (!sessionId || sessionId !== currentSessionId.value) return
+        if (data.error) {
+          connectionError.value = data.error
+          if (data.content) pushFailedUserMessage(data.content)
+          return
+        }
+        if (!data.messageId || messages.value.some(item => item.id === data.messageId)) return
+        const batch = getCurrentBatch()
+        const index = batch ? messages.value.findIndex(item => item.id === batch.assistantMessageId) : -1
+        messages.value.splice(index < 0 ? messages.value.length : index, 0, {
+          id: data.messageId,
+          sessionId,
+          role: 'user',
+          content: data.content || '',
+          createdAt: data.createdAt || new Date().toISOString(),
         })
       },
       onMessageEdited: (data, sessionId) => {
@@ -349,6 +369,7 @@ export function createChatSessionRuntime(sessionId: string | undefined, callback
       },
       onDone: async (sessionId, answer, meta) => {
         if (!sessionId || sessionId !== currentSessionId.value) return
+        activeTurnId.value = ''
         waiting.value = false
         streamingStarted.value = false
         planGenerating.value = false
@@ -389,6 +410,7 @@ export function createChatSessionRuntime(sessionId: string | undefined, callback
       },
       onError: (error, sessionId) => {
         if (!sessionId || sessionId !== currentSessionId.value) return
+        activeTurnId.value = ''
         waiting.value = false
         streamingStarted.value = false
         connectionError.value = error
@@ -663,6 +685,7 @@ export function createChatSessionRuntime(sessionId: string | undefined, callback
         planGenerating.value = false
       },
       onSocketError: (error) => {
+        activeTurnId.value = ''
         waiting.value = false
         streamingStarted.value = false
         pendingEditMessageId.value = ''
@@ -675,6 +698,7 @@ export function createChatSessionRuntime(sessionId: string | undefined, callback
       },
       onClose: () => {
         if (!connectionRequested) return
+        activeTurnId.value = ''
         waiting.value = false
         streamingStarted.value = false
         pendingEditMessageId.value = ''
@@ -703,7 +727,7 @@ export function createChatSessionRuntime(sessionId: string | undefined, callback
 
   return {
     sessionId: currentSessionId, ws, connectSocket, closeSocket,
-    messages, waiting, streamingStarted, hasMoreHistory, loadingOlderHistory, loadingNewerMessages, focusedMessageId, hasNewerHistory, connectionStatus, connectionError, planGenerating, runtimeTodos, runtimeTodoNote, runtimeTodoUpdatedAt, todoPanelOpen, contextUsage, replyBatches, currentBatchId, assistantErrorIds, failedUserMessageIds, pendingPlanConfirmation, pendingEditMessageId, pendingQuestions,
+    messages, activeTurnId, waiting, streamingStarted, hasMoreHistory, loadingOlderHistory, loadingNewerMessages, focusedMessageId, hasNewerHistory, connectionStatus, connectionError, planGenerating, runtimeTodos, runtimeTodoNote, runtimeTodoUpdatedAt, todoPanelOpen, contextUsage, replyBatches, currentBatchId, assistantErrorIds, failedUserMessageIds, pendingPlanConfirmation, pendingEditMessageId, pendingQuestions,
     resetSessionRuntimeState, clearContextUsage, refreshContextUsage, clearRuntimeTodos, applyRuntimeTodoUpdate, toggleTodoPanel, resetHistoryState, materializeMessages, rebuildReplyBatchesFromHistory, mergeReplyBatchesFromHistory, isStreamingMessage, isAssistantErrorMessage, isFailedUserMessage, pushFailedUserMessage,
     isSocketReady, pendingApprovalToolCallIds, latestEditableUserMessageId,
   }

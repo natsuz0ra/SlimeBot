@@ -30,6 +30,8 @@ type Controller struct {
 
 // chatIncoming is the client WebSocket message shape.
 type chatIncoming struct {
+	TurnID          string   `json:"turnId"`
+	SubmissionID    string   `json:"submissionId"`
 	Type            string   `json:"type"`            // Message type: chat, ping, tool_approve, etc.
 	SessionID       string   `json:"sessionId"`       // Session ID
 	MessageID       string   `json:"messageId"`       // Existing user message ID for edit-and-resend
@@ -264,6 +266,13 @@ func (w *Controller) startReadLoop(
 						Answers:    incoming.Answers,
 					})
 				}
+			case "steer":
+				accepted, err := w.chatService.Steer(sessionCtx, strings.TrimSpace(incoming.SessionID), incoming.TurnID, incoming.SubmissionID, incoming.Content)
+				if err != nil {
+					_ = enqueue(map[string]any{"type": "steer_rejected", "sessionId": incoming.SessionID, "submissionId": incoming.SubmissionID, "content": incoming.Content, "error": err.Error()})
+					continue
+				}
+				_ = enqueue(map[string]any{"type": "steer_accepted", "sessionId": incoming.SessionID, "change": accepted})
 			case "stop":
 				// User stopped this stream: cancel chatCtx only, keep WebSocket open.
 				if activeCancel.Cancel() {
@@ -392,9 +401,6 @@ func (w *Controller) handleChatIncoming(
 	if !enqueue(map[string]any{"type": "session", "sessionId": session.ID}) {
 		return false
 	}
-	if incoming.Type != "chat_edit" && !enqueue(buildChatStartPayload(session.ID, receivedAt)) {
-		return false
-	}
 
 	startSentAt := time.Now()
 	var firstChunkSentAt time.Time
@@ -411,6 +417,20 @@ func (w *Controller) handleChatIncoming(
 		return ok || sessionCtx.Err() != nil
 	}
 	callbacks := w.buildCallbacks(taskEnqueue, broker, session.ID, &firstChunkSentAt)
+	startPayload := func(at time.Time) map[string]any {
+		payload := buildChatStartPayload(session.ID, at)
+		payload["turnId"] = requestID
+		return payload
+	}
+	if incoming.Type != "chat_edit" {
+		callbacks.OnTurnStarted = func(string) error {
+			if !taskEnqueue(startPayload(receivedAt)) {
+				return context.Canceled
+			}
+			return nil
+		}
+	}
+
 	var streamResult *chatsvc.ChatStreamResult
 	if incoming.Type == "chat_edit" {
 		startEnqueued := false
@@ -420,7 +440,7 @@ func (w *Controller) handleChatIncoming(
 			}
 			startSentAt = time.Now()
 			startEnqueued = true
-			if !enqueue(buildChatStartPayload(session.ID, startSentAt)) {
+			if !enqueue(startPayload(startSentAt)) {
 				return context.Canceled
 			}
 			return nil
@@ -440,7 +460,7 @@ func (w *Controller) handleChatIncoming(
 		)
 		if err == nil && !startEnqueued {
 			startSentAt = time.Now()
-			if !enqueue(buildChatStartPayload(session.ID, startSentAt)) {
+			if !enqueue(startPayload(startSentAt)) {
 				return false
 			}
 		}

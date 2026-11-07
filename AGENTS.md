@@ -56,7 +56,7 @@ internal/
 ├─ services/
 │  ├─ anthropic/             # Anthropic provider integration
 │  ├─ auth/                  # Auth service logic
-│  ├─ chat/                  # Chat orchestration
+│  ├─ chat/                  # Chat orchestration and active-turn steering
 │  ├─ context/               # Model transcript projection, per-request budgets, pruning, and atomic checkpoints
 │  ├─ config/                # Config service logic
 │  ├─ llm/                   # LLM abstraction/service
@@ -128,6 +128,7 @@ Quick index (feature -> first place to inspect):
 - WebSocket server flow: `internal/server/ws/`
 - Sandbox policy and command isolation: `internal/sandbox/`
 - LLM abstraction/provider wiring: `internal/services/llm/`, `internal/services/openai/`, `internal/services/anthropic/`
+- Active-turn steering: `internal/services/chat/steering.go`, `internal/services/chat/agent.go`, `AGENT-FLOW.md`
 - Context compaction: `internal/services/context/`, `internal/repositories/repo_context.go`, `internal/services/chat/context_bridge.go` (raw model steps are separate from UI messages; usage reads never call models; `SLIMEBOT_CONTEXT_COMPACTION=off` bypasses checkpoints while keeping pruning/budget guards)
 - Long-term memory store/service: `internal/services/memory/`, `internal/tools/memory.go`
 - Scheduled tasks and execution history: `internal/services/schedule/`, `internal/tools/schedule.go`, `internal/app/schedule_runner.go`, `internal/server/controller/scheduled_tasks.go`

@@ -70,10 +70,6 @@ function onTextareaKeydown(e: KeyboardEvent) {
   if (e.isComposing) return
   if (e.key === 'Enter' && !e.shiftKey) {
     e.preventDefault()
-    if (props.isStreaming) {
-      emit('stop')
-      return
-    }
     emit('send')
   }
 }
@@ -297,7 +293,7 @@ onUnmounted(() => {
       ref="textareaRef"
       :value="modelValue"
       class="textarea-primary w-full resize-none border-0 outline-none bg-transparent px-4 pt-3.5 pb-10  text-sm leading-relaxed min-h-[112px] max-h-[260px] overflow-y-auto"
-      :placeholder="placeholder"
+      :placeholder="isStreaming ? t('steerPlaceholder') : placeholder"
       rows="1"
       @keydown="onTextareaKeydown"
       @input="onTextareaInput"
@@ -385,7 +381,7 @@ onUnmounted(() => {
           <button
             type="button"
             class="w-8 h-8 flex items-center justify-center rounded-xl transition-all duration-150 cursor-pointer flex-shrink-0 attach-btn"
-            :disabled="pendingFiles.length >= 5"
+            :disabled="isStreaming || pendingFiles.length >= 5"
             :aria-label="t('uploadTipLine1')"
             @click="openFilePicker"
           >
@@ -409,8 +405,9 @@ onUnmounted(() => {
           <MdiIcon :path="mdiStop" :size="15" />
         </button>
         <button
-          v-else
           type="button"
+          :title="isStreaming ? t('steerSend') : undefined"
+          :aria-label="isStreaming ? t('steerSend') : t('send')"
           class="w-8 h-8 flex items-center justify-center rounded-xl transition-all duration-150 cursor-pointer flex-shrink-0"
           :class="sendDisabled ? 'send-btn-disabled' : 'send-btn btn-primary'"
           :disabled="sendDisabled"

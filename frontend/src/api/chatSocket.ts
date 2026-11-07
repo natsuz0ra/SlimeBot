@@ -3,8 +3,10 @@ import type { ToolCallStatus } from '@/types/chat'
 import type { TeamMemberRunItem, TeamRunItem } from '@/api/chat'
 
 export type ChatSocketHandlers = {
+  onSteering?: (data: { submissionId: string; messageId?: string; turnId?: string; content?: string; createdAt?: string; error?: string }, sessionId?: string) => void
+
   onSession: (sessionId: string) => void
-  onStart: (sessionId?: string, meta?: { startedAt?: string }) => void
+  onStart: (sessionId?: string, meta?: { startedAt?: string; turnId?: string }) => void
   onChunk: (chunk: string, sessionId?: string) => void
   onSessionTitle: (title: string, sessionId?: string) => void
   onDone: (sessionId?: string, answer?: string, meta?: { isInterrupted?: boolean; isStopPlaceholder?: boolean; planId?: string; planBody?: string; finishedAt?: string; durationMs?: number }) => void
@@ -163,6 +165,9 @@ export interface ContextUsageData {
 
 type WSIncoming = {
   type: string
+  turnId?: string
+  submissionId?: string
+  change?: { submissionId: string; messageId: string; turnId: string; content: string; createdAt: string }
   id?: string
   sessionId?: string
   messageId?: string
@@ -296,7 +301,9 @@ export function dispatchChatSocketMessage(raw: string, handlers: ChatSocketHandl
   if (data.type === 'pong') return true
 
   if (data.type === 'session' && data.sessionId) handlers?.onSession(data.sessionId)
-  if (data.type === 'start') handlers?.onStart(data.sessionId, { startedAt: data.startedAt })
+  if (data.type === 'steer_accepted' && data.change) handlers?.onSteering?.(data.change, data.sessionId)
+  if (data.type === 'steer_rejected') handlers?.onSteering?.({ submissionId: data.submissionId || '', error: data.error || 'Change rejected.', ...(data.content ? {content: data.content} : {}) }, data.sessionId)
+  if (data.type === 'start') handlers?.onStart(data.sessionId, { startedAt: data.startedAt, turnId: data.turnId })
   if (data.type === 'chunk') handlers?.onChunk(data.content || '', data.sessionId)
   if (data.type === 'session_title') handlers?.onSessionTitle(data.title || '', data.sessionId)
   if (data.type === 'message_edited') {
@@ -503,6 +510,12 @@ export class ChatSocket {
       return false
     }
     this.ws.send(JSON.stringify({ type: 'chat_edit', messageId, content, sessionId, modelId, thinkingLevel: thinkingLevel || 'off', planMode: !!planMode, subagentModelId: subagentModelId || '' }))
+    return true
+  }
+
+  sendSteering(content: string, sessionId: string, turnId: string, submissionId: string) {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN || !turnId) return false
+    this.ws.send(JSON.stringify({ type: 'steer', content, sessionId, turnId, submissionId }))
     return true
   }
 

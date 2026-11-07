@@ -138,6 +138,7 @@ type ContextUsage struct {
 
 // AgentCallbacks wires the agent loop to the outside world (streaming, approval, results).
 type AgentCallbacks struct {
+	OnTurnStarted          func(turnID string) error
 	TitlePrefix            string
 	OnChunk                func(chunk string) error
 	OnContextUsage         func(usage ContextUsage) error
@@ -170,6 +171,7 @@ type AgentLoopOptions struct {
 	MaxIterations        int
 	ContextRun           *contextsvc.Run
 	OnPrepared           func(contextsvc.Prepared) error
+	steering             *turnInbox
 	Depth                int
 	ApprovalMode         string
 	PlanMode             bool

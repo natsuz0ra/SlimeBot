@@ -38,10 +38,16 @@ export function useCliSocket({
         dispatch({ type: "SET_SESSION", sessionId });
         void refreshSessionName(sessionId);
       },
-      onStart: () => {
+      onStart: (_sid, turnId) => {
+        socket.activeTurnId = turnId || "";
         planStartedRef.current = false;
         preambleShownRef.current = "";
         dispatch({ type: "STREAM_START" });
+      },
+      onSteering: (data, sid) => {
+        if (sid !== sessionRef.current.id) return;
+        if (data.error) {dispatch({ type: "APPEND_ENTRY", entry: { kind: "system", content: data.content ? `${data.error}\nUnsent guidance: ${data.content}` : data.error } }); return;}
+        dispatch({ type: "APPEND_ENTRY", entry: { kind: "user", content: data.content || "" } });
       },
       onChunk: (chunk) => {
         dispatch({ type: "STREAM_CHUNK", chunk });
@@ -54,6 +60,7 @@ export function useCliSocket({
         applyTerminalTitle(trimmed);
       },
       onDone: (_sid, meta) => {
+        socket.activeTurnId = "";
         dispatch({
           type: "STREAM_DONE",
           error: meta?.isStopPlaceholder ? "Generation stopped." : null,
@@ -72,6 +79,7 @@ export function useCliSocket({
         }
       },
       onError: (error) => {
+        socket.activeTurnId = "";
         dispatch({ type: "STREAM_DONE", error });
       },
       onToolCallStart: (data: ToolCallStartData) => {

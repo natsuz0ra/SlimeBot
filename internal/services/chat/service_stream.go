@@ -113,17 +113,23 @@ func (s *ChatService) HandleEditedChatStream(
 	if strings.TrimSpace(content) == "" {
 		return nil, fmt.Errorf("Message cannot be empty.")
 	}
-	release, err := s.acquireTurn(sessionID)
+	ctx, endTurn, err := s.beginTurn(ctx, sessionID, requestID)
 	if err != nil {
 		return nil, err
 	}
-	defer release()
+	defer endTurn()
 	state, err := s.prepareEditedChatTurn(ctx, sessionID, messageID, content, modelID, thinkingLevel)
 	if err != nil {
 		return nil, err
 	}
 	if callbacks.OnMessageEdited != nil {
 		if err := callbacks.OnMessageEdited(messageID, state.userContent, state.userCreatedAt); err != nil {
+			return nil, err
+		}
+	}
+	ctx.Value(turnInboxKey{}).(*turnInbox).open()
+	if callbacks.OnTurnStarted != nil {
+		if err := callbacks.OnTurnStarted(requestID); err != nil {
 			return nil, err
 		}
 	}
@@ -199,16 +205,22 @@ func (s *ChatService) handleChatStreamWithReceivedAt(
 		return nil, fmt.Errorf("Message cannot be empty.")
 	}
 
-	release, err := s.acquireTurn(sessionID)
+	ctx, endTurn, err := s.beginTurn(ctx, sessionID, requestID)
 	if err != nil {
 		return nil, err
 	}
-	defer release()
+	defer endTurn()
 	state, err := s.prepareChatTurn(ctx, sessionID, receivedAt, content, displayContent, modelID, attachmentIDs, thinkingLevel)
 	if err != nil {
 		return nil, err
 	}
 	defer s.cleanupTurnAttachments(state.attachments)
+	ctx.Value(turnInboxKey{}).(*turnInbox).open()
+	if callbacks.OnTurnStarted != nil {
+		if err := callbacks.OnTurnStarted(requestID); err != nil {
+			return nil, err
+		}
+	}
 	if callbacks.OnContextUsage != nil {
 		if err := callbacks.OnContextUsage(state.contextUsage); err != nil {
 			return nil, err
@@ -770,6 +782,7 @@ func (s *ChatService) executeChatTurn(
 	var latestUsage llmsvc.TokenUsage
 	answer, err := s.agent.RunAgentLoop(ctx, state.modelConfig, sessionID, state.contextMessages, state.enabledMCPConfigs, activatedSkills, agentCallbacks, AgentLoopOptions{
 		Cooperative:     cooperative,
+		steering:        func() *turnInbox { v, _ := ctx.Value(turnInboxKey{}).(*turnInbox); return v }(),
 		ApprovalMode:    approvalMode,
 		PlanMode:        planMode,
 		PlanComplete:    &planCompleted,

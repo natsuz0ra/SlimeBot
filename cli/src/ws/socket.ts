@@ -16,7 +16,8 @@ export interface ThinkingEventData {
 
 export interface WSHandlers {
   onSession: (sessionId: string) => void;
-  onStart: (sessionId?: string) => void;
+  onStart: (sessionId?: string, turnId?: string) => void;
+  onSteering?: (data: { content?: string; error?: string }, sessionId?: string) => void;
   onChunk: (chunk: string, sessionId?: string) => void;
   onSessionTitle?: (title: string, sessionId?: string) => void;
   onDone: (
@@ -46,6 +47,8 @@ export interface WSHandlers {
 }
 
 interface WSIncoming {
+  turnId?: string;
+  change?: { content: string };
   type: string;
   sessionId?: string;
   content?: string;
@@ -175,6 +178,7 @@ function normalizeContextUsage(msg: WSIncoming | ContextUsage | undefined, fallb
 }
 
 export class CLISocket {
+  activeTurnId = "";
   private ws: WebSocket | null = null;
   private handlers: WSHandlers | null = null;
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
@@ -206,6 +210,7 @@ export class CLISocket {
     });
 
     this.ws.on("close", () => {
+      this.activeTurnId = "";
       this.clearHeartbeat();
     });
   }
@@ -224,6 +229,12 @@ export class CLISocket {
         subagentModelId,
       }),
     );
+    return true;
+  }
+
+  sendSteering(content: string, sessionId: string, submissionId: string): boolean {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN || !this.activeTurnId) return false;
+    this.ws.send(JSON.stringify({ type: "steer", content, sessionId, turnId: this.activeTurnId, submissionId }));
     return true;
   }
 
@@ -302,7 +313,9 @@ export function dispatchWSMessage(raw: string, handlers: WSHandlers | null): voi
 
   if (msg.type === "session" && msg.sessionId)
     handlers?.onSession(msg.sessionId);
-  if (msg.type === "start") handlers?.onStart(msg.sessionId);
+  if (msg.type === "steer_accepted") handlers?.onSteering?.({ content: msg.change?.content }, msg.sessionId);
+  if (msg.type === "steer_rejected") handlers?.onSteering?.({ error: msg.error || "Change rejected.", ...(msg.content ? {content: msg.content} : {}) }, msg.sessionId);
+  if (msg.type === "start") handlers?.onStart(msg.sessionId, msg.turnId);
   if (msg.type === "chunk")
     handlers?.onChunk(msg.content || "", msg.sessionId);
   if (msg.type === "session_title") {

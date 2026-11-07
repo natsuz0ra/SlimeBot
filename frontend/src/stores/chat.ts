@@ -388,6 +388,12 @@ export const useChatStore = defineStore('chat', () => {
   async function sendMessage(content: string, modelId: string, files: File[] = [], thinkingLevel: string = 'off', subagentModelId: string = '') {
     const trimmed = content.trim()
     if (!trimmed && files.length === 0) return false
+    const current = activeRuntime.value
+    if (current.waiting.value) {
+      const sessionId = currentSessionId.value
+      if (!sessionId || !current.activeTurnId.value || files.length > 0) return false
+      return current.ws.sendSteering(trimmed, sessionId, current.activeTurnId.value, createClientId())
+    }
     if (!modelId) {
       activeRuntime.value.connectionError.value = 'modelId is required'
       activeRuntime.value.pushFailedUserMessage(trimmed)
@@ -606,6 +612,7 @@ export const useChatStore = defineStore('chat', () => {
     loadNewMessagesForSession,
     connectSocket,
     ensureSessionReady,
+    activeTurnId: computed(() => activeRuntime.value.activeTurnId.value),
     sendMessage,
     sendEditedMessage,
     stopCurrentResponse,

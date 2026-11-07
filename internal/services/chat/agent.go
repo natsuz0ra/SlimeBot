@@ -479,6 +479,25 @@ func (a *AgentService) RunAgentLoop(
 	todoState := a.getSessionTodoState(sessionID)
 	processManager := a.getSessionProcessManager(sessionID)
 
+	if opts.Depth > 0 {
+		opts.steering = nil
+	}
+	if opts.steering != nil && callbacks.WaitApproval != nil {
+		wait := callbacks.WaitApproval
+		callbacks.WaitApproval = func(ctx context.Context, id string) (*ApprovalResponse, error) {
+			ctx, cancel := opts.steering.approvalContext(ctx)
+			defer cancel()
+			return wait(ctx, id)
+		}
+	}
+	appendChanges := func(changes []SteeringMessage) error {
+		for _, change := range changes {
+			if err := contextRun.Append(ctx, llmsvc.ChatMessage{Role: "user", Content: change.Content}); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
 	provider := a.providerFactory.GetProvider(modelConfig.Provider)
 
 	overflowRecoveries := 0
@@ -506,6 +525,9 @@ func (a *AgentService) RunAgentLoop(
 			}
 		}
 
+		if err := appendChanges(opts.steering.drain(false)); err != nil {
+			return finalAnswer.String(), err
+		}
 		prepared, prepareErr := contextRun.Prepare(ctx, modelConfig, toolDefs, false)
 		if prepareErr != nil {
 			return "", prepareErr
@@ -643,6 +665,12 @@ func (a *AgentService) RunAgentLoop(
 					continue
 				}
 			}
+			if changes := opts.steering.drain(true); len(changes) > 0 {
+				if err := appendChanges(changes); err != nil {
+					return finalAnswer.String(), err
+				}
+				continue
+			}
 			return finalAnswer.String(), nil
 		}
 
@@ -683,6 +711,12 @@ func (a *AgentService) RunAgentLoop(
 		}
 
 		for toolIndex, tc := range result.ToolCalls {
+			if opts.steering.hasPending() {
+				flushParallelJobs()
+				messages = appendResult(messages, tc.ID, "Skipped because new user guidance arrived. Reconsider this action using the latest input.")
+				continue
+			}
+
 			if err := ctx.Err(); err != nil {
 				return "", err
 			}
@@ -909,6 +943,10 @@ func (a *AgentService) RunAgentLoop(
 				requiresApproval: invocation.requiresApproval,
 				silent:           silentTool,
 				awaitApproval: func(approvalCtx context.Context) approvalDecision {
+					if opts.steering.hasPending() {
+						return approvalDecision{rejectionMessage: "Skipped after new user guidance.", status: constants.ToolCallStatusRejected, error: "Superseded by new user guidance."}
+					}
+
 					reviewMessages := make([]llmsvc.ChatMessage, len(messages))
 					copy(reviewMessages, messages)
 					review := func(reviewCtx context.Context, req ApprovalReviewRequest) (*ApprovalReviewResult, error) {
@@ -936,6 +974,10 @@ func (a *AgentService) RunAgentLoop(
 					}
 				},
 				execute: func(execCtx context.Context) *tools.ExecuteResult {
+					if opts.steering.hasPending() {
+						return &tools.ExecuteResult{Error: "Skipped after new user guidance; reconsider this action."}
+					}
+
 					if invocationCopy.toolName == constants.RunSubagentTool {
 						activatedSkillsMu.Lock()
 						childActivatedSkills := cloneActivatedSkills(activatedSkills)
@@ -1001,6 +1043,13 @@ func (a *AgentService) RunAgentLoop(
 		}
 		// If plan_complete was called, return immediately so the caller can save the plan.
 		if opts.PlanComplete != nil && *opts.PlanComplete {
+			if changes := opts.steering.drain(true); len(changes) > 0 {
+				*opts.PlanComplete = false
+				if err := appendChanges(changes); err != nil {
+					return finalAnswer.String(), err
+				}
+				continue
+			}
 			return finalAnswer.String(), nil
 		}
 	}

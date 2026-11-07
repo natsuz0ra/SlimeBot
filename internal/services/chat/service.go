@@ -29,6 +29,7 @@ type agentsInstructionsReader interface {
 
 // ChatService orchestrates the chat flow: context, agent, uploads, and per-session skills.
 type ChatService struct {
+	turnInboxes     sync.Map // session ID -> active turn inbox
 	store           domain.ChatStore
 	settingsStore   domain.SettingsStore
 	providerFactory *llmsvc.Factory
@@ -267,11 +268,11 @@ func (s *ChatService) acquireTurn(session string) (func(), error) {
 	s.turnsMu.Lock()
 	defer s.turnsMu.Unlock()
 	if s.turns[session] {
-		return nil, fmt.Errorf("session already has an active request")
+		return nil, ErrTurnBusy
 	}
 	if s.cooperative != nil {
 		if _, _, ok := s.cooperative.Runtime.CurrentRoot(session); ok {
-			return nil, fmt.Errorf("session already has an active request")
+			return nil, ErrTurnBusy
 		}
 	}
 	s.turns[session] = true

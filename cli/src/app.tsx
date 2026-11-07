@@ -640,6 +640,7 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
       { title: "/session", desc: "Browse, switch, or delete sessions", data: null },
       { title: "/model", desc: "Switch default model", data: null },
       { title: "/provider", desc: "Manage model providers and available models", data: null },
+      { title: "/background", desc: "Show background tasks; /background stop cancels them", data: null },
       { title: "/memory", desc: "Open memory console", data: null },
       { title: "/approval", desc: "Toggle approval mode (standard/auto review/auto)", data: null },
       { title: "/effort", desc: "Toggle thinking level (off/low/medium/high)", data: null },
@@ -1141,6 +1142,15 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
       loadMCPConfigs,
       loadSandboxSettings,
       loadMemory,
+      background: (input) => {
+        const socket = socketRef.current;
+        if (input === "stop") {
+          appendSystem(socket?.cancelBackground(sessionRef.current.id) ? "Background cancellation requested." : "WebSocket is not connected.");
+        } else {
+          const tasks = [...(socket?.backgroundTasks.values() || [])];
+          appendSystem(tasks.length ? tasks.map(task => `${task.processId}: ${task.status}`).join("\n") + "\nUse /background stop to cancel." : "No background tasks for this session.");
+        }
+      },
       resetMemory,
       openTeamDetail: () => dispatch({ type: "OPEN_TEAM_DETAIL" } as AppAction),
       showHelp,
@@ -1212,6 +1222,10 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
       }
     };
   }, [state.streaming, state.assistantWaiting]);
+
+  useEffect(() => {
+    socketRef.current?.watchSession(state.sessionId);
+  }, [state.sessionId]);
 
   useCliSocket({
     apiURL,

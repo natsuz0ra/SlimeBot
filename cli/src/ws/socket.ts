@@ -14,7 +14,14 @@ export interface ThinkingEventData {
   memberRunId?: string;
 }
 
+export type BackgroundTaskData = { taskId: string; processId: string; status: string };
+
 export interface WSHandlers {
+  onBackgroundError?: (error: string, sessionId?: string) => void;
+  acceptSession?: (sessionId: string) => boolean;
+  onOpen?: () => void;
+  onBackgroundTasks?: (tasks: BackgroundTaskData[], sessionId?: string) => void;
+  onBackgroundTask?: (task: BackgroundTaskData, sessionId?: string) => void;
   onSession: (sessionId: string) => void;
   onStart: (sessionId?: string, turnId?: string) => void;
   onSteering?: (data: { content?: string; error?: string }, sessionId?: string) => void;
@@ -47,6 +54,9 @@ export interface WSHandlers {
 }
 
 interface WSIncoming {
+  taskId?: string;
+  processId?: string;
+  tasks?: BackgroundTaskData[];
   turnId?: string;
   change?: { content: string };
   type: string;
@@ -179,6 +189,7 @@ function normalizeContextUsage(msg: WSIncoming | ContextUsage | undefined, fallb
 
 export class CLISocket {
   activeTurnId = "";
+  backgroundTasks = new Map<string, BackgroundTaskData>();
   private ws: WebSocket | null = null;
   private handlers: WSHandlers | null = null;
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
@@ -199,6 +210,7 @@ export class CLISocket {
 
     this.ws.on("open", () => {
       this.startHeartbeat();
+      this.handlers?.onOpen?.();
     });
 
     this.ws.on("message", (data: WebSocket.Data) => {
@@ -235,6 +247,18 @@ export class CLISocket {
   sendSteering(content: string, sessionId: string, submissionId: string): boolean {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN || !this.activeTurnId) return false;
     this.ws.send(JSON.stringify({ type: "steer", content, sessionId, turnId: this.activeTurnId, submissionId }));
+    return true;
+  }
+
+  watchSession(sessionId: string): boolean {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return false;
+    this.ws.send(JSON.stringify({ type: "watch_session", sessionId }));
+    return true;
+  }
+
+  cancelBackground(sessionId: string): boolean {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return false;
+    this.ws.send(JSON.stringify({ type: "background_cancel", sessionId }));
     return true;
   }
 
@@ -313,8 +337,12 @@ export function dispatchWSMessage(raw: string, handlers: WSHandlers | null): voi
 
   if (msg.type === "session" && msg.sessionId)
     handlers?.onSession(msg.sessionId);
+  if (msg.sessionId && msg.type !== "session" && handlers?.acceptSession && !handlers.acceptSession(msg.sessionId)) return;
   if (msg.type === "steer_accepted") handlers?.onSteering?.({ content: msg.change?.content }, msg.sessionId);
   if (msg.type === "steer_rejected") handlers?.onSteering?.({ error: msg.error || "Change rejected.", ...(msg.content ? {content: msg.content} : {}) }, msg.sessionId);
+  if (msg.type === "background_error") handlers?.onBackgroundError?.(msg.error || "Background continuation failed.", msg.sessionId);
+  if (msg.type === "background_tasks") handlers?.onBackgroundTasks?.(msg.tasks || [], msg.sessionId);
+  if (msg.type === "background_task" && msg.taskId) handlers?.onBackgroundTask?.({ taskId: msg.taskId, processId: msg.processId || "", status: msg.status || "" }, msg.sessionId);
   if (msg.type === "start") handlers?.onStart(msg.sessionId, msg.turnId);
   if (msg.type === "chunk")
     handlers?.onChunk(msg.content || "", msg.sessionId);

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"slimebot/internal/apperrors"
 	"slimebot/internal/logging"
+	"slimebot/internal/tools"
 	"strconv"
 	"strings"
 	"sync"
@@ -154,20 +155,7 @@ func (s *ChatService) HandleEditedChatStream(
 	var interrupted bool
 	failed := true
 	defer func() {
-		if s.cooperative == nil {
-			return
-		}
-		finishCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
-		defer cancel()
-		status := "completed"
-		if failed {
-			status = "failed"
-		}
-		if interrupted || ctx.Err() != nil {
-			status = "canceled"
-			_ = s.agent.getSessionProcessManager(sessionID).StopAndWait(finishCtx)
-		}
-		_ = s.cooperative.Runtime.FinishRootStatus(finishCtx, requestID, status)
+		s.finishChatRoot(ctx, sessionID, requestID, interrupted, failed)
 	}()
 	result, err := s.executeChatTurn(ctx, sessionID, requestID, state, callbacks, planMode, subagentModelID, approvalModeOverride)
 	if result != nil {
@@ -245,20 +233,7 @@ func (s *ChatService) handleChatStreamWithReceivedAt(
 	var interrupted bool
 	failed := true
 	defer func() {
-		if s.cooperative == nil {
-			return
-		}
-		finishCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
-		defer cancel()
-		status := "completed"
-		if failed {
-			status = "failed"
-		}
-		if interrupted || ctx.Err() != nil {
-			status = "canceled"
-			_ = s.agent.getSessionProcessManager(sessionID).StopAndWait(finishCtx)
-		}
-		_ = s.cooperative.Runtime.FinishRootStatus(finishCtx, requestID, status)
+		s.finishChatRoot(ctx, sessionID, requestID, interrupted, failed)
 	}()
 	result, err := s.executeChatTurn(ctx, sessionID, requestID, state, callbacks, planMode, subagentModelID, approvalModeOverride)
 	if result != nil {
@@ -277,6 +252,23 @@ func (s *ChatService) handleChatStreamWithReceivedAt(
 	stream, finalErr := s.finalizeChatTurn(finalizeCtx, sessionID, requestID, state, result, planMode, callbacks)
 	failed = finalErr != nil || result.failed
 	return stream, finalErr
+}
+
+func (s *ChatService) finishChatRoot(ctx context.Context, sessionID, requestID string, interrupted, failed bool) {
+	if s.cooperative == nil {
+		return
+	}
+	finishCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	defer cancel()
+	status := "completed"
+	if failed {
+		status = "failed"
+	}
+	if interrupted || ctx.Err() != nil {
+		status = "canceled"
+		_ = s.agent.getSessionProcessManager(sessionID).StopAndWait(finishCtx)
+	}
+	_ = s.cooperative.Runtime.FinishRootStatus(finishCtx, requestID, status)
 }
 
 // prepareChatTurn validates input, resolves model config, saves user message, builds context in parallel.
@@ -736,6 +728,7 @@ func (s *ChatService) executeChatTurn(
 		ctx = sandboxpolicy.WithWorkingDirectory(ctx, state.session.WorkingDirectory)
 	}
 
+	ctx = tools.WithBackgroundObserver(ctx, s.backgroundObserver(ctx, state, subagentModelID, approvalMode, planMode))
 	var cooperative *cooperativeLoop
 	if s.cooperative != nil {
 		var rootErr error

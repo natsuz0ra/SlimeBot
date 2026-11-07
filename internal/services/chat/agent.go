@@ -502,6 +502,9 @@ func (a *AgentService) RunAgentLoop(
 
 	overflowRecoveries := 0
 	for i := 0; ; i++ {
+		if err := ctx.Err(); err != nil {
+			return finalAnswer.String(), err
+		}
 		limit := opts.MaxIterations
 		if limit <= 0 {
 			limit = constants.AgentMaxIterations
@@ -749,6 +752,10 @@ func (a *AgentService) RunAgentLoop(
 					approved, rejection, _ := waitApprovalIfNeeded(ctx, callbacks, tc, invocation, params, "", func(reviewCtx context.Context, req ApprovalReviewRequest) (*ApprovalReviewResult, error) {
 						return a.reviewToolApproval(reviewCtx, modelConfig, messages, req)
 					})
+					if opts.steering.hasPending() {
+						approved = false
+						rejection = "Skipped after new user guidance."
+					}
 					if approved {
 						output, toolErr = opts.Cooperative.execute(ctx, tc.Name, tc.Arguments)
 					} else {

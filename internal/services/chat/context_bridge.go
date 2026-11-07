@@ -11,7 +11,7 @@ import (
 )
 
 func (s *ChatService) beginContextRun(ctx context.Context, sessionID, requestID string, state *chatTurnState) (*contextsvc.Run, error) {
-	if s.contexts == nil {
+	if s.contexts == nil || state.userMessageID == "" {
 		return contextsvc.Ephemeral(s.providerFactory, state.contextMessages), nil
 	}
 	history, err := s.store.ListAllSessionMessages(ctx, sessionID, -1)

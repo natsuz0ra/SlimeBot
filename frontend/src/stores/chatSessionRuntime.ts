@@ -1,6 +1,6 @@
 import { computed, ref } from 'vue'
 
-import { ChatSocket, type ConnectionStatus, type ContextUsageData, type RuntimeTodoItem, type TodoUpdateData } from '@/api/chatSocket'
+import { ChatSocket, type BackgroundTaskData, type ConnectionStatus, type ContextUsageData, type RuntimeTodoItem, type TodoUpdateData } from '@/api/chatSocket'
 import { sessionAPI } from '@/api/chat'
 import { isMessagePlatformSessionId } from '@/utils/messagePlatformSessions'
 import type { MessageItem, SessionHistoryPayload, SessionHistoryThinkingItem } from '@/api/chat'
@@ -25,12 +25,17 @@ export function createChatSessionRuntime(sessionId: string | undefined, callback
   onCompleted: (id: string) => void
   onTitle: (id: string, title: string) => void
   onSessionsChanged: () => Promise<void>
+  onBackgroundSnapshot: (id: string) => void
+  onBackgroundIdle: (id: string) => void
 }) {
   const currentSessionId = ref(sessionId)
   const focusedMessageId = ref('')
   const hasNewerHistory = ref(false)
   let connectionRequested = false
   const messages = ref<MessageItem[]>([])
+  const backgroundTasks = ref<Record<string, BackgroundTaskData>>({})
+  const backgroundTaskCount = computed(() => Object.keys(backgroundTasks.value).length)
+  const backgroundTurnBatches = new Map<string, string>()
   const activeTurnId = ref('')
   const waiting = ref(false)
   const streamingStarted = ref(false)
@@ -67,6 +72,7 @@ export function createChatSessionRuntime(sessionId: string | undefined, callback
   const ws = new ChatSocket()
 
   function resetSessionRuntimeState() {
+    backgroundTurnBatches.clear()
     replyBatches.value = []
     currentBatchId.value = ''
     assistantErrorIds.value.clear()
@@ -297,6 +303,18 @@ export function createChatSessionRuntime(sessionId: string | undefined, callback
       },
       onStart: (sessionId, meta) => {
         if (!sessionId || sessionId !== currentSessionId.value) return
+        if (meta?.background && meta.turnId) {
+          const known = backgroundTurnBatches.get(meta.turnId)
+          const batch = known ? replyBatches.value.find(item => item.id === known) : undefined
+          const assistant = batch ? messages.value.find(item => item.id === batch.assistantMessageId) : undefined
+          if (batch && assistant) {
+            assistant.content = ''; batch.timeline = []; batch.toolCalls = []; batch.teamRuns = []
+            clearAssistantError(assistant.id)
+            currentBatchId.value = batch.id; activeTurnId.value = meta.turnId
+            waiting.value = true; streamingStarted.value = false
+            return
+          }
+        }
         activeTurnId.value = meta?.turnId || ''
         waiting.value = true
         streamingStarted.value = false
@@ -312,6 +330,7 @@ export function createChatSessionRuntime(sessionId: string | undefined, callback
         clearAssistantError(assistantMessageId)
         const batchId = createClientId()
         currentBatchId.value = batchId
+        if (meta?.background && meta.turnId) backgroundTurnBatches.set(meta.turnId, batchId)
         replyBatches.value.push({
           id: batchId,
           sessionId: sessionId,
@@ -322,6 +341,18 @@ export function createChatSessionRuntime(sessionId: string | undefined, callback
           collapsed: false,
           startedAt: parseSocketTimestamp(meta?.startedAt),
         })
+      },
+      onBackgroundError: (error, sessionId) => {if (sessionId === currentSessionId.value) connectionError.value = error},
+      onBackgroundTasks: (tasks, sessionId) => {
+        if (sessionId !== currentSessionId.value) return
+        backgroundTasks.value = Object.fromEntries(tasks.map(task => [task.taskId, task]))
+        if (sessionId && !waiting.value) callbacks.onBackgroundSnapshot(sessionId)
+      },
+      onBackgroundTask: (task, sessionId) => {
+        if (sessionId !== currentSessionId.value) return
+        if (['finished', 'failed', 'stopped'].includes(task.status)) delete backgroundTasks.value[task.taskId]
+        else backgroundTasks.value[task.taskId] = task
+        if (sessionId && !waiting.value && !backgroundTaskCount.value) callbacks.onBackgroundIdle(sessionId)
       },
       onSteering: (data, sessionId) => {
         if (!sessionId || sessionId !== currentSessionId.value) return
@@ -369,6 +400,7 @@ export function createChatSessionRuntime(sessionId: string | undefined, callback
       },
       onDone: async (sessionId, answer, meta) => {
         if (!sessionId || sessionId !== currentSessionId.value) return
+        backgroundTurnBatches.delete(activeTurnId.value)
         activeTurnId.value = ''
         waiting.value = false
         streamingStarted.value = false
@@ -410,6 +442,7 @@ export function createChatSessionRuntime(sessionId: string | undefined, callback
       },
       onError: (error, sessionId) => {
         if (!sessionId || sessionId !== currentSessionId.value) return
+        backgroundTurnBatches.delete(activeTurnId.value)
         activeTurnId.value = ''
         waiting.value = false
         streamingStarted.value = false
@@ -685,6 +718,7 @@ export function createChatSessionRuntime(sessionId: string | undefined, callback
         planGenerating.value = false
       },
       onSocketError: (error) => {
+        backgroundTurnBatches.delete(activeTurnId.value)
         activeTurnId.value = ''
         waiting.value = false
         streamingStarted.value = false
@@ -698,6 +732,7 @@ export function createChatSessionRuntime(sessionId: string | undefined, callback
       },
       onClose: () => {
         if (!connectionRequested) return
+        backgroundTurnBatches.delete(activeTurnId.value)
         activeTurnId.value = ''
         waiting.value = false
         streamingStarted.value = false
@@ -713,6 +748,7 @@ export function createChatSessionRuntime(sessionId: string | undefined, callback
         if (error) {
           connectionError.value = error
         } else if (status === 'connected') {
+          ws.watchSession(currentSessionId.value || '')
           connectionError.value = ''
         }
       },
@@ -727,7 +763,7 @@ export function createChatSessionRuntime(sessionId: string | undefined, callback
 
   return {
     sessionId: currentSessionId, ws, connectSocket, closeSocket,
-    messages, activeTurnId, waiting, streamingStarted, hasMoreHistory, loadingOlderHistory, loadingNewerMessages, focusedMessageId, hasNewerHistory, connectionStatus, connectionError, planGenerating, runtimeTodos, runtimeTodoNote, runtimeTodoUpdatedAt, todoPanelOpen, contextUsage, replyBatches, currentBatchId, assistantErrorIds, failedUserMessageIds, pendingPlanConfirmation, pendingEditMessageId, pendingQuestions,
+    messages, activeTurnId, backgroundTaskCount, waiting, streamingStarted, hasMoreHistory, loadingOlderHistory, loadingNewerMessages, focusedMessageId, hasNewerHistory, connectionStatus, connectionError, planGenerating, runtimeTodos, runtimeTodoNote, runtimeTodoUpdatedAt, todoPanelOpen, contextUsage, replyBatches, currentBatchId, assistantErrorIds, failedUserMessageIds, pendingPlanConfirmation, pendingEditMessageId, pendingQuestions,
     resetSessionRuntimeState, clearContextUsage, refreshContextUsage, clearRuntimeTodos, applyRuntimeTodoUpdate, toggleTodoPanel, resetHistoryState, materializeMessages, rebuildReplyBatchesFromHistory, mergeReplyBatchesFromHistory, isStreamingMessage, isAssistantErrorMessage, isFailedUserMessage, pushFailedUserMessage,
     isSocketReady, pendingApprovalToolCallIds, latestEditableUserMessageId,
   }

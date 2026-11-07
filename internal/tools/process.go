@@ -18,6 +18,7 @@ type processRunResult struct {
 	TimedOut   bool
 	Error      string
 	DurationMs int64
+	Truncated  bool
 }
 
 type managedProcess struct {
@@ -27,8 +28,39 @@ type managedProcess struct {
 	EndedAt   time.Time
 	Status    string
 	Result    processRunResult
-	done      chan struct{}
 	cancel    context.CancelFunc
+	done      chan struct{}
+	notify    func(ProcessCompletion)
+	notified  bool
+}
+
+type ProcessCompletion struct {
+	ID       string `json:"processId"`
+	Command  string `json:"command"`
+	Output   string `json:"-"`
+	Status   string `json:"status"`
+	ExitCode int    `json:"exitCode"`
+}
+
+type BackgroundObserver struct {
+	AutoWakeDisabled bool
+	Started          func(ProcessCompletion)
+	Completed        func(ProcessCompletion)
+}
+type backgroundObserverKey struct{}
+
+func WithBackgroundObserver(ctx context.Context, observer BackgroundObserver) context.Context {
+	return context.WithValue(ctx, backgroundObserverKey{}, observer)
+}
+
+// BackgroundObserverFromContext exposes the completion bridge to long-running tools.
+func BackgroundObserverFromContext(ctx context.Context) (BackgroundObserver, bool) {
+	v, ok := ctx.Value(backgroundObserverKey{}).(BackgroundObserver)
+	return v, ok
+}
+
+func processCompletion(item *managedProcess) ProcessCompletion {
+	return ProcessCompletion{item.ID, item.Command, formatManagedProcess(*item, true), item.Status, item.Result.ExitCode}
 }
 
 type ProcessManager struct {
@@ -48,6 +80,14 @@ func (m *ProcessManager) Start(command string, runner func(context.Context) proc
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	m.mu.Lock()
+	// Never evict a running process: its cancellation handle and completion must
+	// remain reachable. Admission fails when all managed slots are still busy.
+	m.trimLocked()
+	if len(m.items) >= m.maxItems {
+		m.mu.Unlock()
+		cancel()
+		return ""
+	}
 	m.nextID++
 	id := fmt.Sprintf("proc-%d", m.nextID)
 	item := &managedProcess{
@@ -65,19 +105,98 @@ func (m *ProcessManager) Start(command string, runner func(context.Context) proc
 	go func() {
 		defer close(item.done)
 		result := runner(ctx)
+		cancel()
 		m.mu.Lock()
-		defer m.mu.Unlock()
+		var notify func(ProcessCompletion)
+		var event ProcessCompletion
 		if current := m.items[id]; current != nil {
 			current.Result = result
 			current.EndedAt = time.Now()
-			if current.Status == "stopping" {
+			if current.Status == "stopping" || current.Status == "stopped" {
 				current.Status = "stopped"
 			} else {
 				current.Status = "completed"
 			}
+			if current.notify != nil && !current.notified {
+				current.notified = true
+				notify = current.notify
+				event = processCompletion(current)
+			}
+		}
+		m.mu.Unlock()
+		if notify != nil {
+			notify(event)
 		}
 	}()
 	return id
+}
+
+// Detach is safe even if the process completed immediately before detaching.
+// Exactly one completion is delivered, always outside the manager lock.
+func (m *ProcessManager) Detach(id string, notify func(ProcessCompletion)) bool {
+	m.mu.Lock()
+	item := m.items[id]
+	if item == nil {
+		m.mu.Unlock()
+		return false
+	}
+	item.notify = notify
+	var event ProcessCompletion
+	ready := false
+	if !item.EndedAt.IsZero() && !item.notified && notify != nil {
+		item.notified = true
+		event = processCompletion(item)
+		ready = true
+	}
+	m.mu.Unlock()
+	if ready {
+		notify(event)
+	}
+	return true
+}
+
+func (m *ProcessManager) Wait(ctx context.Context, id string, duration time.Duration) (processRunResult, bool, error) {
+	m.mu.Lock()
+	item := m.items[id]
+	if item == nil {
+		m.mu.Unlock()
+		return processRunResult{}, false, fmt.Errorf("managed process not found")
+	}
+	done := item.done
+	m.mu.Unlock()
+	timer := time.NewTimer(duration)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		m.Stop(id)
+		return processRunResult{}, false, ctx.Err()
+	case <-done:
+		m.mu.Lock()
+		result := item.Result
+		m.mu.Unlock()
+		return result, true, nil
+	case <-timer.C:
+		return processRunResult{}, false, nil
+	}
+}
+
+func (m *ProcessManager) StopAll() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, item := range m.items {
+		if item.Status == "running" {
+			item.Status = "stopping"
+			item.cancel()
+		}
+	}
+}
+
+func (m *ProcessManager) Forget(id string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if item := m.items[id]; item != nil && !item.EndedAt.IsZero() && item.notify == nil {
+		delete(m.items, id)
+	}
 }
 
 func (m *ProcessManager) List() []managedProcess {
@@ -127,14 +246,20 @@ func (m *ProcessManager) Stop(id string) (managedProcess, bool) {
 }
 
 func (m *ProcessManager) trimLocked() {
-	for len(m.items) > m.maxItems {
+	for len(m.items) >= m.maxItems {
 		var oldestID string
 		var oldest time.Time
 		for id, item := range m.items {
+			if item.EndedAt.IsZero() {
+				continue
+			}
 			if oldestID == "" || item.StartedAt.Before(oldest) {
 				oldestID = id
 				oldest = item.StartedAt
 			}
+		}
+		if oldestID == "" {
+			return
 		}
 		delete(m.items, oldestID)
 	}
@@ -236,6 +361,9 @@ func formatManagedProcess(item managedProcess, includeOutput bool) string {
 		}
 		if item.Result.Error != "" {
 			out.WriteString("\nError: " + item.Result.Error)
+		}
+		if item.Result.Truncated {
+			out.WriteString("\nOutput truncated.")
 		}
 	}
 	return out.String()

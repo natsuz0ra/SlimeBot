@@ -23,13 +23,16 @@ type SteeringMessage struct {
 }
 
 type turnInbox struct {
-	mu       sync.Mutex
-	id       string
-	closed   bool
-	ready    bool
-	pending  []SteeringMessage
-	accepted map[string]SteeringMessage
-	changed  chan struct{}
+	mu        sync.Mutex
+	id        string
+	closed    bool
+	ready     bool
+	pending   []SteeringMessage
+	accepted  map[string]SteeringMessage
+	changed   chan struct{}
+	finished  bool
+	delivered <-chan struct{}
+	done      chan struct{}
 }
 type turnInboxKey struct{}
 
@@ -38,18 +41,48 @@ func (s *ChatService) beginTurn(ctx context.Context, sessionID, requestID string
 	if err != nil {
 		return ctx, nil, err
 	}
-	inbox := &turnInbox{id: requestID, accepted: map[string]SteeringMessage{}, changed: make(chan struct{})}
-	if _, loaded := s.turnInboxes.LoadOrStore(sessionID, inbox); loaded {
-		release()
-		return ctx, nil, ErrTurnBusy
+	delivered, _ := ctx.Value(deliveryKey{}).(<-chan struct{})
+	inbox := &turnInbox{delivered: delivered, id: requestID, accepted: map[string]SteeringMessage{}, changed: make(chan struct{}), done: make(chan struct{})}
+	for {
+		previous, loaded := s.turnInboxes.LoadOrStore(sessionID, inbox)
+		if !loaded {
+			break
+		}
+		old := previous.(*turnInbox)
+		select {
+		case <-old.done:
+			if old.delivered != nil {
+				select {
+				case <-old.delivered:
+				default:
+					release()
+					return ctx, nil, ErrTurnBusy
+				}
+			}
+			s.turnInboxes.CompareAndDelete(sessionID, old)
+		default:
+			release()
+			return ctx, nil, ErrTurnBusy
+		}
 	}
 	return context.WithValue(ctx, turnInboxKey{}, inbox), func() {
 		inbox.mu.Lock()
-		inbox.closed = true
-		inbox.mu.Unlock()
-		if s.turnInboxes.CompareAndDelete(sessionID, inbox) {
-			release()
+		if inbox.finished {
+			inbox.mu.Unlock()
+			return
 		}
+		inbox.finished = true
+		inbox.closed = true
+		release()
+		close(inbox.done)
+		inbox.mu.Unlock()
+		remove := func() { s.turnInboxes.CompareAndDelete(sessionID, inbox) }
+		if inbox.delivered == nil {
+			remove()
+		} else {
+			go func() { <-inbox.delivered; remove() }()
+		}
+
 	}, nil
 }
 

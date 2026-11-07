@@ -34,7 +34,18 @@ export function useCliSocket({
 
     const wsBase = apiURL.replace(/^http/, "ws");
     socket.connect(wsBase, cliToken, {
+      acceptSession: (sessionId) => sessionId === sessionRef.current.id,
+      onOpen: () => {socket.watchSession(sessionRef.current.id);},
+      onBackgroundError: (error) => {dispatch({ type: "APPEND_ENTRY", entry: { kind: "system", content: error } });},
+      onBackgroundTasks: (tasks) => {socket.backgroundTasks = new Map(tasks.map(task => [task.taskId, task]));},
+      onBackgroundTask: (task) => {
+        if (["finished", "failed", "stopped"].includes(task.status)) socket.backgroundTasks.delete(task.taskId);
+        else socket.backgroundTasks.set(task.taskId, task);
+        if (task.status === "running") dispatch({ type: "APPEND_ENTRY", entry: { kind: "system", content: `Background task ${task.processId} is running. Completion will resume this conversation. Use /background stop to cancel.` } });
+      },
+
       onSession: (sessionId) => {
+        sessionRef.current = { id: sessionId, name: sessionRef.current.id === sessionId ? sessionRef.current.name : "" };
         dispatch({ type: "SET_SESSION", sessionId });
         void refreshSessionName(sessionId);
       },

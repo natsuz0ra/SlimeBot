@@ -38,6 +38,7 @@ export interface CliCommandHandlers {
   setThinkingLevel: (level: string) => void;
   loadSandboxSettings: () => Promise<void>;
   loadMemory: () => Promise<void>;
+  background?: (input: string) => void;
   resetMemory: (target: string) => Promise<void>;
   loadUpdate: () => Promise<void>;
   loadSkills: () => Promise<void>;
@@ -51,6 +52,10 @@ export interface CliCommandHandlers {
 
 export async function runCliCommand(raw: string, handlers: CliCommandHandlers): Promise<void> {
   const cmd = raw.trim();
+  if (cmd === "/background" || cmd.startsWith("/background ")) {
+    handlers.background?.(cmd.slice(11).trim());
+    return;
+  }
   if (cmd === "/new") {
     handlers.newSession();
     return;

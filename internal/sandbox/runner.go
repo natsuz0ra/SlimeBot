@@ -12,11 +12,12 @@ import (
 )
 
 type CommandRequest struct {
-	CommandName string
-	CommandArgs []string
-	Dir         string
-	Env         []string
-	Timeout     time.Duration
+	CommandName    string
+	CommandArgs    []string
+	Dir            string
+	Env            []string
+	Timeout        time.Duration
+	MaxOutputBytes int // Per stream; zero preserves the caller's unlimited capture.
 }
 
 type CommandResult struct {
@@ -25,6 +26,7 @@ type CommandResult struct {
 	ExitCode   int
 	TimedOut   bool
 	DurationMs int64
+	Truncated  bool
 }
 
 var lookPath = exec.LookPath
@@ -35,7 +37,7 @@ func RunCommand(ctx context.Context, policy *Policy, req CommandRequest) (Comman
 		ctx = context.Background()
 	}
 	if policy == nil || (policy.Mode() == ModeDangerFullAccess && policy.Network().Enabled) {
-		return runHostCommand(ctx, req.CommandName, req.CommandArgs, req.Dir, req.Env, req.Timeout)
+		return runHostCommand(ctx, req.CommandName, req.CommandArgs, req.Dir, req.Env, req.Timeout, req.MaxOutputBytes)
 	}
 	if policy.Mode() == ModeDangerFullAccess {
 		if runtime.GOOS == "windows" {
@@ -45,7 +47,7 @@ func RunCommand(ctx context.Context, policy *Policy, req CommandRequest) (Comman
 		if err != nil {
 			return CommandResult{}, err
 		}
-		return runHostCommand(ctx, commandName, commandArgs, req.Dir, req.Env, req.Timeout)
+		return runHostCommand(ctx, commandName, commandArgs, req.Dir, req.Env, req.Timeout, req.MaxOutputBytes)
 	}
 	if err := policy.CheckRead(req.Dir); err != nil {
 		return CommandResult{}, err
@@ -57,10 +59,33 @@ func RunCommand(ctx context.Context, policy *Policy, req CommandRequest) (Comman
 	if err != nil {
 		return CommandResult{}, err
 	}
-	return runHostCommand(ctx, commandName, commandArgs, req.Dir, req.Env, req.Timeout)
+	return runHostCommand(ctx, commandName, commandArgs, req.Dir, req.Env, req.Timeout, req.MaxOutputBytes)
 }
 
-func runHostCommand(ctx context.Context, commandName string, commandArgs []string, dir string, env []string, timeout time.Duration) (CommandResult, error) {
+type cappedOutput struct {
+	buffer    bytes.Buffer
+	limit     int
+	truncated bool
+}
+
+func (b *cappedOutput) Len() int       { return b.buffer.Len() }
+func (b *cappedOutput) Bytes() []byte  { return b.buffer.Bytes() }
+func (b *cappedOutput) String() string { return b.buffer.String() }
+
+func (b *cappedOutput) Write(p []byte) (int, error) {
+	n := len(p)
+	keep := n
+	if b.limit > 0 {
+		keep = min(keep, max(0, b.limit-b.Len()))
+	}
+	_, _ = b.buffer.Write(p[:keep])
+	if keep < n {
+		b.truncated = true
+	}
+	return n, nil
+}
+
+func runHostCommand(ctx context.Context, commandName string, commandArgs []string, dir string, env []string, timeout time.Duration, limits ...int) (CommandResult, error) {
 	if timeout > 0 {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, timeout)
@@ -71,8 +96,12 @@ func runHostCommand(ctx context.Context, commandName string, commandArgs []strin
 	if len(env) > 0 {
 		cmd.Env = env
 	}
-	var stdout bytes.Buffer
-	var stderr bytes.Buffer
+	limit := 0
+	if len(limits) > 0 {
+		limit = limits[0]
+	}
+	stdout := cappedOutput{limit: limit}
+	stderr := cappedOutput{limit: limit}
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 	start := time.Now()
@@ -83,6 +112,7 @@ func runHostCommand(ctx context.Context, commandName string, commandArgs []strin
 		ExitCode:   0,
 		TimedOut:   ctx.Err() == context.DeadlineExceeded,
 		DurationMs: time.Since(start).Milliseconds(),
+		Truncated:  stdout.truncated || stderr.truncated,
 	}
 	if result.TimedOut {
 		result.ExitCode = -1

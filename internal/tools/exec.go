@@ -42,6 +42,7 @@ type execRunConfig struct {
 	workingDirectory   string
 	description        string
 	sandboxPermissions string
+	yieldMs            int
 	background         bool
 }
 
@@ -66,6 +67,7 @@ type execOutputPayload struct {
 	SandboxMode        string `json:"sandbox_mode"`
 	Background         bool   `json:"background,omitempty"`
 	ProcessID          string `json:"process_id,omitempty"`
+	WakeOnCompletion   bool   `json:"wake_on_completion"`
 }
 
 func init() {
@@ -85,13 +87,14 @@ func (e *execTool) Commands() []Command {
 			Description: "Run exactly one command and return structured JSON output: stdout/stderr/exit_code/timed_out/truncated/shell/working_directory/duration_ms/sandbox_permissions. Subagent calls inherit the parent approval mode and must include a bounded description or reason. Keep command concise, quote paths with spaces, avoid unnecessary sleep/poll loops, and use safer git operations by default.",
 			Params: []CommandParam{
 				{Name: "command", Required: true, Description: "Single command string to execute.", Example: "go test ./..."},
-				{Name: "timeout_ms", Required: false, Description: "Optional timeout in milliseconds. Default 30000, max 600000.", Example: "120000"},
+				{Name: "timeout_ms", Required: false, Description: "Optional timeout in milliseconds. Default 30000, max 600000. Automatic background execution uses 600000 when omitted.", Example: "120000"},
 				{Name: "shell", Required: false, Description: "Shell selection: auto|bash|sh|powershell|cmd. Default auto.", Example: "auto"},
 				{Name: "working_directory", Required: false, Description: "Optional working directory. Must exist and be a directory.", Example: "g:\\gitCode\\SlimeBot"},
 				{Name: "description", Required: false, Description: "Short human-readable intent for approval and audit. Required unless reason is provided.", Example: "Run unit tests for tools package"},
 				{Name: "reason", Required: false, Description: "Alternative short audit reason when description is not provided.", Example: "Verify the subagent's code change"},
 				{Name: "sandbox_permissions", Required: false, Description: "Permission intent for approval context: default or required_approval. This does not bypass approval; subagents inherit the parent approval flow.", Example: "required_approval", Schema: map[string]any{"type": "string", "enum": []string{execSandboxPermissionsDefault, execSandboxPermissionsReqApproval}}},
-				{Name: "background", Required: false, Description: "Start the command as a managed background process and return process_id immediately.", Example: "false"},
+				{Name: "background", Required: false, Description: "Start in the background and return process_id immediately. When wake_on_completion is true, completion automatically resumes the conversation; you may end this turn while waiting. If false, automatic continuation is unavailable and the user must continue manually. Do not poll or sleep to wait for it.", Example: "false"},
+				{Name: "yield_time_ms", Required: false, Description: "Foreground wait before a long command continues in the background. Default 10000 ms when automatic wake-up is available; range 0..30000. The command is started only once.", Example: "1000"},
 			},
 		},
 	}
@@ -131,24 +134,30 @@ func (e *execTool) run(ctx context.Context, params map[string]any) (*ExecuteResu
 	if policy != nil {
 		sandboxMode = string(policy.Mode())
 	}
-	if cfg.background {
+	observer, autoWake := BackgroundObserverFromContext(ctx)
+	if autoWake && paramStringTrim(params, "timeout_ms") == "" {
+		cfg.timeoutMs = maxTimeoutMs
+	}
+	if cfg.background || autoWake {
 		manager := processManagerFromContext(ctx)
 		processID := manager.Start(cfg.command, func(runCtx context.Context) processRunResult {
 			start := time.Now()
 			result, runErr := sandboxpolicy.RunCommand(runCtx, policy, sandboxpolicy.CommandRequest{
-				CommandName: invocation.commandName,
-				CommandArgs: invocation.commandArgs,
-				Dir:         invocation.workingDirectory,
-				Timeout:     time.Duration(cfg.timeoutMs) * time.Millisecond,
+				MaxOutputBytes: constants.ExecMaxOutputBytes,
+				CommandName:    invocation.commandName,
+				CommandArgs:    invocation.commandArgs,
+				Dir:            invocation.workingDirectory,
+				Timeout:        time.Duration(cfg.timeoutMs) * time.Millisecond,
 			})
-			stdoutTrimmed, _ := trimOutput(result.Stdout)
-			stderrTrimmed, _ := trimOutput(result.Stderr)
+			stdoutTrimmed, stdoutTruncated := trimOutput(result.Stdout)
+			stderrTrimmed, stderrTruncated := trimOutput(result.Stderr)
 			runResult := processRunResult{
 				Stdout:     decodeCommandOutput(runtime.GOOS, stdoutTrimmed),
 				Stderr:     decodeCommandOutput(runtime.GOOS, stderrTrimmed),
 				ExitCode:   result.ExitCode,
 				TimedOut:   result.TimedOut,
 				DurationMs: result.DurationMs,
+				Truncated:  result.Truncated || stdoutTruncated || stderrTruncated,
 			}
 			if runResult.DurationMs == 0 {
 				runResult.DurationMs = time.Since(start).Milliseconds()
@@ -158,6 +167,28 @@ func (e *execTool) run(ctx context.Context, params map[string]any) (*ExecuteResu
 			}
 			return runResult
 		})
+		if processID == "" {
+			return nil, fmt.Errorf("too many background processes; wait for a task to finish or stop one")
+		}
+		if !cfg.background {
+			result, finished, waitErr := manager.Wait(ctx, processID, time.Duration(cfg.yieldMs)*time.Millisecond)
+			if waitErr != nil {
+				return nil, waitErr
+			}
+			if finished {
+				manager.Forget(processID)
+				if result.Error != "" {
+					return nil, fmt.Errorf("%s", result.Error)
+				}
+				output, err := encodeExecOutput(execOutputPayload{Stdout: result.Stdout, Stderr: result.Stderr, ExitCode: result.ExitCode, TimedOut: result.TimedOut, Truncated: result.Truncated, Shell: invocation.shell, WorkingDirectory: invocation.workingDirectory, DurationMs: result.DurationMs, SandboxPermissions: cfg.sandboxPermissions, SandboxMode: sandboxMode})
+				return &ExecuteResult{Output: output}, err
+			}
+		}
+		if observer.Started != nil {
+			item, _ := manager.Get(processID)
+			observer.Started(processCompletion(&item))
+		}
+		manager.Detach(processID, observer.Completed)
 		out, err := encodeExecOutput(execOutputPayload{
 			Stdout:             "",
 			Stderr:             "",
@@ -171,6 +202,7 @@ func (e *execTool) run(ctx context.Context, params map[string]any) (*ExecuteResu
 			SandboxMode:        sandboxMode,
 			Background:         true,
 			ProcessID:          processID,
+			WakeOnCompletion:   autoWake && !observer.AutoWakeDisabled,
 		})
 		if err != nil {
 			return nil, err
@@ -178,10 +210,11 @@ func (e *execTool) run(ctx context.Context, params map[string]any) (*ExecuteResu
 		return &ExecuteResult{Output: out}, nil
 	}
 	result, err := sandboxpolicy.RunCommand(ctx, policy, sandboxpolicy.CommandRequest{
-		CommandName: invocation.commandName,
-		CommandArgs: invocation.commandArgs,
-		Dir:         invocation.workingDirectory,
-		Timeout:     time.Duration(cfg.timeoutMs) * time.Millisecond,
+		MaxOutputBytes: constants.ExecMaxOutputBytes,
+		CommandName:    invocation.commandName,
+		CommandArgs:    invocation.commandArgs,
+		Dir:            invocation.workingDirectory,
+		Timeout:        time.Duration(cfg.timeoutMs) * time.Millisecond,
 	})
 
 	stdoutTrimmed, stdoutTruncated := trimOutput(result.Stdout)
@@ -191,7 +224,7 @@ func (e *execTool) run(ctx context.Context, params map[string]any) (*ExecuteResu
 		Stderr:             decodeCommandOutput(runtime.GOOS, stderrTrimmed),
 		ExitCode:           result.ExitCode,
 		TimedOut:           result.TimedOut,
-		Truncated:          stdoutTruncated || stderrTruncated,
+		Truncated:          result.Truncated || stdoutTruncated || stderrTruncated,
 		Shell:              invocation.shell,
 		WorkingDirectory:   invocation.workingDirectory,
 		DurationMs:         result.DurationMs,
@@ -235,6 +268,14 @@ func parseExecRunConfig(params map[string]any, contexts ...context.Context) (exe
 		return execRunConfig{}, err
 	}
 	cfg.background = background
+	cfg.yieldMs = 10000
+	if raw := paramString(params, "yield_time_ms"); raw != "" {
+		n, err := strconv.Atoi(raw)
+		if err != nil || n < 0 || n > 30000 {
+			return execRunConfig{}, fmt.Errorf("yield_time_ms must be between 0 and 30000")
+		}
+		cfg.yieldMs = n
+	}
 
 	wd, err := resolveWorkingDirectory(paramString(params, "working_directory"), contexts...)
 	if err != nil {

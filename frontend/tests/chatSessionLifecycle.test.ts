@@ -234,7 +234,7 @@ test('navigation during creation cannot send a draft’s message to a different 
   finishCreation({ id: 'new', name: 'new', updatedAt: '' })
   assert.equal(await sending, false)
   assert.equal(store.currentSessionId, 'b')
-  assert.equal(b.sent.length, 0)
+  assert.deepEqual(b.sent, [{ type: 'watch_session', sessionId: 'b' }])
   store.disconnectSocket()
 })
 

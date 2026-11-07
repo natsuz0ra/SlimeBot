@@ -2,7 +2,6 @@ package chat
 
 import (
 	"context"
-	"fmt"
 	"strings"
 	"sync"
 	"time"
@@ -29,6 +28,8 @@ type agentsInstructionsReader interface {
 
 // ChatService orchestrates the chat flow: context, agent, uploads, and per-session skills.
 type ChatService struct {
+	backgroundOnce  sync.Once
+	background      *backgroundRuntime
 	turnInboxes     sync.Map // session ID -> active turn inbox
 	store           domain.ChatStore
 	settingsStore   domain.SettingsStore

@@ -217,6 +217,7 @@ func (c *Core) Close(ctx context.Context) {
 	}
 
 	if c.ChatService != nil {
+		c.ChatService.CloseBackground(ctx)
 		if err := c.ChatService.CloseCooperative(ctx); err != nil {
 			logging.Warn("agent_runtime_close", "err", err)
 		}

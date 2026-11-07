@@ -25,6 +25,7 @@ const props = defineProps<{
   sendDisabled: boolean
   stopDisabled: boolean
   isStreaming: boolean
+  backgroundTaskCount?: number
   pendingFiles: File[]
   placeholder: string
   planMode: boolean
@@ -39,6 +40,7 @@ const emit = defineEmits<{
   'update:modelValue': [value: string]
   send: []
   stop: []
+  stopBackground: []
   filesChange: [files: File[]]
   removeFile: [index: number]
   modelChange: [modelId: string]
@@ -394,6 +396,7 @@ onUnmounted(() => {
             <div class="mt-1 opacity-90">{{ t('uploadTipLine2') }}</div>
           </div>
         </div>
+        <button v-if="backgroundTaskCount" type="button" class="text-xs px-2 py-1 rounded-lg attach-btn" :title="t('backgroundStopHint')" @click="emit('stopBackground')">{{ t('backgroundStop', { count: backgroundTaskCount }) }}</button>
         <button
           v-if="isStreaming"
           type="button"

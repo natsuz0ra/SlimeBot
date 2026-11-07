@@ -56,7 +56,7 @@ internal/
 ├─ services/
 │  ├─ anthropic/             # Anthropic provider integration
 │  ├─ auth/                  # Auth service logic
-│  ├─ chat/                  # Chat orchestration and active-turn steering
+│  ├─ chat/                  # Chat orchestration, active-turn steering, and background completion continuations
 │  ├─ context/               # Model transcript projection, per-request budgets, pruning, and atomic checkpoints
 │  ├─ config/                # Config service logic
 │  ├─ llm/                   # LLM abstraction/service
@@ -129,6 +129,7 @@ Quick index (feature -> first place to inspect):
 - Sandbox policy and command isolation: `internal/sandbox/`
 - LLM abstraction/provider wiring: `internal/services/llm/`, `internal/services/openai/`, `internal/services/anthropic/`
 - Active-turn steering: `internal/services/chat/steering.go`, `internal/services/chat/agent.go`, `AGENT-FLOW.md`
+- Background command completion and automatic continuation: `internal/tools/process.go`, `internal/tools/exec.go`, `internal/services/chat/background_tasks.go`, `AGENT-FLOW.md`
 - Context compaction: `internal/services/context/`, `internal/repositories/repo_context.go`, `internal/services/chat/context_bridge.go` (raw model steps are separate from UI messages; usage reads never call models; `SLIMEBOT_CONTEXT_COMPACTION=off` bypasses checkpoints while keeping pruning/budget guards)
 - Long-term memory store/service: `internal/services/memory/`, `internal/tools/memory.go`
 - Scheduled tasks and execution history: `internal/services/schedule/`, `internal/tools/schedule.go`, `internal/app/schedule_runner.go`, `internal/server/controller/scheduled_tasks.go`
@@ -145,6 +146,7 @@ Quick index (feature -> first place to inspect):
 - Web update center: `frontend/src/components/settings/SettingsAboutTab.vue`, `frontend/src/api/update.ts`
 - CLI interaction flow: `cmd/cli/`, `cli/src/controllers/`, `cli/src/components/`, `cli/src/ws/`
 - CLI memory command: `/memory` routing in `cli/src/controllers/commands.ts`, API in `cli/src/api/client.ts`
+- CLI background task controls: `/background` routing in `cli/src/controllers/commands.ts`, events in `cli/src/hooks/useCliSocket.ts`
 - CLI update view: `cli/src/components/UpdateView.tsx`, `/update` command routing in `cli/src/controllers/commands.ts`
 - Prompt templates: `prompts/`
 - Release/install packaging: `scripts/`

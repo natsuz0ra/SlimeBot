@@ -201,9 +201,9 @@ test('chat socket and store forward backend reply timing for live batches', () =
   const chatSocketSource = readFileSync(resolve(import.meta.dirname, '../src/api/chatSocket.ts'), 'utf8')
   const chatStoreSource = readFileSync(resolve(import.meta.dirname, '../src/stores/chat.ts'), 'utf8') + readFileSync(resolve(import.meta.dirname, '../src/stores/chatSessionRuntime.ts'), 'utf8')
 
-  assert.match(chatSocketSource, /onStart: \(sessionId\?: string, meta\?: \{ startedAt\?: string; turnId\?: string \}\) => void/)
+  assert.match(chatSocketSource, /onStart: \(sessionId\?: string, meta\?: \{ startedAt\?: string; turnId\?: string; background\?: boolean \}\) => void/)
   assert.match(chatSocketSource, /durationMs\?: number/)
-  assert.match(chatSocketSource, /handlers\?\.onStart\(data\.sessionId, \{ startedAt: data\.startedAt, turnId: data\.turnId \}\)/)
+  assert.match(chatSocketSource, /handlers\?\.onStart\(data\.sessionId, \{ startedAt: data\.startedAt, turnId: data\.turnId, background: data\.background \}\)/)
   assert.match(chatSocketSource, /durationMs: data\.durationMs/)
   assert.match(chatStoreSource, /onStart: \(sessionId, meta\) => \{[\s\S]*startedAt: parseSocketTimestamp\(meta\?\.startedAt\),/s)
   assert.match(chatStoreSource, /finalizeReplyBatchTiming\(batch, parseSocketTimestamp\(meta\?\.finishedAt\), meta\?\.durationMs\)/)

@@ -2,11 +2,16 @@ import { getAuthToken } from '../utils/authStorage'
 import type { ToolCallStatus } from '@/types/chat'
 import type { TeamMemberRunItem, TeamRunItem } from '@/api/chat'
 
+export type BackgroundTaskData = { taskId: string; processId: string; status: string }
+
 export type ChatSocketHandlers = {
+  onBackgroundError?: (error: string, sessionId?: string) => void
+  onBackgroundTask?: (task: BackgroundTaskData, sessionId?: string) => void
+  onBackgroundTasks?: (tasks: BackgroundTaskData[], sessionId?: string) => void
   onSteering?: (data: { submissionId: string; messageId?: string; turnId?: string; content?: string; createdAt?: string; error?: string }, sessionId?: string) => void
 
   onSession: (sessionId: string) => void
-  onStart: (sessionId?: string, meta?: { startedAt?: string; turnId?: string }) => void
+  onStart: (sessionId?: string, meta?: { startedAt?: string; turnId?: string; background?: boolean }) => void
   onChunk: (chunk: string, sessionId?: string) => void
   onSessionTitle: (title: string, sessionId?: string) => void
   onDone: (sessionId?: string, answer?: string, meta?: { isInterrupted?: boolean; isStopPlaceholder?: boolean; planId?: string; planBody?: string; finishedAt?: string; durationMs?: number }) => void
@@ -164,6 +169,10 @@ export interface ContextUsageData {
 }
 
 type WSIncoming = {
+  background?: boolean
+  taskId?: string
+  tasks?: BackgroundTaskData[]
+  processId?: string
   type: string
   turnId?: string
   submissionId?: string
@@ -301,9 +310,12 @@ export function dispatchChatSocketMessage(raw: string, handlers: ChatSocketHandl
   if (data.type === 'pong') return true
 
   if (data.type === 'session' && data.sessionId) handlers?.onSession(data.sessionId)
+  if (data.type === 'background_error') handlers?.onBackgroundError?.(data.error || 'Background continuation failed.', data.sessionId)
+  if (data.type === 'background_tasks') handlers?.onBackgroundTasks?.(data.tasks || [], data.sessionId)
+  if (data.type === 'background_task' && data.taskId) handlers?.onBackgroundTask?.({ taskId: data.taskId, processId: data.processId || '', status: data.status || '' }, data.sessionId)
   if (data.type === 'steer_accepted' && data.change) handlers?.onSteering?.(data.change, data.sessionId)
   if (data.type === 'steer_rejected') handlers?.onSteering?.({ submissionId: data.submissionId || '', error: data.error || 'Change rejected.', ...(data.content ? {content: data.content} : {}) }, data.sessionId)
-  if (data.type === 'start') handlers?.onStart(data.sessionId, { startedAt: data.startedAt, turnId: data.turnId })
+  if (data.type === 'start') handlers?.onStart(data.sessionId, { startedAt: data.startedAt, turnId: data.turnId, background: data.background })
   if (data.type === 'chunk') handlers?.onChunk(data.content || '', data.sessionId)
   if (data.type === 'session_title') handlers?.onSessionTitle(data.title || '', data.sessionId)
   if (data.type === 'message_edited') {
@@ -516,6 +528,18 @@ export class ChatSocket {
   sendSteering(content: string, sessionId: string, turnId: string, submissionId: string) {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN || !turnId) return false
     this.ws.send(JSON.stringify({ type: 'steer', content, sessionId, turnId, submissionId }))
+    return true
+  }
+
+  watchSession(sessionId: string) {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return false
+    this.ws.send(JSON.stringify({ type: 'watch_session', sessionId }))
+    return true
+  }
+
+  cancelBackground(sessionId: string) {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return false
+    this.ws.send(JSON.stringify({ type: 'background_cancel', sessionId }))
     return true
   }
 

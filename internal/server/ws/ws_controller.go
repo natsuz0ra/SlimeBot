@@ -23,6 +23,7 @@ import (
 
 // Controller is the WebSocket handler: upgrades connections, splits read/write, serializes chat and tool approval.
 type Controller struct {
+	wakeBrokers sync.Map
 	chatService *chatsvc.ChatService
 	planService *plansvc.PlanService
 	upgrader    websocket.Upgrader
@@ -30,6 +31,7 @@ type Controller struct {
 
 // chatIncoming is the client WebSocket message shape.
 type chatIncoming struct {
+	dequeued        func()   `json:"-"`
 	TurnID          string   `json:"turnId"`
 	SubmissionID    string   `json:"submissionId"`
 	Type            string   `json:"type"`            // Message type: chat, ping, tool_approve, etc.
@@ -89,7 +91,7 @@ func (a *activeChatCanceler) Cancel() bool {
 }
 
 func NewController(chatService *chatsvc.ChatService, planService *plansvc.PlanService, allowedOrigins ...string) *Controller {
-	return &Controller{
+	w := &Controller{
 		chatService: chatService,
 		planService: planService,
 		upgrader: websocket.Upgrader{
@@ -116,6 +118,31 @@ func NewController(chatService *chatsvc.ChatService, planService *plansvc.PlanSe
 			},
 		},
 	}
+	if chatService != nil {
+		chatService.SetBackgroundCallbacks(func(sessionID string, publish func(any) bool) chatsvc.AgentCallbacks {
+			broker := newApprovalBroker()
+			var first time.Time
+			send := func(payload any) bool {
+				if data, ok := payload.(map[string]any); ok {
+					kind, _ := data["type"].(string)
+					id, _ := data["toolCallId"].(string)
+					required, _ := data["requiresApproval"].(bool)
+					if (kind == "tool_call_start" || kind == "tool_call_approval_required") && required {
+						w.wakeBrokers.Store(sessionID, broker)
+						broker.Register(id)
+					}
+					if kind == "tool_call_result" {
+						broker.Remove(id)
+					}
+				}
+				return publish(payload)
+			}
+			return w.buildCallbacks(send, broker, sessionID, &first)
+		})
+	}
+
+	return w
+
 }
 
 // approvalBroker holds channels for tool-call approval.
@@ -139,6 +166,9 @@ func newApprovalBroker() *approvalBroker {
 func (b *approvalBroker) Register(toolCallID string) chan chatsvc.ApprovalResponse {
 	b.mu.Lock()
 	defer b.mu.Unlock()
+	if existing := b.channels[toolCallID]; existing != nil {
+		return existing
+	}
 	ch := make(chan chatsvc.ApprovalResponse, 1)
 	if resp, ok := b.pending[toolCallID]; ok {
 		ch <- resp
@@ -162,6 +192,22 @@ func (b *approvalBroker) Resolve(toolCallID string, resp chatsvc.ApprovalRespons
 		return
 	}
 	b.pending[toolCallID] = resp
+}
+
+// ResolveRegistered routes only a known background approval, without retaining
+// unrelated foreground responses in a process-wide pending map.
+func (b *approvalBroker) ResolveRegistered(toolCallID string, resp chatsvc.ApprovalResponse) bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	ch := b.channels[toolCallID]
+	if ch == nil {
+		return false
+	}
+	select {
+	case ch <- resp:
+	default:
+	}
+	return true
 }
 
 // Remove drops the approval channel for a tool call (timeout or cancel).
@@ -197,8 +243,46 @@ func (w *Controller) Chat(wr http.ResponseWriter, req *http.Request) {
 		}
 	}
 
+	var watchMu sync.Mutex
+	var watched string
+	var stopWatch context.CancelFunc
+	watch := func(sessionID string) {
+		watchMu.Lock()
+		defer watchMu.Unlock()
+		if sessionID == watched {
+			return
+		}
+		if stopWatch != nil {
+			stopWatch()
+		}
+		watched = sessionID
+		if sessionID == "" {
+			return
+		}
+		ctx, stop := context.WithCancel(sessionCtx)
+		stopWatch = stop
+		events, unsubscribe := w.chatService.SubscribeSessionEvents(sessionID)
+		go func() {
+			defer unsubscribe()
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case event, ok := <-events:
+					if !ok {
+						cancelSession()
+						return
+					}
+					if !enqueue(event) {
+						return
+					}
+				}
+			}
+		}()
+	}
+	currentSession := func() string { watchMu.Lock(); defer watchMu.Unlock(); return watched }
 	w.startWriteLoop(sessionCtx, cancelSession, conn, writeCh)
-	w.startReadLoop(sessionCtx, cancelSession, conn, enqueue, chatCh, broker, activeCancel)
+	w.startReadLoop(sessionCtx, cancelSession, conn, enqueue, chatCh, broker, activeCancel, watch, currentSession)
 	w.runChatLoop(sessionCtx, enqueue, chatCh, broker, activeCancel)
 }
 
@@ -233,6 +317,8 @@ func (w *Controller) startReadLoop(
 	chatCh chan<- chatIncoming,
 	broker *approvalBroker,
 	activeCancel *activeChatCanceler,
+	watch func(string),
+	currentSession func() string,
 ) {
 	// Read goroutine parses and routes; chat runs serially in the main loop.
 	go func() {
@@ -252,7 +338,16 @@ func (w *Controller) startReadLoop(
 				continue
 			}
 
+			if incoming.Type == "chat" || incoming.Type == "chat_edit" || incoming.Type == "watch_session" {
+				watch(strings.TrimSpace(incoming.SessionID))
+			}
 			switch incoming.Type {
+			case "watch_session":
+				continue
+			case "background_cancel":
+				w.chatService.CancelBackground(strings.TrimSpace(incoming.SessionID))
+				continue
+
 			case "ping":
 				if !enqueue(map[string]any{"type": "pong"}) {
 					cancelSession()
@@ -260,6 +355,15 @@ func (w *Controller) startReadLoop(
 				}
 			case "tool_approve":
 				if incoming.ToolCallID != "" && incoming.Approved != nil {
+					response := chatsvc.ApprovalResponse{ToolCallID: incoming.ToolCallID, Approved: *incoming.Approved, Answers: incoming.Answers}
+					sessionID := incoming.SessionID
+					if sessionID == "" {
+						sessionID = currentSession()
+					}
+					if value, ok := w.wakeBrokers.Load(sessionID); ok && value.(*approvalBroker).ResolveRegistered(incoming.ToolCallID, response) {
+						continue
+					}
+
 					broker.Resolve(incoming.ToolCallID, chatsvc.ApprovalResponse{
 						ToolCallID: incoming.ToolCallID,
 						Approved:   *incoming.Approved,
@@ -274,6 +378,7 @@ func (w *Controller) startReadLoop(
 				}
 				_ = enqueue(map[string]any{"type": "steer_accepted", "sessionId": incoming.SessionID, "change": accepted})
 			case "stop":
+				w.chatService.CancelBackground(strings.TrimSpace(incoming.SessionID))
 				// User stopped this stream: cancel chatCtx only, keep WebSocket open.
 				if activeCancel.Cancel() {
 					_ = enqueue(map[string]any{"type": "stopping", "sessionId": incoming.SessionID})
@@ -337,8 +442,10 @@ func (w *Controller) startReadLoop(
 				if strings.TrimSpace(incoming.Content) == "" && len(incoming.AttachmentIDs) == 0 {
 					continue
 				}
+				incoming.dequeued = w.chatService.QueueForeground(incoming.SessionID)
 				select {
 				case <-sessionCtx.Done():
+					incoming.dequeued()
 					return
 				case chatCh <- incoming:
 				}
@@ -380,6 +487,9 @@ func (w *Controller) handleChatIncoming(
 	activeCancel *activeChatCanceler,
 	incoming chatIncoming,
 ) bool {
+	if incoming.dequeued != nil {
+		defer incoming.dequeued()
+	}
 	receivedAt := time.Now()
 	sessionID := strings.TrimSpace(incoming.SessionID)
 	if sessionID == "" {
@@ -406,6 +516,10 @@ func (w *Controller) handleChatIncoming(
 	var firstChunkSentAt time.Time
 	requestID := uuid.NewString()
 	chatCtx, cancel := context.WithTimeout(context.WithoutCancel(sessionCtx), constants.WSChatTimeout)
+	delivered := make(chan struct{})
+	defer close(delivered)
+	chatCtx = chatsvc.WithTurnDelivery(chatCtx, delivered)
+
 	activeCancel.Set(cancel)
 	defer activeCancel.Clear(cancel)
 	defer cancel()
@@ -424,6 +538,9 @@ func (w *Controller) handleChatIncoming(
 	}
 	if incoming.Type != "chat_edit" {
 		callbacks.OnTurnStarted = func(string) error {
+			if incoming.dequeued != nil {
+				incoming.dequeued()
+			}
 			if !taskEnqueue(startPayload(receivedAt)) {
 				return context.Canceled
 			}

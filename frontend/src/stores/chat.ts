@@ -41,6 +41,12 @@ export const useChatStore = defineStore('chat', () => {
         if (selected) selected.name = title
       },
       onSessionsChanged: loadSessions,
+      onBackgroundSnapshot: (id) => {
+        if (currentSessionId.value === id) void loadNewMessagesForSession(id, true).catch(() => {})
+      },
+      onBackgroundIdle: (id) => {
+        if (currentSessionId.value !== id) sessionRuntimes.get(id)?.closeSocket()
+      },
     })
   }
 
@@ -81,7 +87,9 @@ export const useChatStore = defineStore('chat', () => {
   function completeSession(id: string) {
     if (isSessionVisible(id)) unreadSessionIds.value.delete(id)
     else unreadSessionIds.value.add(id)
-    if (currentSessionId.value !== id) sessionRuntimes.get(id)?.closeSocket()
+    if (currentSessionId.value !== id && !sessionRuntimes.get(id)?.backgroundTaskCount.value) {
+      sessionRuntimes.get(id)?.closeSocket()
+    }
   }
 
   function connectSocket() {
@@ -90,12 +98,12 @@ export const useChatStore = defineStore('chat', () => {
   }
 
   function releaseIdleSocket() {
-    if (!activeRuntime.value.waiting.value) activeRuntime.value.closeSocket()
+    if (!activeRuntime.value.waiting.value && !activeRuntime.value.backgroundTaskCount.value) activeRuntime.value.closeSocket()
     if (sessionRuntimes.size <= 20) return
     for (const [id, runtime] of sessionRuntimes) {
       if (sessionRuntimes.size <= 20) break
       const latest = runtime.messages.value[runtime.messages.value.length - 1]
-      if (id === currentSessionId.value || runtime.waiting.value || runtime.pendingPlanConfirmation.value || unreadSessionIds.value.has(id) || (latest && runtime.assistantErrorIds.value.has(latest.id))) continue
+      if (id === currentSessionId.value || runtime.waiting.value || runtime.backgroundTaskCount.value > 0 || runtime.pendingPlanConfirmation.value || unreadSessionIds.value.has(id) || (latest && runtime.assistantErrorIds.value.has(latest.id))) continue
       runtime.closeSocket()
       sessionRuntimes.delete(id)
       sessionMetadata.delete(id)
@@ -250,8 +258,8 @@ export const useChatStore = defineStore('chat', () => {
     loadingNewerMessages.value = false
     const cached = sessionRuntimes.get(id)
     const latestCachedMessage = cached?.messages.value[cached.messages.value.length - 1]
-    const preserveRuntime = cached && (cached.waiting.value || cached.pendingPlanConfirmation.value || (latestCachedMessage && cached.assistantErrorIds.value.has(latestCachedMessage.id)))
-    if (preserveRuntime && cached.messages.value.length > 0 && (!target?.messageId || cached.messages.value.some((item) => item.id === target.messageId))) {
+    const preserveRuntime = () => cached && (cached.waiting.value || cached.backgroundTaskCount.value > 0 || cached.pendingPlanConfirmation.value || (latestCachedMessage && cached.assistantErrorIds.value.has(latestCachedMessage.id)))
+    if (preserveRuntime() && cached && cached.messages.value.length > 0 && (!target?.messageId || cached.messages.value.some((item) => item.id === target.messageId))) {
       releaseIdleSocket()
       currentSessionId.value = id
       focusedMessageId.value = target?.messageId || ''
@@ -276,7 +284,7 @@ export const useChatStore = defineStore('chat', () => {
       if (selected) sessionMetadata.set(id, selected)
       currentSessionId.value = id
       // Search may load an older page while the live reply continues. Keep its runtime intact.
-      if (preserveRuntime && cached) {
+      if (preserveRuntime() && cached) {
         prependUniqueMessages(materializeMessages(history.messages))
         mergeReplyBatchesFromHistory(id, history, 'prepend')
         if (newer) {
@@ -344,7 +352,7 @@ export const useChatStore = defineStore('chat', () => {
     }
   }
 
-  async function loadNewMessagesForSession(sessionId: string) {
+  async function loadNewMessagesForSession(sessionId: string, fromBackgroundSnapshot = false) {
     const generation = historyGeneration
     const activeSessionID = currentSessionId.value
     if (!activeSessionID || activeSessionID !== sessionId || loadingNewerMessages.value) return false
@@ -358,6 +366,7 @@ export const useChatStore = defineStore('chat', () => {
         afterSeq: latest.seq,
       })
       if (currentSessionId.value !== sessionId || generation !== historyGeneration) return false
+      if (fromBackgroundSnapshot && (activeRuntime.value.waiting.value || messages.value.at(-1)?.id !== latest.id)) return false
       hasNewerHistory.value = history.hasMore
       appendUniqueMessages(materializeMessages(history.messages))
       mergeReplyBatchesFromHistory(sessionId, history, 'append')
@@ -457,6 +466,10 @@ export const useChatStore = defineStore('chat', () => {
     waiting.value = true
     streamingStarted.value = false
     return true
+  }
+
+  function stopBackgroundTasks() {
+    return !!currentSessionId.value && activeRuntime.value.ws.cancelBackground(currentSessionId.value)
   }
 
   function stopCurrentResponse() {
@@ -613,6 +626,8 @@ export const useChatStore = defineStore('chat', () => {
     connectSocket,
     ensureSessionReady,
     activeTurnId: computed(() => activeRuntime.value.activeTurnId.value),
+    backgroundTaskCount: computed(() => activeRuntime.value.backgroundTaskCount.value),
+    stopBackgroundTasks,
     sendMessage,
     sendEditedMessage,
     stopCurrentResponse,

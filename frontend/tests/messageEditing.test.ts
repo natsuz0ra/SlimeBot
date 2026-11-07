@@ -59,9 +59,9 @@ test('applyEditedUserMessage trims following messages and updates edited created
 
 test('chat edit flow waits for backend confirmation before local prune', () => {
   const chatStoreSource = readFileSync(resolve(import.meta.dirname, '../src/stores/chat.ts'), 'utf8')
-  const sendEditedBody = chatStoreSource.match(/async function sendEditedMessage[\s\S]*?return true\n  \}/)?.[0] || ''
+  const sendEditedBody = chatStoreSource.match(/async function sendEditedMessage[\s\S]*?return true\r?\n  \}/)?.[0] || ''
   const runtimeSource = readFileSync(resolve(import.meta.dirname, '../src/stores/chatSessionRuntime.ts'), 'utf8')
-  const messageEditedHandler = runtimeSource.match(/onMessageEdited: \(data, sessionId\) => \{[\s\S]*?\n      \},\n      onChunk:/)?.[0] || ''
+  const messageEditedHandler = runtimeSource.match(/onMessageEdited: \(data, sessionId\) => \{[\s\S]*?\r?\n      \},\r?\n      onChunk:/)?.[0] || ''
 
   assert.doesNotMatch(sendEditedBody, /applyEditedUserMessage/)
   assert.match(sendEditedBody, /pendingEditMessageId\.value = messageId/)

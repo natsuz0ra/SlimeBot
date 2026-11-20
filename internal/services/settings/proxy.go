@@ -18,6 +18,9 @@ import (
 
 const proxyTestTarget = "https://api.github.com"
 
+// Winsock reports the native WSAECONNREFUSED code on Windows.
+const winsockConnectionRefused = syscall.Errno(10061)
+
 type ProxyTestResult struct {
 	Success    bool   `json:"success"`
 	Route      string `json:"route"`
@@ -105,7 +108,7 @@ func proxyTestErrorCode(err error) string {
 		return "dns"
 	case errors.As(err, &unknownAuthority) || errors.As(err, &invalidCertificate) || errors.As(err, &hostnameError) || errors.As(err, &tlsHeaderError):
 		return "tls"
-	case errors.Is(err, syscall.ECONNREFUSED):
+	case errors.Is(err, syscall.ECONNREFUSED), errors.Is(err, winsockConnectionRefused):
 		return "refused"
 	default:
 		return "network"

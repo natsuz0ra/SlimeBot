@@ -67,14 +67,18 @@
   background: var(--bg-main);
 }
 
-.section-label {
-  font-size: 12px;
+.settings-page-title {
+  margin: 0 0 12px;
+  font-size: 22px;
+  font-weight: 650;
+  line-height: 1.25;
+  color: var(--text-primary);
+}
+
+.settings-section-title {
+  font-size: 15px;
   font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  line-height: 18px;
-  color: var(--text-muted);
-  margin-bottom: 12px;
+  color: var(--text-primary);
 }
 
 .settings-card {
@@ -293,10 +297,6 @@ button.account-edit-btn:hover {
   align-items: flex-start;
   justify-content: space-between;
   gap: 16px;
-}
-
-.memory-section-label {
-  margin-bottom: 4px;
 }
 
 .memory-overview-card,

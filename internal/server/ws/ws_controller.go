@@ -15,6 +15,7 @@ import (
 	"time"
 
 	chatsvc "slimebot/internal/services/chat"
+	llmsvc "slimebot/internal/services/llm"
 	plansvc "slimebot/internal/services/plan"
 
 	"github.com/google/uuid"
@@ -823,6 +824,12 @@ func (w *Controller) buildCallbacks(
 	firstChunkSentAt *time.Time,
 ) chatsvc.AgentCallbacks {
 	return chatsvc.AgentCallbacks{
+		OnPrivacy: func(summary llmsvc.PrivacySummary) error {
+			if !enqueue(map[string]any{"type": "privacy", "sessionId": sessionID, "masked": summary.Masked, "warned": summary.Warned, "blocked": summary.Blocked}) {
+				return context.Canceled
+			}
+			return nil
+		},
 		OnChunk: func(chunk string) error {
 			if firstChunkSentAt != nil && firstChunkSentAt.IsZero() && chunk != "" {
 				*firstChunkSentAt = time.Now()

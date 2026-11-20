@@ -9,6 +9,7 @@ func wrapSubagentCallbacks(base AgentCallbacks, meta AgentEventMeta) AgentCallba
 		MemberRunID:      meta.MemberRunID,
 	}
 	return AgentCallbacks{
+		OnPrivacy: base.OnPrivacy,
 		OnChunk: func(chunk string) error {
 			if chunk == "" {
 				return nil

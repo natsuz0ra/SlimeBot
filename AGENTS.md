@@ -63,6 +63,8 @@ internal/
 │  ├─ memory/                # Long-term file memory store/service
 │  ├─ openai/                # OpenAI provider integration
 │  ├─ plan/                  # Planning workflow logic
+│  ├─ privacy/               # Local request masking, response restoration, and model lifecycle
+│  │  └─ inference/          # Pure Go Unigram tokenizer and fixed INT8 BERT inference; offline reference fixtures in testdata/
 │  ├─ schedule/              # Scheduled chat task CRUD and scheduler
 │  ├─ session/               # Session lifecycle/state
 │  ├─ settings/              # User/system settings
@@ -129,8 +131,11 @@ Quick index (feature -> first place to inspect):
 - Sandbox policy and command isolation: `internal/sandbox/`
 - LLM abstraction/provider wiring: `internal/services/llm/`, `internal/services/openai/`, `internal/services/anthropic/`
 - Active-turn steering: `internal/services/chat/steering.go`, `internal/services/chat/agent.go`, `AGENT-FLOW.md`
+- Web conversation history navigation: `frontend/src/components/chat/ChatHistoryNav.vue`, `frontend/src/composables/home/useHomeScroll.ts`
 - Background command completion and automatic continuation: `internal/tools/process.go`, `internal/tools/exec.go`, `internal/services/chat/background_tasks.go`, `AGENT-FLOW.md`
 - Context compaction: `internal/services/context/`, `internal/repositories/repo_context.go`, `internal/services/chat/context_bridge.go` (raw model steps are separate from UI messages; usage reads never call models; `SLIMEBOT_CONTEXT_COMPACTION=off` bypasses checkpoints while keeping pruning/budget guards)
+- Sensitive data masking and local model lifecycle: `internal/services/privacy/`, `internal/server/controller/privacy.go`
+- Pure Go privacy inference and tokenizer reference tests: `internal/services/privacy/inference/`
 - Long-term memory store/service: `internal/services/memory/`, `internal/tools/memory.go`
 - Scheduled tasks and execution history: `internal/services/schedule/`, `internal/tools/schedule.go`, `internal/app/schedule_runner.go`, `internal/server/controller/scheduled_tasks.go`
 - Home scheduled task workspace: `frontend/src/components/home/ScheduledTasksWorkspace.vue`, `frontend/src/components/home/TaskRunTimeline.vue`, `frontend/src/api/schedule.ts` (sidebar entry and `/tasks` route; execution contexts are excluded from ordinary chats)
@@ -143,10 +148,12 @@ Quick index (feature -> first place to inspect):
 - Build/version metadata: `internal/version/`
 - Web settings page UI: `frontend/src/components/settings/`, `frontend/src/composables/settings/`, `frontend/src/pages/`
 - Web memory settings: `frontend/src/components/settings/SettingsMemoryTab.vue`, `frontend/src/api/memory.ts`
+- Web privacy settings and previews: `frontend/src/components/settings/SettingsPrivacyTab.vue`, `frontend/src/api/privacy.ts`
 - Web update center: `frontend/src/components/settings/SettingsAboutTab.vue`, `frontend/src/api/update.ts`
 - CLI interaction flow: `cmd/cli/`, `cli/src/controllers/`, `cli/src/components/`, `cli/src/ws/`
 - CLI memory command: `/memory` routing in `cli/src/controllers/commands.ts`, API in `cli/src/api/client.ts`
 - CLI background task controls: `/background` routing in `cli/src/controllers/commands.ts`, events in `cli/src/hooks/useCliSocket.ts`
+- CLI privacy commands: `/privacy` routing in `cli/src/controllers/commands.ts`, parsing and formatting in `cli/src/utils/privacy.ts`
 - CLI update view: `cli/src/components/UpdateView.tsx`, `/update` command routing in `cli/src/controllers/commands.ts`
 - Prompt templates: `prompts/`
 - Release/install packaging: `scripts/`
@@ -194,6 +201,7 @@ Directory-aware test targeting hints:
 - Backend changes under `internal/` or `cmd/`: run `go test ./...`
 - Frontend changes under `frontend/src`: run `npm --prefix frontend test`
 - CLI changes under `cli/src`: run `npm --prefix cli test`
+- Optional real privacy-model integration: set `SLIMEBOT_PRIVACY_TEST_MODEL_DIR` to the verified AstrLink Guard model directory, then run `go test ./internal/services/privacy/...`. This covers pure Go inference, publisher tokenizer/ONNX reference fixtures and model lifecycle without Python. Normal tests do not download models.
 
 ## Commit & Pull Request Guidelines
 

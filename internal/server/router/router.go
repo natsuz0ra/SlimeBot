@@ -85,6 +85,13 @@ func New(cfg config.Config, tokenManager *auth.TokenManager, httpController *con
 			api.Post("/sessions/{id}/attachments", adapt(httpController.UploadSessionAttachments))
 
 			api.Get("/settings", adapt(httpController.GetSettings))
+			api.Get("/privacy", adapt(httpController.GetPrivacy))
+			api.Put("/privacy", adapt(httpController.UpdatePrivacy))
+			api.Post("/privacy/preview", adapt(httpController.PreviewPrivacy))
+			api.Delete("/privacy/records", adapt(httpController.ClearPrivacyRecords))
+			api.Post("/privacy/model/install", adapt(httpController.InstallPrivacyModel))
+			api.Post("/privacy/model/cancel", adapt(httpController.CancelPrivacyModel))
+			api.Delete("/privacy/model", adapt(httpController.RemovePrivacyModel))
 			api.Put("/settings", adapt(httpController.UpdateSettings))
 			api.Post("/settings/proxy/test", adapt(httpController.TestProxyConnection))
 			api.Get("/scheduled-tasks", adapt(httpController.ListScheduledTasks))

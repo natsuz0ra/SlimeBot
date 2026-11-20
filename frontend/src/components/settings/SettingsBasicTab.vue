@@ -45,7 +45,6 @@ const isDesktop = Boolean(window.slimebotDesktop)
 
 <template>
   <div>
-    <p class="section-label">{{ t('basicSettings') }}</p>
     <div v-if="!isDesktop" class="settings-card flex items-center justify-between px-4 py-3.5 rounded-xl mb-2">
       <span class="settings-field-label">{{ t('accountEdit') }}</span>
       <button type="button" class="px-3 py-1.5 rounded-lg cursor-pointer account-edit-btn settings-action-text" @click="emit('openAccount')">

@@ -23,6 +23,7 @@ import (
 	memorysvc "slimebot/internal/services/memory"
 	oaisvc "slimebot/internal/services/openai"
 	plansvc "slimebot/internal/services/plan"
+	privacysvc "slimebot/internal/services/privacy"
 	schedulesvc "slimebot/internal/services/schedule"
 	sessionsvc "slimebot/internal/services/session"
 	settingssvc "slimebot/internal/services/settings"
@@ -56,6 +57,7 @@ type Core struct {
 	PlanService      *plansvc.PlanService
 	UpdateService    *updater.Service
 	TeamService      *teamsvc.Service
+	PrivacyService   *privacysvc.Service
 
 	warmupOnce    sync.Once
 	warmupDone    chan struct{}
@@ -113,8 +115,10 @@ func newCore(cfg config.Config, desktop bool) (*Core, error) {
 
 	openaiClient := oaisvc.NewOpenAIClient()
 	anthropicClient := antsvc.NewAnthropicClient()
-	providerFactory := llmsvc.NewFactory(openaiClient)
-	providerFactory.Register(llmsvc.ProviderAnthropic, anthropicClient)
+	privacyService := privacysvc.NewService(repo, filepath.Join(filepath.Dir(cfg.DBPath), "privacy"))
+	providerFactory := llmsvc.NewFactory(privacyService.Wrap(openaiClient))
+	providerFactory.Register(llmsvc.ProviderAnthropic, privacyService.Wrap(anthropicClient))
+	providerFactory.SetTextProtector(privacyService.ProtectText)
 	mcpManager := mcp.NewManager()
 	settingsService := settingssvc.NewSettingsService(repo)
 	agentsService := agentssvc.NewService(sbruntime.GlobalAgentsPath())
@@ -175,6 +179,7 @@ func newCore(cfg config.Config, desktop bool) (*Core, error) {
 		PlanService:      planService,
 		UpdateService:    updateService,
 		TeamService:      teamService,
+		PrivacyService:   privacyService,
 		warmupDone:       make(chan struct{}),
 	}, nil
 }
@@ -224,6 +229,9 @@ func (c *Core) Close(ctx context.Context) {
 	}
 	if c.MCPManager != nil {
 		c.MCPManager.CloseAll()
+	}
+	if c.PrivacyService != nil {
+		c.PrivacyService.Close()
 	}
 	if c.Repo != nil {
 		if err := c.Repo.Close(); err != nil {

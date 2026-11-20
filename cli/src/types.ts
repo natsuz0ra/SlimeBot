@@ -511,6 +511,7 @@ export const SUPPORTED_COMMANDS: CommandMeta[] = [
   { command: "/provider", description: "Manage model providers and available models" },
   { command: "/memory", description: "Open memory console" },
   { command: "/agents", description: "Persistent agents, tasks and artifacts" },
+  { command: "/privacy", description: "Local masking settings and preview" },
   { command: "/team", description: "Open Agent Team details" },
   { command: "/subagent_model", description: "Choose sub-agent model" },
   { command: "/approval", description: "Toggle approval mode (standard/auto review/auto)" },

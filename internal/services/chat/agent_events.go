@@ -139,6 +139,7 @@ type ContextUsage struct {
 // AgentCallbacks wires the agent loop to the outside world (streaming, approval, results).
 type AgentCallbacks struct {
 	OnTurnStarted          func(turnID string) error
+	OnPrivacy              func(llmsvc.PrivacySummary) error
 	TitlePrefix            string
 	OnChunk                func(chunk string) error
 	OnContextUsage         func(usage ContextUsage) error

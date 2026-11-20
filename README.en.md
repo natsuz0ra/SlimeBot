@@ -10,10 +10,13 @@ A personal AI agent demo: an extensible foundation for conversational AI apps. I
 
 ## Features
 
-- Chat sessions, real-time streaming replies, multimodal messages, and automatic title generation
+- Chat sessions, real-time streaming replies, multimodal messages, and automatic title generation. Jump to earlier messages from the Web and desktop conversation navigator.
+- **Steer a running task.** Send a follow-up while the agent is responding to guide its next step.
+- **Resume after background commands finish.** Long commands can run in the background and continue the same conversation when they finish. [How it works](AGENT-FLOW.md)
 - Agent tool-call flows with approval modes, sandbox policies, command/file tools, web requests, web search, and task tracking
 - Desktop Computer Use on macOS, Windows, and Linux: let SlimeBot view and interact with apps on your computer, with approval for sensitive actions
 - Plan mode, streamed thinking, context compression, MCP configuration, skills, and AGENTS.md instructions
+- **Mask sensitive data locally.** Replace credentials and personal information before sending them to the model. Use built-in rules or add the optional local detector.
 - Web UI, CLI TUI, and Telegram integration
 - Web sessions grouped by working directory, with a directory picker before the first message; existing sessions without a directory appear under Uncategorized. Messaging sessions are grouped by platform.
 
@@ -123,15 +126,19 @@ Captured with sample data.
 
 ### Sign-in
 
-![Sign-in](assets/login-v1.33.0.png)
+![Sign-in](assets/login-preview.png)
 
 ### New chat and working directory
 
-![New chat with working directory picker](assets/home-v1.33.0.png)
+![New chat with working directory picker](assets/home-preview.png)
 
-### Chat and project sidebar
+### Chat navigation and project sidebar
 
-![Chat and project sidebar](assets/chat-v1.33.0.png)
+![Chat with message navigation and hover preview](assets/chat-navigation-preview.png)
+
+### Privacy & masking
+
+![Privacy and masking settings](assets/privacy-settings-preview.png)
 
 ## Status & Roadmap
 

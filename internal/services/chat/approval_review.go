@@ -42,9 +42,17 @@ func (a *AgentService) reviewToolApproval(
 	}
 	reviewModel := modelConfig
 	reviewModel.ThinkingLevel = ""
+	protectedTranscript := append([]llmsvc.ChatMessage(nil), transcript...)
+	for i, message := range transcript {
+		var err error
+		protectedTranscript[i].Content, err = a.providerFactory.ProtectText(ctx, modelConfig, message.Content)
+		if err != nil {
+			return nil, err
+		}
+	}
 	reviewModel.Purpose = "approval_review"
 	reviewModel.MaxOutputTokens = 512
-	messages := []llmsvc.ChatMessage{{Role: "system", Content: approvalReviewSystemPrompt}, {Role: "user", Content: buildApprovalReviewPrompt(transcript, req)}}
+	messages := []llmsvc.ChatMessage{{Role: "system", Content: approvalReviewSystemPrompt}, {Role: "user", Content: buildApprovalReviewPrompt(protectedTranscript, req)}}
 	budget, err := contextsvc.RequestBudget(reviewModel)
 	if err != nil {
 		return nil, err

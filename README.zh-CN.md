@@ -10,10 +10,13 @@
 
 ## 当前支持功能
 
-- 会话列表、实时流式回复、多模态消息、会话标题自动生成
+- 会话列表、流式回复、多模态消息和自动标题。Web 和桌面端可用会话内导航快速回看历史消息。
+- **运行中调整任务**。Agent 回复时可以追加要求，引导它调整下一步。
+- **后台任务自动继续**。长命令可转到后台运行，结束后自动继续同一会话。[使用说明](AGENT-FLOW.md)
 - Agent 多轮 tool call、审批模式、沙盒策略、命令/文件工具、网络请求、网络搜索和待办事项
 - 桌面 Computer Use：让 SlimeBot 查看并操作电脑上的应用，支持 macOS、Windows 和 Linux，敏感操作需经过审批
 - 规划模式、流式思考、上下文压缩、MCP 配置、Skills 与 AGENTS.md 指令
+- **本地敏感信息脱敏**。发送给模型前替换密钥和个人信息，支持内置规则和可选的本地识别模型。
 - Web UI、CLI TUI 与 Telegram 集成
 - Web 会话可在首次对话前选择工作目录，侧边栏按项目归类；旧会话归入“未分类”，消息平台会话按平台归类
 
@@ -123,15 +126,19 @@ macOS 服务 label 为 `com.natsuzora.slimebot`，plist 位于 `~/Library/Launch
 
 ### 登录页
 
-![登录页预览](assets/login-v1.33.0.png)
+![登录页预览](assets/login-preview.png)
 
 ### 新对话与工作目录
 
-![新对话与工作目录](assets/home-v1.33.0.png)
+![新对话与工作目录](assets/home-preview.png)
 
-### 会话与项目侧边栏
+### 会话导航与项目侧边栏
 
-![会话与项目侧边栏](assets/chat-v1.33.0.png)
+![会话内的消息导航和悬停预览](assets/chat-navigation-preview.png)
+
+### 隐私与脱敏
+
+![隐私与脱敏设置](assets/privacy-settings-preview.png)
 
 ## 功能状态与待办
 

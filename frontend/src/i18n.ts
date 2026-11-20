@@ -1,4 +1,5 @@
 import { createI18n } from 'vue-i18n'
+import { privacyMessages } from './privacyMessages'
 
 const messages = {
   'zh-CN': {
@@ -122,6 +123,10 @@ const messages = {
     backgroundStopHint: '停止此会话的后台任务并取消自动继续',
     steerPlaceholder: '补充要求或修改方向，Enter 发送',
     steerSend: '追加变更到当前任务',
+    chatHistoryNav: '会话消息导航',
+    chatHistoryJump: '跳到第 {number} 条用户消息：{text}',
+    chatHistoryMessage: '用户消息',
+    ...privacyMessages['zh-CN'],
     newSession: '新会话',
     workspaceChoose: '选择工作目录',
     workspaceUnclassified: '未分类',
@@ -652,6 +657,10 @@ const messages = {
     backgroundStopHint: 'Stop this session’s background tasks and cancel automatic continuation',
     steerPlaceholder: 'Add guidance to the current task, Enter to send',
     steerSend: 'Steer the current task',
+    chatHistoryNav: 'Conversation history',
+    chatHistoryJump: 'Jump to user message {number}: {text}',
+    chatHistoryMessage: 'User message',
+    ...privacyMessages['en-US'],
     newSession: 'New Session',
     workspaceChoose: 'Choose working directory',
     workspaceUnclassified: 'Unclassified',

@@ -180,8 +180,6 @@ onUnmounted(stopPolling)
 
 <template>
   <div>
-    <p class="section-label">{{ t('updateSettings') }}</p>
-
     <div class="update-card">
       <div class="update-hero-card">
         <div class="update-hero-main">

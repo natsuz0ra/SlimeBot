@@ -10,6 +10,7 @@ export type ChatSocketHandlers = {
   onBackgroundTasks?: (tasks: BackgroundTaskData[], sessionId?: string) => void
   onSteering?: (data: { submissionId: string; messageId?: string; turnId?: string; content?: string; createdAt?: string; error?: string }, sessionId?: string) => void
 
+  onPrivacy?: (data: { masked: number; warned: number; blocked: boolean }, sessionId?: string) => void
   onSession: (sessionId: string) => void
   onStart: (sessionId?: string, meta?: { startedAt?: string; turnId?: string; background?: boolean }) => void
   onChunk: (chunk: string, sessionId?: string) => void
@@ -177,6 +178,9 @@ type WSIncoming = {
   turnId?: string
   submissionId?: string
   change?: { submissionId: string; messageId: string; turnId: string; content: string; createdAt: string }
+  masked?: number
+  warned?: number
+  blocked?: boolean
   id?: string
   sessionId?: string
   messageId?: string
@@ -473,6 +477,9 @@ export function dispatchChatSocketMessage(raw: string, handlers: ChatSocketHandl
   if (data.type === 'context_usage') {
     const usage = normalizeContextUsage(data, data.sessionId)
     if (usage) handlers?.onContextUsage?.(usage, data.sessionId)
+  }
+  if (data.type === 'privacy') {
+    handlers?.onPrivacy?.({ masked: Math.max(0, Number(data.masked) || 0), warned: Math.max(0, Number(data.warned) || 0), blocked: !!data.blocked }, data.sessionId)
   }
   if (data.type === 'context_compacted') {
     const usage = normalizeContextUsage(data.usage, data.sessionId)

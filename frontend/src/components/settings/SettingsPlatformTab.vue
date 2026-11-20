@@ -29,7 +29,6 @@ const { t } = useI18n()
 
 <template>
   <div>
-    <p class="section-label">{{ t('messagePlatformSettings') }}</p>
     <div class="settings-card flex items-center justify-between px-4 py-3.5 rounded-xl mb-2">
       <span class="settings-field-label">{{ t('messagePlatformDefaultModel') }}</span>
       <AppSelect

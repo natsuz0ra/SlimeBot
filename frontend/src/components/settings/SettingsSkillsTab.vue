@@ -30,8 +30,8 @@ function readChecked(event: Event) {
 
 <template>
   <div>
-    <div class="flex items-center justify-between mb-1">
-      <p class="section-label mb-0">{{ t('skillsSettings') }}</p>
+    <div class="flex flex-wrap items-center justify-between gap-2 mb-3">
+      <p class="settings-item-sub">{{ t('skillsDescription') }}</p>
       <button
         type="button"
         class="btn-primary action-btn flex items-center gap-1.5 px-3 py-1.5 rounded-xl cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed settings-action-text"
@@ -43,7 +43,6 @@ function readChecked(event: Event) {
         {{ t('skillsUploadButton') }}
       </button>
     </div>
-    <p class="mb-3 settings-item-sub">{{ t('skillsDescription') }}</p>
 
     <div
       class="drop-zone rounded-xl px-4 py-6 text-center cursor-pointer transition-all duration-200 mb-3"

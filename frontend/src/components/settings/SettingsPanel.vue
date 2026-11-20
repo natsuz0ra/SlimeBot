@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onMounted, ref, useId, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { mdiClose } from '@mdi/js'
 import CodeMirror from 'vue-codemirror6'
@@ -15,6 +15,7 @@ import SettingsMCPTab from '@/components/settings/SettingsMCPTab.vue'
 import SettingsSkillsTab from '@/components/settings/SettingsSkillsTab.vue'
 import SettingsAgentsTab from '@/components/settings/SettingsAgentsTab.vue'
 import SettingsMemoryTab from '@/components/settings/SettingsMemoryTab.vue'
+import SettingsPrivacyTab from '@/components/settings/SettingsPrivacyTab.vue'
 import SettingsPlatformTab from '@/components/settings/SettingsPlatformTab.vue'
 import SettingsUpdateTab from '@/components/settings/SettingsUpdateTab.vue'
 import SettingsAboutTab from '@/components/settings/SettingsAboutTab.vue'
@@ -67,12 +68,16 @@ const settingsTabs: { key: SettingsTabKey; labelKey: string }[] = [
   { key: 'skills', labelKey: 'skillsSettings' },
   { key: 'agents', labelKey: 'agentsSettings' },
   { key: 'memory', labelKey: 'memorySettings' },
+  { key: 'privacy', labelKey: 'privacySettings' },
   { key: 'platform', labelKey: 'messagePlatformSettings' },
   { key: 'update', labelKey: 'updateSettings' },
   { key: 'about', labelKey: 'aboutSettings' },
 ]
 
 const tab = ref<SettingsTabKey>('basic')
+const tabTitle = computed(() => t(settingsTabs.find(item => item.key === tab.value)!.labelKey))
+const tabTitleId = useId()
+const settingsContent = ref<HTMLElement | null>(null)
 const hasUpdateNotice = computed(() => props.hasUpdateNotice)
 const llmList = ref<LLMConfig[]>([])
 const providerList = ref<LLMProvider[]>([])
@@ -494,6 +499,7 @@ async function saveAgentsInstructions() {
 onMounted(loadData)
 
 watch(tab, (nextTab) => {
+  if (settingsContent.value) settingsContent.value.scrollTop = 0
   if (nextTab === 'update') {
     props.markUpdateNoticeRead()
   }
@@ -540,7 +546,12 @@ watch(tab, (nextTab) => {
         </button>
       </aside>
 
-      <section class="flex-1 min-w-0 overflow-y-auto px-5 py-5 relative settings-content">
+      <section
+        ref="settingsContent"
+        class="flex-1 min-w-0 overflow-y-auto px-5 py-5 relative settings-content"
+        :aria-labelledby="tabTitleId"
+      >
+        <h2 :id="tabTitleId" class="settings-page-title">{{ tabTitle }}</h2>
         <div v-if="loading" class="absolute inset-0 flex items-center justify-center z-10" style="background: rgba(var(--bg-main), 0.7)">
           <LoadingSpinner />
         </div>
@@ -682,6 +693,7 @@ watch(tab, (nextTab) => {
 
         <SettingsUpdateTab v-if="tab === 'update'" @update-check-loaded="props.setUpdateCheckResult" />
 
+        <SettingsPrivacyTab v-if="tab === 'privacy'" />
         <SettingsAboutTab v-if="tab === 'about'" />
       </section>
     </div>

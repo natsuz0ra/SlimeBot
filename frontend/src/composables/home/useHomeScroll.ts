@@ -314,6 +314,16 @@ export function useHomeScroll(options: {
     }, SCROLL_TO_BOTTOM_PENDING_MAX_MS)
   }
 
+  function jumpToMessage(target: HTMLElement) {
+    const el = messagesRef.value
+    if (!el?.contains(target)) return
+    finishScrollToBottomPending(el)
+    autoStickToBottom.value = false
+    const offset = target.getBoundingClientRect().top - el.getBoundingClientRect().top
+    el.scrollTo({ top: el.scrollTop + offset - 24, behavior: 'instant' })
+    syncAutoStickToBottom(el)
+  }
+
   async function maybeLoadOlderMessages(el: HTMLElement) {
     if (loadingOlderFromScroll.value) return
     if (store.loadingOlderHistory || !store.hasMoreHistory) return
@@ -497,5 +507,6 @@ export function useHomeScroll(options: {
     queueScrollMessagesToBottom,
     scrollToBottomByButton,
     scrollToMessage,
+    jumpToMessage,
   }
 }

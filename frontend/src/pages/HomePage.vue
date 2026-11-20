@@ -268,18 +268,19 @@ onMounted(() => {
 
           <!-- ───── With messages: list + footer composer ───── -->
           <template v-else>
-          <div class="chat-content-scroll flex min-h-0 flex-1 flex-col overflow-hidden">
-          <ChatMessageList
-            :messages="store.messages"
-            :focused-message-id="store.focusedMessageId"
-            :has-newer-history="store.hasNewerHistory"
-            :loading-newer-messages="store.loadingNewerMessages"
-            :show-scroll-to-bottom="scroll.showScrollToBottom"
-            :loading-older-history="store.loadingOlderHistory"
-            :set-messages-ref="scroll.setMessagesRef"
-            @scroll-to-bottom="scroll.scrollToBottomByButton"
-            @load-newer="store.currentSessionId && store.loadNewMessagesForSession(store.currentSessionId)"
-          />
+          <div class="chat-content-scroll relative flex min-h-0 flex-1 flex-col overflow-hidden">
+            <ChatMessageList
+              :messages="store.messages"
+              :focused-message-id="store.focusedMessageId"
+              :has-newer-history="store.hasNewerHistory"
+              :loading-newer-messages="store.loadingNewerMessages"
+              :show-scroll-to-bottom="scroll.showScrollToBottom"
+              :loading-older-history="store.loadingOlderHistory"
+              :set-messages-ref="scroll.setMessagesRef"
+              @scroll-to-bottom="scroll.scrollToBottomByButton"
+              @load-newer="store.currentSessionId && store.loadNewMessagesForSession(store.currentSessionId)"
+              @jump-to-message="scroll.jumpToMessage"
+            />
           </div>
 
           <!-- Footer composer -->

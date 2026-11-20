@@ -39,6 +39,7 @@ export interface CliCommandHandlers {
   loadSandboxSettings: () => Promise<void>;
   loadMemory: () => Promise<void>;
   background?: (input: string) => void;
+  privacy?: (input: string) => Promise<void>;
   resetMemory: (target: string) => Promise<void>;
   loadUpdate: () => Promise<void>;
   loadSkills: () => Promise<void>;
@@ -90,6 +91,11 @@ export async function runCliCommand(raw: string, handlers: CliCommandHandlers): 
   }
   if (cmd === "/sandbox") {
     await handlers.loadSandboxSettings();
+    return;
+  }
+  if (cmd === "/privacy" || cmd.startsWith("/privacy ")) {
+    if (handlers.privacy) await handlers.privacy(cmd.slice(8).trim());
+    else handlers.unknownCommand(cmd);
     return;
   }
   if (cmd === "/memory") {

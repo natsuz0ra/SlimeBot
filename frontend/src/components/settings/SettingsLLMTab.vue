@@ -70,7 +70,7 @@ function backToProviders() {
     <template v-if="!selectedProvider">
       <div class="flex items-start justify-between gap-3 mb-5">
         <div>
-          <p class="section-label mb-1">{{ t('modelProviders') }}</p>
+          <h3 class="settings-section-title mb-1">{{ t('modelProviders') }}</h3>
           <p class="llm-description">{{ t('modelProvidersHint') }}</p>
         </div>
         <button type="button" class="btn-primary action-btn llm-main-action flex items-center gap-1.5 px-3 py-2 rounded-xl cursor-pointer settings-action-text" @click="emit('addProvider')">

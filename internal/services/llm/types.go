@@ -11,6 +11,8 @@ const (
 type ModelRuntimeConfig struct {
 	// ConfigID is the saved LLM config id when the model came from persisted settings.
 	ConfigID string
+	// ProviderID is the persisted provider used by request privacy policy.
+	ProviderID string
 	// Provider selects which backend implementation to use.
 	Provider string
 	// Base URL for OpenAI-compatible APIs (Anthropic may also use a custom base URL).
@@ -166,6 +168,7 @@ func DeepSeekReasoningEffort(level string) string {
 
 // StreamCallbacks groups streaming output callbacks for Provider implementations.
 type StreamCallbacks struct {
+	OnPrivacy       func(PrivacySummary) error
 	OnChunk         func(string) error // text content chunks
 	OnThinkingChunk func(string) error // thinking content chunks (nil = skip)
 }

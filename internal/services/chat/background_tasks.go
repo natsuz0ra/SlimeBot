@@ -447,6 +447,7 @@ func (s *ChatService) resumeBackground(ctx context.Context, wake backgroundWake,
 		return nil, err
 	}
 	defer end()
+	ctx = llm.WithPrivacyScope(ctx, sessionID, requestID, "background")
 	session, err := s.store.GetSessionByID(ctx, sessionID)
 	if err != nil {
 		return nil, err

@@ -51,8 +51,7 @@ function schemaText(tool: MCPToolItem) {
 
 <template>
   <div>
-    <div class="flex items-center justify-between mb-4">
-      <p class="section-label mb-0">{{ t('mcpSettings') }}</p>
+    <div class="flex justify-end mb-4">
       <button type="button" class="btn-primary action-btn flex items-center gap-1.5 px-3 py-1.5 rounded-xl cursor-pointer settings-action-text" @click="emit('add')">
         <MdiIcon :path="mdiPlus" :size="13" />
         {{ t('add') }}

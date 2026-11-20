@@ -366,7 +366,7 @@ export const useChatStore = defineStore('chat', () => {
         afterSeq: latest.seq,
       })
       if (currentSessionId.value !== sessionId || generation !== historyGeneration) return false
-      if (fromBackgroundSnapshot && (activeRuntime.value.waiting.value || messages.value.at(-1)?.id !== latest.id)) return false
+      if (fromBackgroundSnapshot && (activeRuntime.value.waiting.value || messages.value[messages.value.length - 1]?.id !== latest.id)) return false
       hasNewerHistory.value = history.hasMore
       appendUniqueMessages(materializeMessages(history.messages))
       mergeReplyBatchesFromHistory(sessionId, history, 'append')

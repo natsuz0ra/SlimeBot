@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { runPrivacyCommand } from "./utils/privacy.js";
 ﻿/**
  * App — Ink CLI root component.
  * Centralizes state, WebSocket events, menu behavior, and keyboard input dispatch.
@@ -441,6 +442,11 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
     }
   }, [appendSystem]);
 
+  const privacy = useCallback(async (input: string) => {
+    try { appendSystem(await runPrivacyCommand(apiRef.current, input)); }
+    catch (error) { appendSystem(`Privacy: ${(error as Error).message}`); }
+  }, [appendSystem]);
+
   const loadMemory = useCallback(async () => {
     dispatch({ type: "SET_MEMORY_CONSOLE", loading: true, message: "" } as AppAction);
     try {
@@ -642,6 +648,7 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
       { title: "/provider", desc: "Manage model providers and available models", data: null },
       { title: "/background", desc: "Show background tasks; /background stop cancels them", data: null },
       { title: "/memory", desc: "Open memory console", data: null },
+      { title: "/privacy", desc: "Local masking settings and preview", data: null },
       { title: "/approval", desc: "Toggle approval mode (standard/auto review/auto)", data: null },
       { title: "/effort", desc: "Toggle thinking level (off/low/medium/high)", data: null },
       { title: "/sandbox", desc: "Configure sandbox mode and network access", data: null },
@@ -1151,6 +1158,7 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
           appendSystem(tasks.length ? tasks.map(task => `${task.processId}: ${task.status}`).join("\n") + "\nUse /background stop to cancel." : "No background tasks for this session.");
         }
       },
+      privacy,
       resetMemory,
       openTeamDetail: () => dispatch({ type: "OPEN_TEAM_DETAIL" } as AppAction),
       showHelp,
@@ -1166,6 +1174,7 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
     loadModels,
     loadProviders,
     loadMemory,
+    privacy,
     loadSandboxSettings,
     loadSessions,
     loadSkills,

@@ -11,14 +11,12 @@ const version = `v${__APP_VERSION__}`
 
 <template>
   <div>
-    <p class="section-label">{{ t('aboutSettings') }}</p>
-
     <div class="settings-card about-card rounded-xl px-5 py-6">
       <div class="about-hero">
         <div class="about-logo-wrap">
           <img src="/slime-icon.svg" alt="SlimeBot" class="about-logo" />
         </div>
-        <h2 class="about-title">SlimeBot</h2>
+        <h3 class="about-title">SlimeBot</h3>
       </div>
 
       <div class="about-info">

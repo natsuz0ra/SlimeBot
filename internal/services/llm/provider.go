@@ -16,7 +16,20 @@ type Provider interface {
 // Factory resolves Provider implementations by name.
 // Implementations are registered to avoid import cycles.
 type Factory struct {
-	providers map[string]Provider
+	providers     map[string]Provider
+	textProtector func(context.Context, ModelRuntimeConfig, string) (string, error)
+}
+
+// SetTextProtector protects complete auxiliary input before callers shorten it.
+// Configure it during application wiring, before the factory is shared.
+func (f *Factory) SetTextProtector(protect func(context.Context, ModelRuntimeConfig, string) (string, error)) {
+	f.textProtector = protect
+}
+func (f *Factory) ProtectText(ctx context.Context, cfg ModelRuntimeConfig, text string) (string, error) {
+	if f.textProtector != nil {
+		return f.textProtector(ctx, cfg, text)
+	}
+	return text, nil
 }
 
 // NewFactory builds a factory with OpenAI as the default provider.

@@ -14,6 +14,7 @@ module.exports = {
       to: path.join('bin', windows ? 'slimebot.exe' : 'slimebot'),
     },
     { from: 'build/vendor', to: 'bin/vendor' },
+    { from: '../THIRD_PARTY_NOTICES.md', to: 'THIRD_PARTY_NOTICES.md' },
   ],
   asar: true,
   mac: {

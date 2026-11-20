@@ -1,3 +1,4 @@
+import type { PrivacyConfig, PrivacyPreview, PrivacySnapshot } from "../types/privacy.js";
 /**
  * HTTP API client for the Go backend REST API.
  * CLI mode uses X-CLI-Token header for bypass auth.
@@ -118,6 +119,14 @@ export class APIClient {
   clearMemory(target: MemoryTarget | "all"): Promise<void> {
     return this.request(`/api/memory/${target}`, { method: "DELETE" }).then(() => {});
   }
+
+  getPrivacy(): Promise<PrivacySnapshot> { return this.request("/api/privacy"); }
+  updatePrivacy(config: PrivacyConfig): Promise<void> { return this.request("/api/privacy", { method: "PUT", body: JSON.stringify(config) }); }
+  previewPrivacy(text: string): Promise<PrivacyPreview> { return this.request("/api/privacy/preview", { method: "POST", body: JSON.stringify({ text }) }); }
+  clearPrivacyRecords(): Promise<void> { return this.request("/api/privacy/records", { method: "DELETE" }); }
+  installPrivacyModel(): Promise<unknown> { return this.request("/api/privacy/model/install", { method: "POST" }); }
+  cancelPrivacyModel(): Promise<unknown> { return this.request("/api/privacy/model/cancel", { method: "POST" }); }
+  removePrivacyModel(): Promise<void> { return this.request("/api/privacy/model", { method: "DELETE" }); }
 
   // ===== Updates =====
 

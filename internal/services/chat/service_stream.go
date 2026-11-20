@@ -77,6 +77,7 @@ func (s *ChatService) HandleChatStream(
 	approvalModeOverride string,
 	callbacks AgentCallbacks,
 ) (*ChatStreamResult, error) {
+	ctx = llmsvc.WithPrivacyScope(ctx, sessionID, requestID, "chat")
 	return s.handleChatStreamWithReceivedAt(ctx, sessionID, requestID, time.Now(), content, displayContent, modelID, attachmentIDs, thinkingLevel, planMode, subagentModelID, approvalModeOverride, callbacks)
 }
 
@@ -95,6 +96,7 @@ func (s *ChatService) HandleChatStreamWithReceivedAt(
 	approvalModeOverride string,
 	callbacks AgentCallbacks,
 ) (*ChatStreamResult, error) {
+	ctx = llmsvc.WithPrivacyScope(ctx, sessionID, requestID, "chat")
 	return s.handleChatStreamWithReceivedAt(ctx, sessionID, requestID, receivedAt, content, displayContent, modelID, attachmentIDs, thinkingLevel, planMode, subagentModelID, approvalModeOverride, callbacks)
 }
 
@@ -111,6 +113,7 @@ func (s *ChatService) HandleEditedChatStream(
 	approvalModeOverride string,
 	callbacks AgentCallbacks,
 ) (*ChatStreamResult, error) {
+	ctx = llmsvc.WithPrivacyScope(ctx, sessionID, requestID, "chat")
 	if strings.TrimSpace(content) == "" {
 		return nil, fmt.Errorf("Message cannot be empty.")
 	}
@@ -189,6 +192,7 @@ func (s *ChatService) handleChatStreamWithReceivedAt(
 	approvalModeOverride string,
 	callbacks AgentCallbacks,
 ) (*ChatStreamResult, error) {
+	ctx = llmsvc.WithPrivacyScope(ctx, sessionID, requestID, "chat")
 	if strings.TrimSpace(content) == "" && len(attachmentIDs) == 0 {
 		return nil, fmt.Errorf("Message cannot be empty.")
 	}
@@ -288,6 +292,7 @@ func (s *ChatService) prepareChatTurn(
 	}
 	modelConfig := llmsvc.ModelRuntimeConfig{
 		ConfigID:      llmConfig.ID,
+		ProviderID:    llmConfig.ProviderID,
 		Provider:      llmConfig.Provider,
 		BaseURL:       llmConfig.BaseURL,
 		APIKey:        llmConfig.APIKey,
@@ -400,6 +405,7 @@ func (s *ChatService) prepareEditedChatTurn(
 	}
 	modelConfig := llmsvc.ModelRuntimeConfig{
 		ConfigID:      llmConfig.ID,
+		ProviderID:    llmConfig.ProviderID,
 		Provider:      llmConfig.Provider,
 		BaseURL:       llmConfig.BaseURL,
 		APIKey:        llmConfig.APIKey,
@@ -540,6 +546,7 @@ func (s *ChatService) executeChatTurn(
 	}
 
 	agentCallbacks := AgentCallbacks{
+		OnPrivacy: callbacks.OnPrivacy,
 		OnChunk: func(chunk string) error {
 			callbackMu.Lock()
 			defer callbackMu.Unlock()
@@ -906,6 +913,7 @@ func (s *ChatService) finalizeChatTurn(
 	planMode bool,
 	callbacks AgentCallbacks,
 ) (*ChatStreamResult, error) {
+	ctx = llmsvc.WithPrivacyScope(ctx, sessionID, requestID, "chat")
 	assistantMessage, err := s.store.AddMessageWithInput(ctx, domain.AddMessageInput{
 		SessionID:         sessionID,
 		Role:              "assistant",

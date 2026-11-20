@@ -163,7 +163,6 @@ onUnmounted(() => {
   <div class="memory-settings-layout">
     <div class="memory-page-head">
       <div>
-        <p class="section-label memory-section-label">{{ t('memorySettings') }}</p>
         <p class="settings-item-sub">{{ t('memoryContextNotice') }}</p>
       </div>
       <button

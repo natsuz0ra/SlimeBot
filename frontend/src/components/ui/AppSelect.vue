@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted } from 'vue'
+import { nextTick, ref, onMounted, onUnmounted, useId } from 'vue'
 import { mdiChevronDown } from '@mdi/js'
 import MdiIcon from '@/components/ui/MdiIcon.vue'
 
@@ -16,6 +16,7 @@ const props = withDefaults(defineProps<{
   placeholder?: string
   variant?: 'default' | 'ghost'
   size?: 'sm' | 'xs'
+  ariaLabel?: string
 }>(), {
   disabled: false,
   placeholder: '',
@@ -32,6 +33,7 @@ const triggerRef = ref<HTMLElement | null>(null)
 const dropdownRef = ref<HTMLElement | null>(null)
 const dropdownStyle = ref<Record<string, string>>({})
 const goUp = ref(false)
+const listId = useId()
 
 const selectedLabel = () => {
   const found = props.options.find((opt) => opt.value === props.modelValue)
@@ -64,17 +66,44 @@ function calcDropdownStyle() {
   }
 }
 
-function toggle() {
+async function openDropdown(fallbackIndex = 0) {
   if (props.disabled) return
-  if (!open.value) {
-    calcDropdownStyle()
-  }
-  open.value = !open.value
+  calcDropdownStyle()
+  open.value = true
+  await nextTick()
+  const selected = props.options.findIndex(option => option.value === props.modelValue)
+  dropdownRef.value?.querySelectorAll<HTMLElement>('[role="option"]')[selected < 0 ? fallbackIndex : selected]?.focus()
+}
+
+function toggle() {
+  if (open.value) closeDropdown()
+  else void openDropdown()
 }
 
 function select(value: string) {
   emit('update:modelValue', value)
-  open.value = false
+  closeDropdown()
+  triggerRef.value?.focus()
+}
+
+function onOptionKeydown(event: KeyboardEvent) {
+  if (event.key === 'Escape' || event.key === 'Tab') {
+    if (event.key === 'Escape') event.preventDefault()
+    closeDropdown()
+    triggerRef.value?.focus()
+    return
+  }
+  if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return
+  const options = Array.from(dropdownRef.value?.querySelectorAll<HTMLElement>('[role="option"]') ?? [])
+  if (!options.length) return
+  event.preventDefault()
+  const index = options.indexOf(document.activeElement as HTMLElement)
+  if (event.key === 'Home') options[0]?.focus()
+  else if (event.key === 'End') options[options.length - 1]?.focus()
+  else {
+    const step = event.key === 'ArrowDown' ? 1 : -1
+    options[Math.max(0, Math.min(options.length - 1, index + step))]?.focus()
+  }
 }
 
 function closeDropdown() {
@@ -115,6 +144,11 @@ onUnmounted(() => {
     <button
       ref="triggerRef"
       type="button"
+      :disabled="disabled"
+      :aria-label="ariaLabel ? `${ariaLabel}: ${selectedLabel()}` : undefined"
+      aria-haspopup="listbox"
+      :aria-expanded="open"
+      :aria-controls="open ? listId : undefined"
       class="select-trigger flex items-center gap-1.5 rounded-lg cursor-pointer transition-all duration-150 select-none"
       :class="[
         size === 'xs' ? 'text-xs px-2 py-1' : 'text-sm px-3 py-1.5',
@@ -123,6 +157,8 @@ onUnmounted(() => {
         open && variant === 'default' ? 'select-trigger-focused' : '',
       ]"
       @click.stop="toggle"
+      @keydown.down.prevent="openDropdown()"
+      @keydown.up.prevent="openDropdown(Math.max(0, options.length - 1))"
     >
       <span>{{ selectedLabel() }}</span>
       <MdiIcon
@@ -138,15 +174,22 @@ onUnmounted(() => {
       <Transition :name="goUp ? 'select-dropdown-top' : 'select-dropdown'">
         <div
           v-if="open"
+          :id="listId"
           ref="dropdownRef"
+          role="listbox"
+          :aria-label="ariaLabel || selectedLabel()"
           :style="dropdownStyle"
           class="select-panel z-[9999] rounded-xl py-1"
           @click.stop
+          @keydown="onOptionKeydown"
         >
           <template v-for="(opt, index) in options" :key="opt.value">
             <div v-if="opt.group && (index === 0 || options[index - 1]?.group !== opt.group)" class="select-group-label">{{ opt.group }}</div>
             <button
               type="button"
+              role="option"
+              tabindex="-1"
+              :aria-selected="opt.value === modelValue"
               class="select-option w-full text-left px-3 py-2 cursor-pointer transition-all duration-100 flex items-center gap-2"
               :class="[
                 size === 'xs' ? 'text-xs' : 'text-sm',
@@ -215,6 +258,7 @@ onUnmounted(() => {
   background: var(--primary-alpha-07);
   color: var(--text-primary);
 }
+.select-option:focus-visible { outline: 2px solid var(--sb-brand); outline-offset: -2px; }
 
 /* Transitions */
 .select-dropdown-enter-active,

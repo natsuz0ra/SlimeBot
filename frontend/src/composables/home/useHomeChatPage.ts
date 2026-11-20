@@ -202,6 +202,7 @@ export function useHomeChatPage() {
     showScrollToBottom: scrollState.showScrollToBottom,
     setMessagesRef: scrollState.setMessagesRef,
     scrollToBottomByButton: scrollState.scrollToBottomByButton,
+    jumpToMessage: scrollState.jumpToMessage,
   })
 
   return {

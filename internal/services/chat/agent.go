@@ -438,6 +438,10 @@ func (a *AgentService) RunAgentLoop(
 	if configErr != nil {
 		return "", configErr
 	}
+	scope := llmsvc.PrivacyScopeFromContext(ctx)
+	if scope.SessionID != sessionID {
+		ctx = llmsvc.WithPrivacyScope(ctx, sessionID, scope.RequestID, "agent")
+	}
 	toolDefs, mcpToolMeta, err := a.buildRuntimeToolDefs(ctx, mcpConfigs, opts.Depth)
 	if err != nil {
 		return "", fmt.Errorf("failed to load MCP tools: %w", err)
@@ -559,6 +563,7 @@ func (a *AgentService) RunAgentLoop(
 			return nil
 		}
 		streamCallbacks := llmsvc.StreamCallbacks{
+			OnPrivacy: callbacks.OnPrivacy,
 			OnChunk: func(chunk string) error {
 				if chunk != "" {
 					if err := finishThinking(); err != nil {

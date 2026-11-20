@@ -78,6 +78,11 @@ func newTitleGenerator(factory *llmsvc.Factory, store sessionTitleUpdater) *titl
 
 // generate makes one LLM call to produce a session title.
 func (g *titleGenerator) generate(ctx context.Context, modelConfig llmsvc.ModelRuntimeConfig, userMsg string) (string, error) {
+	protected, err := g.factory.ProtectText(ctx, modelConfig, userMsg)
+	if err != nil {
+		return "", err
+	}
+	userMsg = truncateForTitleContext(protected, titleMaxUserRunes)
 	messages := []llmsvc.ChatMessage{
 		{Role: "system", Content: titleSystemPrompt},
 		{Role: "user", Content: buildTitleUserPrompt(userMsg)},
@@ -99,7 +104,7 @@ func (g *titleGenerator) generate(ctx context.Context, modelConfig llmsvc.ModelR
 		return "", fmt.Errorf("标题生成输入超过预算")
 	}
 
-	_, err := provider.StreamChatWithTools(ctx, cfg, messages, nil, llmsvc.StreamCallbacks{
+	_, err = provider.StreamChatWithTools(ctx, cfg, messages, nil, llmsvc.StreamCallbacks{
 		OnChunk: func(chunk string) error {
 			buf.WriteString(chunk)
 			return nil
@@ -194,7 +199,7 @@ func (s *ChatService) maybeGenerateTitleAsync(
 		return
 	}
 
-	userMsg := truncateForTitleContext(userContent, titleMaxUserRunes)
+	userMsg := userContent
 	if strings.TrimSpace(userMsg) == "" {
 		logging.Info("title_generation_skipped", "session", session.ID, "reason", "empty_user_message")
 		return
@@ -207,7 +212,7 @@ func (s *ChatService) maybeGenerateTitleAsync(
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), titleTimeout)
+	ctx, cancel := context.WithTimeout(llmsvc.WithPrivacyScope(context.Background(), sid, "", "title"), titleTimeout)
 	defer cancel()
 
 	title, err := gen.generate(ctx, modelConfig, userMsg)

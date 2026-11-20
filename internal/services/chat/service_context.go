@@ -78,6 +78,7 @@ func (s *ChatService) GetContextUsageDetailed(ctx context.Context, sessionID str
 	}
 	result, err := s.buildContextMessagesDetailed(ctx, sessionID, llmsvc.ModelRuntimeConfig{
 		ConfigID:    llmConfig.ID,
+		ProviderID:  llmConfig.ProviderID,
 		Provider:    llmConfig.Provider,
 		BaseURL:     llmConfig.BaseURL,
 		APIKey:      llmConfig.APIKey,
@@ -103,6 +104,9 @@ func (s *ChatService) buildContextMessages(ctx context.Context, sessionID string
 }
 
 func (s *ChatService) buildContextMessagesDetailed(ctx context.Context, sessionID string, modelConfig llmsvc.ModelRuntimeConfig) (contextBuildResult, error) {
+	if llmsvc.PrivacyScopeFromContext(ctx).SessionID == "" {
+		ctx = llmsvc.WithPrivacyScope(ctx, sessionID, "", "context")
+	}
 	buildStart := time.Now()
 	parallelStart := time.Now()
 	var (

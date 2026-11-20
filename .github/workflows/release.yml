@@ -82,10 +82,14 @@ jobs:
           if gh release view "${RELEASE_VERSION}" >/dev/null 2>&1; then
             gh release upload "${RELEASE_VERSION}" "${assets[@]}" --clobber
           else
+            notes_flag=--generate-notes
+            if [[ "$(git cat-file -t "refs/tags/${RELEASE_VERSION}")" == tag ]]; then
+              notes_flag=--notes-from-tag
+            fi
             gh release create "${RELEASE_VERSION}" "${assets[@]}" \
               --verify-tag \
               --title "${RELEASE_VERSION}" \
-              --generate-notes
+              "${notes_flag}"
           fi
 
   desktop-mac:

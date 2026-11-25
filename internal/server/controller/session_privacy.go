@@ -13,6 +13,14 @@ func (h *HTTPController) DestroySessionPrivacyMappings(c WebContext) {
 	}
 	ctx := c.Request().Context()
 	id := c.Param("id")
+	if h.checkpoints != nil {
+		release, err := h.checkpoints.ReserveSessionMaintenance(id)
+		if err != nil {
+			fileCheckpointError(c, err)
+			return
+		}
+		defer release()
+	}
 	if _, err := h.sessions.Get(ctx, id); err != nil {
 		if errors.Is(err, apperrors.ErrNotFound) {
 			jsonError(c, http.StatusNotFound, "Session not found.")

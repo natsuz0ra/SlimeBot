@@ -738,6 +738,12 @@ func (s *ChatService) executeChatTurn(
 	}
 	ctx = usagesvc.WithScope(ctx, usagesvc.Scope{RootSessionID: sessionID, SessionID: sessionID, RequestID: requestID, WorkingDirectory: state.session.WorkingDirectory})
 
+	finishCheckpoint, err := s.beginFileCheckpoint(ctx, state, requestID, sandboxPolicy)
+	if err != nil {
+		return nil, err
+	}
+	defer finishCheckpoint()
+
 	ctx = tools.WithBackgroundObserver(ctx, s.backgroundObserver(ctx, state, subagentModelID, approvalMode, planMode))
 	var cooperative *cooperativeLoop
 	if s.cooperative != nil {

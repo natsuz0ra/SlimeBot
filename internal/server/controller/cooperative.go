@@ -101,6 +101,14 @@ func (h *HTTPController) CooperativeArtifact(c WebContext) {
 		jsonError(c, http.StatusBadRequest, "Invalid action")
 		return
 	}
+	if h.checkpoints != nil {
+		release, err := h.checkpoints.ReserveWorkspaceMaintenance(ctx, artifact.ParentWorkspace)
+		if err != nil {
+			jsonError(c, http.StatusConflict, err.Error())
+			return
+		}
+		defer release()
+	}
 	err = h.cooperative.Integrate(ctx, artifact)
 	if err != nil {
 		jsonError(c, http.StatusConflict, err.Error())

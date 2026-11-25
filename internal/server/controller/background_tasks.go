@@ -9,6 +9,7 @@ import (
 
 	"slimebot/internal/apperrors"
 	"slimebot/internal/domain"
+	"slimebot/internal/runtime/workspace"
 	chatsvc "slimebot/internal/services/chat"
 )
 
@@ -61,6 +62,10 @@ func (h *HTTPController) ActOnBackgroundTask(c WebContext) {
 	}
 	if errors.Is(err, apperrors.ErrInvalidInput) {
 		jsonError(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	if errors.Is(err, workspace.ErrCheckpointBusy) {
+		fileCheckpointError(c, err)
 		return
 	}
 	if errors.Is(err, chatsvc.ErrBackgroundTaskActive) {

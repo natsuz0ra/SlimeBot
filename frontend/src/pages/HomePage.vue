@@ -14,6 +14,7 @@ import QuestionAnswerDrawer from '@/components/chat/QuestionAnswerDrawer.vue'
 import TodoPanel from '@/components/chat/TodoPanel.vue'
 import MdiIcon from '@/components/ui/MdiIcon.vue'
 import ChatComposer from '@/components/chat/ChatComposer.vue'
+import ChatCheckpointDialog from '@/components/chat/ChatCheckpointDialog.vue'
 import CooperativePanel from '@/components/chat/CooperativePanel.vue'
 import ChatMessageList from '@/components/chat/ChatMessageList.vue'
 import HomeDialogs from '@/components/home/HomeDialogs.vue'
@@ -47,11 +48,17 @@ const searchVisible = ref(false)
 const route = useRoute()
 const router = useRouter()
 const isTasksWorkspace = computed(() => route.name === 'tasks')
+const checkpointSessionId = ref<string>()
+const checkpointSession = computed(() => {
+  const session = sessions.currentSession
+  if (sessions.canManageCurrentSession && session?.workingDirectory?.trim() && !isTasksWorkspace.value) return session
+})
 const privacyMappingTarget = ref<{ id: string; name: string; busy: boolean; error: string }>()
 const announcePrivacyMappingCleared = ref(false)
 const toast = useToast()
 
 watch([() => store.currentSessionId, isTasksWorkspace], () => {
+  checkpointSessionId.value = undefined
   privacyMappingTarget.value = undefined
   announcePrivacyMappingCleared.value = false
 })
@@ -163,6 +170,16 @@ onMounted(() => {
 
 <template>
   <ChatSearchDialog :visible="searchVisible" :pick-result="pickSearchResult" @close="searchVisible = false" />
+  <ChatCheckpointDialog
+    v-if="checkpointSession?.workingDirectory"
+    :key="checkpointSession.id"
+    :visible="checkpointSessionId === checkpointSession.id"
+    :session-id="checkpointSession.id"
+    :working-directory="checkpointSession.workingDirectory"
+    :turn-running="store.waiting"
+    :workspace-running="store.waiting || store.backgroundTaskCount > 0"
+    @close="checkpointSessionId = undefined"
+  />
   <AppDialog
     :visible="!!privacyMappingTarget"
     :title="t('sessionPrivacyDestroyTitle')"
@@ -243,6 +260,7 @@ onMounted(() => {
           @update:top-menu-visible="ui.topMenuVisible = $event"
           @rename-current="sessions.currentSession && sessions.openRename(sessions.currentSession.id, sessions.currentSession.name)"
           @remove-current="sessions.currentSession && sessions.removeSession(sessions.currentSession.id)"
+          @open-checkpoints="checkpointSessionId = checkpointSession?.id"
           @clear-privacy-mappings="openPrivacyMappingConfirmation"
         />
 

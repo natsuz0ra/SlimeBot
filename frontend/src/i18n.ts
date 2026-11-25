@@ -1,8 +1,10 @@
 import { createI18n } from 'vue-i18n'
 import { privacyMessages } from './privacyMessages'
+import { checkpointMessages } from './checkpointMessages'
 
 const messages = {
   'zh-CN': {
+    ...checkpointMessages['zh-CN'],
     sessionRunning: '正在运行',
     sessionUnread: '有未读回复',
     sessionMenu: '会话菜单',
@@ -545,6 +547,7 @@ const messages = {
     qaNotSelected: '未选择',
   },
   'en-US': {
+    ...checkpointMessages['en-US'],
     sessionRunning: 'Running',
     sessionUnread: 'Unread reply',
     sessionMenu: 'Session menu',

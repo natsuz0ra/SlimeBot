@@ -56,13 +56,23 @@ func TestManagedCompletionDeliveredOnceAcrossDetachRace(t *testing.T) {
 func TestManagedCapacityPreservesRunningTaskAndStop(t *testing.T) {
 	m := NewProcessManager()
 	m.maxItems = 1
-	id := m.Start("running", func(ctx context.Context) processRunResult { <-ctx.Done(); return processRunResult{Error: "cancelled"} })
+	release := make(chan struct{})
+	id := m.Start("running", func(ctx context.Context) processRunResult {
+		<-ctx.Done()
+		<-release
+		return processRunResult{Error: "cancelled"}
+	})
 	if other := m.Start("overflow", func(context.Context) processRunResult { t.Error("overflow runner executed"); return processRunResult{} }); other != "" {
 		t.Fatal("running task was evicted")
 	}
 	events := make(chan ProcessCompletion, 1)
 	m.Detach(id, func(event ProcessCompletion) { events <- event })
 	m.Stop(id)
+	trackedWhileStopping := m.HasRunning() && len(m.RunningSpecs()) == 1
+	close(release)
+	if !trackedWhileStopping {
+		t.Error("a cancelled runner must remain active until it exits")
+	}
 	select {
 	case event := <-events:
 		if event.Status != "stopped" {
@@ -125,7 +135,7 @@ func TestExecYieldsOnceAndFastCommandDoesNotWake(t *testing.T) {
 			}
 			select {
 			case event := <-completed:
-				if !strings.Contains(event.Output, "done") || !strings.Contains(event.Command, "printf") || event.Shell == "" || event.WorkingDirectory == "" {
+				if !strings.Contains(event.Output, "done") || event.Command != command || event.Shell == "" || event.WorkingDirectory == "" {
 					t.Fatal(event)
 				}
 			case <-time.After(time.Second):

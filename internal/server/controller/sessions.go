@@ -156,12 +156,27 @@ func (h *HTTPController) DeleteSession(c WebContext) {
 	}
 	ctx, cancel := context.WithTimeout(c.Request().Context(), 10*time.Second)
 	defer cancel()
-	mappingSessions := []string{id}
 	if h.cooperative != nil {
 		if err := h.cooperative.DrainRoot(ctx, id); err != nil {
 			jsonError(c, http.StatusConflict, err.Error())
 			return
 		}
+	}
+	if h.checkpoints != nil {
+		release, err := h.checkpoints.ReserveSessionMaintenance(id)
+		if err != nil {
+			fileCheckpointError(c, err)
+			return
+		}
+		defer release()
+		if err := h.checkpoints.CheckDeleteFileCheckpoints(id); err != nil {
+			fileCheckpointError(c, err)
+			return
+		}
+		h.checkpoints.CancelBackground(id)
+	}
+	mappingSessions := []string{id}
+	if h.cooperative != nil {
 		as, err := h.cooperative.Store.ListAgentArtifacts(ctx, id)
 		if err != nil {
 			jsonInternalError(c, err)
@@ -203,6 +218,11 @@ func (h *HTTPController) DeleteSession(c WebContext) {
 			if err := h.privacy.DestroySession(sessionID); err != nil {
 				logging.Warn("session_privacy_cleanup_failed", "session", sessionID, "err", err)
 			}
+		}
+	}
+	if h.checkpoints != nil {
+		if err := h.checkpoints.DeleteFileCheckpoints(id); err != nil {
+			logging.Warn("session_file_checkpoint_cleanup_failed", "session", id, "err", err)
 		}
 	}
 	c.Status(http.StatusNoContent)

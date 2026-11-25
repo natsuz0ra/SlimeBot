@@ -10,6 +10,7 @@ import (
 	"slimebot/internal/apperrors"
 	"slimebot/internal/constants"
 	"slimebot/internal/domain"
+	"slimebot/internal/runtime/workspace"
 	sandboxpolicy "slimebot/internal/sandbox"
 	llm "slimebot/internal/services/llm"
 	"slimebot/internal/tools"
@@ -130,6 +131,17 @@ func (s *ChatService) RetryBackgroundTask(ctx context.Context, id string) (*doma
 	policy, err := s.resolveSandboxPolicy(runCtx, source.WorkingDirectory)
 	if err != nil {
 		return nil, err
+	}
+	if s.checkpoints != nil {
+		root, err := workspace.ResolveCheckpointRoot(policy.CWD())
+		if err != nil {
+			return nil, err
+		}
+		releaseWorkspace, err := s.checkpoints.ReserveRoots(ctx, checkpointWriteRoots(policy, root), false, false, "")
+		if err != nil {
+			return nil, err
+		}
+		defer releaseWorkspace()
 	}
 	runCtx = sandboxpolicy.WithPolicy(runCtx, policy)
 	state := &chatTurnState{session: &domain.Session{ID: source.SessionID}, modelConfig: llm.ModelRuntimeConfig{ConfigID: source.ModelID, ThinkingLevel: source.Thinking}}

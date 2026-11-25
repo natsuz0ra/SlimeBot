@@ -10,6 +10,7 @@ import (
 	"slimebot/internal/domain"
 	"slimebot/internal/mcp"
 	agentruntime "slimebot/internal/runtime/agent"
+	"slimebot/internal/runtime/workspace"
 	agentssvc "slimebot/internal/services/agents"
 	contextsvc "slimebot/internal/services/context"
 	llmsvc "slimebot/internal/services/llm"
@@ -43,6 +44,7 @@ type ChatService struct {
 	planService     *plansvc.PlanService
 	teamService     *teamsvc.Service
 	cooperative     *subagentsvc.Service
+	checkpoints     *workspace.CheckpointManager
 	uploads         *ChatUploadService
 	titleGen        *titleGenerator
 	turnsMu         sync.Mutex

@@ -85,6 +85,7 @@ type ProcessSpec struct {
 	Shell, WorkingDirectory, SandboxMode string
 	TimeoutMs                            int
 	AutoWake                             bool
+	WritableRoots                        []string
 }
 
 func (m *ProcessManager) Start(command string, runner func(context.Context) processRunResult) string {
@@ -403,8 +404,10 @@ func (m *ProcessManager) StopAndWait(ctx context.Context) error {
 	m.mu.Lock()
 	var done []chan struct{}
 	for _, p := range m.items {
-		if p.Status == "running" || p.Status == "stopping" {
-			p.Status = "stopping"
+		if p.EndedAt.IsZero() {
+			if p.Status == "running" {
+				p.Status = "stopping"
+			}
 			p.cancel()
 			done = append(done, p.done)
 		}
@@ -420,12 +423,25 @@ func (m *ProcessManager) StopAndWait(ctx context.Context) error {
 	return nil
 }
 
+// RunningSpecs reports the policies of commands still able to write.
+func (m *ProcessManager) RunningSpecs() []ProcessSpec {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var specs []ProcessSpec
+	for id, item := range m.items {
+		if item.EndedAt.IsZero() {
+			specs = append(specs, m.specs[id])
+		}
+	}
+	return specs
+}
+
 // HasRunning keeps an eviction from detaching processes that still need draining.
 func (m *ProcessManager) HasRunning() bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	for _, item := range m.items {
-		if item.Status == "running" || item.Status == "stopping" {
+		if item.EndedAt.IsZero() {
 			return true
 		}
 	}

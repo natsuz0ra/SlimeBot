@@ -126,6 +126,7 @@ type HTTPController struct {
 	backgroundTasks backgroundTaskService
 	taskCenter      taskCenterService
 	usage           usageService
+	checkpoints     fileCheckpointService
 	tokenManager    *auth.TokenManager
 }
 

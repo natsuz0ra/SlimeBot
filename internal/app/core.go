@@ -15,6 +15,7 @@ import (
 	"slimebot/internal/repositories"
 	sbruntime "slimebot/internal/runtime"
 	agentruntime "slimebot/internal/runtime/agent"
+	"slimebot/internal/runtime/workspace"
 	agentssvc "slimebot/internal/services/agents"
 	antsvc "slimebot/internal/services/anthropic"
 	authsvc "slimebot/internal/services/auth"
@@ -145,6 +146,7 @@ func newCore(cfg config.Config, desktop bool) (*Core, error) {
 	memoryService := memorysvc.NewServiceFromSettings(repo)
 	scheduleService := schedulesvc.NewService(repo, nil, schedulesvc.Options{})
 	chatService := chatsvc.NewChatService(repo, repo, providerFactory, mcpManager, skillRuntime)
+	chatService.SetFileCheckpoints(workspace.NewCheckpoints(filepath.Join(filepath.Dir(cfg.DBPath), "file-checkpoints")))
 	usageService := usagesvc.NewService(repo, repo)
 	chatService.SetUsageService(usageService)
 	chatService.SetTeamService(teamService)

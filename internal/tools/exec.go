@@ -140,7 +140,7 @@ func (e *execTool) run(ctx context.Context, params map[string]any) (*ExecuteResu
 	}
 	if cfg.background || autoWake {
 		manager := processManagerFromContext(ctx)
-		spec := ProcessSpec{Shell: invocation.shell, WorkingDirectory: invocation.workingDirectory, SandboxMode: sandboxMode, TimeoutMs: cfg.timeoutMs, AutoWake: autoWake && !observer.AutoWakeDisabled}
+		spec := ProcessSpec{Shell: invocation.shell, WorkingDirectory: invocation.workingDirectory, SandboxMode: sandboxMode, TimeoutMs: cfg.timeoutMs, AutoWake: autoWake && !observer.AutoWakeDisabled, WritableRoots: policy.WritableRoots()}
 		processID := manager.StartWithSpec(cfg.command, spec, func(runCtx context.Context) processRunResult {
 			start := time.Now()
 			result, runErr := sandboxpolicy.RunCommand(runCtx, policy, sandboxpolicy.CommandRequest{

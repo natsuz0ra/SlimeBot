@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref } from 'vue'
-import { mdiChevronDown, mdiDeleteOutline, mdiMenu, mdiPencilOutline, mdiShieldOffOutline } from '@mdi/js'
+import { mdiChevronDown, mdiDeleteOutline, mdiFolderClockOutline, mdiMenu, mdiPencilOutline, mdiShieldOffOutline } from '@mdi/js'
 import { useI18n } from 'vue-i18n'
 import type { SessionItem } from '@/api/chat'
 import MdiIcon from '@/components/ui/MdiIcon.vue'
@@ -19,6 +19,7 @@ const emit = defineEmits<{
   'update:topMenuVisible': [visible: boolean]
   renameCurrent: []
   removeCurrent: []
+  openCheckpoints: []
   clearPrivacyMappings: []
 }>()
 
@@ -38,6 +39,11 @@ function dismissTopMenu() {
   if (!props.topMenuVisible) return
   titleButton.value?.focus()
   emit('update:topMenuVisible', false)
+}
+
+function onCheckpointsClick() {
+  dismissTopMenu()
+  emit('openCheckpoints')
 }
 
 function onClearPrivacyClick() {
@@ -114,6 +120,15 @@ function onClearPrivacyClick() {
         >
           <MdiIcon :path="mdiPencilOutline" :size="14" />
           <span>{{ t('rename') }}</span>
+        </button>
+        <button
+          v-if="currentSession?.workingDirectory?.trim()"
+          type="button"
+          class="w-full flex items-center gap-2.5 px-3 h-9 text-sm transition-colors duration-150 cursor-pointer menu-item"
+          @click="onCheckpointsClick"
+        >
+          <MdiIcon :path="mdiFolderClockOutline" :size="14" />
+          <span>{{ t('checkpoints.title') }}</span>
         </button>
         <button
           v-if="currentSession"

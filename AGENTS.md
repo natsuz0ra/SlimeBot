@@ -45,7 +45,7 @@ internal/
 ├─ repositories/             # Persistence/data access
 ├─ runtime/                  # Host state, lifecycle, and managed agent execution
 │  ├─ agent/                 # Durable activations, inbox scheduling, root budgets, and database ownership
-│  └─ workspace/             # Isolated worktrees, validation, integration journals, and recovery
+│  └─ workspace/             # Isolated worktrees, integration journals, and main-session file checkpoints
 ├─ sandbox/                  # Tool sandbox policies and OS sandbox runners
 ├─ server/
 │  ├─ apierrors/             # HTTP API error mapping
@@ -136,6 +136,7 @@ Quick index (feature -> first place to inspect):
 - Background command completion, persistence and manual recovery: `internal/tools/process.go`, `internal/tools/exec.go`, `internal/services/chat/background_tasks.go`, `internal/services/chat/background_recovery.go`, `AGENT-FLOW.md`
 - Context compaction: `internal/services/context/`, `internal/repositories/repo_context.go`, `internal/services/chat/context_bridge.go` (raw model steps are separate from UI messages; usage reads never call models; `SLIMEBOT_CONTEXT_COMPACTION=off` bypasses checkpoints while keeping pruning/budget guards)
 - Sensitive data masking, encrypted mapping retention and local model lifecycle: `internal/services/privacy/`, `internal/server/controller/privacy.go`, `internal/server/controller/session_privacy.go`
+- Main-session file checkpoints and rollback: `internal/runtime/workspace/checkpoints.go`, `internal/services/chat/file_checkpoints.go`, `internal/server/controller/file_checkpoints.go`, `frontend/src/components/chat/ChatCheckpointDialog.vue`
 - Pure Go privacy inference and tokenizer reference tests: `internal/services/privacy/inference/`
 - Long-term memory store/service: `internal/services/memory/`, `internal/tools/memory.go`
 - Scheduled tasks and execution history: `internal/services/schedule/`, `internal/tools/schedule.go`, `internal/app/schedule_runner.go`, `internal/server/controller/scheduled_tasks.go`

@@ -106,24 +106,27 @@ type updateService interface {
 
 // HTTPController wires REST handlers and request/response shaping.
 type HTTPController struct {
-	skillPackage skillPackageService
-	skillRuntime skillRuntimeService
-	chatUploads  chatUploadService
-	settings     settingsService
-	memory       memoryService
-	agents       agentsInstructionsService
-	auth         authService
-	sessions     sessionService
-	llmConfigs   llmConfigService
-	mcpConfigs   mcpConfigService
-	platforms    messagePlatformConfigService
-	plans        planService
-	chatUsage    chatContextUsageService
-	schedule     *schedulesvc.Service
-	cooperative  *subagentsvc.Service
-	update       updateService
-	privacy      *privacysvc.Service
-	tokenManager *auth.TokenManager
+	skillPackage    skillPackageService
+	skillRuntime    skillRuntimeService
+	chatUploads     chatUploadService
+	settings        settingsService
+	memory          memoryService
+	agents          agentsInstructionsService
+	auth            authService
+	sessions        sessionService
+	llmConfigs      llmConfigService
+	mcpConfigs      mcpConfigService
+	platforms       messagePlatformConfigService
+	plans           planService
+	chatUsage       chatContextUsageService
+	schedule        *schedulesvc.Service
+	cooperative     *subagentsvc.Service
+	update          updateService
+	privacy         *privacysvc.Service
+	backgroundTasks backgroundTaskService
+	taskCenter      taskCenterService
+	usage           usageService
+	tokenManager    *auth.TokenManager
 }
 
 // NewHTTPController constructs the HTTP controller with injected services.

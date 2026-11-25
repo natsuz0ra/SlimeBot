@@ -15,6 +15,13 @@ export interface PrivacyConfig {
   modelEnabled: boolean
   modelThreshold: number
   modelTimeoutSeconds: number
+  mappingPersistence: boolean
+  mappingTtlMinutes: number
+}
+export interface PrivacyMappingStatus {
+  mode: 'memory' | 'encrypted' | 'unavailable'
+  keyStatus: 'ready' | 'missing' | 'invalid' | 'mismatch'
+  storageError?: boolean
 }
 export interface PrivacyModelStatus {
   installed: boolean
@@ -39,7 +46,12 @@ export interface PrivacyRecord {
   durationMs: number
   failed: boolean
 }
-export interface PrivacySnapshot { config: PrivacyConfig; model: PrivacyModelStatus; records: PrivacyRecord[] }
+export interface PrivacySnapshot {
+  config: PrivacyConfig
+  model: PrivacyModelStatus
+  records: PrivacyRecord[]
+  mappings: PrivacyMappingStatus
+}
 export interface PrivacyPreview {
   text: string
   hits: { kind: string; source: string; action: PrivacyAction; start: number; end: number; placeholder?: string }[]

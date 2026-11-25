@@ -77,6 +77,9 @@ func (s *ChatService) evictOldMemoryReviewSessionsLocked(maxEvict int) {
 func (s *ChatService) runMemoryReview(sessionID string, modelConfig llmsvc.ModelRuntimeConfig, userContent string, assistantContent string) {
 	ctx, cancel := context.WithTimeout(llmsvc.WithPrivacyScope(context.Background(), sessionID, "", "memory"), 2*time.Minute)
 	defer cancel()
+	if _, err := s.store.GetSessionByID(ctx, sessionID); err != nil {
+		return
+	}
 	modelConfig.ThinkingLevel = "off"
 	messages := []llmsvc.ChatMessage{
 		{

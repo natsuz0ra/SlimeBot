@@ -1,6 +1,8 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, toRef } from 'vue'
+import { computed, onMounted, ref, toRef, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { isAxiosError } from 'axios'
+import { apiClient } from '@/api/client'
 import {
   mdiDeleteOutline,
   mdiMenu,
@@ -20,11 +22,13 @@ import ChatSearchDialog from '@/components/home/ChatSearchDialog.vue'
 import ScheduledTasksWorkspace from '@/components/home/ScheduledTasksWorkspace.vue'
 import HomeSidebar from '@/components/home/HomeSidebar.vue'
 import AppLogo from '@/components/ui/AppLogo.vue'
+import AppDialog from '@/components/ui/AppDialog.vue'
 import { provideChatContext } from '@/composables/chat/useChatContext'
 import { useHomeChatPage } from '@/composables/home/useHomeChatPage'
 import { useHomeTransitions } from '@/composables/home/useHomeTransitions'
 import { useUpdateNotice } from '@/composables/useUpdateNotice'
 import { useTheme } from '@/composables/useTheme'
+import { useToast } from '@/composables/useToast'
 import { useAuthStore } from '@/stores/auth'
 
 const {
@@ -40,8 +44,48 @@ const {
 } = useHomeChatPage()
 
 const searchVisible = ref(false)
+const route = useRoute()
 const router = useRouter()
 const isTasksWorkspace = computed(() => route.name === 'tasks')
+const privacyMappingTarget = ref<{ id: string; name: string; busy: boolean; error: string }>()
+const announcePrivacyMappingCleared = ref(false)
+const toast = useToast()
+
+watch([() => store.currentSessionId, isTasksWorkspace], () => {
+  privacyMappingTarget.value = undefined
+  announcePrivacyMappingCleared.value = false
+})
+
+function openPrivacyMappingConfirmation() {
+  const session = sessions.currentSession
+  if (session && sessions.canManageCurrentSession && !isTasksWorkspace.value) {
+    announcePrivacyMappingCleared.value = false
+    privacyMappingTarget.value = { id: session.id, name: session.name, busy: false, error: '' }
+  }
+}
+
+async function destroyPrivacyMappings() {
+  const target = privacyMappingTarget.value
+  if (!target || target.busy || target.id !== store.currentSessionId) return
+  target.busy = true
+  target.error = ''
+  try {
+    await apiClient.delete(`/api/sessions/${encodeURIComponent(target.id)}/privacy-mappings`)
+    if (privacyMappingTarget.value === target) {
+      privacyMappingTarget.value = undefined
+      announcePrivacyMappingCleared.value = true
+      toast.success(t('sessionPrivacyDestroyed'))
+    }
+  } catch (error) {
+    if (privacyMappingTarget.value === target) {
+      const message = isAxiosError<{ error?: string }>(error) ? error.response?.data?.error : undefined
+      target.error = typeof message === 'string' && message.trim() ? message : t('sessionPrivacyDestroyFailed')
+    }
+  } finally {
+    target.busy = false
+  }
+}
+
 async function openTasks() {
   ui.topMenuVisible = false
   sessions.activeSessionMenu = null
@@ -64,7 +108,6 @@ const {
   markUpdateNoticeRead,
 } = useUpdateNotice()
 const authStore = useAuthStore()
-const route = useRoute()
 const {
   titlePhase,
   displayedWelcomeTitle,
@@ -120,6 +163,26 @@ onMounted(() => {
 
 <template>
   <ChatSearchDialog :visible="searchVisible" :pick-result="pickSearchResult" @close="searchVisible = false" />
+  <AppDialog
+    :visible="!!privacyMappingTarget"
+    :title="t('sessionPrivacyDestroyTitle')"
+    :confirm-text="t('sessionPrivacyDestroyConfirm')"
+    :confirm-loading="privacyMappingTarget?.busy"
+    :show-cancel="!privacyMappingTarget?.busy"
+    :show-close="!privacyMappingTarget?.busy"
+    :close-on-esc="!privacyMappingTarget?.busy"
+    :close-on-mask="!privacyMappingTarget?.busy"
+    confirm-danger
+    @update:visible="!$event && !privacyMappingTarget?.busy && (privacyMappingTarget = undefined)"
+    @confirm="destroyPrivacyMappings"
+  >
+    <p v-if="privacyMappingTarget" class="sb-text-secondary text-sm break-words">
+      {{ t('sessionPrivacyDestroyHint', { name: privacyMappingTarget.name }) }}
+    </p>
+    <p v-if="privacyMappingTarget?.busy" class="sb-text-secondary mt-2 text-sm" role="status">{{ t('sessionPrivacyDestroying') }}</p>
+    <p v-if="privacyMappingTarget?.error" class="mt-2 text-sm break-words [color:var(--tool-error-text)]" role="alert">{{ privacyMappingTarget.error }}</p>
+  </AppDialog>
+  <p class="sr-only" role="status">{{ announcePrivacyMappingCleared ? t('sessionPrivacyDestroyed') : '' }}</p>
   <div
     class="page-shell h-screen flex items-center justify-center p-2 sm:p-3 transition-colors duration-300"
     :class="{ 'home-login-entering': playHomeLoginEnter }"
@@ -180,6 +243,7 @@ onMounted(() => {
           @update:top-menu-visible="ui.topMenuVisible = $event"
           @rename-current="sessions.currentSession && sessions.openRename(sessions.currentSession.id, sessions.currentSession.name)"
           @remove-current="sessions.currentSession && sessions.removeSession(sessions.currentSession.id)"
+          @clear-privacy-mappings="openPrivacyMappingConfirmation"
         />
 
         <CooperativePanel v-if="!isTasksWorkspace" :session-id="store.currentSessionId" @settled="id => !store.waiting && store.loadNewMessagesForSession(id)" />

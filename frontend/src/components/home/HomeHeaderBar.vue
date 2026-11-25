@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { mdiChevronDown, mdiDeleteOutline, mdiMenu, mdiPencilOutline } from '@mdi/js'
+import { ref } from 'vue'
+import { mdiChevronDown, mdiDeleteOutline, mdiMenu, mdiPencilOutline, mdiShieldOffOutline } from '@mdi/js'
 import { useI18n } from 'vue-i18n'
 import type { SessionItem } from '@/api/chat'
 import MdiIcon from '@/components/ui/MdiIcon.vue'
@@ -18,9 +19,11 @@ const emit = defineEmits<{
   'update:topMenuVisible': [visible: boolean]
   renameCurrent: []
   removeCurrent: []
+  clearPrivacyMappings: []
 }>()
 
 const { t } = useI18n()
+const titleButton = ref<HTMLButtonElement>()
 
 function toggleTopMenu() {
   emit('update:topMenuVisible', !props.topMenuVisible)
@@ -30,13 +33,25 @@ function onRenameClick() {
   emit('renameCurrent')
   emit('update:topMenuVisible', false)
 }
+
+function dismissTopMenu() {
+  if (!props.topMenuVisible) return
+  titleButton.value?.focus()
+  emit('update:topMenuVisible', false)
+}
+
+function onClearPrivacyClick() {
+  dismissTopMenu()
+  emit('clearPrivacyMappings')
+}
 </script>
 
 <template>
-  <header class="header-bar relative z-30 flex items-center justify-center h-14 flex-shrink-0 backdrop-blur-sm">
+  <header class="header-bar relative z-30 flex items-center justify-center h-14 flex-shrink-0 backdrop-blur-sm" @keydown.esc="dismissTopMenu">
     <button
       type="button"
       class="sb-text-muted absolute left-3 w-9 h-9 flex items-center justify-center rounded-xl transition-all duration-150 cursor-pointer"
+      :aria-label="t('scheduleToggleSidebar')"
       @click.stop="emit('toggleSidebar')"
     >
       <MdiIcon :path="mdiMenu" :size="19" />
@@ -44,7 +59,9 @@ function onRenameClick() {
 
     <button
       v-if="currentSession && canManageCurrentSession"
+      ref="titleButton"
       type="button"
+      :aria-expanded="topMenuVisible"
       class="group/tip flex min-w-0 items-center gap-1.5 px-3 py-1.5 rounded-xl transition-all duration-150 cursor-pointer max-w-[260px] header-title-btn"
       @click.stop="toggleTopMenu"
     >
@@ -86,7 +103,7 @@ function onRenameClick() {
     <Transition name="top-menu-pop">
       <div
         v-if="topMenuVisible && canManageCurrentSession"
-        class="absolute top-[52px] left-1/2 -translate-x-1/2 w-40 rounded-xl py-1 overflow-hidden z-[85] top-menu-glass"
+        class="absolute top-[52px] left-1/2 -translate-x-1/2 w-max min-w-40 max-w-[calc(100vw-2rem)] rounded-xl py-1 overflow-hidden z-[85] top-menu-glass"
         @click.stop
       >
         <button
@@ -101,6 +118,15 @@ function onRenameClick() {
         <button
           v-if="currentSession"
           type="button"
+          class="w-full flex items-center gap-2.5 px-3 h-9 text-sm text-left transition-colors duration-150 cursor-pointer menu-item"
+          @click="onClearPrivacyClick"
+        >
+          <MdiIcon :path="mdiShieldOffOutline" :size="14" class="shrink-0" />
+          <span>{{ t('sessionPrivacyDestroyTitle') }}</span>
+        </button>
+        <button
+          v-if="currentSession"
+          type="button"
           class="w-full flex items-center gap-2.5 px-3 h-9 text-sm transition-colors duration-150 cursor-pointer menu-item-danger"
           @click="emit('removeCurrent')"
         >
@@ -111,3 +137,11 @@ function onRenameClick() {
     </Transition>
   </header>
 </template>
+
+<style scoped>
+.header-title-btn:focus-visible,
+.top-menu-glass button:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: -2px;
+}
+</style>

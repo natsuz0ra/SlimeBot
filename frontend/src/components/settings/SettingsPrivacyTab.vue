@@ -1,18 +1,22 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref, useId } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { privacyAPI } from '@/api/privacy'
 import { llmAPI } from '@/api/llm'
 import AppSelect from '@/components/ui/AppSelect.vue'
 import ToggleSwitch from '@/components/ui/ToggleSwitch.vue'
 import LoadingSpinner from '@/components/ui/LoadingSpinner.vue'
-import type { PrivacyConfig, PrivacyModelStatus, PrivacyPreview, PrivacyRecord } from '@/types/privacy'
+import type { PrivacyConfig, PrivacyMappingStatus, PrivacyModelStatus, PrivacyPreview, PrivacyRecord } from '@/types/privacy'
 import type { LLMProvider } from '@/types/settings'
 import { buildPrivacyConfig, privacyCoreKinds, privacyExtraKinds, privacyKindEnabled, privacyTotals } from '@/utils/privacy'
 
 const { t } = useI18n()
 const config = ref<PrivacyConfig | null>(null)
 const model = ref<PrivacyModelStatus | null>(null)
+const mappings = ref<PrivacyMappingStatus | null>(null)
+const mappingTTL = ref<number | string>('')
+const mappingTTLHintId = useId()
+const maxMappingTTL = 43_200
 const records = ref<PrivacyRecord[]>([])
 const providers = ref<LLMProvider[]>([])
 const words = ref('')
@@ -28,8 +32,15 @@ const preview = ref<PrivacyPreview | null>(null)
 const testing = ref(false)
 let timer: ReturnType<typeof setInterval> | undefined
 let disposed = false
-const draft = computed(() => config.value ? buildPrivacyConfig(config.value, words.value, allow.value) : null)
-const dirty = computed(() => draft.value && JSON.stringify(draft.value) !== saved.value)
+const mappingTTLValid = computed(() => typeof mappingTTL.value === 'number' && Number.isInteger(mappingTTL.value) && mappingTTL.value >= 1 && mappingTTL.value <= maxMappingTTL)
+const mappingModeLabel = computed(() => t(mappings.value?.mode === 'encrypted'
+  ? 'privacyMappingEncrypted'
+  : mappings.value?.mode === 'unavailable' ? 'privacyMappingUnavailable' : 'privacyMappingMemory'))
+const draft = computed(() => config.value ? buildPrivacyConfig({
+  ...config.value,
+  mappingTtlMinutes: mappingTTLValid.value ? Number(mappingTTL.value) : config.value.mappingTtlMinutes,
+}, words.value, allow.value) : null)
+const dirty = computed(() => draft.value && (!mappingTTLValid.value || JSON.stringify(draft.value) !== saved.value))
 const totals = computed(() => privacyTotals(records.value))
 const actionOptions = computed(() => [
   { value: 'mask', label: t('privacyMask') },
@@ -48,9 +59,11 @@ async function load(initial = false) {
     const snapshot = await privacyAPI.get()
     if (disposed) return
     model.value = snapshot.model
+    mappings.value = snapshot.mappings
     records.value = snapshot.records || []
     if (initial) {
       config.value = snapshot.config
+      mappingTTL.value = snapshot.config.mappingTtlMinutes
       words.value = snapshot.config.words?.join('\n') || ''
       allow.value = snapshot.config.allow?.join('\n') || ''
       saved.value = JSON.stringify(draft.value)
@@ -64,7 +77,7 @@ async function load(initial = false) {
 }
 
 async function save() {
-  if (!draft.value) return
+  if (!draft.value || !mappingTTLValid.value) return
   saving.value = true
   error.value = ''
   notice.value = ''
@@ -73,6 +86,7 @@ async function save() {
     await privacyAPI.update(payload)
     saved.value = JSON.stringify(payload)
     notice.value = t('privacySaved')
+    await load()
   } catch (err) { error.value = message(err) }
   finally { saving.value = false }
 }
@@ -133,7 +147,7 @@ onUnmounted(() => { disposed = true; if (timer) clearInterval(timer) })
   <div class="privacy-settings">
     <div class="privacy-heading">
       <p class="settings-item-sub">{{ t('privacyIntro') }}</p>
-      <button v-if="config" type="button" class="privacy-button privacy-primary" :disabled="saving || !dirty" @click="save">{{ saving ? t('privacySaving') : t('privacySave') }}</button>
+      <button v-if="config" type="button" class="privacy-button privacy-primary" :disabled="saving || !dirty || !mappingTTLValid" @click="save">{{ saving ? t('privacySaving') : t('privacySave') }}</button>
     </div>
     <p v-if="error" class="privacy-alert" role="alert">{{ error }} <button v-if="!config" type="button" @click="load(true)">{{ t('privacyRetry') }}</button></p>
     <p v-if="notice" class="privacy-notice" role="status">{{ notice }}</p>
@@ -147,6 +161,37 @@ onUnmounted(() => { disposed = true; if (timer) clearInterval(timer) })
         </div>
         <div class="privacy-row"><div><h3>{{ t('privacySecrets') }}</h3><p class="settings-item-sub">{{ t('privacySecretsHint') }}</p></div><ToggleSwitch v-model="config.secrets" :aria-label="t('privacySecrets')" /></div>
         <div class="privacy-row"><div><h3>{{ t('privacyPersonal') }}</h3><p class="settings-item-sub">{{ t('privacyPersonalHint') }}</p></div><ToggleSwitch v-model="config.personal" :aria-label="t('privacyPersonal')" /></div>
+      </section>
+
+      <section class="settings-card privacy-card" :aria-label="t('privacyMappingTitle')">
+        <div class="privacy-mapping-heading">
+          <div>
+            <h3>{{ t('privacyMappingTitle') }}</h3>
+            <p class="settings-item-sub">{{ t('privacyMappingHint') }}</p>
+          </div>
+          <span class="privacy-badge privacy-mapping-status" role="status">{{ mappingModeLabel }}</span>
+        </div>
+        <div class="privacy-mapping-fields">
+          <label class="privacy-field">
+            <span>{{ t('privacyMappingStorage') }}</span>
+            <select v-model="config.mappingPersistence">
+              <option :value="false">{{ t('privacyMappingMemory') }}</option>
+              <option :value="true">{{ t('privacyMappingEncrypted') }}</option>
+            </select>
+          </label>
+          <label class="privacy-field">
+            <span>{{ t('privacyMappingTTL') }}</span>
+            <input v-model.number="mappingTTL" type="number" min="1" :max="maxMappingTTL" step="1" required
+              :aria-invalid="!mappingTTLValid || undefined" :aria-describedby="!mappingTTLValid ? mappingTTLHintId : undefined" />
+          </label>
+        </div>
+        <p v-if="!mappingTTLValid" :id="mappingTTLHintId" class="settings-item-sub" role="status">{{ t('privacyMappingTTLRange') }}</p>
+        <div class="privacy-mapping-hints">
+          <p v-if="mappings?.keyStatus === 'mismatch'" class="settings-item-sub">{{ t('privacyMappingKeyMismatch') }}</p>
+          <p v-else class="settings-item-sub">{{ t('privacyMappingKeyHint', { key: 'SLIMEBOT_PRIVACY_MAPPING_KEY' }) }}</p>
+          <p v-if="mappings?.storageError" class="settings-item-sub">{{ t('privacyMappingStorageError') }}</p>
+          <p v-if="mappings?.mode !== 'memory' || config.mappingPersistence" class="settings-item-sub">{{ t('privacyMappingDisableHint') }}</p>
+        </div>
       </section>
 
       <section class="settings-card privacy-card">
@@ -245,7 +290,7 @@ onUnmounted(() => { disposed = true; if (timer) clearInterval(timer) })
         <div v-else class="privacy-records"><details v-for="record in records.slice(0, 30)" :key="record.id" class="privacy-record"><summary><time>{{ new Date(record.time).toLocaleTimeString() }}</time><span>{{ record.source || 'LLM' }}</span><span>{{ record.blocked ? t('privacyBlocked') : record.failed ? t('privacyFailed') : t('privacyRecordMasked', { count: record.masked }) }}</span><span class="settings-item-sub">{{ record.durationMs }} ms</span></summary><div class="privacy-record-detail"><span>{{ t('privacyRestored', { count: record.restored }) }}</span><span v-for="(count, kind) in record.kinds" :key="kind">{{ t(`privacyKind_${kind}`, String(kind)) }} × {{ count }}</span><code v-if="record.sessionId">{{ record.sessionId }}</code></div></details></div>
       </section>
       <p class="privacy-boundary settings-item-sub">{{ t('privacyBoundary') }}</p>
-      <div class="privacy-bottom-save"><span class="settings-item-sub">{{ dirty ? t('privacyUnsaved') : t('privacySavedState') }}</span><button type="button" class="privacy-button privacy-primary" :disabled="saving || !dirty" @click="save">{{ saving ? t('privacySaving') : t('privacySave') }}</button></div>
+      <div class="privacy-bottom-save"><span class="settings-item-sub">{{ dirty ? t('privacyUnsaved') : t('privacySavedState') }}</span><button type="button" class="privacy-button privacy-primary" :disabled="saving || !dirty || !mappingTTLValid" @click="save">{{ saving ? t('privacySaving') : t('privacySave') }}</button></div>
     </template>
   </div>
 </template>
@@ -309,7 +354,12 @@ input[type=checkbox] { accent-color: var(--sb-brand); width: 15px; height: 15px;
 }
 .privacy-two-columns { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 20px; }
 .privacy-field { display: flex; flex-direction: column; gap: 8px; min-width: 0; font-size: 13px; }
-.privacy-field textarea, .privacy-field input:not([type=range]) { width: 100%; padding: 10px 12px; border: 1px solid var(--input-border); border-radius: 8px; background: var(--input-bg); color: var(--text-primary); font: inherit; line-height: 1.6; }
+.privacy-field textarea, .privacy-field input:not([type=range]), .privacy-field select { width: 100%; padding: 10px 12px; border: 1px solid var(--input-border); border-radius: 8px; background: var(--input-bg); color: var(--text-primary); font: inherit; line-height: 1.6; }
+.privacy-mapping-heading { display: flex; align-items: flex-start; justify-content: space-between; flex-wrap: wrap; column-gap: 18px; row-gap: 6px; }
+.privacy-mapping-fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 200px), 1fr)); gap: 12px 20px; margin: 14px 0 8px; }
+.privacy-mapping-fields input, .privacy-mapping-fields select { min-height: 40px; box-sizing: border-box; }
+.privacy-mapping-status { max-width: 100%; overflow-wrap: anywhere; }
+.privacy-mapping-hints { border-top: 1px solid var(--card-border); margin-top: 12px; padding-top: 8px; overflow-wrap: anywhere; }
 .privacy-field textarea { resize: vertical; min-height: 90px; }
 .privacy-inline, .privacy-model-status, .privacy-provider-list { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; margin-top: 14px; }
 .privacy-details { margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--card-border); font-size: 13px; }

@@ -9,7 +9,7 @@ test('privacy lists trim, deduplicate and preserve punctuation', () => {
 })
 
 test('privacy draft preserves actions and isolates nested values', () => {
-  const config = { kinds: { PHONE: false }, actions: { PHONE: 'block' }, rules: [{ kind: 'CUSTOM', prefix: 'company_' }], bypassProviderIds: ['provider-one'] } as PrivacyConfig
+  const config = { kinds: { PHONE: false }, actions: { PHONE: 'block' }, rules: [{ kind: 'CUSTOM', prefix: 'company_' }], bypassProviderIds: ['provider-one'], mappingPersistence: true, mappingTtlMinutes: 60 } as PrivacyConfig
   const result = buildPrivacyConfig(config, 'word\nword', 'allowed')
   result.kinds.PHONE = true
   result.rules[0]!.prefix = 'changed'
@@ -18,6 +18,8 @@ test('privacy draft preserves actions and isolates nested values', () => {
   assert.deepEqual(result.words, ['word'])
   assert.deepEqual(result.allow, ['allowed'])
   assert.equal(result.actions.PHONE, 'block')
+  assert.equal(result.mappingPersistence, true)
+  assert.equal(result.mappingTtlMinutes, 60)
   assert.equal(privacyKindEnabled(config, 'EMAIL'), true)
   assert.equal(privacyKindEnabled(config, 'IP'), false)
 })

@@ -119,6 +119,10 @@ func newCore(cfg config.Config, desktop bool) (*Core, error) {
 	openaiClient := oaisvc.NewOpenAIClient()
 	anthropicClient := antsvc.NewAnthropicClient()
 	privacyService := privacysvc.NewService(repo, filepath.Join(filepath.Dir(cfg.DBPath), "privacy"))
+	// Keep the deployment key out of environments inherited by tools and MCP servers.
+	if err := os.Unsetenv("SLIMEBOT_PRIVACY_MAPPING_KEY"); err != nil {
+		return nil, fmt.Errorf("clear privacy mapping key from tool environment: %w", err)
+	}
 	providerFactory := llmsvc.NewFactory(privacyService.Wrap(openaiClient))
 	providerFactory.Register(llmsvc.ProviderAnthropic, privacyService.Wrap(anthropicClient))
 	providerFactory.SetTextProtector(privacyService.ProtectText)
@@ -164,6 +168,7 @@ func newCore(cfg config.Config, desktop bool) (*Core, error) {
 	info := buildversion.Info()
 	updateService := updater.NewService(updater.ServiceOptions{CurrentVersion: info.Version})
 
+	privacyService.StartMappingCleanup(context.Background())
 	owned = true
 	return &Core{
 		Config:           cfg,

@@ -154,9 +154,10 @@ func (h *HTTPController) DeleteSession(c WebContext) {
 		jsonError(c, http.StatusBadRequest, "Message platform sessions cannot be deleted.")
 		return
 	}
+	ctx, cancel := context.WithTimeout(c.Request().Context(), 10*time.Second)
+	defer cancel()
+	mappingSessions := []string{id}
 	if h.cooperative != nil {
-		ctx, cancel := context.WithTimeout(c.Request().Context(), 10*time.Second)
-		defer cancel()
 		if err := h.cooperative.DrainRoot(ctx, id); err != nil {
 			jsonError(c, http.StatusConflict, err.Error())
 			return
@@ -173,10 +174,36 @@ func (h *HTTPController) DeleteSession(c WebContext) {
 				return
 			}
 		}
+		if h.privacy != nil {
+			agents, err := h.cooperative.Store.ListAgents(ctx, id)
+			if err != nil {
+				jsonInternalError(c, err)
+				return
+			}
+			for _, agent := range agents {
+				mappingSessions = append(mappingSessions, agent.SessionID)
+			}
+		}
 	}
-	if err := h.sessions.Delete(c.Request().Context(), id); err != nil {
+	if h.privacy != nil {
+		for _, sessionID := range mappingSessions {
+			if err := h.privacy.DestroySession(sessionID); err != nil {
+				jsonInternalError(c, err)
+				return
+			}
+		}
+	}
+	if err := h.sessions.Delete(ctx, id); err != nil {
 		jsonInternalError(c, err)
 		return
+	}
+	if h.privacy != nil {
+		// Invalidate auxiliary requests that may have started before the DB commit.
+		for _, sessionID := range mappingSessions {
+			if err := h.privacy.DestroySession(sessionID); err != nil {
+				logging.Warn("session_privacy_cleanup_failed", "session", sessionID, "err", err)
+			}
+		}
 	}
 	c.Status(http.StatusNoContent)
 }

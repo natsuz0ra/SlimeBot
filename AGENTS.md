@@ -135,7 +135,7 @@ Quick index (feature -> first place to inspect):
 - Web conversation history navigation: `frontend/src/components/chat/ChatHistoryNav.vue`, `frontend/src/composables/home/useHomeScroll.ts`
 - Background command completion, persistence and manual recovery: `internal/tools/process.go`, `internal/tools/exec.go`, `internal/services/chat/background_tasks.go`, `internal/services/chat/background_recovery.go`, `AGENT-FLOW.md`
 - Context compaction: `internal/services/context/`, `internal/repositories/repo_context.go`, `internal/services/chat/context_bridge.go` (raw model steps are separate from UI messages; usage reads never call models; `SLIMEBOT_CONTEXT_COMPACTION=off` bypasses checkpoints while keeping pruning/budget guards)
-- Sensitive data masking and local model lifecycle: `internal/services/privacy/`, `internal/server/controller/privacy.go`
+- Sensitive data masking, encrypted mapping retention and local model lifecycle: `internal/services/privacy/`, `internal/server/controller/privacy.go`, `internal/server/controller/session_privacy.go`
 - Pure Go privacy inference and tokenizer reference tests: `internal/services/privacy/inference/`
 - Long-term memory store/service: `internal/services/memory/`, `internal/tools/memory.go`
 - Scheduled tasks and execution history: `internal/services/schedule/`, `internal/tools/schedule.go`, `internal/app/schedule_runner.go`, `internal/server/controller/scheduled_tasks.go`

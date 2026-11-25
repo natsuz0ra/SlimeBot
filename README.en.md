@@ -16,7 +16,7 @@ A personal AI agent demo: an extensible foundation for conversational AI apps. I
 - Agent tool-call flows with approval modes, sandbox policies, command/file tools, web requests, web search, and task tracking
 - Desktop Computer Use on macOS, Windows, and Linux: let SlimeBot view and interact with apps on your computer, with approval for sensitive actions
 - Plan mode, streamed thinking, context compression, MCP configuration, skills, and AGENTS.md instructions
-- **Mask sensitive data locally.** Replace credentials and personal information before sending them to the model. Use built-in rules or add the optional local detector.
+- **Mask sensitive data locally.** Replace credentials and personal information before sending them to the model. Mappings stay in memory by default and expire after 24 hours of inactivity. For encrypted persistence, set `SLIMEBOT_PRIVACY_MAPPING_KEY` (32 random bytes, Base64-encoded) in the server process environment, restart, and enable encrypted storage in Privacy & masking. Store the key separately. The chat menu can clear a chat’s mappings without deleting its messages.
 - Web UI, CLI TUI, and Telegram integration
 - Web sessions grouped by working directory, with a directory picker before the first message; existing sessions without a directory appear under Uncategorized. Messaging sessions are grouped by platform.
 

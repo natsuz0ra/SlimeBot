@@ -73,6 +73,7 @@ func New(cfg config.Config, tokenManager *auth.TokenManager, httpController *con
 			api.Get("/sessions/{id}", adapt(httpController.GetSession))
 			api.Patch("/sessions/{id}/name", adapt(httpController.RenameSession))
 			api.Delete("/sessions/{id}", adapt(httpController.DeleteSession))
+			api.Delete("/sessions/{id}/privacy-mappings", adapt(httpController.DestroySessionPrivacyMappings))
 			api.Get("/sessions/{id}/context-usage", adapt(httpController.GetContextUsage))
 			api.Get("/sessions/{id}/cooperative", adapt(httpController.ListCooperative))
 			api.Get("/sessions/{id}/background-tasks", adapt(httpController.ListBackgroundTasks))

@@ -1,7 +1,9 @@
 package controller
 
 import (
+	"bytes"
 	"context"
+	"encoding/base64"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -44,5 +46,36 @@ func TestPrivacyAPIValidationAndPreview(t *testing.T) {
 	}
 	if snapshot, err := s.Snapshot(context.Background()); err != nil || len(snapshot.Records) != 0 {
 		t.Fatal("preview created request records")
+	}
+}
+
+func TestPrivacyMappingSettingsPreserveOmittedOptions(t *testing.T) {
+	store := &privacyTestStore{}
+	dir := t.TempDir()
+	update := func(s *privacysvc.Service, body string) *httptest.ResponseRecorder {
+		h := &HTTPController{privacy: s}
+		w := httptest.NewRecorder()
+		r := httptest.NewRequest(http.MethodPut, "/api/privacy", strings.NewReader(body))
+		r.Header.Set("Content-Type", "application/json")
+		h.UpdatePrivacy(NewChiContext(w, r))
+		return w
+	}
+	t.Setenv("SLIMEBOT_PRIVACY_MAPPING_KEY", "")
+	missing := privacysvc.NewService(store, dir)
+	defer missing.Close()
+	if got := update(missing, `{"mappingPersistence":true}`); got.Code != http.StatusBadRequest || !strings.Contains(got.Body.String(), "SLIMEBOT_PRIVACY_MAPPING_KEY") {
+		t.Fatalf("missing deployment key response: %d %s", got.Code, got.Body.String())
+	}
+	t.Setenv("SLIMEBOT_PRIVACY_MAPPING_KEY", base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{11}, 32)))
+	enabled := privacysvc.NewService(store, dir)
+	defer enabled.Close()
+	for _, body := range []string{`{"mappingPersistence":true,"mappingTtlMinutes":30}`, `{"enabled":true}`} {
+		if got := update(enabled, body); got.Code != http.StatusNoContent {
+			t.Fatalf("settings update: %d %s", got.Code, got.Body.String())
+		}
+	}
+	config, err := enabled.GetConfig(context.Background())
+	if err != nil || !config.Enabled || !config.MappingPersistence || config.MappingTTLMinutes != 30 {
+		t.Fatalf("legacy request replaced lifecycle options: %+v %v", config, err)
 	}
 }

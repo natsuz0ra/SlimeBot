@@ -41,3 +41,9 @@ Web 与桌面端关闭页面后，后台任务仍由服务器运行。重新打�
 ## 任务中心与 Token 用量
 
 Web 的任务中心统一展示后台命令、持久化子代理和定时任务执行记录，支持按来源和状态筛选。后台命令可停止、重试或继续对话，子代理可停止并查看执行详情。桌面端窗口未聚焦时，后台命令或子代理进入终态会发送系统通知。
+
+模型厂商在成功响应中上报的非零 Token 用量会逐次保存，覆盖主对话、工具循环、上下文压缩、标题生成、审批和子代理。可按会话、模型或项目汇总；缓存读取单独列示，不与 OpenAI 输入 Token 重复计入总量。失败或没有实际上报用量的请求不伪造统计。
+
+“设置 → 用量与预算”可配置每会话输出 Token 预算，默认 `0` 表示不限。主会话与其子代理共用该预算；达到上限后阻止新的模型请求，尚未达到上限时收紧单次最大输出。Anthropic 扩展思考所需的最小输出仍会保留。标题生成记录用量，但不因预算耗尽阻塞基础会话管理。
+
+实现入口：`internal/app/task_center.go`、`internal/server/controller/task_center.go`、`frontend/src/components/home/ScheduledTasksWorkspace.vue`、`internal/services/usage/`、`internal/services/llm/request_observer.go` 和 `frontend/src/components/settings/SettingsUsageTab.vue`。

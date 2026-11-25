@@ -16,6 +16,7 @@ const (
 	MessagePlatformSessionPrefix       = "im-platform-session:"
 	SettingLanguage                    = "language"
 	SettingDefaultModel                = "defaultModel"
+	SettingSessionOutputTokenBudget    = "sessionOutputTokenBudget"
 	SettingMessagePlatformDefaultModel = "messagePlatformDefaultModel"
 	SettingWebSearchAPIKey             = "WEB_SEARCH_API_KEY"
 	ToolCallStatusPending              = "pending"

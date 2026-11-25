@@ -20,6 +20,7 @@ type AppSettings struct {
 	SubagentMaxDepth                int
 	Language                        string
 	DefaultModel                    string
+	SessionOutputTokenBudget        int
 	MessagePlatformDefaultModel     string
 	MessagePlatformThinkingLevel    string
 	MessagePlatformApprovalMode     string
@@ -47,6 +48,7 @@ type UpdateSettingsInput struct {
 	SubagentMaxDepth                *int
 	Language                        *string
 	DefaultModel                    *string
+	SessionOutputTokenBudget        *int
 	MessagePlatformDefaultModel     *string
 	MessagePlatformThinkingLevel    *string
 	MessagePlatformApprovalMode     *string
@@ -204,9 +206,14 @@ func (s *SettingsService) Get(ctx context.Context) (*AppSettings, error) {
 	if err != nil {
 		return nil, err
 	}
+	sessionOutputTokenBudget, err := s.getIntStringSetting(ctx, constants.SettingSessionOutputTokenBudget, 0, 0, int(^uint(0)>>1))
+	if err != nil {
+		return nil, err
+	}
 	return &AppSettings{SubagentMaxDepth: depth,
 		Language:                        language,
 		DefaultModel:                    defaultModel,
+		SessionOutputTokenBudget:        sessionOutputTokenBudget,
 		MessagePlatformDefaultModel:     messagePlatformDefaultModel,
 		MessagePlatformThinkingLevel:    messagePlatformThinkingLevel,
 		MessagePlatformApprovalMode:     messagePlatformApprovalMode,
@@ -237,6 +244,14 @@ func (s *SettingsService) Update(ctx context.Context, input UpdateSettingsInput)
 			return err
 		}
 		if err := s.store.SetSetting(ctx, "SUBAGENT_MAX_DEPTH", strconv.Itoa(*input.SubagentMaxDepth)); err != nil {
+			return err
+		}
+	}
+	if input.SessionOutputTokenBudget != nil {
+		if *input.SessionOutputTokenBudget < 0 {
+			return fmt.Errorf("session output token budget must be non-negative")
+		}
+		if err := s.store.SetSetting(ctx, constants.SettingSessionOutputTokenBudget, strconv.Itoa(*input.SessionOutputTokenBudget)); err != nil {
 			return err
 		}
 	}

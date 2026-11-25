@@ -19,6 +19,7 @@ import (
 	skillsvc "slimebot/internal/services/skill"
 	subagentsvc "slimebot/internal/services/subagent"
 	teamsvc "slimebot/internal/services/team"
+	usagesvc "slimebot/internal/services/usage"
 )
 
 type agentsInstructionsReader interface {
@@ -119,6 +120,10 @@ func (s *ChatService) SetMemoryService(service *memorysvc.Service) {
 	if s.agent != nil {
 		s.agent.SetMemoryService(service)
 	}
+}
+
+func (s *ChatService) SetUsageService(service *usagesvc.Service) {
+	s.providerFactory.SetRequestObserver(service.ObserveRequest)
 }
 
 func (s *ChatService) SetScheduleService(service *schedulesvc.Service) {

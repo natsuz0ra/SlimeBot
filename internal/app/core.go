@@ -30,6 +30,7 @@ import (
 	settingssvc "slimebot/internal/services/settings"
 	skillsvc "slimebot/internal/services/skill"
 	teamsvc "slimebot/internal/services/team"
+	usagesvc "slimebot/internal/services/usage"
 	"slimebot/internal/updater"
 	buildversion "slimebot/internal/version"
 )
@@ -59,6 +60,7 @@ type Core struct {
 	UpdateService    *updater.Service
 	TeamService      *teamsvc.Service
 	PrivacyService   *privacysvc.Service
+	UsageService     *usagesvc.Service
 
 	warmupOnce    sync.Once
 	warmupDone    chan struct{}
@@ -139,6 +141,8 @@ func newCore(cfg config.Config, desktop bool) (*Core, error) {
 	memoryService := memorysvc.NewServiceFromSettings(repo)
 	scheduleService := schedulesvc.NewService(repo, nil, schedulesvc.Options{})
 	chatService := chatsvc.NewChatService(repo, repo, providerFactory, mcpManager, skillRuntime)
+	usageService := usagesvc.NewService(repo, repo)
+	chatService.SetUsageService(usageService)
 	chatService.SetTeamService(teamService)
 	chatService.SetMemoryService(memoryService)
 	chatService.SetScheduleService(scheduleService)
@@ -184,6 +188,7 @@ func newCore(cfg config.Config, desktop bool) (*Core, error) {
 		UpdateService:    updateService,
 		TeamService:      teamService,
 		PrivacyService:   privacyService,
+		UsageService:     usageService,
 		warmupDone:       make(chan struct{}),
 	}, nil
 }

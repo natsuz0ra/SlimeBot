@@ -17,6 +17,7 @@ import (
 	sandboxpolicy "slimebot/internal/sandbox"
 	contextsvc "slimebot/internal/services/context"
 	llmsvc "slimebot/internal/services/llm"
+	usagesvc "slimebot/internal/services/usage"
 
 	"github.com/google/uuid"
 )
@@ -196,6 +197,7 @@ func (s *ChatService) handleChatStreamWithReceivedAt(
 	if strings.TrimSpace(content) == "" && len(attachmentIDs) == 0 {
 		return nil, fmt.Errorf("Message cannot be empty.")
 	}
+	ctx = usagesvc.WithScope(ctx, usagesvc.Scope{RootSessionID: sessionID, SessionID: sessionID, RequestID: requestID, WorkingDirectory: sandboxpolicy.WorkingDirectoryFromContext(ctx)})
 
 	ctx, endTurn, err := s.beginTurn(ctx, sessionID, requestID)
 	if err != nil {
@@ -734,6 +736,7 @@ func (s *ChatService) executeChatTurn(
 	if constants.ClientSurfaceFromContext(ctx) != constants.ClientSurfaceCLI {
 		ctx = sandboxpolicy.WithWorkingDirectory(ctx, state.session.WorkingDirectory)
 	}
+	ctx = usagesvc.WithScope(ctx, usagesvc.Scope{RootSessionID: sessionID, SessionID: sessionID, RequestID: requestID, WorkingDirectory: state.session.WorkingDirectory})
 
 	ctx = tools.WithBackgroundObserver(ctx, s.backgroundObserver(ctx, state, subagentModelID, approvalMode, planMode))
 	var cooperative *cooperativeLoop

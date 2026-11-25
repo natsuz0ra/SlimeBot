@@ -18,7 +18,10 @@ type Provider interface {
 type Factory struct {
 	providers     map[string]Provider
 	textProtector func(context.Context, ModelRuntimeConfig, string) (string, error)
+	observer      RequestObserver
 }
+
+func (f *Factory) SetRequestObserver(observer RequestObserver) { f.observer = observer }
 
 // SetTextProtector protects complete auxiliary input before callers shorten it.
 // Configure it during application wiring, before the factory is shared.
@@ -54,11 +57,11 @@ func (f *Factory) GetProvider(provider string) Provider {
 		if p == nil {
 			return nil
 		}
-		return observedProvider{p}
+		return observedProvider{Provider: p, factory: f}
 	}
 	p := f.providers[ProviderOpenAI]
 	if p == nil {
 		return nil
 	}
-	return observedProvider{p}
+	return observedProvider{Provider: p, factory: f}
 }

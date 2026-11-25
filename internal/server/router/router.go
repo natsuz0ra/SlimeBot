@@ -98,6 +98,7 @@ func New(cfg config.Config, tokenManager *auth.TokenManager, httpController *con
 			api.Get("/scheduled-tasks", adapt(httpController.ListScheduledTasks))
 			api.Post("/background-tasks/{id}/actions", adapt(httpController.ActOnBackgroundTask))
 			api.Get("/task-center", adapt(httpController.GetTaskCenter))
+			api.Get("/usage/summary", adapt(httpController.GetUsageSummary))
 			api.Post("/scheduled-tasks", adapt(httpController.CreateScheduledTask))
 			api.Post("/scheduled-tasks/{id}/actions", adapt(httpController.ActOnScheduledTask))
 			api.Get("/scheduled-task-runs", adapt(httpController.ListScheduledTaskRuns))

@@ -70,7 +70,8 @@ internal/
 │  ├─ settings/              # User/system settings
 │  ├─ skill/                 # Skill loading/execution
 │  ├─ subagent/              # Persistent agents, scoped messaging, task DAG/CAS, and artifact acceptance
-│  └─ team/                  # Legacy Agent Team history and compatibility records
+│  ├─ team/                  # Legacy Agent Team history and compatibility records
+│  └─ usage/                 # Provider-reported token accounting and session output budgets
 ├─ tools/                    # Tool implementations
 ├─ updater/                  # Release update checking/apply helper
 └─ version/                  # Build/version metadata
@@ -140,6 +141,7 @@ Quick index (feature -> first place to inspect):
 - Scheduled tasks and execution history: `internal/services/schedule/`, `internal/tools/schedule.go`, `internal/app/schedule_runner.go`, `internal/server/controller/scheduled_tasks.go`
 - Home scheduled task workspace: `frontend/src/components/home/ScheduledTasksWorkspace.vue`, `frontend/src/components/home/TaskRunTimeline.vue`, `frontend/src/api/schedule.ts` (sidebar entry and `/tasks` route; execution contexts are excluded from ordinary chats)
 - Unified task center: `internal/app/task_center.go`, `internal/server/controller/task_center.go`, `frontend/src/api/taskCenter.ts` (background commands, subagents and scheduled runs in the `/tasks` overview)
+- Token usage summaries and output budgets: `internal/services/usage/`, `internal/services/llm/request_observer.go`, `internal/repositories/repo_usage.go`, `frontend/src/components/settings/SettingsUsageTab.vue`
 - Persistent subagents and collaboration: `internal/services/subagent/`, `internal/runtime/agent/`, `internal/runtime/workspace/`, `internal/services/chat/cooperative.go`, `internal/server/controller/cooperative.go` (hidden sessions, durable inbox, budgets, isolated worker artifacts, validation and recoverable integration)
 - Web collaboration workspace: `frontend/src/components/chat/CooperativePanel.vue`, `frontend/src/api/cooperative.ts` (agents, shared task board, artifacts and pending approvals; available in chat and scheduled run details)
 - CLI collaboration: `cli/src/components/CooperativeView.tsx`, `/agents` routing in `cli/src/controllers/commands.ts` and `cli/src/app.tsx`

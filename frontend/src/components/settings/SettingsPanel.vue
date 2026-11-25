@@ -16,6 +16,7 @@ import SettingsSkillsTab from '@/components/settings/SettingsSkillsTab.vue'
 import SettingsAgentsTab from '@/components/settings/SettingsAgentsTab.vue'
 import SettingsMemoryTab from '@/components/settings/SettingsMemoryTab.vue'
 import SettingsPrivacyTab from '@/components/settings/SettingsPrivacyTab.vue'
+import SettingsUsageTab from '@/components/settings/SettingsUsageTab.vue'
 import SettingsPlatformTab from '@/components/settings/SettingsPlatformTab.vue'
 import SettingsUpdateTab from '@/components/settings/SettingsUpdateTab.vue'
 import SettingsAboutTab from '@/components/settings/SettingsAboutTab.vue'
@@ -69,6 +70,7 @@ const settingsTabs: { key: SettingsTabKey; labelKey: string }[] = [
   { key: 'agents', labelKey: 'agentsSettings' },
   { key: 'memory', labelKey: 'memorySettings' },
   { key: 'privacy', labelKey: 'privacySettings' },
+  { key: 'usage', labelKey: 'usageSettings' },
   { key: 'platform', labelKey: 'messagePlatformSettings' },
   { key: 'update', labelKey: 'updateSettings' },
   { key: 'about', labelKey: 'aboutSettings' },
@@ -694,6 +696,7 @@ watch(tab, (nextTab) => {
         <SettingsUpdateTab v-if="tab === 'update'" @update-check-loaded="props.setUpdateCheckResult" />
 
         <SettingsPrivacyTab v-if="tab === 'privacy'" />
+        <SettingsUsageTab v-if="tab === 'usage'" />
         <SettingsAboutTab v-if="tab === 'about'" />
       </section>
     </div>

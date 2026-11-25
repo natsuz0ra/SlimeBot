@@ -79,6 +79,7 @@ func New(cfg config.Config, tokenManager *auth.TokenManager, httpController *con
 			api.Get("/sessions/{id}/checkpoints/{checkpointId}/diff", adapt(httpController.DiffFileCheckpoint))
 			api.Post("/sessions/{id}/checkpoints/{checkpointId}/rollback", adapt(httpController.RollbackFileCheckpoint))
 			api.Get("/sessions/{id}/context-usage", adapt(httpController.GetContextUsage))
+			api.Post("/sessions/{id}/context/compact", adapt(httpController.CompactContext))
 			api.Get("/sessions/{id}/cooperative", adapt(httpController.ListCooperative))
 			api.Get("/sessions/{id}/background-tasks", adapt(httpController.ListBackgroundTasks))
 			api.Post("/sessions/{id}/cooperative/stop", adapt(httpController.StopCooperative))

@@ -33,6 +33,8 @@ test('dispatchChatSocketMessage routes context_usage payloads', () => {
     compactionBeforeTokens: 20000,
     compactionAfterTokens: 2000,
     compactionReason: 'pressure',
+    compactionDurationMs: 1250,
+    layers: [{ layer: 'system', tokens: 1200 }, { layer: 'recent_conversation', tokens: 418800 }],
   }), handlers)
 
   assert.deepEqual(calls, [{
@@ -53,8 +55,22 @@ test('dispatchChatSocketMessage routes context_usage payloads', () => {
       compactionBeforeTokens: 20000,
       compactionAfterTokens: 2000,
       compactionReason: 'pressure',
+      compactionDurationMs: 1250,
+      layers: [{ layer: 'system', tokens: 1200 }, { layer: 'recent_conversation', tokens: 418800 }],
     },
   }])
+})
+
+test('dispatchChatSocketMessage preserves compaction cooldown state', () => {
+  let usage: ContextUsageData | undefined
+  dispatchChatSocketMessage(JSON.stringify({
+    type: 'context_usage', sessionId: 'sid-cooldown', usedTokens: 100, totalTokens: 1000,
+    usedPercent: 10, availablePercent: 90, isCompacted: false, state: 'cooldown',
+  }), {
+    onSession: () => {}, onStart: () => {}, onChunk: () => {}, onSessionTitle: () => {},
+    onDone: () => {}, onError: () => {}, onContextUsage: data => { usage = data },
+  })
+  assert.equal(usage?.state, 'cooldown')
 })
 
 test('dispatchChatSocketMessage routes context_compacted with nested usage', () => {

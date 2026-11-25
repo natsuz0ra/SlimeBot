@@ -4,6 +4,12 @@ import type { TeamMemberRunItem, TeamRunItem } from '@/api/chat'
 
 export type BackgroundTaskData = { taskId: string; processId: string; status: string }
 
+export interface SkillLearningData {
+  skillId?: string
+  status: 'completed' | 'failed' | string
+  message: string
+}
+
 export type ChatSocketHandlers = {
   onBackgroundError?: (error: string, sessionId?: string) => void
   onBackgroundTask?: (task: BackgroundTaskData, sessionId?: string) => void
@@ -15,7 +21,7 @@ export type ChatSocketHandlers = {
   onStart: (sessionId?: string, meta?: { startedAt?: string; turnId?: string; background?: boolean }) => void
   onChunk: (chunk: string, sessionId?: string) => void
   onSessionTitle: (title: string, sessionId?: string) => void
-  onDone: (sessionId?: string, answer?: string, meta?: { isInterrupted?: boolean; isStopPlaceholder?: boolean; planId?: string; planBody?: string; finishedAt?: string; durationMs?: number }) => void
+  onDone: (sessionId?: string, answer?: string, meta?: { isInterrupted?: boolean; isStopPlaceholder?: boolean; planId?: string; planBody?: string; finishedAt?: string; durationMs?: number; skillLearning?: SkillLearningData }) => void
   onError: (error: string, sessionId?: string) => void
   onMessageEdited?: (data: MessageEditedData, sessionId?: string) => void
   onToolCallStart?: (data: ToolCallStartData, sessionId?: string) => void
@@ -151,6 +157,11 @@ export interface TodoUpdateData {
   updatedAt?: string
 }
 
+export interface ContextLayerUsage {
+  layer: string
+  tokens: number
+}
+
 export interface ContextUsageData {
   sessionId: string
   modelConfigId: string
@@ -165,8 +176,11 @@ export interface ContextUsageData {
   compactionBeforeTokens?: number
   compactionAfterTokens?: number
   compactionReason?: string
+  compactionDurationMs?: number
+  compactionFailure?: string
+  layers?: ContextLayerUsage[]
   source?: 'estimated' | 'provider-reported'
-  state?: 'compacting' | 'ready'
+  state?: 'compacting' | 'ready' | 'cooldown'
 }
 
 type WSIncoming = {
@@ -218,6 +232,7 @@ type WSIncoming = {
   task?: string
   planId?: string
   planBody?: string
+  skillLearning?: SkillLearningData
   items?: RuntimeTodoItem[]
   note?: string
   usage?: ContextUsageData
@@ -233,8 +248,11 @@ type WSIncoming = {
   compactionBeforeTokens?: number
   compactionAfterTokens?: number
   compactionReason?: string
+  compactionDurationMs?: number
+  compactionFailure?: string
+  layers?: ContextLayerUsage[]
   source?: 'estimated' | 'provider-reported'
-  state?: 'compacting' | 'ready'
+  state?: 'compacting' | 'ready' | 'cooldown'
 }
 
 function normalizeTeamRun(data: WSIncoming): TeamRunItem {
@@ -298,6 +316,9 @@ function normalizeContextUsage(data: WSIncoming | ContextUsageData | undefined, 
     ...(Number.isFinite(source.compactionBeforeTokens) ? { compactionBeforeTokens: Math.max(0, Number(source.compactionBeforeTokens)) } : {}),
     ...(Number.isFinite(source.compactionAfterTokens) ? { compactionAfterTokens: Math.max(0, Number(source.compactionAfterTokens)) } : {}),
     ...(source.compactionReason ? { compactionReason: source.compactionReason } : {}),
+    ...(Number.isFinite(source.compactionDurationMs) ? { compactionDurationMs: Math.max(0, Number(source.compactionDurationMs)) } : {}),
+    ...(source.compactionFailure ? { compactionFailure: source.compactionFailure } : {}),
+    ...(Array.isArray(source.layers) ? { layers: source.layers.map((layer) => ({ layer: String(layer.layer), tokens: Math.max(0, Number(layer.tokens) || 0) })) } : {}),
     ...(source.source ? { source: source.source } : {}),
     ...(source.state ? { state: source.state } : {}),
   }
@@ -337,6 +358,7 @@ export function dispatchChatSocketMessage(raw: string, handlers: ChatSocketHandl
       planBody: data.planBody,
       finishedAt: data.finishedAt,
       durationMs: data.durationMs,
+      skillLearning: data.skillLearning,
     })
   }
   if (data.type === 'error') handlers?.onError(data.error || 'unknown error', data.sessionId)

@@ -47,7 +47,17 @@ func (s *ChatService) beginContextRun(ctx context.Context, sessionID, requestID 
 		requestID = uuid.NewString()
 	}
 	state.contextRequestID = requestID
-	return s.contexts.Begin(ctx, sessionID, requestID, prefix, seeds)
+	run, err := s.contexts.Begin(ctx, sessionID, requestID, prefix, seeds)
+	if err != nil {
+		return nil, err
+	}
+	runtimeState, err := s.contextRuntimeState(ctx, sessionID)
+	if err != nil {
+		run.Close()
+		return nil, err
+	}
+	run.SetRuntimeState(runtimeState)
+	return run, nil
 }
 
 func contextReadToolDef() llm.ToolDef {

@@ -80,6 +80,9 @@ func (h *HTTPController) UploadSkills(c WebContext) {
 		}
 		resp.Success = append(resp.Success, item)
 	}
+	if len(resp.Success) > 0 && h.skillRuntime != nil {
+		h.skillRuntime.InvalidateCatalog()
+	}
 
 	if len(resp.Success) == 0 {
 		c.JSON(http.StatusBadRequest, map[string]any{

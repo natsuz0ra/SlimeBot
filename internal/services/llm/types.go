@@ -37,7 +37,9 @@ type ChatMessage struct {
 	// SourceInboxID ties host-delivered messages to their atomic durable receipt.
 	SourceInboxID string `json:"sourceInboxId,omitempty"`
 	// SourceKind is host metadata. Provider adapters serialize explicit wire fields.
-	SourceKind   string                   `json:"sourceKind,omitempty"`
+	SourceKind string `json:"sourceKind,omitempty"`
+	// ContextLayer identifies prompt accounting metadata; it is never sent to providers.
+	ContextLayer string                   `json:"-"`
 	Role         string                   `json:"role"`
 	Content      string                   `json:"content"`
 	ContentParts []ChatMessageContentPart `json:"contentParts,omitempty"`

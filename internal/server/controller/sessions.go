@@ -10,6 +10,7 @@ import (
 	"slimebot/internal/logging"
 	sbruntime "slimebot/internal/runtime"
 	workspaceruntime "slimebot/internal/runtime/workspace"
+	chatsvc "slimebot/internal/services/chat"
 	sessionsvc "slimebot/internal/services/session"
 	"strconv"
 	"strings"
@@ -320,6 +321,33 @@ func (h *HTTPController) GetContextUsage(c WebContext) {
 		return
 	}
 	c.JSON(http.StatusOK, usage)
+}
+
+func (h *HTTPController) CompactContext(c WebContext) {
+	if h.chatUsage == nil {
+		jsonError(c, http.StatusServiceUnavailable, "Context usage service is unavailable.")
+		return
+	}
+	var req struct {
+		ModelID string `json:"modelId"`
+	}
+	if !bindJSONOrBadRequest(c, &req, "modelId is required.") {
+		return
+	}
+	if strings.TrimSpace(req.ModelID) == "" {
+		jsonError(c, http.StatusBadRequest, "modelId is required.")
+		return
+	}
+	result, err := h.chatUsage.CompactContext(c.Request().Context(), c.Param("id"), req.ModelID)
+	if err != nil {
+		if errors.Is(err, chatsvc.ErrTurnBusy) {
+			jsonError(c, http.StatusConflict, err.Error())
+			return
+		}
+		jsonInternalError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, result)
 }
 
 func (h *HTTPController) SearchChats(c WebContext) {

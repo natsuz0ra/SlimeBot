@@ -272,8 +272,11 @@ func TestBuildContextMessages_CLIIncludesProjectAgentsInstructions(t *testing.T)
 	if err != nil {
 		t.Fatalf("BuildContextMessages failed: %v", err)
 	}
-	if !strings.Contains(msgs[0].Content, "global doc") || !strings.Contains(msgs[0].Content, "--- project-doc ---") || !strings.Contains(msgs[0].Content, "project doc") {
-		t.Fatalf("expected global and project AGENTS content, got %q", msgs[0].Content)
+	if !strings.Contains(msgs[0].Content, "global doc") || strings.Contains(msgs[0].Content, "project doc") {
+		t.Fatalf("stable prompt should contain only global AGENTS content, got %q", msgs[0].Content)
+	}
+	if len(msgs) < 2 || !strings.Contains(msgs[1].Content, "project doc") || msgs[1].ContextLayer != "project" {
+		t.Fatalf("project AGENTS content should have its own layer, got %#v", msgs)
 	}
 }
 

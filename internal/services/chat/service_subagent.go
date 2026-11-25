@@ -37,10 +37,19 @@ func (s *ChatService) BuildSubagentMessages(ctx context.Context, sessionID, task
 		return nil, err
 	}
 
-	msgs := []llmsvc.ChatMessage{{Role: "system", Content: systemPrompt}}
-	msgs = append(msgs, llmsvc.ChatMessage{Role: "system", Content: subagentConstraintSystemBlock()})
+	msgs := []llmsvc.ChatMessage{{Role: "system", Content: systemPrompt, ContextLayer: "system"}}
+	msgs = append(msgs, llmsvc.ChatMessage{Role: "system", Content: subagentConstraintSystemBlock(), ContextLayer: "system"})
+	if s.skillRuntime != nil {
+		catalog, _, catalogErr := s.skillRuntime.BuildCatalogPrompt()
+		if catalogErr != nil {
+			return nil, catalogErr
+		}
+		if strings.TrimSpace(catalog) != "" {
+			msgs = append(msgs, llmsvc.ChatMessage{Role: "system", Content: strings.TrimSpace(catalog), ContextLayer: "skill_catalog"})
+		}
+	}
 	if runtimeEnvPrompt := s.buildRuntimeEnvironmentPrompt(); runtimeEnvPrompt != "" {
-		msgs = append(msgs, llmsvc.ChatMessage{Role: "system", Content: runtimeEnvPrompt})
+		msgs = append(msgs, llmsvc.ChatMessage{Role: "system", Content: runtimeEnvPrompt, ContextLayer: "runtime"})
 	}
 
 	var userBody strings.Builder

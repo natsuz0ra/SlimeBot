@@ -7,6 +7,7 @@ import (
 	"slimebot/internal/apperrors"
 	"slimebot/internal/logging"
 	"slimebot/internal/tools"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -48,6 +49,7 @@ type chatTurnState struct {
 	attachments       []UploadedAttachment
 	userContent       string
 	userCreatedAt     time.Time
+	activatedSkillIDs []string
 }
 
 // chatTurnResult holds intermediate results after the agent runs.
@@ -719,6 +721,10 @@ func (s *ChatService) executeChatTurn(
 	}
 
 	activatedSkills := s.getSessionActivatedSkills(sessionID)
+	previouslyActivated := make(map[string]struct{}, len(activatedSkills))
+	for id := range activatedSkills {
+		previouslyActivated[id] = struct{}{}
+	}
 
 	approvalMode := constants.ApprovalModeStandard
 	if strings.TrimSpace(approvalModeOverride) != "" {
@@ -817,6 +823,10 @@ func (s *ChatService) executeChatTurn(
 				usage.CompactionReason = p.Reason
 			}
 			usage.UsedTokens = p.InputTokens
+			toolTokens := p.InputTokens - contextsvc.Estimate(p.Messages, nil)
+			if toolTokens > 0 {
+				usage.Layers = upsertContextLayerUsage(usage.Layers, "tools", toolTokens)
+			}
 			usage = normalizeContextUsagePercentages(usage)
 			state.contextUsage = usage
 			usageTracker.mu.Lock()
@@ -836,6 +846,13 @@ func (s *ChatService) executeChatTurn(
 		teamRuntime:   requestTeamRuntime,
 	})
 	logging.Span("agent_loop", agentStart)
+	state.activatedSkillIDs = state.activatedSkillIDs[:0]
+	for id := range activatedSkills {
+		if _, existed := previouslyActivated[id]; !existed {
+			state.activatedSkillIDs = append(state.activatedSkillIDs, id)
+		}
+	}
+	sort.Strings(state.activatedSkillIDs)
 	s.mergeSessionActivatedSkills(sessionID, activatedSkills)
 	if finishErr := finishAllActiveThinkings(time.Now()); finishErr != nil && err == nil {
 		err = finishErr
@@ -993,8 +1010,10 @@ func (s *ChatService) finalizeChatTurn(
 		streamResult.PushFailed = true
 		streamResult.PushError = result.pushErr.Error()
 	}
+	streamResult.SkillLearning = s.maybeLearnSkill(ctx, sessionID, requestID, assistantMessage.ID, state, result, planMode)
 	if !planMode && !result.interrupted && strings.TrimSpace(result.answer) != "" {
 		s.maybeTriggerMemoryReview(sessionID, state.modelConfig, state.userContent, result.answer)
+		s.maybeTriggerIdleCompaction(sessionID, state.modelConfig, state.contextUsage)
 	}
 	return streamResult, nil
 }

@@ -7,10 +7,10 @@ import MdiIcon from '@/components/ui/MdiIcon.vue'
 import TruncationTooltip from '@/components/ui/TruncationTooltip.vue'
 import type { SelectOption } from '@/components/ui/AppSelect.vue'
 import { formatSize } from '@/utils/format'
-import { contextUsageTone, formatContextTokenCount } from '@/utils/contextSize'
 import type { ContextUsageData } from '@/api/chatSocket'
 import type { ApprovalMode } from '@/types/settings'
 import WorkspacePicker from '@/components/chat/WorkspacePicker.vue'
+import ContextUsagePopover from '@/components/chat/ContextUsagePopover.vue'
 import { getApprovalModeLabelKey, getApprovalModeOptions, getApprovalModeTone } from '@/utils/approvalMode'
 
 const props = defineProps<{
@@ -34,6 +34,7 @@ const props = defineProps<{
   workspaceEditable: boolean
   planConfirmationVisible?: boolean
   contextUsage?: ContextUsageData | null
+  contextCompacting?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -51,6 +52,7 @@ const emit = defineEmits<{
   planExecute: []
   planCancel: []
   workspaceChange: [path: string]
+  compactContext: []
 }>()
 
 const textareaRef = ref<HTMLTextAreaElement | null>(null)
@@ -130,14 +132,6 @@ const currentSubagentModelLabel = computed(() => {
 const approvalModeOptions = getApprovalModeOptions()
 const currentApprovalModeLabel = computed(() => t(getApprovalModeLabelKey(props.approvalMode)))
 const currentApprovalModeTone = computed(() => getApprovalModeTone(props.approvalMode))
-const contextTone = computed(() => contextUsageTone(props.contextUsage?.usedPercent ?? 0))
-const contextCircleStyle = computed(() => {
-  const usage = Math.max(0, Math.min(100, props.contextUsage?.usedPercent ?? 0))
-  return { '--context-usage-deg': `${usage * 3.6}deg` }
-})
-const contextUsedLabel = computed(() => formatContextTokenCount(props.contextUsage?.usedTokens ?? 0))
-const contextTotalLabel = computed(() => formatContextTokenCount(props.contextUsage?.totalTokens ?? 0))
-const contextStatusLabel = computed(() => props.contextUsage?.state === 'compacting' ? t('contextStatusCompacting') : props.contextUsage?.isCompacted ? t('contextStatusCompacted') : t('contextStatusFull'))
 
 function calcMenuStyle() {
   if (!menuTriggerRef.value) return
@@ -321,64 +315,14 @@ onUnmounted(() => {
         </button>
       </div>
       <div class="flex items-center gap-2">
-        <div v-if="contextUsage" class="context-usage-tip-wrap relative z-[120] group/context-tip">
-          <div
-            class="context-usage-indicator"
-            :class="`context-usage-indicator--${contextTone}`"
-            :style="contextCircleStyle"
-            :aria-label="t('contextUsageLabel')"
-          >
-            <span class="context-usage-core" />
-          </div>
-          <div
-            class="context-usage-tooltip pointer-events-none absolute bottom-full right-0 mb-2 w-[260px] rounded-lg px-3 py-2 text-sm leading-5 text-white bg-black/78 opacity-0 translate-y-1 transition-all duration-150 shadow-lg group-hover/context-tip:opacity-100 group-hover/context-tip:translate-y-0 group-focus-within/context-tip:opacity-100 group-focus-within/context-tip:translate-y-0"
-          >
-            <div class="font-semibold">{{ t('contextUsageLabel') }}</div>
-            <div class="mt-1 opacity-90">{{ currentModelLabel }}</div>
-            <div class="mt-2 grid grid-cols-2 gap-x-3 gap-y-1 text-xs">
-              <span class="opacity-75">{{ t('contextUsedPercent') }}</span>
-              <span class="text-right">{{ contextUsage.usedPercent }}%</span>
-              <span class="opacity-75">{{ t('contextAvailablePercent') }}</span>
-              <span class="text-right">{{ contextUsage.availablePercent }}%</span>
-              <span class="opacity-75">{{ t('contextUsedTokens') }}</span>
-              <span class="text-right">{{ contextUsedLabel }}</span>
-              <span class="opacity-75">{{ t('contextTotalTokens') }}</span>
-              <span class="text-right">{{ contextTotalLabel }}</span>
-              <template v-if="contextUsage.inputBudget">
-                <span class="opacity-75">{{ t('contextInputBudget') }}</span>
-                <span class="text-right">{{ formatContextTokenCount(contextUsage.inputBudget) }}</span>
-              </template>
-              <template v-if="contextUsage.outputReserve">
-                <span class="opacity-75">{{ t('contextOutputReserve') }}</span>
-                <span class="text-right">{{ formatContextTokenCount(contextUsage.outputReserve) }}</span>
-              </template>
-              <template v-if="contextUsage.source">
-                <span class="opacity-75">{{ t('contextMeasurement') }}</span>
-                <span class="text-right">{{ t(contextUsage.source === 'provider-reported' ? 'contextProviderReported' : 'contextEstimated') }}</span>
-              </template>
-              <span class="opacity-75">{{ t('contextStatus') }}</span>
-              <span class="text-right">{{ contextStatusLabel }}</span>
-              <template v-if="contextUsage.compactionBeforeTokens && contextUsage.compactionAfterTokens">
-                <div class="col-span-2 mt-1 pt-2 border-t border-white/15">
-                  <div class="opacity-75">{{ t('contextLastCompaction') }}</div>
-                  <div class="mt-1 flex items-center justify-between gap-2">
-                    <span>{{ formatContextTokenCount(contextUsage.compactionBeforeTokens) }}</span>
-                    <span class="opacity-60">→</span>
-                    <span>{{ formatContextTokenCount(contextUsage.compactionAfterTokens) }}</span>
-                  </div>
-                </div>
-              </template>
-              <template v-if="contextUsage.compactionReason">
-                <span class="opacity-75">{{ t('contextCompactionReason') }}</span>
-                <span class="text-right">{{ t(contextUsage.compactionReason === 'overflow' ? 'contextReasonOverflow' : 'contextReasonPressure') }}</span>
-              </template>
-              <template v-if="contextUsage.compactedAt">
-                <span class="opacity-75">{{ t('contextCompactedTime') }}</span>
-                <span class="text-right">{{ new Date(contextUsage.compactedAt).toLocaleTimeString() }}</span>
-              </template>
-            </div>
-          </div>
-        </div>
+        <ContextUsagePopover
+          v-if="contextUsage"
+          :usage="contextUsage"
+          :model-label="currentModelLabel"
+          :compacting="contextCompacting"
+          :disabled="isStreaming"
+          @compact="emit('compactContext')"
+        />
         <div class="relative z-[120] group/upload-tip">
           <button
             type="button"

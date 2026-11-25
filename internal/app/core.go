@@ -55,6 +55,7 @@ type Core struct {
 	SkillStore       *skillsvc.FileSystemSkillStore
 	SkillPackage     *skillsvc.SkillPackageService
 	SkillRuntime     *skillsvc.SkillRuntimeService
+	SkillLearning    *skillsvc.LearningService
 	ChatUpload       *chatsvc.ChatUploadService
 	MCPManager       *mcp.Manager
 	PlanService      *plansvc.PlanService
@@ -146,6 +147,8 @@ func newCore(cfg config.Config, desktop bool) (*Core, error) {
 	memoryService := memorysvc.NewServiceFromSettings(repo)
 	scheduleService := schedulesvc.NewService(repo, nil, schedulesvc.Options{})
 	chatService := chatsvc.NewChatService(repo, repo, providerFactory, mcpManager, skillRuntime)
+	skillLearning := skillsvc.NewLearningService(providerFactory, skillRuntime)
+	chatService.SetSkillLearningService(skillLearning)
 	chatService.SetFileCheckpoints(workspace.NewCheckpoints(filepath.Join(filepath.Dir(cfg.DBPath), "file-checkpoints")))
 	usageService := usagesvc.NewService(repo, repo)
 	chatService.SetUsageService(usageService)
@@ -189,6 +192,7 @@ func newCore(cfg config.Config, desktop bool) (*Core, error) {
 		SkillStore:       skillStore,
 		SkillPackage:     skillPackage,
 		SkillRuntime:     skillRuntime,
+		SkillLearning:    skillLearning,
 		ChatUpload:       chatUpload,
 		MCPManager:       mcpManager,
 		PlanService:      planService,

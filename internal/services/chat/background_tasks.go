@@ -97,6 +97,22 @@ func (s *ChatService) backgrounds() *backgroundRuntime {
 	return s.background
 }
 
+// start registers work before CloseBackground can begin waiting. Cancellation
+// and registration share b.mu, so no new goroutine can be added after shutdown.
+func (b *backgroundRuntime) start(task func()) bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.ctx.Err() != nil {
+		return false
+	}
+	b.wg.Add(1)
+	go func() {
+		defer b.wg.Done()
+		task()
+	}()
+	return true
+}
+
 // QueueForeground reserves priority for a submitted user turn while the
 // WebSocket's serial consumer is still finishing the preceding turn.
 func (s *ChatService) QueueForeground(sessionID string) func() {

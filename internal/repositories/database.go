@@ -46,6 +46,7 @@ func NewSQLite(dbPath string) (*gorm.DB, error) {
 		&domain.ContextEntry{},
 		&domain.ContextHead{},
 		&domain.ContextCheckpoint{},
+		&domain.ContextCalibration{},
 		&domain.MCPConfig{},
 		&domain.MessagePlatformConfig{},
 		&domain.ScheduledTask{},

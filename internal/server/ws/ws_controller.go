@@ -695,6 +695,9 @@ func buildChatDonePayload(sessionID string, streamResult *chatsvc.ChatStreamResu
 		payload["planId"] = streamResult.PlanID
 		payload["planBody"] = streamResult.PlanBody
 	}
+	if streamResult.SkillLearning != nil {
+		payload["skillLearning"] = streamResult.SkillLearning
+	}
 	return payload
 }
 
@@ -715,6 +718,7 @@ func buildContextUsagePayload(sessionID string, usage chatsvc.ContextUsage) map[
 	return map[string]any{
 		"state": usage.State, "source": usage.Source, "inputBudget": usage.InputBudget, "outputReserve": usage.OutputReserve,
 		"compactionBeforeTokens": usage.CompactionBeforeTokens, "compactionAfterTokens": usage.CompactionAfterTokens, "compactionReason": usage.CompactionReason,
+		"compactionDurationMs": usage.CompactionDurationMs, "compactionFailure": usage.CompactionFailure, "layers": usage.Layers,
 		"type":             "context_usage",
 		"sessionId":        sessionID,
 		"modelConfigId":    usage.ModelConfigID,

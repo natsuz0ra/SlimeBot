@@ -1,6 +1,8 @@
 package skill
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -170,7 +172,7 @@ func (s *SkillRuntimeService) BuildCatalogPrompt() (string, []domain.Skill, erro
 	return prompt, items, nil
 }
 
-// ToolCacheKey returns a compact key for skill tool definition caching.
+// ToolCacheKey returns a content-based key for skill tool definition caching.
 func (s *SkillRuntimeService) ToolCacheKey() string {
 	items, err := s.enabledSkills()
 	if err != nil {
@@ -178,7 +180,14 @@ func (s *SkillRuntimeService) ToolCacheKey() string {
 	}
 	parts := make([]string, 0, len(items))
 	for _, item := range items {
-		parts = append(parts, item.ID+":"+item.UpdatedAt.UTC().Format(time.RFC3339Nano))
+		hash := "unreadable"
+		if dir, resolveErr := s.resolveSkillDir(item); resolveErr == nil {
+			if raw, readErr := os.ReadFile(filepath.Join(dir, "SKILL.md")); readErr == nil {
+				sum := sha256.Sum256(raw)
+				hash = hex.EncodeToString(sum[:])
+			}
+		}
+		parts = append(parts, item.ID+":"+hash)
 	}
 	sort.Strings(parts)
 	return strings.Join(parts, "|")
@@ -221,7 +230,8 @@ func (s *SkillRuntimeService) ActivateSkill(name string, activated map[string]st
 	}
 
 	var b strings.Builder
-	b.WriteString("<skill_content name=\"" + escapeXML(item.ID) + "\" display_name=\"" + escapeXML(item.Name) + "\">\n")
+	contentHash := sha256.Sum256(raw)
+	b.WriteString("<skill_content name=\"" + escapeXML(item.ID) + "\" display_name=\"" + escapeXML(item.Name) + "\" content_hash=\"" + hex.EncodeToString(contentHash[:]) + "\">\n")
 	b.WriteString(body)
 	b.WriteString("\n\nSkill directory: " + filepath.ToSlash(skillDir) + "\n")
 	b.WriteString("Relative paths in this skill are relative to the skill directory.\n")
@@ -354,6 +364,9 @@ func (s *SkillRuntimeService) clearCatalogCache() {
 	s.cacheUntil = time.Time{}
 	s.catalogMu.Unlock()
 }
+
+// InvalidateCatalog is the shared invalidation entry for installs and learning writes.
+func (s *SkillRuntimeService) InvalidateCatalog() { s.clearCatalogCache() }
 
 // stripFrontmatter parses and strips YAML frontmatter from SKILL.md.
 func stripFrontmatter(content string) (string, error) {

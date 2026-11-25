@@ -37,7 +37,7 @@ type turnInbox struct {
 type turnInboxKey struct{}
 
 func (s *ChatService) beginTurn(ctx context.Context, sessionID, requestID string) (context.Context, func(), error) {
-	release, err := s.acquireTurn(sessionID)
+	release, err := s.acquireTurnWithContext(ctx, sessionID)
 	if err != nil {
 		return ctx, nil, err
 	}

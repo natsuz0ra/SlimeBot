@@ -88,6 +88,7 @@ type skillRuntimeService interface {
 	ListSkills() ([]domain.Skill, error)
 	DeleteSkillByID(id string) error
 	SetSkillEnabled(id string, enabled bool) error
+	InvalidateCatalog()
 }
 
 type chatUploadService interface {
@@ -96,6 +97,7 @@ type chatUploadService interface {
 
 type chatContextUsageService interface {
 	GetContextUsage(ctx context.Context, sessionID string, modelID string) (chatsvc.ContextUsage, error)
+	CompactContext(ctx context.Context, sessionID string, modelID string) (chatsvc.ContextCompactionResult, error)
 }
 
 type updateService interface {

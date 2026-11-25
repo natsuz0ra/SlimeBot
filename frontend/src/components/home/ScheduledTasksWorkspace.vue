@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { useRouter } from 'vue-router'
 import { mdiClockOutline, mdiChevronRight, mdiRefresh, mdiCalendarClockOutline, mdiPlus, mdiPlayOutline, mdiCheckCircleOutline, mdiAlertCircleOutline, mdiPauseCircleOutline } from '@mdi/js'
 import MdiIcon from '@/components/ui/MdiIcon.vue'
 import AppDialog from '@/components/ui/AppDialog.vue'
@@ -12,10 +13,14 @@ import TaskRunTimeline from '@/components/home/TaskRunTimeline.vue'
 import { scheduleAPI, type CreateScheduledTaskInput, type ScheduledTask, type ScheduledTaskRun, type TaskRunStatus } from '@/api/schedule'
 import { taskRunDurationSeconds, taskRunPreview } from '@/utils/scheduleHistory'
 import { renderMarkdown } from '@/utils/markdown'
+import { taskCenterAPI, type TaskCenterSnapshot } from '@/api/taskCenter'
+import { cooperativeAPI } from '@/api/cooperative'
+import { taskCenterRows, type TaskCenterRow } from '@/utils/taskCenter'
 
 const props = defineProps<{ modelOptions: Array<{ value: string; label: string }>; initialWorkingDirectory?: string }>()
 const toast = useToast()
-const view = ref<'tasks' | 'history'>('tasks')
+const router = useRouter()
+const view = ref<'overview' | 'tasks' | 'history'>('overview')
 const createVisible = ref(false)
 const creating = ref(false)
 const taskActionId = ref('')
@@ -44,6 +49,15 @@ let detailRequest: AbortController | undefined
 let timer: ReturnType<typeof setInterval> | undefined
 let generation = 0
 let polling = false
+const center = ref<TaskCenterSnapshot>({ scheduledTasks: [], scheduledRuns: [], agents: [], backgroundTasks: [] })
+const notifiedTasks = new Set<string>()
+const kind = ref('')
+const centerStatus = ref('')
+const centerActionId = ref('')
+const agentDetail = ref<TaskCenterRow | null>(null)
+const centerRows = computed(() => taskCenterRows(center.value.backgroundTasks, center.value.agents, center.value.scheduledRuns))
+const filteredCenterRows = computed(() => centerRows.value.filter(row => (!kind.value || row.kind === kind.value) && (!centerStatus.value || row.status === centerStatus.value)))
+const activeCount = computed(() => centerRows.value.filter(row => row.status === 'running').length)
 
 function date(value?: string) {
   if (!value) return '—'
@@ -69,9 +83,17 @@ async function load(quiet = false) {
   loadingMore.value = false
   if (!quiet) { loading.value = true; error.value = false }
   try {
-    const [taskRows, page] = await Promise.all([scheduleAPI.tasks(controller.signal), scheduleAPI.runs(taskId.value, status.value, 0, controller.signal)])
+    const [taskRows, page, snapshot] = await Promise.all([scheduleAPI.tasks(controller.signal), scheduleAPI.runs(taskId.value, status.value, 0, controller.signal), taskCenterAPI.snapshot(controller.signal)])
     if (current !== generation) return
     tasks.value = taskRows
+    center.value = snapshot
+    for (const row of taskCenterRows(snapshot.backgroundTasks, snapshot.agents, snapshot.scheduledRuns)) {
+      if (row.status === 'running') notifiedTasks.delete(row.id)
+      if (row.kind !== 'schedule' && row.status !== 'running' && !notifiedTasks.has(row.id)) {
+        notifiedTasks.add(row.id)
+        if (quiet) void window.slimebotDesktop?.notify?.(`${row.title} · ${t(`scheduleRunStatus_${row.status}`)}`)
+      }
+    }
     // Keep already loaded history in place during background status refreshes.
     if (quiet && runs.value.length > 20 && status.value !== 'running') {
       const fresh = new Map(page.runs.map(run => [run.id, run]))
@@ -83,6 +105,31 @@ async function load(quiet = false) {
   } finally {
     if (current === generation) loading.value = false
   }
+}
+async function openCenterRow(row: TaskCenterRow) {
+  if (row.run) { await openDetail(row.run); return }
+  if (row.agent) { agentDetail.value = row; return }
+  if (row.sessionId) await router.push(`/chat/${encodeURIComponent(row.sessionId)}`)
+}
+async function backgroundAction(row: TaskCenterRow, action: 'retry' | 'continue' | 'stop') {
+  if (!row.background || centerActionId.value) return
+  centerActionId.value = row.id
+  try {
+    await taskCenterAPI.backgroundAction(row.sourceId, action)
+    await load(true)
+    toast.success(t('taskCenterActionDone'))
+  } catch { toast.error(t('taskCenterActionFailed')) }
+  finally { centerActionId.value = '' }
+}
+async function stopAgent(row: TaskCenterRow) {
+  if (!row.agent || centerActionId.value) return
+  centerActionId.value = row.id
+  try {
+    await cooperativeAPI.action(row.sourceId, { action: 'interrupt' })
+    await load(true)
+    toast.success(t('taskCenterActionDone'))
+  } catch { toast.error(t('taskCenterActionFailed')) }
+  finally { centerActionId.value = '' }
 }
 async function loadMore() {
   if (loadingMore.value || loading.value) return
@@ -167,7 +214,7 @@ onMounted(() => {
     polling = true
     try {
       const updates: Promise<void>[] = []
-      if (waitingCount.value || runningCount.value || runs.value.some(run => run.status === 'running')) updates.push(load(true))
+      if (activeCount.value || waitingCount.value || runningCount.value || runs.value.some(run => run.status === 'running')) updates.push(load(true))
       if (detailVisible.value && !detailLoading.value && detail.value?.status === 'running') updates.push(openDetail(detail.value, true))
       await Promise.all(updates)
     } finally { polling = false }
@@ -191,14 +238,33 @@ onUnmounted(() => { generation++; listRequest?.abort(); detailRequest?.abort(); 
 
     <div class="schedule-summary">
       <div><span>{{ t('scheduleTotalTasks') }}</span><strong>{{ tasks.length }}</strong></div>
-      <div><span>{{ t('scheduleWaitingTasks') }}</span><strong>{{ waitingCount }}</strong></div>
-      <div><span>{{ t('scheduleRunningTasks') }}</span><strong class="schedule-accent">{{ runningCount }}</strong></div>
+      <div><span>{{ t('taskCenterAllRuns') }}</span><strong>{{ centerRows.length }}</strong></div>
+      <div><span>{{ t('scheduleRunningTasks') }}</span><strong class="schedule-accent">{{ activeCount }}</strong></div>
     </div>
 
     <div class="schedule-view-tabs" role="group" :aria-label="t('scheduleViews')">
+      <button type="button" :aria-pressed="view === 'overview'" :class="{ active: view === 'overview' }" @click="view = 'overview'">{{ t('taskCenterOverview') }}<span>{{ centerRows.length }}</span></button>
       <button type="button" :aria-pressed="view === 'tasks'" :class="{ active: view === 'tasks' }" @click="view = 'tasks'">{{ t('scheduleTaskList') }}<span>{{ tasks.length }}</span></button>
       <button type="button" :aria-pressed="view === 'history'" :class="{ active: view === 'history' }" @click="view = 'history'">{{ t('scheduleHistory') }}</button>
     </div>
+    <section v-if="view === 'overview'" class="schedule-history">
+      <div class="schedule-filters">
+        <select v-model="kind" class="schedule-select" :aria-label="t('taskCenterKind')"><option value="">{{ t('taskCenterAllKinds') }}</option><option value="background">{{ t('taskCenterBackground') }}</option><option value="agent">{{ t('taskCenterAgent') }}</option><option value="schedule">{{ t('taskCenterSchedule') }}</option></select>
+        <select v-model="centerStatus" class="schedule-select" :aria-label="t('scheduleFilterStatus')"><option value="">{{ t('scheduleAllRuns') }}</option><option value="running">{{ t('scheduleRunStatus_running') }}</option><option value="ok">{{ t('scheduleRunStatus_ok') }}</option><option value="error">{{ t('scheduleRunStatus_error') }}</option><option value="interrupted">{{ t('scheduleRunStatus_interrupted') }}</option></select>
+      </div>
+      <div v-if="loading" class="schedule-empty"><LoadingSpinner /></div>
+      <div v-else-if="!filteredCenterRows.length" class="schedule-empty"><MdiIcon :path="mdiCheckCircleOutline" :size="30" /><strong>{{ t('taskCenterEmpty') }}</strong></div>
+      <div v-else class="schedule-run-list">
+        <article v-for="row in filteredCenterRows" :key="row.id" class="schedule-run-row">
+          <button type="button" class="schedule-center-main" @click="openCenterRow(row)">
+            <span class="schedule-status-icon" :class="`status-${row.status}`"><MdiIcon :path="statusIcons[row.status]" :size="19" /></span>
+            <span class="schedule-run-content"><span class="schedule-run-title"><strong>{{ row.title }}</strong><span class="schedule-badge" :class="`status-${row.status}`">{{ t(`scheduleRunStatus_${row.status}`) }}</span><span class="schedule-badge">{{ t({ background: 'taskCenterBackground', agent: 'taskCenterAgent', schedule: 'taskCenterSchedule' }[row.kind]) }}</span></span><span class="schedule-preview">{{ row.description }}</span><span class="schedule-run-meta">{{ date(row.startedAt) }}</span></span>
+          </button>
+          <div v-if="row.background && row.status !== 'running'" class="schedule-center-actions"><button type="button" class="schedule-button" :disabled="!!centerActionId" @click="backgroundAction(row, 'continue')">{{ t('taskCenterContinue') }}</button><button type="button" class="schedule-button" :disabled="!!centerActionId" @click="backgroundAction(row, 'retry')">{{ t('scheduleRetry') }}</button></div>
+          <button v-else-if="row.background || row.agent" type="button" class="schedule-button" :disabled="!!centerActionId" @click="row.background ? backgroundAction(row, 'stop') : stopAgent(row)">{{ t('taskCenterStop') }}</button>
+        </article>
+      </div>
+    </section>
     <section v-if="view === 'tasks'" class="schedule-task-grid" :aria-label="t('scheduleTaskList')">
       <div v-if="loading" class="schedule-empty"><LoadingSpinner /></div>
       <div v-else-if="error" class="schedule-error" role="alert"><span>{{ t('scheduleLoadFailed') }}</span><button type="button" @click="load()">{{ t('scheduleRetry') }}</button></div>
@@ -282,6 +348,7 @@ onUnmounted(() => { generation++; listRequest?.abort(); detailRequest?.abort(); 
         </template>
       </div>
     </AppDialog>
+    <AppDialog :visible="!!agentDetail" :title="agentDetail?.title || t('taskCenterAgent')" width="800px" hide-footer @update:visible="agentDetail = null"><CooperativePanel v-if="agentDetail" :session-id="agentDetail.sessionId" /></AppDialog>
     <AppDialog v-model:visible="createVisible" :title="t('scheduleCreate')" :confirm-text="t('scheduleCreate')" :confirm-loading="creating" width="540px" @confirm="createTask">
       <form ref="taskForm" class="schedule-create-form" @submit.prevent="createTask">
         <label>{{ t('scheduleTaskName') }}<AppTextInput v-model="draft.name" required maxlength="128" :placeholder="t('scheduleTaskNamePlaceholder')" autofocus /></label>
@@ -322,6 +389,8 @@ onUnmounted(() => { generation++; listRequest?.abort(); detailRequest?.abort(); 
   gap: 20px;
   min-width: 0;
 }
+.schedule-center-main { display: flex; align-items: flex-start; gap: 11px; flex: 1; min-width: 0; text-align: left; cursor: pointer; }
+.schedule-center-actions { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; }
 .schedule-heading, .schedule-toolbar, .schedule-detail-heading {
   display: flex;
   align-items: center;

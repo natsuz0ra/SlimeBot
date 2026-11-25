@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Tray, Menu, dialog, ipcMain, nativeImage, shell, session } = require('electron')
+const { app, BrowserWindow, Tray, Menu, dialog, ipcMain, nativeImage, shell, session, Notification } = require('electron')
 const { autoUpdater } = require('electron-updater')
 const { spawn } = require('node:child_process')
 const { randomBytes } = require('node:crypto')
@@ -219,6 +219,14 @@ async function requestQuit(force = false) {
 }
 
 function registerSecurity() {
+  ipcMain.handle('desktop:notify', (event, payload) => {
+    verifySender(event)
+    if (!Notification.isSupported() || window?.isFocused()) return false
+    const notification = new Notification({ title: 'SlimeBot', body: String(payload?.body || '').slice(0, 240) })
+    notification.on('click', () => { window?.show(); window?.focus() })
+    notification.show()
+    return true
+  })
   ipcMain.handle('desktop:choose-working-directory', async (event, currentPath) => {
     verifySender(event)
     const options = { properties: ['openDirectory'] }

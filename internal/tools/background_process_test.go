@@ -120,13 +120,16 @@ func TestExecYieldsOnceAndFastCommandDoesNotWake(t *testing.T) {
 				t.Fatal("command was started more than once")
 			}
 		} else {
-			if payload.Background || !strings.Contains(payload.Stdout, "done") || starts.Load() != 0 {
+			if payload.Background || !strings.Contains(payload.Stdout, "done") || starts.Load() != 1 {
 				t.Fatal("fast command was detached")
 			}
 			select {
-			case <-completed:
-				t.Fatal("foreground completion caused wake-up")
-			default:
+			case event := <-completed:
+				if !strings.Contains(event.Output, "done") || !strings.Contains(event.Command, "printf") || event.Shell == "" || event.WorkingDirectory == "" {
+					t.Fatal(event)
+				}
+			case <-time.After(time.Second):
+				t.Fatal("fast command completion was not persisted")
 			}
 		}
 	}

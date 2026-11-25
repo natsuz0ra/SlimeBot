@@ -28,12 +28,13 @@ Web 与桌面端关闭页面后，后台任务仍由服务器运行。重新打�
 
 停止后台任务会取消排队中的自动继续；已经开始的后续轮次也会停止。停止当前生成时，同一会话的后台任务一并取消。单个托管命令最长运行 10 分钟；命令进入自动后台流程且未指定 `timeout_ms` 时，默认采用该上限。每个会话最多同时托管 128 个命令，连续自动唤醒最多递进 16 轮。达到递进上限时，工具结果的 `wake_on_completion` 为 `false`，需要用户手动继续。
 
-后台运行要求 SlimeBot 服务保持启动。退出服务器或 CLI 独立进程会停止托管命令；当前版本不在重启后恢复未完成的进程。已经生成的回复和结果记录仍保存在数据库中。
+后台运行要求 SlimeBot 服务保持启动。退出服务器或 CLI 独立进程会停止托管命令，但命令、运行参数和已捕获结果会保存在数据库中。启动时，未结束的执行统一标记为 `interrupted`，绝不自动重跑。用户可在任务中心明确选择“重试”来创建新进程，或用“继续对话”将已保存的结果交给 Agent；手动重试本身不会自动续聊。
 
-实现入口：`internal/tools/process.go`、`internal/tools/exec.go`、`internal/services/chat/background_tasks.go` 和 `internal/server/ws/ws_controller.go`。进程退出回调触发自动继续，不靠定时查询进程状态。
+实现入口：`internal/tools/process.go`、`internal/tools/exec.go`、`internal/services/chat/background_tasks.go`、`internal/services/chat/background_recovery.go` 和 `internal/server/ws/ws_controller.go`。进程退出回调触发自动继续，不靠定时查询进程状态。
 
 命令运行期间，每路输出最多保留 64 KiB。超出部分会丢弃并标记截断，避免长任务的持续日志占满内存。
 
 参考 [Codex 的独立工具输出入口](https://learn.chatgpt.com/docs/app-server#start-a-turn)：工具结果仍以工具输出身份进入上下文，不作为新的用户授权。SlimeBot 自行管理任务、事件、会话互斥与完成后的执行。
 
 集成测试覆盖真实命令、结束本轮后继续、断开连接、重新订阅、审批拒绝、排队用户消息优先、取消和结果持久化。模型请求使用本机测试桩，不访问真实模型厂商。
+

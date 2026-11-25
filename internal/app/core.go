@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sync"
@@ -142,6 +143,9 @@ func newCore(cfg config.Config, desktop bool) (*Core, error) {
 	chatService.SetMemoryService(memoryService)
 	chatService.SetScheduleService(scheduleService)
 	chatService.SetAgentsInstructions(agentsService)
+	if err := chatService.RecoverBackgroundTasks(context.Background()); err != nil {
+		return nil, fmt.Errorf("recover background tasks: %w", err)
+	}
 	if err := chatService.RecoverCooperativeWorkspaces(context.Background()); err != nil {
 		logging.Warn("agent_workspace_recovery", "err", err)
 	}

@@ -50,6 +50,7 @@ func NewSQLite(dbPath string) (*gorm.DB, error) {
 		&domain.MessagePlatformConfig{},
 		&domain.ScheduledTask{},
 		&domain.ScheduledTaskRun{},
+		&domain.BackgroundTask{},
 	); err != nil {
 		return nil, fmt.Errorf("auto migration failed: %w", err)
 	}

@@ -7,6 +7,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 var defaultProcessManager = NewProcessManager()
@@ -35,11 +37,16 @@ type managedProcess struct {
 }
 
 type ProcessCompletion struct {
-	ID       string `json:"processId"`
-	Command  string `json:"command"`
-	Output   string `json:"-"`
-	Status   string `json:"status"`
-	ExitCode int    `json:"exitCode"`
+	ID               string `json:"processId"`
+	Command          string `json:"command"`
+	Output           string `json:"-"`
+	Status           string `json:"status"`
+	ExitCode         int    `json:"exitCode"`
+	Shell            string `json:"-"`
+	WorkingDirectory string `json:"-"`
+	SandboxMode      string `json:"-"`
+	TimeoutMs        int    `json:"-"`
+	AutoWake         bool   `json:"-"`
 }
 
 type BackgroundObserver struct {
@@ -59,22 +66,36 @@ func BackgroundObserverFromContext(ctx context.Context) (BackgroundObserver, boo
 	return v, ok
 }
 
-func processCompletion(item *managedProcess) ProcessCompletion {
-	return ProcessCompletion{item.ID, item.Command, formatManagedProcess(*item, true), item.Status, item.Result.ExitCode}
+func processCompletion(item *managedProcess, spec ProcessSpec) ProcessCompletion {
+	return ProcessCompletion{ID: item.ID, Command: item.Command, Output: formatManagedProcess(*item, true), Status: item.Status, ExitCode: item.Result.ExitCode, Shell: spec.Shell, WorkingDirectory: spec.WorkingDirectory, SandboxMode: spec.SandboxMode, TimeoutMs: spec.TimeoutMs, AutoWake: spec.AutoWake}
 }
 
 type ProcessManager struct {
 	mu       sync.Mutex
-	nextID   int
 	items    map[string]*managedProcess
 	maxItems int
+	specs    map[string]ProcessSpec
 }
 
 func NewProcessManager() *ProcessManager {
-	return &ProcessManager{items: make(map[string]*managedProcess), maxItems: 128}
+	return &ProcessManager{items: make(map[string]*managedProcess), specs: make(map[string]ProcessSpec), maxItems: 128}
+}
+
+type ProcessSpec struct {
+	Shell, WorkingDirectory, SandboxMode string
+	TimeoutMs                            int
+	AutoWake                             bool
 }
 
 func (m *ProcessManager) Start(command string, runner func(context.Context) processRunResult) string {
+	return m.StartWithSpec(command, ProcessSpec{}, runner)
+}
+
+func (m *ProcessManager) StartWithSpec(command string, spec ProcessSpec, runner func(context.Context) processRunResult) string {
+	return m.StartWithID("", command, spec, runner)
+}
+
+func (m *ProcessManager) StartWithID(id, command string, spec ProcessSpec, runner func(context.Context) processRunResult) string {
 	if m == nil {
 		m = defaultProcessManager
 	}
@@ -88,8 +109,13 @@ func (m *ProcessManager) Start(command string, runner func(context.Context) proc
 		cancel()
 		return ""
 	}
-	m.nextID++
-	id := fmt.Sprintf("proc-%d", m.nextID)
+	if strings.TrimSpace(id) == "" {
+		id = "proc-" + uuid.NewString()
+	} else if m.items[id] != nil {
+		m.mu.Unlock()
+		cancel()
+		return ""
+	}
 	item := &managedProcess{
 		ID:        id,
 		Command:   strings.TrimSpace(command),
@@ -99,6 +125,7 @@ func (m *ProcessManager) Start(command string, runner func(context.Context) proc
 		done:      make(chan struct{}),
 	}
 	m.items[id] = item
+	m.specs[id] = spec
 	m.trimLocked()
 	m.mu.Unlock()
 
@@ -120,7 +147,7 @@ func (m *ProcessManager) Start(command string, runner func(context.Context) proc
 			if current.notify != nil && !current.notified {
 				current.notified = true
 				notify = current.notify
-				event = processCompletion(current)
+				event = processCompletion(current, spec)
 			}
 		}
 		m.mu.Unlock()
@@ -145,7 +172,7 @@ func (m *ProcessManager) Detach(id string, notify func(ProcessCompletion)) bool 
 	ready := false
 	if !item.EndedAt.IsZero() && !item.notified && notify != nil {
 		item.notified = true
-		event = processCompletion(item)
+		event = processCompletion(item, m.specs[id])
 		ready = true
 	}
 	m.mu.Unlock()
@@ -196,6 +223,7 @@ func (m *ProcessManager) Forget(id string) {
 	defer m.mu.Unlock()
 	if item := m.items[id]; item != nil && !item.EndedAt.IsZero() && item.notify == nil {
 		delete(m.items, id)
+		delete(m.specs, id)
 	}
 }
 
@@ -262,6 +290,7 @@ func (m *ProcessManager) trimLocked() {
 			return
 		}
 		delete(m.items, oldestID)
+		delete(m.specs, oldestID)
 	}
 }
 

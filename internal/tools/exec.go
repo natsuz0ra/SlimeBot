@@ -140,7 +140,8 @@ func (e *execTool) run(ctx context.Context, params map[string]any) (*ExecuteResu
 	}
 	if cfg.background || autoWake {
 		manager := processManagerFromContext(ctx)
-		processID := manager.Start(cfg.command, func(runCtx context.Context) processRunResult {
+		spec := ProcessSpec{Shell: invocation.shell, WorkingDirectory: invocation.workingDirectory, SandboxMode: sandboxMode, TimeoutMs: cfg.timeoutMs, AutoWake: autoWake && !observer.AutoWakeDisabled}
+		processID := manager.StartWithSpec(cfg.command, spec, func(runCtx context.Context) processRunResult {
 			start := time.Now()
 			result, runErr := sandboxpolicy.RunCommand(runCtx, policy, sandboxpolicy.CommandRequest{
 				MaxOutputBytes: constants.ExecMaxOutputBytes,
@@ -170,12 +171,33 @@ func (e *execTool) run(ctx context.Context, params map[string]any) (*ExecuteResu
 		if processID == "" {
 			return nil, fmt.Errorf("too many background processes; wait for a task to finish or stop one")
 		}
+		var started func()
+		if observer.Started != nil {
+			started = func() {
+				item, _ := manager.Get(processID)
+				observer.Started(processCompletion(&item, spec))
+			}
+		}
 		if !cfg.background {
 			result, finished, waitErr := manager.Wait(ctx, processID, time.Duration(cfg.yieldMs)*time.Millisecond)
 			if waitErr != nil {
+				if started != nil {
+					started()
+					manager.Detach(processID, observer.Completed)
+				}
 				return nil, waitErr
 			}
 			if finished {
+				if started != nil {
+					started()
+				}
+				if observer.Completed != nil {
+					item, _ := manager.Get(processID)
+					completion := processCompletion(&item, spec)
+					completion.AutoWake = false
+					observer.Completed(completion)
+				}
+				manager.Detach(processID, nil)
 				manager.Forget(processID)
 				if result.Error != "" {
 					return nil, fmt.Errorf("%s", result.Error)
@@ -184,9 +206,8 @@ func (e *execTool) run(ctx context.Context, params map[string]any) (*ExecuteResu
 				return &ExecuteResult{Output: output}, err
 			}
 		}
-		if observer.Started != nil {
-			item, _ := manager.Get(processID)
-			observer.Started(processCompletion(&item))
+		if started != nil {
+			started()
 		}
 		manager.Detach(processID, observer.Completed)
 		out, err := encodeExecOutput(execOutputPayload{

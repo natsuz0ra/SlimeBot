@@ -62,6 +62,27 @@ func (s *Service) Summary(ctx context.Context, query domain.UsageQuery) ([]domai
 	return s.store.SummarizeUsage(ctx, query)
 }
 
+type SessionBudgetStatus struct {
+	BudgetTokens int64 `json:"budgetTokens"`
+	UsedTokens   int64 `json:"usedTokens"`
+}
+
+func (s *Service) SessionBudgetStatus(ctx context.Context, rootSessionID string) (SessionBudgetStatus, error) {
+	budget, err := s.SessionOutputTokenBudget(ctx)
+	if err != nil {
+		return SessionBudgetStatus{}, err
+	}
+	rootSessionID = strings.TrimSpace(rootSessionID)
+	if s == nil || s.store == nil || rootSessionID == "" {
+		return SessionBudgetStatus{BudgetTokens: budget}, nil
+	}
+	used, err := s.store.SessionOutputTokens(ctx, rootSessionID)
+	if err != nil {
+		return SessionBudgetStatus{}, err
+	}
+	return SessionBudgetStatus{BudgetTokens: budget, UsedTokens: used}, nil
+}
+
 func (s *Service) SessionOutputTokenBudget(ctx context.Context) (int64, error) {
 	if s == nil || s.settings == nil {
 		return 0, nil

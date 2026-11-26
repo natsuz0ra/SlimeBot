@@ -204,6 +204,7 @@ func (s *ChatService) buildContextMessagesDetailed(ctx context.Context, sessionI
 		usage.State = "cooldown"
 	}
 	usage = normalizeContextUsagePercentages(usage)
+	s.attachOutputBudget(ctx, sessionID, &usage)
 	logging.Info(
 		"chat_context_ready",
 		"session", sessionID,
@@ -214,6 +215,18 @@ func (s *ChatService) buildContextMessagesDetailed(ctx context.Context, sessionI
 	)
 	logging.Span("context_build_total", buildStart)
 	return contextBuildResult{messages: msgs, usage: usage, compactedNow: compression.compactedNow}, nil
+}
+
+func (s *ChatService) attachOutputBudget(ctx context.Context, sessionID string, usage *ContextUsage) {
+	if s == nil || s.usage == nil || usage == nil || strings.TrimSpace(sessionID) == "" {
+		return
+	}
+	status, err := s.usage.SessionBudgetStatus(ctx, sessionID)
+	if err != nil {
+		return
+	}
+	usage.OutputBudgetTokens = status.BudgetTokens
+	usage.OutputBudgetUsed = status.UsedTokens
 }
 
 func (s *ChatService) buildStableContextPrefix(ctx context.Context) ([]llmsvc.ChatMessage, error) {

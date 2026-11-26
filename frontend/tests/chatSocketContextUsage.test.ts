@@ -35,6 +35,8 @@ test('dispatchChatSocketMessage routes context_usage payloads', () => {
     compactionReason: 'pressure',
     compactionDurationMs: 1250,
     layers: [{ layer: 'system', tokens: 1200 }, { layer: 'recent_conversation', tokens: 418800 }],
+    outputBudgetTokens: 20000,
+    outputBudgetUsed: 16500,
   }), handlers)
 
   assert.deepEqual(calls, [{
@@ -57,6 +59,8 @@ test('dispatchChatSocketMessage routes context_usage payloads', () => {
       compactionReason: 'pressure',
       compactionDurationMs: 1250,
       layers: [{ layer: 'system', tokens: 1200 }, { layer: 'recent_conversation', tokens: 418800 }],
+      outputBudgetTokens: 20000,
+      outputBudgetUsed: 16500,
     },
   }])
 })

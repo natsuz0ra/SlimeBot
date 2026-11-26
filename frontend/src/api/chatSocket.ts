@@ -181,6 +181,8 @@ export interface ContextUsageData {
   layers?: ContextLayerUsage[]
   source?: 'estimated' | 'provider-reported'
   state?: 'compacting' | 'ready' | 'cooldown'
+  outputBudgetTokens?: number
+  outputBudgetUsed?: number
 }
 
 type WSIncoming = {
@@ -253,6 +255,8 @@ type WSIncoming = {
   layers?: ContextLayerUsage[]
   source?: 'estimated' | 'provider-reported'
   state?: 'compacting' | 'ready' | 'cooldown'
+  outputBudgetTokens?: number
+  outputBudgetUsed?: number
 }
 
 function normalizeTeamRun(data: WSIncoming): TeamRunItem {
@@ -321,6 +325,8 @@ function normalizeContextUsage(data: WSIncoming | ContextUsageData | undefined, 
     ...(Array.isArray(source.layers) ? { layers: source.layers.map((layer) => ({ layer: String(layer.layer), tokens: Math.max(0, Number(layer.tokens) || 0) })) } : {}),
     ...(source.source ? { source: source.source } : {}),
     ...(source.state ? { state: source.state } : {}),
+    ...(Number.isFinite(source.outputBudgetTokens) ? { outputBudgetTokens: Math.max(0, Number(source.outputBudgetTokens)) } : {}),
+    ...(Number.isFinite(source.outputBudgetUsed) ? { outputBudgetUsed: Math.max(0, Number(source.outputBudgetUsed)) } : {}),
   }
 }
 

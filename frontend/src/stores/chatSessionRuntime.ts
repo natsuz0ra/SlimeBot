@@ -20,6 +20,7 @@ import { materializeStoppedMessages } from '@/utils/chatMessages'
 import { applyEditedUserMessage, findLatestEditableUserMessageId } from '@/utils/messageEditing'
 import { createClientId } from '@/utils/uuid'
 import { createAgentTeamState, mergeAgentTeamMember, mergeAgentTeamRun } from '@/utils/agentTeam'
+import { isBudgetExceededError } from '@/utils/usageRange'
 import { useToast } from '@/composables/useToast'
 
 export function createChatSessionRuntime(sessionId: string | undefined, callbacks: {
@@ -220,6 +221,9 @@ export function createChatSessionRuntime(sessionId: string | undefined, callback
   }
 
   function formatAssistantError(rawError: string) {
+    if (isBudgetExceededError(rawError)) {
+      return i18n.global.t('usageBudgetExceededError') as string
+    }
     const safeError = rawError?.trim() || 'unknown error'
     return i18n.global.t('assistantReplyFailed', { error: safeError }) as string
   }

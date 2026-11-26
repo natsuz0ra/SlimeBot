@@ -26,17 +26,22 @@ type UsageRecord struct {
 	CacheCreationInputTokens int64     `json:"cacheCreationInputTokens"`
 	CacheReadInputTokens     int64     `json:"cacheReadInputTokens"`
 	TotalTokens              int64     `json:"totalTokens"`
-	CreatedAt                time.Time `gorm:"index:idx_usage_root_created,priority:2" json:"createdAt"`
+	CreatedAt                time.Time `gorm:"index;index:idx_usage_root_created,priority:2" json:"createdAt"`
 }
 
 type UsageQuery struct {
 	GroupBy       string
 	RootSessionID string
+	Since         *time.Time
+	Until         *time.Time
 }
 
 type UsageSummary struct {
 	GroupKey                 string `json:"groupKey"`
 	RootSessionID            string `json:"rootSessionId,omitempty"`
+	SessionName              string `json:"sessionName,omitempty"`
+	SessionKind              string `json:"sessionKind,omitempty"`
+	SessionExists            bool   `json:"sessionExists,omitempty"`
 	ModelConfigID            string `json:"modelConfigId,omitempty"`
 	Model                    string `json:"model,omitempty"`
 	WorkingDirectory         string `json:"workingDirectory,omitempty"`

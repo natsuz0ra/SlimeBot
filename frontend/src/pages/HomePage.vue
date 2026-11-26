@@ -31,6 +31,7 @@ import { useUpdateNotice } from '@/composables/useUpdateNotice'
 import { useTheme } from '@/composables/useTheme'
 import { useToast } from '@/composables/useToast'
 import { useAuthStore } from '@/stores/auth'
+import type { SettingsTabKey } from '@/types/settings'
 
 const {
   t,
@@ -45,6 +46,7 @@ const {
 } = useHomeChatPage()
 
 const searchVisible = ref(false)
+const settingsInitialTab = ref<SettingsTabKey>('basic')
 const route = useRoute()
 const router = useRouter()
 const isTasksWorkspace = computed(() => route.name === 'tasks')
@@ -106,6 +108,19 @@ async function pickChat(id: string) {
 async function pickSearchResult(hit: Parameters<typeof sessions.pickSearchResult>[0]) {
   await sessions.pickSearchResult(hit)
   await router.push(`/chat/${encodeURIComponent(hit.sessionId)}`)
+}
+function openSettings(initialTab: SettingsTabKey = 'basic') {
+  settingsInitialTab.value = initialTab
+  ui.settingsVisible = true
+}
+async function openSessionFromSettings(sessionId: string) {
+  ui.settingsVisible = false
+  await pickChat(sessionId)
+}
+function onUsageBudgetSaved() {
+  if (models.selectedModelId) {
+    void store.refreshContextUsage(models.selectedModelId)
+  }
 }
 const { isDark, toggleTheme } = useTheme()
 const {
@@ -223,7 +238,7 @@ onMounted(() => {
           @pick-session="pickChat"
           @toggle-session-menu="ui.toggleSessionMenu"
           @toggle-theme="toggleTheme"
-          @open-settings="ui.settingsVisible = true"
+          @open-settings="openSettings('basic')"
           @open-search="searchVisible = true"
           @open-tasks="openTasks"
         />
@@ -334,6 +349,7 @@ onMounted(() => {
                   @stop="composer.stopMessage"
                   @stop-background="store.stopBackgroundTasks"
                   @compact-context="store.compactContext(models.selectedModelId)"
+                  @open-usage-settings="openSettings('usage')"
                   @files-change="composer.onSelectFiles"
                   @remove-file="composer.removePendingFile"
                   @model-change="models.onModelChange"
@@ -398,7 +414,8 @@ onMounted(() => {
                 @send="composer.sendMessage"
                 @stop="composer.stopMessage"
                   @stop-background="store.stopBackgroundTasks"
-                  @compact-context="store.compactContext(models.selectedModelId)"
+                @compact-context="store.compactContext(models.selectedModelId)"
+                @open-usage-settings="openSettings('usage')"
                 @files-change="composer.onSelectFiles"
                 @remove-file="composer.removePendingFile"
                 @model-change="models.onModelChange"
@@ -466,6 +483,7 @@ onMounted(() => {
       v-model:tool-detail-visible="tools.toolDetailVisible"
       v-model:settings-visible="ui.settingsVisible"
       v-model:account-dialog-visible="accountDialogVisible"
+      :settings-initial-tab="settingsInitialTab"
       :tool-detail-dialog-width="tools.toolDetailDialogWidth"
       :tool-detail-items="tools.toolDetailItems"
       :tool-detail-tool-timeline="tools.toolDetailToolTimeline"
@@ -477,6 +495,8 @@ onMounted(() => {
       @approve-tool-call="store.approveToolCall($event, true)"
       @reject-tool-call="store.approveToolCall($event, false)"
       @refresh-model-options="models.refreshModelOptions"
+      @open-session="openSessionFromSettings"
+      @budget-saved="onUsageBudgetSaved"
       @account-updated="onAccountUpdated"
     />
 

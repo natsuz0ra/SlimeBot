@@ -169,6 +169,10 @@ func (s *ChatService) HandleEditedChatStream(
 	}
 	failed = err != nil || (result != nil && result.failed)
 	if err != nil {
+		if errors.Is(err, usagesvc.ErrSessionOutputTokenBudgetExceeded) && callbacks.OnContextUsage != nil {
+			s.attachOutputBudget(ctx, sessionID, &state.contextUsage)
+			_ = callbacks.OnContextUsage(state.contextUsage)
+		}
 		return nil, err
 	}
 	finalizeCtx := ctx
@@ -249,6 +253,10 @@ func (s *ChatService) handleChatStreamWithReceivedAt(
 	}
 	failed = err != nil || (result != nil && result.failed)
 	if err != nil {
+		if errors.Is(err, usagesvc.ErrSessionOutputTokenBudgetExceeded) && callbacks.OnContextUsage != nil {
+			s.attachOutputBudget(ctx, sessionID, &state.contextUsage)
+			_ = callbacks.OnContextUsage(state.contextUsage)
+		}
 		return nil, err
 	}
 
@@ -828,6 +836,7 @@ func (s *ChatService) executeChatTurn(
 				usage.Layers = upsertContextLayerUsage(usage.Layers, "tools", toolTokens)
 			}
 			usage = normalizeContextUsagePercentages(usage)
+			s.attachOutputBudget(ctx, sessionID, &usage)
 			state.contextUsage = usage
 			usageTracker.mu.Lock()
 			usageTracker.usage = usage
@@ -1014,6 +1023,10 @@ func (s *ChatService) finalizeChatTurn(
 	if !planMode && !result.interrupted && strings.TrimSpace(result.answer) != "" {
 		s.maybeTriggerMemoryReview(sessionID, state.modelConfig, state.userContent, result.answer)
 		s.maybeTriggerIdleCompaction(sessionID, state.modelConfig, state.contextUsage)
+	}
+	if callbacks.OnContextUsage != nil {
+		s.attachOutputBudget(ctx, sessionID, &state.contextUsage)
+		_ = callbacks.OnContextUsage(state.contextUsage)
 	}
 	return streamResult, nil
 }

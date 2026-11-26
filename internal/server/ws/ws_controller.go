@@ -719,6 +719,7 @@ func buildContextUsagePayload(sessionID string, usage chatsvc.ContextUsage) map[
 		"state": usage.State, "source": usage.Source, "inputBudget": usage.InputBudget, "outputReserve": usage.OutputReserve,
 		"compactionBeforeTokens": usage.CompactionBeforeTokens, "compactionAfterTokens": usage.CompactionAfterTokens, "compactionReason": usage.CompactionReason,
 		"compactionDurationMs": usage.CompactionDurationMs, "compactionFailure": usage.CompactionFailure, "layers": usage.Layers,
+		"outputBudgetTokens": usage.OutputBudgetTokens, "outputBudgetUsed": usage.OutputBudgetUsed,
 		"type":             "context_usage",
 		"sessionId":        sessionID,
 		"modelConfigId":    usage.ModelConfigID,

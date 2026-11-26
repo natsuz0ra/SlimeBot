@@ -7,6 +7,8 @@ import MdiIcon from '@/components/ui/MdiIcon.vue'
 import TruncationTooltip from '@/components/ui/TruncationTooltip.vue'
 import type { SelectOption } from '@/components/ui/AppSelect.vue'
 import { formatSize } from '@/utils/format'
+import { formatContextTokenCount } from '@/utils/contextSize'
+import { getOutputBudgetProgress } from '@/utils/usageRange'
 import type { ContextUsageData } from '@/api/chatSocket'
 import type { ApprovalMode } from '@/types/settings'
 import WorkspacePicker from '@/components/chat/WorkspacePicker.vue'
@@ -53,11 +55,13 @@ const emit = defineEmits<{
   planCancel: []
   workspaceChange: [path: string]
   compactContext: []
+  openUsageSettings: []
 }>()
 
 const textareaRef = ref<HTMLTextAreaElement | null>(null)
 const fileInputRef = ref<HTMLInputElement | null>(null)
 const { t } = useI18n()
+const budgetProgress = computed(() => getOutputBudgetProgress(props.contextUsage))
 
 function resizeTextarea(el: HTMLTextAreaElement) {
   el.style.height = 'auto'
@@ -244,6 +248,12 @@ onUnmounted(() => {
 
 <template>
   <WorkspacePicker v-if="workspaceEditable" :path="workingDirectory" :editable="workspaceEditable" @select="emit('workspaceChange', $event)" />
+  <div v-if="budgetProgress?.exceeded" class="budget-exceeded-banner" role="alert">
+    <span>{{ t('usageBudgetExceededBanner', { used: formatContextTokenCount(budgetProgress.used), budget: formatContextTokenCount(budgetProgress.budget) }) }}</span>
+    <button type="button" class="budget-exceeded-action" @click="emit('openUsageSettings')">
+      {{ t('usageAdjustBudget') }}
+    </button>
+  </div>
   <div class="input-container focus-ring rounded-2xl">
     <div v-if="planConfirmationVisible" class="plan-confirm-inline" data-plan-confirmation="true">
       <div class="plan-confirm-copy">{{ t('planConfirmPrompt') }}</div>
@@ -322,6 +332,7 @@ onUnmounted(() => {
           :compacting="contextCompacting"
           :disabled="isStreaming"
           @compact="emit('compactContext')"
+          @open-usage-settings="emit('openUsageSettings')"
         />
         <div class="relative z-[120] group/upload-tip">
           <button
@@ -565,6 +576,37 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
+.budget-exceeded-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 8px;
+  padding: 8px 12px;
+  border-radius: 10px;
+  border: 1px solid rgba(239, 68, 68, 0.35);
+  background: rgba(239, 68, 68, 0.1);
+  color: var(--tool-error-text);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.budget-exceeded-action {
+  flex-shrink: 0;
+  padding: 4px 10px;
+  border-radius: 8px;
+  border: 1px solid rgba(239, 68, 68, 0.4);
+  background: transparent;
+  color: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.budget-exceeded-action:hover {
+  background: rgba(239, 68, 68, 0.14);
+}
+
 .plan-confirm-inline {
   display: flex;
   align-items: center;

@@ -47,12 +47,15 @@ import type { UpdateCheckResult } from '@/types/update'
 const emit = defineEmits<{
   close: []
   llmChanged: []
+  openSession: [sessionId: string]
+  budgetSaved: []
 }>()
 
 const props = defineProps<{
   hasUpdateNotice: boolean
   markUpdateNoticeRead: () => void
   setUpdateCheckResult: (result: UpdateCheckResult) => void
+  initialTab?: SettingsTabKey
 }>()
 
 const { t } = useI18n()
@@ -76,7 +79,10 @@ const settingsTabs: { key: SettingsTabKey; labelKey: string }[] = [
   { key: 'about', labelKey: 'aboutSettings' },
 ]
 
-const tab = ref<SettingsTabKey>('basic')
+const tab = ref<SettingsTabKey>(props.initialTab || 'basic')
+watch(() => props.initialTab, (nextInitial) => {
+  if (nextInitial) tab.value = nextInitial
+})
 const tabTitle = computed(() => t(settingsTabs.find(item => item.key === tab.value)!.labelKey))
 const tabTitleId = useId()
 const settingsContent = ref<HTMLElement | null>(null)
@@ -696,7 +702,11 @@ watch(tab, (nextTab) => {
         <SettingsUpdateTab v-if="tab === 'update'" @update-check-loaded="props.setUpdateCheckResult" />
 
         <SettingsPrivacyTab v-if="tab === 'privacy'" />
-        <SettingsUsageTab v-if="tab === 'usage'" />
+        <SettingsUsageTab
+          v-if="tab === 'usage'"
+          @open-session="emit('openSession', $event)"
+          @budget-saved="emit('budgetSaved')"
+        />
         <SettingsAboutTab v-if="tab === 'about'" />
       </section>
     </div>

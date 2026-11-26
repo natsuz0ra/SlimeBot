@@ -3,6 +3,7 @@ import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { ContextUsageData } from '@/api/chatSocket'
 import { contextUsageTone, formatContextTokenCount } from '@/utils/contextSize'
+import { getOutputBudgetProgress } from '@/utils/usageRange'
 
 const props = defineProps<{
   usage: ContextUsageData
@@ -10,12 +11,13 @@ const props = defineProps<{
   compacting?: boolean
   disabled?: boolean
 }>()
-const emit = defineEmits<{ compact: [] }>()
+const emit = defineEmits<{ compact: []; openUsageSettings: [] }>()
 const { t } = useI18n()
 const open = ref(false)
 const root = ref<HTMLElement | null>(null)
 
 const tone = computed(() => contextUsageTone(props.usage.usedPercent))
+const budgetProgress = computed(() => getOutputBudgetProgress(props.usage))
 const circleStyle = computed(() => ({ '--context-usage-deg': `${Math.max(0, Math.min(100, props.usage.usedPercent)) * 3.6}deg` }))
 const statusLabel = computed(() => props.compacting || props.usage.state === 'compacting'
   ? t('contextStatusCompacting')
@@ -42,6 +44,11 @@ function layerLabel(layer: string) {
   return keys[layer] ? t(keys[layer]!) : layer
 }
 
+function onOpenUsageSettings() {
+  open.value = false
+  emit('openUsageSettings')
+}
+
 function onDocumentPointerDown(event: PointerEvent) {
   if (open.value && root.value && !root.value.contains(event.target as Node)) open.value = false
 }
@@ -60,7 +67,16 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div ref="root" class="context-usage relative z-[120]">
+  <div ref="root" class="context-usage relative z-[120] inline-flex items-center gap-1.5">
+    <button
+      v-if="budgetProgress && budgetProgress.tone === 'warning'"
+      type="button"
+      class="budget-warning-pill"
+      :title="t('usageBudgetRemainingHint', { remaining: formatContextTokenCount(budgetProgress.remaining) })"
+      @click="open = !open"
+    >
+      {{ t('usageBudgetShort', { percent: budgetProgress.percent }) }}
+    </button>
     <button
       type="button"
       class="context-usage-indicator"
@@ -92,6 +108,22 @@ onUnmounted(() => {
           <dt>{{ t('contextMeasurement') }}</dt><dd>{{ t(usage.source === 'provider-reported' ? 'contextProviderReported' : 'contextEstimated') }}</dd>
           <dt>{{ t('contextStatus') }}</dt><dd>{{ statusLabel }}</dd>
         </dl>
+
+        <div v-if="budgetProgress" class="context-usage-section">
+          <div class="budget-section-head">
+            <h4>{{ t('usageOutputBudgetTitle') }}</h4>
+            <strong class="budget-section-pct" :class="`budget-tone--${budgetProgress.tone}`">{{ budgetProgress.percent }}%</strong>
+          </div>
+          <div class="budget-progress-track" role="progressbar" :aria-valuenow="budgetProgress.barPercent" aria-valuemin="0" aria-valuemax="100">
+            <div class="budget-progress-fill" :class="`budget-fill--${budgetProgress.tone}`" :style="{ width: `${budgetProgress.barPercent}%` }" />
+          </div>
+          <div class="budget-section-meta">
+            <span>{{ formatContextTokenCount(budgetProgress.used) }} / {{ formatContextTokenCount(budgetProgress.budget) }}</span>
+            <button type="button" class="budget-adjust-link" @click="onOpenUsageSettings">
+              {{ t('usageAdjustBudget') }}
+            </button>
+          </div>
+        </div>
 
         <div v-if="usage.layers?.length" class="context-usage-section">
           <h4>{{ t('contextLayerBreakdown') }}</h4>
@@ -187,6 +219,34 @@ onUnmounted(() => {
 .context-compact-button { width: 100%; margin-top: 14px; padding: 8px 12px; border: 1px solid var(--primary-alpha-20); border-radius: 8px; color: var(--sb-brand); background: var(--primary-alpha-08); font-size: 12px; font-weight: 600; cursor: pointer; }
 .context-compact-button:hover:not(:disabled) { background: var(--primary-alpha-12); }
 .context-compact-button:disabled { opacity: .5; cursor: not-allowed; }
+.budget-warning-pill {
+  height: 20px;
+  padding: 0 7px;
+  border-radius: 999px;
+  border: 1px solid rgba(245, 158, 11, 0.35);
+  background: rgba(245, 158, 11, 0.12);
+  color: #d97706;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.dark .budget-warning-pill { color: #fbbf24; border-color: rgba(251, 191, 36, 0.35); background: rgba(251, 191, 36, 0.14); }
+.budget-section-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 6px; }
+.budget-section-head h4 { margin: 0; }
+.budget-section-pct { font-size: 12px; font-variant-numeric: tabular-nums; }
+.budget-tone--normal { color: #22c55e; }
+.budget-tone--warning { color: #f59e0b; }
+.budget-tone--danger { color: #ef4444; }
+.budget-progress-track { height: 6px; border-radius: 999px; background: rgba(148, 163, 184, 0.22); overflow: hidden; }
+.budget-progress-fill { height: 100%; border-radius: 999px; transition: width 180ms ease; }
+.budget-fill--normal { background: #22c55e; }
+.budget-fill--warning { background: #f59e0b; }
+.budget-fill--danger { background: #ef4444; }
+.budget-section-meta { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 6px; font-size: 11px; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.budget-adjust-link { padding: 0; border: 0; background: transparent; color: var(--sb-brand); font-size: 11px; font-weight: 600; cursor: pointer; }
+.budget-adjust-link:hover { text-decoration: underline; }
 .context-popover-enter-active, .context-popover-leave-active { transition: opacity 130ms ease, transform 130ms ease; transform-origin: bottom right; }
 .context-popover-enter-from, .context-popover-leave-to { opacity: 0; transform: translateY(4px) scale(.98); }
 </style>

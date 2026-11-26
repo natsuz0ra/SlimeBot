@@ -142,6 +142,8 @@ type ContextUsage struct {
 	Layers                 []ContextLayerUsage `json:"layers,omitempty"`
 	Source                 string              `json:"source,omitempty"`
 	State                  string              `json:"state,omitempty"`
+	OutputBudgetTokens     int64               `json:"outputBudgetTokens,omitempty"`
+	OutputBudgetUsed       int64               `json:"outputBudgetUsed,omitempty"`
 }
 
 // AgentCallbacks wires the agent loop to the outside world (streaming, approval, results).

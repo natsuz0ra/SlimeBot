@@ -44,6 +44,7 @@ type ChatService struct {
 	skillLearning      *skillsvc.LearningService
 	planService        *plansvc.PlanService
 	teamService        *teamsvc.Service
+	usage              *usagesvc.Service
 	cooperative        *subagentsvc.Service
 	checkpoints        *workspace.CheckpointManager
 	uploads            *ChatUploadService
@@ -135,7 +136,10 @@ func (s *ChatService) SetMemoryService(service *memorysvc.Service) {
 }
 
 func (s *ChatService) SetUsageService(service *usagesvc.Service) {
-	s.providerFactory.SetRequestObserver(service.ObserveRequest)
+	s.usage = service
+	if service != nil {
+		s.providerFactory.SetRequestObserver(service.ObserveRequest)
+	}
 }
 
 func (s *ChatService) SetScheduleService(service *schedulesvc.Service) {

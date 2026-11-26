@@ -3,6 +3,7 @@ import { ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { ToolCallItem } from '@/api/chat'
 import type { ToolTimelineEntry } from '@/types/chat'
+import type { SettingsTabKey } from '@/types/settings'
 import type { UpdateCheckResult } from '@/types/update'
 import AccountEditDialog from '@/components/settings/AccountEditDialog.vue'
 import SettingsPanel from '@/components/settings/SettingsPanel.vue'
@@ -19,6 +20,7 @@ const props = defineProps<{
   toolDetailItems: ToolCallItem[]
   toolDetailToolTimeline: ToolTimelineEntry[]
   settingsVisible: boolean
+  settingsInitialTab?: SettingsTabKey
   hasUpdateNotice: boolean
   markUpdateNoticeRead: () => void
   setUpdateCheckResult: (result: UpdateCheckResult) => void
@@ -36,6 +38,8 @@ const emit = defineEmits<{
   rejectToolCall: [toolCallId: string]
   'update:settingsVisible': [value: boolean]
   refreshModelOptions: []
+  openSession: [sessionId: string]
+  budgetSaved: []
   'update:accountDialogVisible': [value: boolean]
   accountUpdated: []
 }>()
@@ -117,8 +121,11 @@ function onSettingsMaskClick(e: MouseEvent) {
           :has-update-notice="hasUpdateNotice"
           :mark-update-notice-read="markUpdateNoticeRead"
           :set-update-check-result="setUpdateCheckResult"
+          :initial-tab="settingsInitialTab"
           @close="emit('update:settingsVisible', false)"
           @llm-changed="emit('refreshModelOptions')"
+          @open-session="emit('openSession', $event)"
+          @budget-saved="emit('budgetSaved')"
         />
       </div>
     </div>

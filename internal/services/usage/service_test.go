@@ -144,3 +144,30 @@ func TestScopeFallsBackToPrivacySession(t *testing.T) {
 		t.Fatalf("fallback: %+v %v", store.records, err)
 	}
 }
+
+func TestSessionBudgetStatus(t *testing.T) {
+	store := &memoryStore{
+		records: []domain.UsageRecord{
+			{RootSessionID: "root-1", SessionID: "root-1", OutputTokens: 1200},
+			{RootSessionID: "root-1", SessionID: "child-1", OutputTokens: 350},
+			{RootSessionID: "root-2", SessionID: "root-2", OutputTokens: 999},
+		},
+	}
+	svc := NewService(store, settingsStore{"sessionOutputTokenBudget": "2000"})
+
+	status, err := svc.SessionBudgetStatus(context.Background(), "root-1")
+	if err != nil || status.BudgetTokens != 2000 || status.UsedTokens != 1550 {
+		t.Fatalf("status = %+v %v", status, err)
+	}
+
+	emptyStatus, err := svc.SessionBudgetStatus(context.Background(), "")
+	if err != nil || emptyStatus.BudgetTokens != 2000 || emptyStatus.UsedTokens != 0 {
+		t.Fatalf("empty session status = %+v %v", emptyStatus, err)
+	}
+
+	svc.settings = settingsStore{"sessionOutputTokenBudget": "0"}
+	unlimited, err := svc.SessionBudgetStatus(context.Background(), "root-1")
+	if err != nil || unlimited.BudgetTokens != 0 || unlimited.UsedTokens != 1550 {
+		t.Fatalf("unlimited status = %+v %v", unlimited, err)
+	}
+}

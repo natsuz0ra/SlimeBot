@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { ToolCallItem } from '@/api/chat'
 import type { ToolTimelineEntry } from '@/types/chat'
@@ -10,6 +10,7 @@ import SettingsPanel from '@/components/settings/SettingsPanel.vue'
 import ToolExecutionDetailDialog from '@/components/chat/ToolExecutionDetailDialog.vue'
 import AppDialog from '@/components/ui/AppDialog.vue'
 import { isMaskSelfEvent, shouldCloseOnMaskInteraction } from '@/utils/dialogMask'
+import { getShortcutHelpItems } from '@/utils/shortcuts'
 
 const props = defineProps<{
   renameVisible: boolean
@@ -25,6 +26,9 @@ const props = defineProps<{
   markUpdateNoticeRead: () => void
   setUpdateCheckResult: (result: UpdateCheckResult) => void
   accountDialogVisible: boolean
+  shortcutsHelpVisible?: boolean
+  isMac?: boolean
+  isDesktop?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -42,10 +46,12 @@ const emit = defineEmits<{
   budgetSaved: []
   'update:accountDialogVisible': [value: boolean]
   accountUpdated: []
+  'update:shortcutsHelpVisible': [value: boolean]
 }>()
 
 const { t } = useI18n()
 const settingsPointerDownStartedOnMask = ref(false)
+const shortcutHelpItems = computed(() => getShortcutHelpItems(Boolean(props.isMac), Boolean(props.isDesktop)))
 
 function onSettingsMaskPointerDown(e: PointerEvent) {
   settingsPointerDownStartedOnMask.value = isMaskSelfEvent(e)
@@ -137,4 +143,57 @@ function onSettingsMaskClick(e: MouseEvent) {
     @update:visible="emit('update:accountDialogVisible', $event)"
     @success="emit('accountUpdated')"
   />
+
+  <AppDialog
+    :visible="Boolean(shortcutsHelpVisible)"
+    :title="t('shortcutsTitle')"
+    width="420px"
+    hide-footer
+    @update:visible="emit('update:shortcutsHelpVisible', $event)"
+  >
+    <div class="shortcuts-list">
+      <div v-for="item in shortcutHelpItems" :key="item.action" class="shortcut-row">
+        <span class="shortcut-label">{{ t(item.labelKey) }}</span>
+        <kbd class="shortcut-kbd">{{ item.keys }}</kbd>
+      </div>
+    </div>
+  </AppDialog>
 </template>
+
+<style scoped>
+.shortcuts-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.shortcut-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 6px 2px;
+  font-size: 13px;
+}
+
+.shortcut-row + .shortcut-row {
+  border-top: 1px solid var(--card-border);
+}
+
+.shortcut-label {
+  color: var(--text-primary);
+}
+
+.shortcut-kbd {
+  flex-shrink: 0;
+  padding: 3px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--input-border);
+  background: var(--primary-alpha-05);
+  color: var(--text-secondary);
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+</style>

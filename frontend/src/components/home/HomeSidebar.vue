@@ -23,6 +23,7 @@ import TruncationTooltip from '@/components/ui/TruncationTooltip.vue'
 import { useChatStore } from '@/stores/chat'
 import { groupSessionsByDirectory, type SessionGroup } from '@/utils/sessionGroups'
 import { isMessagePlatformSessionId, listPlatformSessions, platformFromSessionId, platformSessionName } from '@/utils/messagePlatformSessions'
+import { detectMacPlatform, formatShortcutKeys } from '@/utils/shortcuts'
 
 const INITIAL_GROUP_SESSION_COUNT = 6
 
@@ -47,6 +48,13 @@ const emit = defineEmits<{
 
 const { t } = useI18n()
 const store = useChatStore()
+const isMac = detectMacPlatform()
+const isDesktop = typeof window !== 'undefined' && Boolean(window.slimebotDesktop)
+const newChatShortcut = isDesktop
+  ? formatShortcutKeys(isMac, { mac: '⌘N', other: 'Ctrl+N' })
+  : formatShortcutKeys(isMac, { mac: '⌘⇧O', other: 'Ctrl+Shift+O' })
+const searchShortcut = formatShortcutKeys(isMac, { mac: '⌘K', other: 'Ctrl+K' })
+const settingsShortcut = formatShortcutKeys(isMac, { mac: '⌘,', other: 'Ctrl+,' })
 
 const collapsed = ref<string[]>([])
 const platformCollapsed = ref(false)
@@ -105,6 +113,8 @@ function toggleGroup(path: string) {
         <button
           type="button"
           class="sb-text-muted w-8 h-8 flex items-center justify-center rounded-lg transition-all duration-150 cursor-pointer group"
+          :aria-label="t('newChat')"
+          :title="`${t('newChat')} (${newChatShortcut})`"
           @click="emit('createSession')"
         >
           <MdiIcon :path="mdiPlus" :size="20" class="group-hover:scale-110 transition-transform duration-150" />
@@ -113,7 +123,7 @@ function toggleGroup(path: string) {
           type="button"
           class="sb-text-muted w-8 h-8 flex items-center justify-center rounded-lg transition-all duration-150 cursor-pointer group"
           :aria-label="t('chatSearch')"
-          :title="t('chatSearch')"
+          :title="`${t('chatSearch')} (${searchShortcut})`"
           @click="emit('openSearch')"
         >
           <MdiIcon :path="mdiMagnify" :size="20" class="group-hover:scale-110 transition-transform duration-150" />
@@ -261,6 +271,7 @@ function toggleGroup(path: string) {
         <button
           type="button"
           class="settings-action-btn flex-1 flex items-center gap-2.5 px-3 h-9 rounded-xl text-sm transition-all duration-150 cursor-pointer"
+          :title="`${t('settings')} (${settingsShortcut})`"
           @click="emit('openSettings')"
         >
           <MdiIcon :path="mdiCogOutline" :size="19" />

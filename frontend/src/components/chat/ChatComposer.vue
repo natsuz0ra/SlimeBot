@@ -9,6 +9,8 @@ import type { SelectOption } from '@/components/ui/AppSelect.vue'
 import { formatSize } from '@/utils/format'
 import { formatContextTokenCount } from '@/utils/contextSize'
 import { getOutputBudgetProgress } from '@/utils/usageRange'
+import { extractPastedFiles, isImageFile, MAX_CHAT_UPLOAD_FILES, mergePendingFiles } from '@/utils/chatAttachments'
+import { useToast } from '@/composables/useToast'
 import type { ContextUsageData } from '@/api/chatSocket'
 import type { ApprovalMode } from '@/types/settings'
 import WorkspacePicker from '@/components/chat/WorkspacePicker.vue'
@@ -61,7 +63,35 @@ const emit = defineEmits<{
 const textareaRef = ref<HTMLTextAreaElement | null>(null)
 const fileInputRef = ref<HTMLInputElement | null>(null)
 const { t } = useI18n()
+const toast = useToast()
 const budgetProgress = computed(() => getOutputBudgetProgress(props.contextUsage))
+const imagePreviewMap = new Map<File, string>()
+const previewUrls = ref<Map<File, string>>(new Map())
+
+function syncImagePreviews(files: File[]) {
+  const currentSet = new Set(files)
+  let changed = false
+  for (const [file, url] of imagePreviewMap.entries()) {
+    if (!currentSet.has(file)) {
+      URL.revokeObjectURL(url)
+      imagePreviewMap.delete(file)
+      changed = true
+    }
+  }
+  for (const file of files) {
+    if (isImageFile(file) && !imagePreviewMap.has(file)) {
+      imagePreviewMap.set(file, URL.createObjectURL(file))
+      changed = true
+    }
+  }
+  if (changed) {
+    previewUrls.value = new Map(imagePreviewMap)
+  }
+}
+
+watch(() => props.pendingFiles, (files) => {
+  syncImagePreviews(files)
+}, { immediate: true, deep: true })
 
 function resizeTextarea(el: HTMLTextAreaElement) {
   el.style.height = 'auto'
@@ -86,18 +116,43 @@ function openFilePicker() {
   fileInputRef.value?.click()
 }
 
+function addFiles(incoming: File[]) {
+  if (incoming.length === 0) return
+  if (props.planConfirmationVisible) return
+  if (props.isStreaming) {
+    toast.warning(t('uploadBlockedStreaming'))
+    return
+  }
+  const result = mergePendingFiles(props.pendingFiles, incoming)
+  if (result.skippedTooLarge.length > 0) {
+    toast.warning(t('uploadSkippedTooLarge', { names: result.skippedTooLarge.join(', ') }))
+  }
+  if (result.skippedOverflow > 0) {
+    toast.warning(t('uploadSkippedOverflow', { max: MAX_CHAT_UPLOAD_FILES }))
+  }
+  if (result.addedCount > 0) {
+    emit('filesChange', result.files)
+  }
+}
+
 function onFileChange(event: Event) {
   const input = event.target as HTMLInputElement
-  const selected = Array.from(input.files || [])
-  const merged: File[] = [...props.pendingFiles]
-  for (const file of selected) {
-    if (merged.length >= 5) break
-    if (file.size > 10 * 1024 * 1024) continue
-    merged.push(file)
-  }
-  emit('filesChange', merged)
+  addFiles(Array.from(input.files || []))
   input.value = ''
 }
+
+function onTextareaPaste(event: ClipboardEvent) {
+  const files = extractPastedFiles(event.clipboardData)
+  if (files.length === 0) return
+  event.preventDefault()
+  addFiles(files)
+}
+
+function focus() {
+  textareaRef.value?.focus()
+}
+
+defineExpose({ focus, addFiles })
 
 function getFileExt(name: string) {
   const parts = name.split('.')
@@ -243,6 +298,10 @@ onUnmounted(() => {
   document.removeEventListener('keydown', onMenuKeydown)
   window.removeEventListener('resize', closeMenu)
   window.removeEventListener('scroll', onScrollCapture, true)
+  for (const url of imagePreviewMap.values()) {
+    URL.revokeObjectURL(url)
+  }
+  imagePreviewMap.clear()
 })
 </script>
 
@@ -281,6 +340,12 @@ onUnmounted(() => {
         :key="`${file.name}-${idx}`"
         class="chat-upload-chip group/tip inline-flex min-w-0 items-center gap-2 rounded-lg px-2 py-1 max-w-[260px]"
       >
+        <img
+          v-if="previewUrls.get(file)"
+          :src="previewUrls.get(file)"
+          :alt="file.name"
+          class="chat-upload-thumb"
+        />
         <TruncationTooltip inherit-group :text="file.name" wrapper-class="min-w-0 flex-1" content-class="text-xs" />
         <span class="text-[10px] opacity-70">{{ getFileExt(file.name) }} {{ formatSize(file.size) }}</span>
         <button type="button" class="opacity-80 hover:opacity-100 cursor-pointer" @click="emit('removeFile', idx)">
@@ -297,12 +362,14 @@ onUnmounted(() => {
     >
     <textarea
       ref="textareaRef"
+      data-chat-composer-input="true"
       :value="modelValue"
       class="textarea-primary w-full resize-none border-0 outline-none bg-transparent px-4 pt-3.5 pb-10  text-sm leading-relaxed min-h-[112px] max-h-[260px] overflow-y-auto"
       :placeholder="isStreaming ? t('steerPlaceholder') : placeholder"
       rows="1"
       @keydown="onTextareaKeydown"
       @input="onTextareaInput"
+      @paste="onTextareaPaste"
     />
     <div class="absolute bottom-2 left-3 right-3 flex items-center justify-between gap-2 z-10">
       <div class="flex items-center gap-1.5">
@@ -605,6 +672,15 @@ onUnmounted(() => {
 
 .budget-exceeded-action:hover {
   background: rgba(239, 68, 68, 0.14);
+}
+
+.chat-upload-thumb {
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  object-fit: cover;
+  flex-shrink: 0;
+  border: 1px solid rgba(148, 163, 184, 0.25);
 }
 
 .plan-confirm-inline {

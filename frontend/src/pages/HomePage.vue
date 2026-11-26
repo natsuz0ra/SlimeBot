@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, toRef, watch } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref, toRef, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { isAxiosError } from 'axios'
 import { apiClient } from '@/api/client'
@@ -8,6 +8,7 @@ import {
   mdiMenu,
   mdiCalendarClockOutline,
   mdiPencilOutline,
+  mdiPaperclip,
 } from '@mdi/js'
 
 import QuestionAnswerDrawer from '@/components/chat/QuestionAnswerDrawer.vue'
@@ -26,6 +27,7 @@ import AppLogo from '@/components/ui/AppLogo.vue'
 import AppDialog from '@/components/ui/AppDialog.vue'
 import { provideChatContext } from '@/composables/chat/useChatContext'
 import { useHomeChatPage } from '@/composables/home/useHomeChatPage'
+import { useHomeShortcuts } from '@/composables/home/useHomeShortcuts'
 import { useHomeTransitions } from '@/composables/home/useHomeTransitions'
 import { useUpdateNotice } from '@/composables/useUpdateNotice'
 import { useTheme } from '@/composables/useTheme'
@@ -46,10 +48,19 @@ const {
 } = useHomeChatPage()
 
 const searchVisible = ref(false)
+const shortcutsHelpVisible = ref(false)
 const settingsInitialTab = ref<SettingsTabKey>('basic')
+const composerRef = ref<InstanceType<typeof ChatComposer> | null>(null)
+const dragDepth = ref(0)
 const route = useRoute()
 const router = useRouter()
 const isTasksWorkspace = computed(() => route.name === 'tasks')
+const canAcceptChatDrop = computed(() => (
+  !isTasksWorkspace.value
+  && !sessions.isMessagePlatformSession
+  && !composer.currentSessionPlanConfirmationVisible
+))
+const isDragOver = computed(() => dragDepth.value > 0 && canAcceptChatDrop.value)
 const checkpointSessionId = ref<string>()
 const checkpointSession = computed(() => {
   const session = sessions.currentSession
@@ -122,6 +133,72 @@ function onUsageBudgetSaved() {
     void store.refreshContextUsage(models.selectedModelId)
   }
 }
+function hasFileTransfer(event: DragEvent): boolean {
+  const types = event.dataTransfer?.types
+  if (!types) return false
+  return Array.from(types).includes('Files')
+}
+function resetDragDepth() {
+  dragDepth.value = 0
+}
+function onChatDragEnter(event: DragEvent) {
+  if (!canAcceptChatDrop.value || !hasFileTransfer(event)) return
+  event.preventDefault()
+  dragDepth.value += 1
+}
+function onChatDragOver(event: DragEvent) {
+  if (!canAcceptChatDrop.value || !hasFileTransfer(event)) return
+  event.preventDefault()
+  if (event.dataTransfer) {
+    event.dataTransfer.dropEffect = store.waiting ? 'none' : 'copy'
+  }
+}
+function onChatDragLeave(event: DragEvent) {
+  if (!hasFileTransfer(event)) return
+  dragDepth.value = Math.max(0, dragDepth.value - 1)
+}
+function onChatDrop(event: DragEvent) {
+  if (!hasFileTransfer(event)) return
+  event.preventDefault()
+  dragDepth.value = 0
+  if (!canAcceptChatDrop.value) return
+  if (store.waiting) {
+    toast.warning(t('uploadBlockedStreaming'))
+    return
+  }
+  const dt = event.dataTransfer
+  if (!dt) return
+  const droppedFiles: File[] = []
+  let hasDirectory = false
+  if (dt.items && dt.items.length > 0) {
+    for (let i = 0; i < dt.items.length; i += 1) {
+      const item = dt.items[i]
+      if (!item || item.kind !== 'file') continue
+      const entry = (item as DataTransferItem & { webkitGetAsEntry?: () => { isDirectory?: boolean } | null }).webkitGetAsEntry?.()
+      if (entry?.isDirectory) {
+        hasDirectory = true
+        continue
+      }
+      const file = item.getAsFile()
+      if (file) droppedFiles.push(file)
+    }
+  } else if (dt.files && dt.files.length > 0) {
+    droppedFiles.push(...Array.from(dt.files))
+  }
+  if (hasDirectory) {
+    toast.warning(t('uploadFolderNotSupported'))
+  }
+  if (droppedFiles.length > 0) {
+    composerRef.value?.addFiles(droppedFiles)
+  }
+}
+function onWindowDragOver(event: DragEvent) {
+  if (hasFileTransfer(event)) event.preventDefault()
+}
+function onWindowDrop(event: DragEvent) {
+  if (hasFileTransfer(event)) event.preventDefault()
+  resetDragDepth()
+}
 const { isDark, toggleTheme } = useTheme()
 const {
   hasUnreadUpdate,
@@ -178,8 +255,70 @@ provideChatContext({
   toolExecutionDetailTitle: computed(() => t('toolExecutionDetailTitle')),
 })
 
+const { isMac, isDesktop } = useHomeShortcuts({
+  hasModalOpen: () => Boolean(
+    searchVisible.value
+    || ui.settingsVisible
+    || shortcutsHelpVisible.value
+    || ui.renameVisible
+    || ui.deleteConfirmVisible
+    || tools.toolDetailVisible
+    || accountDialogVisible.value
+    || checkpointSessionId.value
+    || privacyMappingTarget.value
+    || store.pendingQuestions,
+  ),
+  searchVisible: () => searchVisible.value,
+  settingsVisible: () => ui.settingsVisible,
+  shortcutsHelpVisible: () => shortcutsHelpVisible.value,
+  hasPopoverOrMenuOpen: () => Boolean(ui.topMenuVisible || sessions.activeSessionMenu),
+  editingMessage: () => false,
+  pendingPlanConfirmation: () => composer.currentSessionPlanConfirmationVisible,
+  isTasksWorkspace: () => isTasksWorkspace.value,
+  isStreaming: () => store.waiting,
+  stopDisabled: () => composer.stopDisabled,
+  isMessagePlatformSession: () => sessions.isMessagePlatformSession,
+  onAction: (action) => {
+    switch (action) {
+      case 'toggle-search':
+        searchVisible.value = !searchVisible.value
+        break
+      case 'new-session':
+        void sessions.createSession().then(() => nextTick(() => composerRef.value?.focus()))
+        break
+      case 'toggle-sidebar':
+        ui.toggleSidebar()
+        break
+      case 'toggle-settings':
+        if (ui.settingsVisible) ui.settingsVisible = false
+        else openSettings('basic')
+        break
+      case 'toggle-plan-mode':
+        composer.onPlanToggle()
+        break
+      case 'stop-stream':
+        composer.stopMessage()
+        break
+      case 'toggle-shortcuts-help':
+        shortcutsHelpVisible.value = !shortcutsHelpVisible.value
+        break
+    }
+  },
+})
+
 onMounted(() => {
   void checkForUpdate()
+  window.addEventListener('dragover', onWindowDragOver)
+  window.addEventListener('drop', onWindowDrop)
+  window.addEventListener('dragend', resetDragDepth)
+  window.addEventListener('blur', resetDragDepth)
+})
+
+onUnmounted(() => {
+  window.removeEventListener('dragover', onWindowDragOver)
+  window.removeEventListener('drop', onWindowDrop)
+  window.removeEventListener('dragend', resetDragDepth)
+  window.removeEventListener('blur', resetDragDepth)
 })
 </script>
 
@@ -281,14 +420,27 @@ onMounted(() => {
 
         <CooperativePanel v-if="!isTasksWorkspace" :session-id="store.currentSessionId" @settled="id => !store.waiting && store.loadNewMessagesForSession(id)" />
         <div
-          class="chat-content-shell"
+          class="chat-content-shell relative"
           :class="[
             playChatContentSwitch ? 'chat-content-shell--switching' : '',
             chatContentSwitchDirection === 'backward'
               ? 'chat-content-shell--from-left'
               : 'chat-content-shell--from-right',
           ]"
+          @dragenter="onChatDragEnter"
+          @dragover="onChatDragOver"
+          @dragleave="onChatDragLeave"
+          @drop="onChatDrop"
         >
+          <Transition name="overlay-fade">
+            <div v-if="isDragOver" class="chat-drop-overlay pointer-events-none">
+              <div class="chat-drop-card">
+                <MdiIcon :path="mdiPaperclip" :size="24" />
+                <div class="chat-drop-title">{{ store.waiting ? t('uploadDropBlockedStreaming') : t('uploadDropTitle') }}</div>
+                <div v-if="!store.waiting" class="chat-drop-hint">{{ t('uploadTipLine2') }}</div>
+              </div>
+            </div>
+          </Transition>
           <!-- ───── Empty session: welcome + composer ───── -->
           <template v-if="ui.isEmptySession">
           <div class="flex-1 flex flex-col items-center justify-center px-4 pb-8">
@@ -324,6 +476,7 @@ onMounted(() => {
               <!-- Centered composer -->
               <div v-if="!sessions.isMessagePlatformSession" class="w-full max-w-[640px]">
                 <ChatComposer
+                  ref="composerRef"
                   v-model="composer.inputValue"
                   :selected-model-id="models.selectedModelId"
                   :model-select-options="models.modelSelectOptions"
@@ -390,6 +543,7 @@ onMounted(() => {
           >
             <div class="max-w-[680px] mx-auto">
               <ChatComposer
+                ref="composerRef"
                 v-model="composer.inputValue"
                 :selected-model-id="models.selectedModelId"
                 :model-select-options="models.modelSelectOptions"
@@ -483,7 +637,10 @@ onMounted(() => {
       v-model:tool-detail-visible="tools.toolDetailVisible"
       v-model:settings-visible="ui.settingsVisible"
       v-model:account-dialog-visible="accountDialogVisible"
+      v-model:shortcuts-help-visible="shortcutsHelpVisible"
       :settings-initial-tab="settingsInitialTab"
+      :is-mac="isMac"
+      :is-desktop="isDesktop"
       :tool-detail-dialog-width="tools.toolDetailDialogWidth"
       :tool-detail-items="tools.toolDetailItems"
       :tool-detail-tool-timeline="tools.toolDetailToolTimeline"
@@ -505,4 +662,39 @@ onMounted(() => {
 
 <style>
 @import './home-page.css';
+
+.chat-drop-overlay {
+  position: absolute;
+  inset: 12px;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--bg-card, #ffffff) 78%, transparent);
+  backdrop-filter: blur(8px);
+}
+
+.chat-drop-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 28px 36px;
+  border-radius: 16px;
+  border: 2px dashed var(--sb-brand, #6366f1);
+  background: var(--primary-alpha-05);
+  color: var(--text-primary);
+  text-align: center;
+}
+
+.chat-drop-title {
+  font-size: 14px;
+  font-weight: 650;
+}
+
+.chat-drop-hint {
+  font-size: 12px;
+  color: var(--text-muted);
+}
 </style>

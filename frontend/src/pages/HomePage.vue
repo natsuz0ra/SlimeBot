@@ -1,17 +1,21 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, toRef } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref, toRef, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { isAxiosError } from 'axios'
+import { apiClient } from '@/api/client'
 import {
   mdiDeleteOutline,
   mdiMenu,
   mdiCalendarClockOutline,
   mdiPencilOutline,
+  mdiPaperclip,
 } from '@mdi/js'
 
 import QuestionAnswerDrawer from '@/components/chat/QuestionAnswerDrawer.vue'
 import TodoPanel from '@/components/chat/TodoPanel.vue'
 import MdiIcon from '@/components/ui/MdiIcon.vue'
 import ChatComposer from '@/components/chat/ChatComposer.vue'
+import ChatCheckpointDialog from '@/components/chat/ChatCheckpointDialog.vue'
 import CooperativePanel from '@/components/chat/CooperativePanel.vue'
 import ChatMessageList from '@/components/chat/ChatMessageList.vue'
 import HomeDialogs from '@/components/home/HomeDialogs.vue'
@@ -20,12 +24,16 @@ import ChatSearchDialog from '@/components/home/ChatSearchDialog.vue'
 import ScheduledTasksWorkspace from '@/components/home/ScheduledTasksWorkspace.vue'
 import HomeSidebar from '@/components/home/HomeSidebar.vue'
 import AppLogo from '@/components/ui/AppLogo.vue'
+import AppDialog from '@/components/ui/AppDialog.vue'
 import { provideChatContext } from '@/composables/chat/useChatContext'
 import { useHomeChatPage } from '@/composables/home/useHomeChatPage'
+import { useHomeShortcuts } from '@/composables/home/useHomeShortcuts'
 import { useHomeTransitions } from '@/composables/home/useHomeTransitions'
 import { useUpdateNotice } from '@/composables/useUpdateNotice'
 import { useTheme } from '@/composables/useTheme'
+import { useToast } from '@/composables/useToast'
 import { useAuthStore } from '@/stores/auth'
+import type { SettingsTabKey } from '@/types/settings'
 
 const {
   t,
@@ -40,8 +48,64 @@ const {
 } = useHomeChatPage()
 
 const searchVisible = ref(false)
+const shortcutsHelpVisible = ref(false)
+const settingsInitialTab = ref<SettingsTabKey>('basic')
+const composerRef = ref<InstanceType<typeof ChatComposer> | null>(null)
+const dragDepth = ref(0)
+const route = useRoute()
 const router = useRouter()
 const isTasksWorkspace = computed(() => route.name === 'tasks')
+const canAcceptChatDrop = computed(() => (
+  !isTasksWorkspace.value
+  && !sessions.isMessagePlatformSession
+  && !composer.currentSessionPlanConfirmationVisible
+))
+const isDragOver = computed(() => dragDepth.value > 0 && canAcceptChatDrop.value)
+const checkpointSessionId = ref<string>()
+const checkpointSession = computed(() => {
+  const session = sessions.currentSession
+  if (sessions.canManageCurrentSession && session?.workingDirectory?.trim() && !isTasksWorkspace.value) return session
+})
+const privacyMappingTarget = ref<{ id: string; name: string; busy: boolean; error: string }>()
+const announcePrivacyMappingCleared = ref(false)
+const toast = useToast()
+
+watch([() => store.currentSessionId, isTasksWorkspace], () => {
+  checkpointSessionId.value = undefined
+  privacyMappingTarget.value = undefined
+  announcePrivacyMappingCleared.value = false
+})
+
+function openPrivacyMappingConfirmation() {
+  const session = sessions.currentSession
+  if (session && sessions.canManageCurrentSession && !isTasksWorkspace.value) {
+    announcePrivacyMappingCleared.value = false
+    privacyMappingTarget.value = { id: session.id, name: session.name, busy: false, error: '' }
+  }
+}
+
+async function destroyPrivacyMappings() {
+  const target = privacyMappingTarget.value
+  if (!target || target.busy || target.id !== store.currentSessionId) return
+  target.busy = true
+  target.error = ''
+  try {
+    await apiClient.delete(`/api/sessions/${encodeURIComponent(target.id)}/privacy-mappings`)
+    if (privacyMappingTarget.value === target) {
+      privacyMappingTarget.value = undefined
+      announcePrivacyMappingCleared.value = true
+      toast.success(t('sessionPrivacyDestroyed'))
+    }
+  } catch (error) {
+    if (privacyMappingTarget.value === target) {
+      const message = isAxiosError<{ error?: string }>(error) ? error.response?.data?.error : undefined
+      target.error = typeof message === 'string' && message.trim() ? message : t('sessionPrivacyDestroyFailed')
+    }
+  } finally {
+    target.busy = false
+  }
+}
+
 async function openTasks() {
   ui.topMenuVisible = false
   sessions.activeSessionMenu = null
@@ -56,6 +120,85 @@ async function pickSearchResult(hit: Parameters<typeof sessions.pickSearchResult
   await sessions.pickSearchResult(hit)
   await router.push(`/chat/${encodeURIComponent(hit.sessionId)}`)
 }
+function openSettings(initialTab: SettingsTabKey = 'basic') {
+  settingsInitialTab.value = initialTab
+  ui.settingsVisible = true
+}
+async function openSessionFromSettings(sessionId: string) {
+  ui.settingsVisible = false
+  await pickChat(sessionId)
+}
+function onUsageBudgetSaved() {
+  if (models.selectedModelId) {
+    void store.refreshContextUsage(models.selectedModelId)
+  }
+}
+function hasFileTransfer(event: DragEvent): boolean {
+  const types = event.dataTransfer?.types
+  if (!types) return false
+  return Array.from(types).includes('Files')
+}
+function resetDragDepth() {
+  dragDepth.value = 0
+}
+function onChatDragEnter(event: DragEvent) {
+  if (!canAcceptChatDrop.value || !hasFileTransfer(event)) return
+  event.preventDefault()
+  dragDepth.value += 1
+}
+function onChatDragOver(event: DragEvent) {
+  if (!canAcceptChatDrop.value || !hasFileTransfer(event)) return
+  event.preventDefault()
+  if (event.dataTransfer) {
+    event.dataTransfer.dropEffect = store.waiting ? 'none' : 'copy'
+  }
+}
+function onChatDragLeave(event: DragEvent) {
+  if (!hasFileTransfer(event)) return
+  dragDepth.value = Math.max(0, dragDepth.value - 1)
+}
+function onChatDrop(event: DragEvent) {
+  if (!hasFileTransfer(event)) return
+  event.preventDefault()
+  dragDepth.value = 0
+  if (!canAcceptChatDrop.value) return
+  if (store.waiting) {
+    toast.warning(t('uploadBlockedStreaming'))
+    return
+  }
+  const dt = event.dataTransfer
+  if (!dt) return
+  const droppedFiles: File[] = []
+  let hasDirectory = false
+  if (dt.items && dt.items.length > 0) {
+    for (let i = 0; i < dt.items.length; i += 1) {
+      const item = dt.items[i]
+      if (!item || item.kind !== 'file') continue
+      const entry = (item as DataTransferItem & { webkitGetAsEntry?: () => { isDirectory?: boolean } | null }).webkitGetAsEntry?.()
+      if (entry?.isDirectory) {
+        hasDirectory = true
+        continue
+      }
+      const file = item.getAsFile()
+      if (file) droppedFiles.push(file)
+    }
+  } else if (dt.files && dt.files.length > 0) {
+    droppedFiles.push(...Array.from(dt.files))
+  }
+  if (hasDirectory) {
+    toast.warning(t('uploadFolderNotSupported'))
+  }
+  if (droppedFiles.length > 0) {
+    composerRef.value?.addFiles(droppedFiles)
+  }
+}
+function onWindowDragOver(event: DragEvent) {
+  if (hasFileTransfer(event)) event.preventDefault()
+}
+function onWindowDrop(event: DragEvent) {
+  if (hasFileTransfer(event)) event.preventDefault()
+  resetDragDepth()
+}
 const { isDark, toggleTheme } = useTheme()
 const {
   hasUnreadUpdate,
@@ -64,11 +207,7 @@ const {
   markUpdateNoticeRead,
 } = useUpdateNotice()
 const authStore = useAuthStore()
-const route = useRoute()
 const {
-  titlePhase,
-  displayedWelcomeTitle,
-  showTypeCursor,
   playHomeLoginEnter,
   playChatContentSwitch,
   chatContentSwitchDirection,
@@ -113,20 +252,112 @@ provideChatContext({
   toolExecutionDetailTitle: computed(() => t('toolExecutionDetailTitle')),
 })
 
+const { isMac, isDesktop } = useHomeShortcuts({
+  hasModalOpen: () => Boolean(
+    searchVisible.value
+    || ui.settingsVisible
+    || shortcutsHelpVisible.value
+    || ui.renameVisible
+    || ui.deleteConfirmVisible
+    || tools.toolDetailVisible
+    || accountDialogVisible.value
+    || checkpointSessionId.value
+    || privacyMappingTarget.value
+    || store.pendingQuestions,
+  ),
+  searchVisible: () => searchVisible.value,
+  settingsVisible: () => ui.settingsVisible,
+  shortcutsHelpVisible: () => shortcutsHelpVisible.value,
+  hasPopoverOrMenuOpen: () => Boolean(ui.topMenuVisible || sessions.activeSessionMenu),
+  editingMessage: () => false,
+  pendingPlanConfirmation: () => composer.currentSessionPlanConfirmationVisible,
+  isTasksWorkspace: () => isTasksWorkspace.value,
+  isStreaming: () => store.waiting,
+  stopDisabled: () => composer.stopDisabled,
+  isMessagePlatformSession: () => sessions.isMessagePlatformSession,
+  onAction: (action) => {
+    switch (action) {
+      case 'toggle-search':
+        searchVisible.value = !searchVisible.value
+        break
+      case 'new-session':
+        void sessions.createSession().then(() => nextTick(() => composerRef.value?.focus()))
+        break
+      case 'toggle-sidebar':
+        ui.toggleSidebar()
+        break
+      case 'toggle-settings':
+        if (ui.settingsVisible) ui.settingsVisible = false
+        else openSettings('basic')
+        break
+      case 'toggle-plan-mode':
+        composer.onPlanToggle()
+        break
+      case 'stop-stream':
+        composer.stopMessage()
+        break
+      case 'toggle-shortcuts-help':
+        shortcutsHelpVisible.value = !shortcutsHelpVisible.value
+        break
+    }
+  },
+})
+
 onMounted(() => {
   void checkForUpdate()
+  window.addEventListener('dragover', onWindowDragOver)
+  window.addEventListener('drop', onWindowDrop)
+  window.addEventListener('dragend', resetDragDepth)
+  window.addEventListener('blur', resetDragDepth)
+})
+
+onUnmounted(() => {
+  window.removeEventListener('dragover', onWindowDragOver)
+  window.removeEventListener('drop', onWindowDrop)
+  window.removeEventListener('dragend', resetDragDepth)
+  window.removeEventListener('blur', resetDragDepth)
 })
 </script>
 
 <template>
   <ChatSearchDialog :visible="searchVisible" :pick-result="pickSearchResult" @close="searchVisible = false" />
+  <ChatCheckpointDialog
+    v-if="checkpointSession?.workingDirectory"
+    :key="checkpointSession.id"
+    :visible="checkpointSessionId === checkpointSession.id"
+    :session-id="checkpointSession.id"
+    :working-directory="checkpointSession.workingDirectory"
+    :turn-running="store.waiting"
+    :workspace-running="store.waiting || store.backgroundTaskCount > 0"
+    @close="checkpointSessionId = undefined"
+  />
+  <AppDialog
+    :visible="!!privacyMappingTarget"
+    :title="t('sessionPrivacyDestroyTitle')"
+    :confirm-text="t('sessionPrivacyDestroyConfirm')"
+    :confirm-loading="privacyMappingTarget?.busy"
+    :show-cancel="!privacyMappingTarget?.busy"
+    :show-close="!privacyMappingTarget?.busy"
+    :close-on-esc="!privacyMappingTarget?.busy"
+    :close-on-mask="!privacyMappingTarget?.busy"
+    confirm-danger
+    @update:visible="!$event && !privacyMappingTarget?.busy && (privacyMappingTarget = undefined)"
+    @confirm="destroyPrivacyMappings"
+  >
+    <p v-if="privacyMappingTarget" class="sb-text-secondary text-sm break-words">
+      {{ t('sessionPrivacyDestroyHint', { name: privacyMappingTarget.name }) }}
+    </p>
+    <p v-if="privacyMappingTarget?.busy" class="sb-text-secondary mt-2 text-sm" role="status">{{ t('sessionPrivacyDestroying') }}</p>
+    <p v-if="privacyMappingTarget?.error" class="mt-2 text-sm break-words [color:var(--tool-error-text)]" role="alert">{{ privacyMappingTarget.error }}</p>
+  </AppDialog>
+  <p class="sr-only" role="status">{{ announcePrivacyMappingCleared ? t('sessionPrivacyDestroyed') : '' }}</p>
   <div
-    class="page-shell h-screen flex items-center justify-center p-2 sm:p-3 transition-colors duration-300"
+    class="page-shell h-screen w-screen flex overflow-hidden transition-colors duration-200"
     :class="{ 'home-login-entering': playHomeLoginEnter }"
   >
-    <!-- Outer card shell -->
+    <!-- Full-bleed edge-to-edge workspace shell -->
     <div
-      class="page-card relative w-full h-full rounded-2xl flex overflow-hidden"
+      class="page-card relative w-full h-full flex overflow-hidden"
     >
 
       <!-- ───── Sidebar ───── -->
@@ -143,7 +374,7 @@ onMounted(() => {
           @pick-session="pickChat"
           @toggle-session-menu="ui.toggleSessionMenu"
           @toggle-theme="toggleTheme"
-          @open-settings="ui.settingsVisible = true"
+          @open-settings="openSettings('basic')"
           @open-search="searchVisible = true"
           @open-tasks="openTasks"
         />
@@ -161,12 +392,12 @@ onMounted(() => {
       <!-- ───── Main content ───── -->
       <main class="relative z-0 flex-1 flex flex-col min-w-0">
 
-        <header v-if="isTasksWorkspace" class="header-bar flex items-center gap-3 h-14 shrink-0 px-3">
-          <button type="button" class="sb-text-muted w-9 h-9 flex items-center justify-center rounded-xl cursor-pointer" :aria-label="t('scheduleToggleSidebar')" @click="ui.toggleSidebar"><MdiIcon :path="mdiMenu" :size="19" /></button>
-          <MdiIcon :path="mdiCalendarClockOutline" :size="18" class="sb-text-muted" />
+        <header v-if="isTasksWorkspace" class="header-bar flex items-center gap-2.5 h-12 shrink-0 px-3">
+          <button type="button" class="sb-text-muted w-8 h-8 flex items-center justify-center rounded-lg cursor-pointer" :aria-label="t('scheduleToggleSidebar')" @click="ui.toggleSidebar"><MdiIcon :path="mdiMenu" :size="18" /></button>
+          <MdiIcon :path="mdiCalendarClockOutline" :size="17" class="sb-text-muted" />
           <span class="sb-text-primary text-sm font-semibold">{{ t('scheduleSettings') }}</span>
         </header>
-        <div v-if="isTasksWorkspace" class="flex-1 min-h-0 overflow-y-auto">
+        <div v-if="isTasksWorkspace" class="sb-scrollbar flex-1 min-h-0 overflow-y-auto">
           <ScheduledTasksWorkspace :model-options="models.modelSelectOptions" :initial-working-directory="store.currentWorkingDirectory" />
         </div>
         <template v-else>
@@ -180,18 +411,39 @@ onMounted(() => {
           @update:top-menu-visible="ui.topMenuVisible = $event"
           @rename-current="sessions.currentSession && sessions.openRename(sessions.currentSession.id, sessions.currentSession.name)"
           @remove-current="sessions.currentSession && sessions.removeSession(sessions.currentSession.id)"
-        />
-
-        <CooperativePanel v-if="!isTasksWorkspace" :session-id="store.currentSessionId" @settled="id => !store.waiting && store.loadNewMessagesForSession(id)" />
+          @open-checkpoints="checkpointSessionId = checkpointSession?.id"
+          @clear-privacy-mappings="openPrivacyMappingConfirmation"
+        >
+          <template #right>
+            <CooperativePanel
+              header
+              :session-id="store.currentSessionId"
+              @settled="id => !store.waiting && store.loadNewMessagesForSession(id)"
+            />
+          </template>
+        </HomeHeaderBar>
         <div
-          class="chat-content-shell"
+          class="chat-content-shell relative"
           :class="[
             playChatContentSwitch ? 'chat-content-shell--switching' : '',
             chatContentSwitchDirection === 'backward'
               ? 'chat-content-shell--from-left'
               : 'chat-content-shell--from-right',
           ]"
+          @dragenter="onChatDragEnter"
+          @dragover="onChatDragOver"
+          @dragleave="onChatDragLeave"
+          @drop="onChatDrop"
         >
+          <Transition name="overlay-fade">
+            <div v-if="isDragOver" class="chat-drop-overlay pointer-events-none">
+              <div class="chat-drop-card">
+                <MdiIcon :path="mdiPaperclip" :size="24" />
+                <div class="chat-drop-title">{{ store.waiting ? t('uploadDropBlockedStreaming') : t('uploadDropTitle') }}</div>
+                <div v-if="!store.waiting" class="chat-drop-hint">{{ t('uploadTipLine2') }}</div>
+              </div>
+            </div>
+          </Transition>
           <!-- ───── Empty session: welcome + composer ───── -->
           <template v-if="ui.isEmptySession">
           <div class="flex-1 flex flex-col items-center justify-center px-4 pb-8">
@@ -205,28 +457,20 @@ onMounted(() => {
             </div>
 
             <template v-else>
-              <!-- AI gradient logo -->
-              <AppLogo :size="80" animated class="new-chat-logo mb-1.0 drop-shadow-lg" />
+              <AppLogo :size="64" class="mb-1" />
 
               <!-- Welcome title -->
-              <h2 v-if="!sessions.isMessagePlatformSession" class="text-2xl font-bold mb-2 text-center welcome-title">
-                {{ displayedWelcomeTitle }}
-                <span
-                  v-if="showTypeCursor"
-                  class="welcome-cursor"
-                  :class="titlePhase === 'cursor' ? 'welcome-cursor-pre' : 'welcome-cursor-typing'"
-                  aria-hidden="true"
-                >
-                  |
-                </span>
+              <h2 v-if="!sessions.isMessagePlatformSession" class="text-xl font-semibold mb-1.5 text-center welcome-title">
+                {{ t('welcomeTitle') }}
               </h2>
               <p class="sb-text-muted text-sm mb-6 text-center">
                 {{ sessions.isMessagePlatformSession ? t('messagePlatformEmptySubtitle') : t('welcomeSubtitle') }}
               </p>
 
               <!-- Centered composer -->
-              <div v-if="!sessions.isMessagePlatformSession" class="w-full max-w-[640px]">
+              <div v-if="!sessions.isMessagePlatformSession" class="w-full max-w-[680px]">
                 <ChatComposer
+                  ref="composerRef"
                   v-model="composer.inputValue"
                   :selected-model-id="models.selectedModelId"
                   :model-select-options="models.modelSelectOptions"
@@ -241,6 +485,7 @@ onMounted(() => {
                   :background-task-count="store.backgroundTaskCount"
                   :pending-files="composer.pendingFiles"
                   :context-usage="store.contextUsage"
+                  :context-compacting="store.contextCompacting"
                   :placeholder="t('inputPlaceholder')"
                   :working-directory="store.currentWorkingDirectory"
                   :workspace-editable="!store.currentSessionId && !store.creatingSession"
@@ -250,6 +495,8 @@ onMounted(() => {
                   @send="composer.sendMessage"
                   @stop="composer.stopMessage"
                   @stop-background="store.stopBackgroundTasks"
+                  @compact-context="store.compactContext(models.selectedModelId)"
+                  @open-usage-settings="openSettings('usage')"
                   @files-change="composer.onSelectFiles"
                   @remove-file="composer.removePendingFile"
                   @model-change="models.onModelChange"
@@ -288,8 +535,9 @@ onMounted(() => {
             v-if="!sessions.isMessagePlatformSession"
             class="composer-footer flex-shrink-0 px-4 py-3"
           >
-            <div class="max-w-[680px] mx-auto">
+            <div class="max-w-[760px] mx-auto">
               <ChatComposer
+                ref="composerRef"
                 v-model="composer.inputValue"
                 :selected-model-id="models.selectedModelId"
                 :model-select-options="models.modelSelectOptions"
@@ -304,6 +552,7 @@ onMounted(() => {
                   :background-task-count="store.backgroundTaskCount"
                 :pending-files="composer.pendingFiles"
                 :context-usage="store.contextUsage"
+                  :context-compacting="store.contextCompacting"
                 :placeholder="t('inputPlaceholder')"
                 :working-directory="store.currentWorkingDirectory"
                 :workspace-editable="!store.currentSessionId && !store.creatingSession"
@@ -313,6 +562,8 @@ onMounted(() => {
                 @send="composer.sendMessage"
                 @stop="composer.stopMessage"
                   @stop-background="store.stopBackgroundTasks"
+                @compact-context="store.compactContext(models.selectedModelId)"
+                @open-usage-settings="openSettings('usage')"
                 @files-change="composer.onSelectFiles"
                 @remove-file="composer.removePendingFile"
                 @model-change="models.onModelChange"
@@ -380,6 +631,10 @@ onMounted(() => {
       v-model:tool-detail-visible="tools.toolDetailVisible"
       v-model:settings-visible="ui.settingsVisible"
       v-model:account-dialog-visible="accountDialogVisible"
+      v-model:shortcuts-help-visible="shortcutsHelpVisible"
+      :settings-initial-tab="settingsInitialTab"
+      :is-mac="isMac"
+      :is-desktop="isDesktop"
       :tool-detail-dialog-width="tools.toolDetailDialogWidth"
       :tool-detail-items="tools.toolDetailItems"
       :tool-detail-tool-timeline="tools.toolDetailToolTimeline"
@@ -391,6 +646,8 @@ onMounted(() => {
       @approve-tool-call="store.approveToolCall($event, true)"
       @reject-tool-call="store.approveToolCall($event, false)"
       @refresh-model-options="models.refreshModelOptions"
+      @open-session="openSessionFromSettings"
+      @budget-saved="onUsageBudgetSaved"
       @account-updated="onAccountUpdated"
     />
 
@@ -399,4 +656,38 @@ onMounted(() => {
 
 <style>
 @import './home-page.css';
+
+.chat-drop-overlay {
+  position: absolute;
+  inset: 12px;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--bg-main) 88%, transparent);
+}
+
+.chat-drop-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 24px 32px;
+  border-radius: 12px;
+  border: 1.5px dashed var(--sb-brand);
+  background: var(--primary-alpha-06);
+  color: var(--text-primary);
+  text-align: center;
+}
+
+.chat-drop-title {
+  font-size: 14px;
+  font-weight: 650;
+}
+
+.chat-drop-hint {
+  font-size: 12px;
+  color: var(--text-muted);
+}
 </style>

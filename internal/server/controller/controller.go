@@ -88,6 +88,7 @@ type skillRuntimeService interface {
 	ListSkills() ([]domain.Skill, error)
 	DeleteSkillByID(id string) error
 	SetSkillEnabled(id string, enabled bool) error
+	InvalidateCatalog()
 }
 
 type chatUploadService interface {
@@ -96,6 +97,7 @@ type chatUploadService interface {
 
 type chatContextUsageService interface {
 	GetContextUsage(ctx context.Context, sessionID string, modelID string) (chatsvc.ContextUsage, error)
+	CompactContext(ctx context.Context, sessionID string, modelID string) (chatsvc.ContextCompactionResult, error)
 }
 
 type updateService interface {
@@ -106,24 +108,28 @@ type updateService interface {
 
 // HTTPController wires REST handlers and request/response shaping.
 type HTTPController struct {
-	skillPackage skillPackageService
-	skillRuntime skillRuntimeService
-	chatUploads  chatUploadService
-	settings     settingsService
-	memory       memoryService
-	agents       agentsInstructionsService
-	auth         authService
-	sessions     sessionService
-	llmConfigs   llmConfigService
-	mcpConfigs   mcpConfigService
-	platforms    messagePlatformConfigService
-	plans        planService
-	chatUsage    chatContextUsageService
-	schedule     *schedulesvc.Service
-	cooperative  *subagentsvc.Service
-	update       updateService
-	privacy      *privacysvc.Service
-	tokenManager *auth.TokenManager
+	skillPackage    skillPackageService
+	skillRuntime    skillRuntimeService
+	chatUploads     chatUploadService
+	settings        settingsService
+	memory          memoryService
+	agents          agentsInstructionsService
+	auth            authService
+	sessions        sessionService
+	llmConfigs      llmConfigService
+	mcpConfigs      mcpConfigService
+	platforms       messagePlatformConfigService
+	plans           planService
+	chatUsage       chatContextUsageService
+	schedule        *schedulesvc.Service
+	cooperative     *subagentsvc.Service
+	update          updateService
+	privacy         *privacysvc.Service
+	backgroundTasks backgroundTaskService
+	taskCenter      taskCenterService
+	usage           usageService
+	checkpoints     fileCheckpointService
+	tokenManager    *auth.TokenManager
 }
 
 // NewHTTPController constructs the HTTP controller with injected services.

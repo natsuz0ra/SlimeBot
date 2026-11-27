@@ -7,6 +7,7 @@ import {
   formatAgentTeamRows,
 } from "../utils/agentTeam.js";
 import { CLI_ACCENT_COLOR } from "../utils/terminal.js";
+import { CLI_THEME } from "../utils/theme.js";
 
 interface TeamViewProps {
   runs: AgentTeamRun[];
@@ -19,11 +20,11 @@ interface TeamViewProps {
 
 const MEMBER_COLORS = {
   selected: "#f8fafc",
-  inactive: "#94a3b8",
+  inactive: CLI_THEME.secondary,
   success: "#34d399",
   warning: "#fbbf24",
   danger: "#fb7185",
-  hint: "#64748b",
+  hint: CLI_THEME.hint,
 } as const;
 
 function memberSymbol(status: string): string {

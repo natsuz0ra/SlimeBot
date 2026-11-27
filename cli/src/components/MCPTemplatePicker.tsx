@@ -8,17 +8,18 @@ import { Box, Text } from "ink";
 import { MCP_TEMPLATES } from "../types.js";
 import type { MCPTemplate } from "../types.js";
 import { CLI_ACCENT_COLOR } from "../utils/terminal.js";
+import { CLI_THEME } from "../utils/theme.js";
 
 export const MCP_TEMPLATE_TITLE_GAP_LINES = 1;
-export const MCP_TEMPLATE_HINT = "Arrow keys to navigate | Enter to select | Esc to cancel";
+export const MCP_TEMPLATE_HINT = "↑↓ navigate · Enter select · Esc cancel";
 export const MCP_TEMPLATE_COLORS = {
   title: CLI_ACCENT_COLOR,
   cursor: CLI_ACCENT_COLOR,
-  idleCursor: "#64748b",
+  idleCursor: CLI_THEME.hint,
   selectedTitle: "#f8fafc",
   idleTitle: "#cbd5e1",
-  description: "#94a3b8",
-  hint: "#64748b",
+  description: CLI_THEME.secondary,
+  hint: CLI_THEME.hint,
 } as const;
 
 interface MCPTemplatePickerProps {

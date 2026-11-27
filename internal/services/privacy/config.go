@@ -10,6 +10,11 @@ import (
 
 const settingKey = "privacy_config"
 
+const (
+	defaultMappingTTLMinutes = 24 * 60
+	maxMappingTTLMinutes     = 30 * 24 * 60
+)
+
 type Action string
 
 const (
@@ -39,10 +44,12 @@ type Config struct {
 	ModelEnabled        bool              `json:"modelEnabled"`
 	ModelThreshold      float64           `json:"modelThreshold"`
 	ModelTimeoutSeconds int               `json:"modelTimeoutSeconds"`
+	MappingPersistence  bool              `json:"mappingPersistence"`
+	MappingTTLMinutes   int               `json:"mappingTtlMinutes"`
 }
 
 func DefaultConfig() Config {
-	return Config{Secrets: true, Personal: true, Kinds: map[string]bool{}, Words: []string{}, Rules: []Rule{}, Allow: []string{}, Actions: map[string]Action{}, BypassProviderIDs: []string{}, ModelThreshold: 0.8, ModelTimeoutSeconds: 15}
+	return Config{Secrets: true, Personal: true, Kinds: map[string]bool{}, Words: []string{}, Rules: []Rule{}, Allow: []string{}, Actions: map[string]Action{}, BypassProviderIDs: []string{}, ModelThreshold: 0.8, ModelTimeoutSeconds: 15, MappingTTLMinutes: defaultMappingTTLMinutes}
 }
 
 var kindPattern = regexp.MustCompile(`^[A-Z][A-Z0-9_]{0,23}$`)
@@ -56,6 +63,9 @@ func (c Config) Validate() error {
 	}
 	if c.ModelTimeoutSeconds < 1 || c.ModelTimeoutSeconds > 120 {
 		return errors.New("modelTimeoutSeconds must be between 1 and 120")
+	}
+	if c.MappingTTLMinutes < 1 || c.MappingTTLMinutes > maxMappingTTLMinutes {
+		return fmt.Errorf("mappingTtlMinutes must be between 1 and %d", maxMappingTTLMinutes)
 	}
 	if len(c.Rules) > 32 || len(c.Words) > 256 || len(c.Allow) > 256 || len(c.BypassProviderIDs) > 256 {
 		return errors.New("too many privacy rules or values")

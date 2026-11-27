@@ -34,6 +34,7 @@ interface UseCliKeyboardProps {
   handleMenuToggle: (item: MenuItem | undefined) => Promise<void>;
   handleMenuTools: (item: MenuItem | undefined) => void;
   handleMenuDiscover: (item: MenuItem | undefined) => void;
+  handleBackgroundAction?: (item: MenuItem | undefined, action: "continue" | "retry" | "stop") => Promise<void>;
   loadUpdate: () => Promise<void>;
   applyUpdate: () => Promise<void>;
   loadMemory: () => Promise<void>;
@@ -236,6 +237,7 @@ export function useCliKeyboard({
   handleMenuToggle,
   handleMenuTools,
   handleMenuDiscover,
+  handleBackgroundAction,
   loadUpdate,
   applyUpdate,
   loadMemory,
@@ -268,6 +270,10 @@ export function useCliKeyboard({
 
     if (key.tab && key.shift && state.view === "chat") {
       dispatch({ type: "TOGGLE_PLAN_MODE" });
+      return;
+    }
+
+    if (state.view === "checkpoint" || state.view === "usage" || state.view === "context") {
       return;
     }
 
@@ -504,6 +510,20 @@ export function useCliKeyboard({
         else if (state.menuKind === "discovered-model") void loadProviderModels();
         else dispatch({ type: "CLOSE_MENU" });
         return;
+      }
+      if (state.menuKind === "background") {
+        if (input === "c" || input === "C") {
+          void handleBackgroundAction?.(current, "continue");
+          return;
+        }
+        if (input === "r" || input === "R") {
+          void handleBackgroundAction?.(current, "retry");
+          return;
+        }
+        if (input === "s" || input === "S" || input === "x" || input === "X") {
+          void handleBackgroundAction?.(current, "stop");
+          return;
+        }
       }
       if ((input === "r" || input === "R") && (state.menuKind === "provider" || state.menuKind === "provider-model")) {
         handleMenuDiscover(current);

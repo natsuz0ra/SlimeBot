@@ -19,6 +19,7 @@ import (
 	memorysvc "slimebot/internal/services/memory"
 	schedulesvc "slimebot/internal/services/schedule"
 	skillsvc "slimebot/internal/services/skill"
+	usagesvc "slimebot/internal/services/usage"
 	"slimebot/internal/tools"
 )
 
@@ -458,8 +459,17 @@ func (a *AgentService) RunAgentLoop(
 		mcpToolMeta = filterAllowedMCPMeta(mcpToolMeta, opts.AllowedToolFunctions)
 	}
 	if opts.Cooperative != nil {
-		ctx = llmsvc.WithRequestObserver(ctx, opts.Cooperative.observeRequest)
+		ctx = llmsvc.AppendRequestObserver(ctx, opts.Cooperative.observeRequest)
 	}
+	usageScope := usagesvc.ScopeFromContext(ctx)
+	if usageScope.RootSessionID == "" {
+		usageScope.RootSessionID = sessionID
+	}
+	usageScope.SessionID = sessionID
+	if usageScope.WorkingDirectory == "" {
+		usageScope.WorkingDirectory = sandboxpolicy.WorkingDirectoryFromContext(ctx)
+	}
+	ctx = usagesvc.WithScope(ctx, usageScope)
 	contextRun := opts.ContextRun
 	if contextRun == nil {
 		contextRun = contextsvc.Ephemeral(a.providerFactory, contextMessages)

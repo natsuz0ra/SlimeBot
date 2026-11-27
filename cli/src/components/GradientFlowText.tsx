@@ -1,11 +1,12 @@
 /**
  * GradientFlowText — gradient text with a sweeping highlight.
- * A highlight sweeps left-to-right on loop, using banner logo purple (#a78bfa).
+ * A highlight sweeps left-to-right on loop using the indigo CLI accent ramp.
  * Inspired by Claude Code Spinner shimmer.
  */
 
 import React, { useEffect, useRef, useState } from "react";
 import { Text } from "ink";
+import { CLI_SHIMMER_BASE, CLI_SHIMMER_HIGHLIGHT } from "../utils/theme.js";
 
 interface RGB {
   r: number;
@@ -34,8 +35,8 @@ function toRgbString(c: RGB): string {
   return `rgb(${c.r},${c.g},${c.b})`;
 }
 
-const DEFAULT_BASE: RGB = { r: 169, g: 141, b: 238 };   // #a98dee bright readable purple
-const DEFAULT_SHIMMER: RGB = { r: 233, g: 213, b: 255 }; // #e9d5ff pale purple highlight
+const DEFAULT_BASE: RGB = CLI_SHIMMER_BASE;
+const DEFAULT_SHIMMER: RGB = CLI_SHIMMER_HIGHLIGHT;
 
 export function GradientFlowText({
   text,

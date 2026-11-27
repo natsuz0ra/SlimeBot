@@ -1,5 +1,25 @@
 *, *::before, *::after {
   box-sizing: border-box;
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar-thumb) transparent;
+}
+
+*::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: var(--scrollbar-thumb);
+  border-radius: 999px;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--scrollbar-thumb-hover);
 }
 
 html, body {
@@ -15,7 +35,9 @@ html, body {
 }
 
 .brand-tech-font {
-  font-family: var(--font-brand-tech);
+  font-family: var(--font-sans);
+  font-weight: 600;
+  letter-spacing: -0.015em;
 }
 
 #app {

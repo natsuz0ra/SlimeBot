@@ -7,6 +7,7 @@ import { createServer, type ViteDevServer } from 'vite'
 let server: ViteDevServer
 let useChatStore: typeof import('../src/stores/chat').useChatStore
 let sessionAPI: typeof import('../src/api/chat').sessionAPI
+let toastState: typeof import('../src/composables/useToast').toastState
 const histories = new Map<string, import('../src/api/chat').SessionHistoryPayload>()
 
 class MockWebSocket {
@@ -39,6 +40,7 @@ before(async () => {
   server = await createServer({ server: { middlewareMode: true, hmr: false }, appType: 'custom' })
   ;({ useChatStore } = await server.ssrLoadModule('/src/stores/chat.ts'))
   ;({ sessionAPI } = await server.ssrLoadModule('/src/api/chat.ts'))
+  ;({ toastState } = await server.ssrLoadModule('/src/composables/useToast.ts'))
 })
 after(async () => { await server.close() })
 beforeEach(() => {
@@ -70,6 +72,46 @@ async function select(store: ReturnType<typeof useChatStore>, id: string) {
   socket.open()
   return socket
 }
+
+test('manual context compaction stays with its session while navigating', async () => {
+  const store = useChatStore()
+  await select(store, 'a')
+  let finishCompaction!: (result: import('../src/api/chat').ContextCompactionResult) => void
+  sessionAPI.compactContext = () => new Promise(resolve => { finishCompaction = resolve })
+  const compacting = store.compactContext('model')
+  assert.equal(store.contextCompacting, true)
+  await select(store, 'b')
+  finishCompaction({
+    sessionId: 'a', modelConfigId: 'model', usedTokens: 120, totalTokens: 1000,
+    usedPercent: 12, availablePercent: 88, isCompacted: true, state: 'ready', compacted: true,
+  })
+  assert.equal(await compacting, true)
+  assert.equal(store.contextUsage, null)
+  await select(store, 'a')
+  sessionAPI.contextUsage = async () => ({
+    sessionId: 'a', modelConfigId: 'model', usedTokens: 120, totalTokens: 1000,
+    usedPercent: 12, availablePercent: 88, isCompacted: true, state: 'ready',
+  })
+  await store.refreshContextUsage('model')
+  assert.equal(store.contextCompacting, false)
+  assert.equal(store.contextUsage?.sessionId, 'a')
+  assert.equal(store.contextUsage?.usedTokens, 120)
+  store.disconnectSocket()
+})
+
+test('manual context compaction reports a no-op without a success toast', async () => {
+  const store = useChatStore()
+  await select(store, 'a')
+  toastState.items.splice(0)
+  sessionAPI.compactContext = async id => ({
+    sessionId: id, modelConfigId: 'model', usedTokens: 120, totalTokens: 1000,
+    usedPercent: 12, availablePercent: 88, isCompacted: false, state: 'ready', compacted: false,
+  })
+  assert.equal(await store.compactContext('model'), false)
+  assert.equal(toastState.items.at(-1)?.type, 'info')
+  assert.equal(store.contextCompacting, false)
+  store.disconnectSocket()
+})
 
 test('background chunks and completion stay with their session; reading clears the unread dot', async () => {
   const store = useChatStore()

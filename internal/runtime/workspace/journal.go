@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"slimebot/internal/domain"
@@ -26,11 +27,11 @@ func (m *Manager) journalPath(id string) string {
 	return filepath.Join(m.directory, "journals", id+".json")
 }
 func writeJournal(path string, j journal) error {
+	return writeWorkspaceState(path, func(w io.Writer) error { return json.NewEncoder(w).Encode(j) })
+}
+
+func writeWorkspaceState(path string, write func(io.Writer) error) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
-		return err
-	}
-	data, err := json.Marshal(j)
-	if err != nil {
 		return err
 	}
 	f, err := os.CreateTemp(filepath.Dir(path), "journal-")
@@ -40,7 +41,7 @@ func writeJournal(path string, j journal) error {
 	name := f.Name()
 	defer os.Remove(name)
 	if err = f.Chmod(0600); err == nil {
-		_, err = f.Write(data)
+		err = write(f)
 	}
 	if err == nil {
 		err = f.Sync()

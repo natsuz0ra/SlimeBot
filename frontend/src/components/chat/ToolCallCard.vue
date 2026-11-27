@@ -374,12 +374,12 @@ function toggleSubagentTimeline() {
 
 <style>
 .tool-card {
-  background: var(--card-bg);
+  background: var(--bg-subtle);
   border: 1px solid var(--tool-card-border);
-  box-shadow: var(--floating-elevation-shadow);
-  padding: 10px 12px;
+  box-shadow: none;
+  padding: 9px 12px;
   overflow: visible;
-  transition: border-color 180ms ease, background-color 180ms ease, box-shadow 180ms ease, transform 180ms ease;
+  transition: border-color 150ms ease, background-color 150ms ease;
 }
 
 .tool-card:hover {
@@ -574,13 +574,14 @@ function toggleSubagentTimeline() {
 
 .tool-params {
   margin: 0;
-  background: #000000;
+  background: var(--tool-output-bg);
   color: var(--tool-detail-body-text);
   border: 1px solid var(--tool-section-border);
-  border-radius: 7px;
+  border-radius: 6px;
   padding: 8px;
-  font-size: 14px;
-  line-height: 1.45;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1.5;
   scrollbar-width: thin;
   max-height: 176px;
   overflow-y: auto;
@@ -598,9 +599,9 @@ function toggleSubagentTimeline() {
 
 .tool-kv-row {
   border: 1px solid var(--tool-section-border);
-  border-radius: 7px;
+  border-radius: 6px;
   padding: 6px 8px;
-  background: #000000;
+  background: var(--tool-output-bg);
 }
 
 .tool-kv-key {
@@ -765,12 +766,13 @@ details[open] > .tool-result-summary .tool-result-arrow {
 .tool-output {
   margin-top: 6px;
   padding: 8px;
-  background: #000000;
+  background: var(--tool-output-bg);
   color: var(--tool-detail-body-text);
   border: 1px solid var(--tool-section-border);
-  border-radius: 7px;
-  font-size: 14px;
-  line-height: 1.45;
+  border-radius: 6px;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1.5;
   max-height: 224px;
   overflow-y: auto;
 }
@@ -789,11 +791,11 @@ details[open] > .tool-result-summary .tool-result-arrow {
 
 .tool-kv-pill {
   color: var(--tool-detail-body-text);
-  background: #111111;
+  background: var(--bg-main);
   border: 1px solid var(--tool-section-border);
-  border-radius: 999px;
+  border-radius: 6px;
   padding: 2px 8px;
-  font-size: 13px;
+  font-size: 12px;
   transition: color 150ms ease, border-color 150ms ease, background-color 150ms ease;
 }
 
@@ -802,20 +804,20 @@ details[open] > .tool-result-summary .tool-result-arrow {
 }
 
 .tool-exec-block--stdout {
-  border-left: 3px solid rgba(99, 102, 241, 0.4);
+  border-left: 2px solid var(--sb-brand);
   padding-left: 8px;
 }
 
 .tool-exec-block--stderr {
-  border-left: 3px solid rgba(239, 68, 68, 0.4);
+  border-left: 2px solid var(--tool-error-dot);
   padding-left: 8px;
 }
 
 .tool-exec-label {
   margin: 0 0 4px 0;
   color: var(--tool-summary-text);
-  font-size: 13px;
-  font-weight: 700;
+  font-size: 12px;
+  font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.02em;
 }
@@ -823,9 +825,9 @@ details[open] > .tool-result-summary .tool-result-arrow {
 .tool-exec-pre {
   margin: 0;
   padding: 8px;
-  background: #111111;
+  background: var(--bg-main);
   border: 1px solid var(--tool-section-border);
-  border-radius: 7px;
+  border-radius: 6px;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }

@@ -24,6 +24,7 @@ export type SettingsPayload = {
   memoryCharLimit?: number
   memoryUserCharLimit?: number
   memoryNudgeInterval?: number
+  sessionOutputTokenBudget?: number
 }
 
 export function normalizeSettingsPayload(data: Partial<SettingsPayload>): AppSettings {
@@ -49,6 +50,7 @@ export function normalizeSettingsPayload(data: Partial<SettingsPayload>): AppSet
     memoryCharLimit: typeof data.memoryCharLimit === 'number' ? data.memoryCharLimit : 2200,
     memoryUserCharLimit: typeof data.memoryUserCharLimit === 'number' ? data.memoryUserCharLimit : 1375,
     memoryNudgeInterval: typeof data.memoryNudgeInterval === 'number' ? data.memoryNudgeInterval : 10,
+    sessionOutputTokenBudget: typeof data.sessionOutputTokenBudget === 'number' ? data.sessionOutputTokenBudget : 0,
   }
 }
 
@@ -77,5 +79,6 @@ export function buildSettingsPayload(payload: Partial<AppSettings>): Partial<Set
   if (payload.memoryCharLimit !== undefined) wirePayload.memoryCharLimit = payload.memoryCharLimit
   if (payload.memoryUserCharLimit !== undefined) wirePayload.memoryUserCharLimit = payload.memoryUserCharLimit
   if (payload.memoryNudgeInterval !== undefined) wirePayload.memoryNudgeInterval = payload.memoryNudgeInterval
+  if (payload.sessionOutputTokenBudget !== undefined) wirePayload.sessionOutputTokenBudget = payload.sessionOutputTokenBudget
   return wirePayload
 }

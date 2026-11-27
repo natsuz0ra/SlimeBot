@@ -7,6 +7,7 @@ import (
 	"slimebot/internal/apperrors"
 	"slimebot/internal/logging"
 	"slimebot/internal/tools"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -17,6 +18,7 @@ import (
 	sandboxpolicy "slimebot/internal/sandbox"
 	contextsvc "slimebot/internal/services/context"
 	llmsvc "slimebot/internal/services/llm"
+	usagesvc "slimebot/internal/services/usage"
 
 	"github.com/google/uuid"
 )
@@ -47,6 +49,7 @@ type chatTurnState struct {
 	attachments       []UploadedAttachment
 	userContent       string
 	userCreatedAt     time.Time
+	activatedSkillIDs []string
 }
 
 // chatTurnResult holds intermediate results after the agent runs.
@@ -166,6 +169,10 @@ func (s *ChatService) HandleEditedChatStream(
 	}
 	failed = err != nil || (result != nil && result.failed)
 	if err != nil {
+		if errors.Is(err, usagesvc.ErrSessionOutputTokenBudgetExceeded) && callbacks.OnContextUsage != nil {
+			s.attachOutputBudget(ctx, sessionID, &state.contextUsage)
+			_ = callbacks.OnContextUsage(state.contextUsage)
+		}
 		return nil, err
 	}
 	finalizeCtx := ctx
@@ -196,6 +203,7 @@ func (s *ChatService) handleChatStreamWithReceivedAt(
 	if strings.TrimSpace(content) == "" && len(attachmentIDs) == 0 {
 		return nil, fmt.Errorf("Message cannot be empty.")
 	}
+	ctx = usagesvc.WithScope(ctx, usagesvc.Scope{RootSessionID: sessionID, SessionID: sessionID, RequestID: requestID, WorkingDirectory: sandboxpolicy.WorkingDirectoryFromContext(ctx)})
 
 	ctx, endTurn, err := s.beginTurn(ctx, sessionID, requestID)
 	if err != nil {
@@ -245,6 +253,10 @@ func (s *ChatService) handleChatStreamWithReceivedAt(
 	}
 	failed = err != nil || (result != nil && result.failed)
 	if err != nil {
+		if errors.Is(err, usagesvc.ErrSessionOutputTokenBudgetExceeded) && callbacks.OnContextUsage != nil {
+			s.attachOutputBudget(ctx, sessionID, &state.contextUsage)
+			_ = callbacks.OnContextUsage(state.contextUsage)
+		}
 		return nil, err
 	}
 
@@ -717,6 +729,10 @@ func (s *ChatService) executeChatTurn(
 	}
 
 	activatedSkills := s.getSessionActivatedSkills(sessionID)
+	previouslyActivated := make(map[string]struct{}, len(activatedSkills))
+	for id := range activatedSkills {
+		previouslyActivated[id] = struct{}{}
+	}
 
 	approvalMode := constants.ApprovalModeStandard
 	if strings.TrimSpace(approvalModeOverride) != "" {
@@ -734,6 +750,13 @@ func (s *ChatService) executeChatTurn(
 	if constants.ClientSurfaceFromContext(ctx) != constants.ClientSurfaceCLI {
 		ctx = sandboxpolicy.WithWorkingDirectory(ctx, state.session.WorkingDirectory)
 	}
+	ctx = usagesvc.WithScope(ctx, usagesvc.Scope{RootSessionID: sessionID, SessionID: sessionID, RequestID: requestID, WorkingDirectory: state.session.WorkingDirectory})
+
+	finishCheckpoint, err := s.beginFileCheckpoint(ctx, state, requestID, sandboxPolicy)
+	if err != nil {
+		return nil, err
+	}
+	defer finishCheckpoint()
 
 	ctx = tools.WithBackgroundObserver(ctx, s.backgroundObserver(ctx, state, subagentModelID, approvalMode, planMode))
 	var cooperative *cooperativeLoop
@@ -808,7 +831,12 @@ func (s *ChatService) executeChatTurn(
 				usage.CompactionReason = p.Reason
 			}
 			usage.UsedTokens = p.InputTokens
+			toolTokens := p.InputTokens - contextsvc.Estimate(p.Messages, nil)
+			if toolTokens > 0 {
+				usage.Layers = upsertContextLayerUsage(usage.Layers, "tools", toolTokens)
+			}
 			usage = normalizeContextUsagePercentages(usage)
+			s.attachOutputBudget(ctx, sessionID, &usage)
 			state.contextUsage = usage
 			usageTracker.mu.Lock()
 			usageTracker.usage = usage
@@ -827,6 +855,13 @@ func (s *ChatService) executeChatTurn(
 		teamRuntime:   requestTeamRuntime,
 	})
 	logging.Span("agent_loop", agentStart)
+	state.activatedSkillIDs = state.activatedSkillIDs[:0]
+	for id := range activatedSkills {
+		if _, existed := previouslyActivated[id]; !existed {
+			state.activatedSkillIDs = append(state.activatedSkillIDs, id)
+		}
+	}
+	sort.Strings(state.activatedSkillIDs)
 	s.mergeSessionActivatedSkills(sessionID, activatedSkills)
 	if finishErr := finishAllActiveThinkings(time.Now()); finishErr != nil && err == nil {
 		err = finishErr
@@ -984,8 +1019,14 @@ func (s *ChatService) finalizeChatTurn(
 		streamResult.PushFailed = true
 		streamResult.PushError = result.pushErr.Error()
 	}
+	streamResult.SkillLearning = s.maybeLearnSkill(ctx, sessionID, requestID, assistantMessage.ID, state, result, planMode)
 	if !planMode && !result.interrupted && strings.TrimSpace(result.answer) != "" {
 		s.maybeTriggerMemoryReview(sessionID, state.modelConfig, state.userContent, result.answer)
+		s.maybeTriggerIdleCompaction(sessionID, state.modelConfig, state.contextUsage)
+	}
+	if callbacks.OnContextUsage != nil {
+		s.attachOutputBudget(ctx, sessionID, &state.contextUsage)
+		_ = callbacks.OnContextUsage(state.contextUsage)
 	}
 	return streamResult, nil
 }

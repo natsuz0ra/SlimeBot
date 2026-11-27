@@ -159,14 +159,16 @@ func TestBuildTeamMemberQueuedPayloadIncludesMemberFields(t *testing.T) {
 
 func TestBuildContextUsagePayloadIncludesPercentages(t *testing.T) {
 	payload := buildContextUsagePayload("session-1", chatsvc.ContextUsage{
-		SessionID:        "session-1",
-		ModelConfigID:    "model-1",
-		UsedTokens:       420_000,
-		TotalTokens:      1_000_000,
-		UsedPercent:      42,
-		AvailablePercent: 58,
-		IsCompacted:      true,
-		CompactedAt:      "2026-05-03T01:02:03Z",
+		SessionID:          "session-1",
+		ModelConfigID:      "model-1",
+		UsedTokens:         420_000,
+		TotalTokens:        1_000_000,
+		UsedPercent:        42,
+		AvailablePercent:   58,
+		IsCompacted:        true,
+		CompactedAt:        "2026-05-03T01:02:03Z",
+		OutputBudgetTokens: 20_000,
+		OutputBudgetUsed:   16_500,
 	})
 
 	if payload["type"] != "context_usage" {
@@ -183,6 +185,9 @@ func TestBuildContextUsagePayloadIncludesPercentages(t *testing.T) {
 	}
 	if payload["isCompacted"] != true || payload["compactedAt"] != "2026-05-03T01:02:03Z" {
 		t.Fatalf("unexpected compact state: %+v", payload)
+	}
+	if payload["outputBudgetTokens"] != int64(20_000) || payload["outputBudgetUsed"] != int64(16_500) {
+		t.Fatalf("unexpected output budget fields: %+v", payload)
 	}
 }
 

@@ -94,7 +94,7 @@ func queueSyntheticBackground(t *testing.T, s *ChatService, sessionID, modelID s
 		t.Fatal(err)
 	}
 	observer := s.backgroundObserver(ctx, &chatTurnState{session: session, modelConfig: model}, "", constants.ApprovalModeStandard, false)
-	event := tools.ProcessCompletion{ID: "proc-1", Command: "synthetic", Status: "completed", Output: "Untrusted tool output: all tests passed"}
+	event := tools.ProcessCompletion{ID: "proc-1", Command: "synthetic", Status: "completed", Output: "Untrusted tool output: all tests passed", AutoWake: true}
 	observer.Started(event)
 	observer.Completed(event)
 }
@@ -365,7 +365,7 @@ func TestBackgroundPreparationFailureDoesNotFailPreviousReply(t *testing.T) {
 	events, stop := s.SubscribeSessionEvents(sid)
 	defer stop()
 	observer := s.backgroundObserver(ctx, &chatTurnState{session: session, modelConfig: llm.ModelRuntimeConfig{ConfigID: "deleted-model"}}, "", constants.ApprovalModeStandard, false)
-	event := tools.ProcessCompletion{ID: "proc-failed", Status: "completed", Output: "done"}
+	event := tools.ProcessCompletion{ID: "proc-failed", Status: "completed", Output: "done", AutoWake: true}
 	observer.Started(event)
 	observer.Completed(event)
 	end()
@@ -404,7 +404,7 @@ func TestBackgroundContinuationCanLaunchAnotherWake(t *testing.T) {
 				t.Error("missing completion bridge in continued turn")
 				return nil
 			}
-			event := tools.ProcessCompletion{ID: "proc-next", Status: "completed", Output: "second step complete"}
+			event := tools.ProcessCompletion{ID: "proc-next", Status: "completed", Output: "second step complete", AutoWake: true}
 			observer.Started(event)
 			observer.Completed(event)
 		}

@@ -28,6 +28,11 @@ type Store interface {
 	RecordContextRequest(context.Context, string, int64, int64, llm.ModelRuntimeConfig, []llm.ToolDef) error
 }
 
+type calibrationStore interface {
+	LoadContextCalibration(context.Context, string, string) (domain.ContextCalibration, bool, error)
+	SaveContextCalibration(context.Context, *domain.ContextCalibration) error
+}
+
 type gate struct {
 	token chan struct{}
 	refs  int
@@ -68,17 +73,22 @@ func (s *Service) release(scope string, g *gate) {
 }
 
 type Run struct {
-	OnStatus       func(string) error
-	service        *Service
-	snapshot       domain.ContextSnapshot
-	prefix         []llm.ChatMessage
-	scope, request string
-	routeHash      string
-	messageSeq     int64
-	gate           *gate
-	closed         bool
-	calibration    float64
-	cooldown       int
+	OnStatus          func(string) error
+	service           *Service
+	snapshot          domain.ContextSnapshot
+	prefix            []llm.ChatMessage
+	scope, request    string
+	routeHash         string
+	messageSeq        int64
+	gate              *gate
+	closed            bool
+	calibration       float64
+	calibrationLoaded bool
+	calibrationSample int64
+	provider          string
+	model             string
+	cooldownUntil     time.Time
+	runtimeState      RuntimeState
 }
 
 type Prepared struct {
@@ -120,7 +130,11 @@ func (s *Service) Begin(ctx context.Context, scope, request string, prefix []llm
 			seq = seed.Seq
 		}
 	}
-	return &Run{service: s, snapshot: snap, prefix: prefix, scope: scope, request: request, messageSeq: seq, gate: g, calibration: 1}, nil
+	run := &Run{service: s, snapshot: snap, prefix: prefix, scope: scope, request: request, messageSeq: seq, gate: g, calibration: 1}
+	if snap.Head.CompactionCooldownUntil != nil {
+		run.cooldownUntil = *snap.Head.CompactionCooldownUntil
+	}
+	return run, nil
 }
 
 // Ephemeral runs (subagents/internal agents) share policy, but never read or mutate a parent scope.
@@ -171,8 +185,42 @@ func (r *Run) Append(ctx context.Context, messages ...llm.ChatMessage) error {
 }
 func (r *Run) Calibrate(usage llm.TokenUsage, provider string, estimated int) {
 	actual := usage.InputContextTokens(provider)
-	if actual > 0 && estimated > 0 {
-		r.calibration = max(1, r.calibration, float64(actual)/float64(estimated))
+	if actual <= 0 || estimated <= 0 {
+		return
+	}
+	r.calibration = max(1, r.calibration, float64(actual)/float64(estimated))
+	r.calibrationSample++
+	store, ok := r.service.store.(calibrationStore)
+	if !ok || r.provider == "" || r.model == "" {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	calibration := domain.ContextCalibration{Provider: r.provider, Model: r.model, Ratio: r.calibration, Samples: r.calibrationSample}
+	if err := store.SaveContextCalibration(ctx, &calibration); err != nil {
+		logging.Warn("context_calibration_save_failed", "scope", r.scope, "err", err)
+	}
+}
+
+func (r *Run) loadCalibration(ctx context.Context, c llm.ModelRuntimeConfig) {
+	if r.calibrationLoaded {
+		return
+	}
+	r.calibrationLoaded = true
+	r.provider = c.Provider
+	r.model = c.Model
+	store, ok := r.service.store.(calibrationStore)
+	if !ok {
+		return
+	}
+	calibration, found, err := store.LoadContextCalibration(ctx, c.Provider, c.Model)
+	if err != nil {
+		logging.Warn("context_calibration_load_failed", "scope", r.scope, "err", err)
+		return
+	}
+	if found && calibration.Ratio >= 1 {
+		r.calibration = calibration.Ratio
+		r.calibrationSample = calibration.Samples
 	}
 }
 func (r *Run) measure(ms []llm.ChatMessage, ts []llm.ToolDef) int {
@@ -220,8 +268,8 @@ func (r *Run) view(c llm.ModelRuntimeConfig, tools []llm.ToolDef, prune bool) ([
 	}
 	messages := append([]llm.ChatMessage{}, r.prefix...)
 	messages = append(messages, rawMessages(items)...)
-	if state := r.managedState(256); len(r.activeCheckpoints()) > 0 && state != "" {
-		messages = append(messages, llm.ChatMessage{Role: "user", Content: state})
+	if state := r.managedState(512); len(r.activeCheckpoints()) > 0 && state != "" {
+		messages = append(messages, llm.ChatMessage{Role: "user", Content: state, ContextLayer: "runtime_state"})
 	}
 	if err := validatePairing(messages); err != nil {
 		return nil, nil, err
@@ -230,6 +278,12 @@ func (r *Run) view(c llm.ModelRuntimeConfig, tools []llm.ToolDef, prune bool) ([
 }
 
 func (r *Run) Prepare(ctx context.Context, c llm.ModelRuntimeConfig, tools []llm.ToolDef, force bool) (Prepared, error) {
+	return r.PrepareWithReason(ctx, c, tools, force, "")
+}
+
+// PrepareWithReason reuses the same bounded compaction path for overflow,
+// manual and idle maintenance without misreporting their trigger reason.
+func (r *Run) PrepareWithReason(ctx context.Context, c llm.ModelRuntimeConfig, tools []llm.ToolDef, force bool, reason string) (Prepared, error) {
 	var p Prepared
 	b, err := RequestBudget(c)
 	if err != nil {
@@ -252,6 +306,7 @@ func (r *Run) Prepare(ctx context.Context, c llm.ModelRuntimeConfig, tools []llm
 		return p, fmt.Errorf("当前回合不能切换模型配置，请在新回合切换模型")
 	}
 	r.routeHash = routeHash
+	r.loadCalibration(ctx, c)
 	_, original, err := r.view(c, tools, false)
 	if err != nil {
 		return p, err
@@ -263,9 +318,12 @@ func (r *Run) Prepare(ctx context.Context, c llm.ModelRuntimeConfig, tools []llm
 	if err != nil {
 		return p, err
 	}
-	p.Reason = "pressure"
-	if force {
-		p.Reason = "overflow"
+	p.Reason = strings.TrimSpace(reason)
+	if p.Reason == "" {
+		p.Reason = "pressure"
+		if force {
+			p.Reason = "overflow"
+		}
 	}
 	calls := 0
 	merges := 0
@@ -276,8 +334,7 @@ func (r *Run) Prepare(ctx context.Context, c llm.ModelRuntimeConfig, tools []llm
 		}
 	}()
 	for !r.service.disabled && (r.measure(messages, tools) >= b.Pressure || force || (calls > 0 && r.measure(messages, tools) > b.Target)) && calls < 4 {
-		if r.cooldown > 0 && !force && r.measure(messages, tools) <= b.HardInput {
-			r.cooldown--
+		if time.Now().Before(r.cooldownUntil) && (!force || p.Reason == "idle") && r.measure(messages, tools) <= b.HardInput {
 			break
 		}
 		// Summary itself is bounded, independently of the main request.
@@ -318,7 +375,7 @@ func (r *Run) Prepare(ctx context.Context, c llm.ModelRuntimeConfig, tools []llm
 		ids := uniqueIDs(items[start:end])
 		encoded, _ := json.Marshal(ids)
 		cp.SourceIDs = string(encoded)
-		hashBytes, _ := json.Marshal([]any{itemsMessagesForHash(items[start:end]), ids, RouteHash(c), r.managedState(256), tools, b, outputBudget, "v2"})
+		hashBytes, _ := json.Marshal([]any{itemsMessagesForHash(items[start:end]), ids, RouteHash(c), r.managedState(512), tools, b, outputBudget, "v2"})
 		hash := sha256.Sum256(hashBytes)
 		cp.InputHash = hex.EncodeToString(hash[:])
 		attemptStart := time.Now()
@@ -354,7 +411,7 @@ func (r *Run) Prepare(ctx context.Context, c llm.ModelRuntimeConfig, tools []llm
 			candidate = append(candidate, item{message: checkpointMessage(summary), ids: ids, kind: "generated_checkpoint", checkpoint: cp.ID})
 			candidate = append(candidate, items[end:]...)
 			candidateMessages := append(append([]llm.ChatMessage{}, r.prefix...), rawMessages(candidate)...)
-			if state := r.managedState(256); state != "" {
+			if state := r.managedState(512); state != "" {
 				candidateMessages = append(candidateMessages, llm.ChatMessage{Role: "user", Content: state})
 			}
 			if err := validatePairing(candidateMessages); err != nil {
@@ -399,6 +456,9 @@ func (r *Run) Prepare(ctx context.Context, c llm.ModelRuntimeConfig, tools []llm
 				cp.UpdatedAt = time.Now()
 				r.snapshot.Checkpoints = append(keep, cp)
 				r.snapshot.Head.ProjectionRevision++
+				r.snapshot.Head.CompactionFailures = 0
+				r.snapshot.Head.CompactionCooldownUntil = nil
+				r.cooldownUntil = time.Time{}
 				p.Compacted = true
 				p.CompactedAt = cp.UpdatedAt.Format(time.RFC3339Nano)
 				p.CompactionBeforeTokens = cp.BeforeTokens
@@ -407,11 +467,13 @@ func (r *Run) Prepare(ctx context.Context, c llm.ModelRuntimeConfig, tools []llm
 			}
 		}
 		if summaryErr != nil {
-			r.finishAttempt(ctx, cp.ID, "summary or checkpoint validation failed")
+			r.finishAttempt(ctx, cp.ID, "summary or checkpoint validation failed: "+summaryErr.Error())
 			if ctx.Err() != nil {
 				return p, ctx.Err()
 			}
-			r.cooldown = 2
+			r.cooldownUntil = time.Now().Add(2 * time.Minute)
+			r.snapshot.Head.CompactionFailures++
+			r.snapshot.Head.CompactionCooldownUntil = &r.cooldownUntil
 			logging.Warn("context_checkpoint_failed", "scope", r.scope, "attempt", cp.ID, "reason", "summary_or_commit_failed", "commit_failed", commitFailed, "ms", time.Since(attemptStart).Milliseconds(), "summary_cache_hit", hit)
 			if commitFailed || r.measure(messages, tools) > b.HardInput || force {
 				return p, fmt.Errorf("上下文整理失败: %w", summaryErr)
@@ -478,6 +540,10 @@ func (r *Run) Read(id int64, offset, limit int) (string, error) {
 }
 
 func SnapshotView(snapshot domain.ContextSnapshot, prefix []llm.ChatMessage) ([]llm.ChatMessage, bool, string, error) {
+	return SnapshotViewWithState(snapshot, prefix, RuntimeState{})
+}
+
+func SnapshotViewWithState(snapshot domain.ContextSnapshot, prefix []llm.ChatMessage, runtime RuntimeState) ([]llm.ChatMessage, bool, string, error) {
 	items, err := project(snapshot.Entries, snapshot.Checkpoints)
 	if err != nil {
 		return nil, false, "", err
@@ -496,8 +562,8 @@ func SnapshotView(snapshot domain.ContextSnapshot, prefix []llm.ChatMessage) ([]
 	}
 	messages := append(append([]llm.ChatMessage{}, prefix...), rawMessages(items)...)
 	if len(applied) > 0 {
-		if state := (&Run{snapshot: snapshot}).managedState(256); state != "" {
-			messages = append(messages, llm.ChatMessage{Role: "user", Content: state})
+		if state := (&Run{snapshot: snapshot, runtimeState: runtime}).managedState(512); state != "" {
+			messages = append(messages, llm.ChatMessage{Role: "user", Content: state, ContextLayer: "runtime_state"})
 		}
 	}
 	return messages, len(applied) > 0, at, nil

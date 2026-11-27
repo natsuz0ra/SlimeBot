@@ -70,7 +70,7 @@ function iconClass(type: ToastItem['type']) {
   border-color: rgba(245, 158, 11, 0.25);
 }
 .toast-info {
-  border-color: rgba(99, 102, 241, 0.25);
+  border-color: var(--primary-alpha-25);
 }
 
 /* Icon wrappers */

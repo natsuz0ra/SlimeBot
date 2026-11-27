@@ -67,6 +67,30 @@ export function completeCommand(input: string, selectedIndex = 0): string | null
   return matched[clampSelectedIndex(selectedIndex, matched.length)].command;
 }
 
+export function getCommandMeta(command: string): CommandMeta | undefined {
+  return SUPPORTED_COMMANDS.find((item) => item.command === command);
+}
+
+/**
+ * Resolve Enter behavior while slash-command hints are visible:
+ * - Zero-arg commands execute immediately in a single Enter.
+ * - Args-capable commands execute if already typed in full, otherwise fill with trailing space.
+ */
+export function resolveCommandHintEnter(
+  input: string,
+  selectedIndex = 0,
+): { action: "run" | "fill"; command: string } | null {
+  const matched = matchCommandHints(input);
+  if (matched.length === 0) return null;
+  const selected = matched[clampSelectedIndex(selectedIndex, matched.length)];
+  if (!selected) return null;
+  const trimmed = input.trim();
+  if (!selected.acceptsArgs || trimmed === selected.command) {
+    return { action: "run", command: selected.command };
+  }
+  return { action: "fill", command: `${selected.command} ` };
+}
+
 /** Move selected command hint cursor with wrap-around */
 export function moveCommandHintCursor(current: number, delta: number, total: number): number {
   if (total <= 0) return 0;

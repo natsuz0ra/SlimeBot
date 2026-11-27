@@ -23,22 +23,30 @@ var placeholderRE = regexp.MustCompile(`(?i)\{\{\s*(SB_[A-Z0-9_]{1,24}_[0-9a-f]{
 var unresolvedRE = regexp.MustCompile(`(?i)(?:\{\{\s*)?SB_[A-Z0-9_]+_[0-9a-f]{8,}`)
 
 type transaction struct {
-	service         *Service
-	config          Config
-	key             []byte
-	scope           llm.PrivacyScope
-	values          map[string]entry
-	index           map[string][]entry
-	hits            []Hit
-	record          Record
-	preview         bool
-	suppressRecord  bool
-	processed       int
-	modelCache      map[string][]span
-	scanDuration    time.Duration
-	scanComplete    bool
-	restoreDuration time.Duration
-	configHash      [32]byte
+	service          *Service
+	config           Config
+	key              []byte
+	scope            llm.PrivacyScope
+	values           map[string]entry
+	index            map[string][]entry
+	hits             []Hit
+	record           Record
+	preview          bool
+	suppressRecord   bool
+	processed        int
+	modelCache       map[string][]span
+	scanDuration     time.Duration
+	scanComplete     bool
+	restoreDuration  time.Duration
+	configHash       [32]byte
+	mappingContext   context.Context
+	mappingLease     *mappingLease
+	mappingUsed      time.Time
+	mappingEpoch     uint64
+	newValues        map[string]entry
+	newMappingBytes  int
+	mappingCommitted bool
+	finished         bool
 }
 
 func (t *transaction) indexValue(v entry) {
@@ -54,16 +62,32 @@ func (t *transaction) indexValue(v entry) {
 }
 
 func (t *transaction) placeholder(kind, value string) (string, error) {
+	if !kindPattern.MatchString(kind) || len(value) == 0 || len(value) > maxMappingValue {
+		return "", errMappingLimit
+	}
 	for nonce := 0; nonce < 4; nonce++ {
 		h := hmac.New(sha256.New, t.key)
 		fmt.Fprintf(h, "%s\x00%s\x00%d\x00%s", t.scope.SessionID, kind, nonce, value)
 		p := "{{SB_" + kind + "_" + hex.EncodeToString(h.Sum(nil)[:16]) + "}}"
-		if old, ok := t.values[p]; !ok || old.Value == value {
-			v := entry{value, kind}
-			t.values[p] = v
-			t.indexValue(v)
-			return p, nil
+		if old, ok := t.values[p]; ok {
+			if old.Value == value {
+				return p, nil
+			}
+			continue
 		}
+		if len(t.newValues) >= maxMappingEntries || t.newMappingBytes+len(value) > maxMappingBytes {
+			return "", errMappingLimit
+		}
+		// Do not pin the entire request buffer behind a short mapping value.
+		v := entry{strings.Clone(value), kind}
+		t.values[p] = v
+		if t.newValues == nil {
+			t.newValues = make(map[string]entry)
+		}
+		t.newValues[p] = v
+		t.newMappingBytes += len(value)
+		t.indexValue(v)
+		return p, nil
 	}
 	return "", errors.New("privacy placeholder collision")
 }
@@ -238,10 +262,12 @@ func (t *transaction) ruleCandidates(text string) []span {
 	// this bounded cache, and known-value matching is always performed afresh.
 	if len(found) <= 128 {
 		s.mu.Lock()
-		if len(s.ruleCache) >= 128 {
-			s.ruleCache = map[[32]byte][]span{}
+		if !s.closed {
+			if len(s.ruleCache) >= 128 {
+				s.ruleCache = map[[32]byte][]span{}
+			}
+			s.ruleCache[key] = append([]span{}, found...)
 		}
-		s.ruleCache[key] = append([]span{}, found...)
 		s.mu.Unlock()
 	}
 	return found

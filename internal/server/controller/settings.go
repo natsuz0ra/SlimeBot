@@ -17,6 +17,7 @@ func (h *HTTPController) GetSettings(c WebContext) {
 		"subagentMaxDepth":                settings.SubagentMaxDepth,
 		"language":                        settings.Language,
 		"defaultModel":                    settings.DefaultModel,
+		"sessionOutputTokenBudget":        settings.SessionOutputTokenBudget,
 		"messagePlatformDefaultModel":     settings.MessagePlatformDefaultModel,
 		"messagePlatformThinkingLevel":    settings.MessagePlatformThinkingLevel,
 		"messagePlatformApprovalMode":     settings.MessagePlatformApprovalMode,
@@ -46,6 +47,7 @@ func (h *HTTPController) UpdateSettings(c WebContext) {
 		SubagentMaxDepth                *int      `json:"subagentMaxDepth"`
 		Language                        *string   `json:"language"`
 		DefaultModel                    *string   `json:"defaultModel"`
+		SessionOutputTokenBudget        *int      `json:"sessionOutputTokenBudget"`
 		MessagePlatformDefaultModel     *string   `json:"messagePlatformDefaultModel"`
 		MessagePlatformThinkingLevel    *string   `json:"messagePlatformThinkingLevel"`
 		MessagePlatformApprovalMode     *string   `json:"messagePlatformApprovalMode"`
@@ -73,6 +75,7 @@ func (h *HTTPController) UpdateSettings(c WebContext) {
 	err := h.settings.Update(c.Request().Context(), settingssvc.UpdateSettingsInput{SubagentMaxDepth: req.SubagentMaxDepth,
 		Language:                        req.Language,
 		DefaultModel:                    req.DefaultModel,
+		SessionOutputTokenBudget:        req.SessionOutputTokenBudget,
 		MessagePlatformDefaultModel:     req.MessagePlatformDefaultModel,
 		MessagePlatformThinkingLevel:    req.MessagePlatformThinkingLevel,
 		MessagePlatformApprovalMode:     req.MessagePlatformApprovalMode,

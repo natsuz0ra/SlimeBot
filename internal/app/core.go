@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sync"
@@ -14,6 +15,7 @@ import (
 	"slimebot/internal/repositories"
 	sbruntime "slimebot/internal/runtime"
 	agentruntime "slimebot/internal/runtime/agent"
+	"slimebot/internal/runtime/workspace"
 	agentssvc "slimebot/internal/services/agents"
 	antsvc "slimebot/internal/services/anthropic"
 	authsvc "slimebot/internal/services/auth"
@@ -29,6 +31,7 @@ import (
 	settingssvc "slimebot/internal/services/settings"
 	skillsvc "slimebot/internal/services/skill"
 	teamsvc "slimebot/internal/services/team"
+	usagesvc "slimebot/internal/services/usage"
 	"slimebot/internal/updater"
 	buildversion "slimebot/internal/version"
 )
@@ -52,12 +55,14 @@ type Core struct {
 	SkillStore       *skillsvc.FileSystemSkillStore
 	SkillPackage     *skillsvc.SkillPackageService
 	SkillRuntime     *skillsvc.SkillRuntimeService
+	SkillLearning    *skillsvc.LearningService
 	ChatUpload       *chatsvc.ChatUploadService
 	MCPManager       *mcp.Manager
 	PlanService      *plansvc.PlanService
 	UpdateService    *updater.Service
 	TeamService      *teamsvc.Service
 	PrivacyService   *privacysvc.Service
+	UsageService     *usagesvc.Service
 
 	warmupOnce    sync.Once
 	warmupDone    chan struct{}
@@ -116,6 +121,10 @@ func newCore(cfg config.Config, desktop bool) (*Core, error) {
 	openaiClient := oaisvc.NewOpenAIClient()
 	anthropicClient := antsvc.NewAnthropicClient()
 	privacyService := privacysvc.NewService(repo, filepath.Join(filepath.Dir(cfg.DBPath), "privacy"))
+	// Keep the deployment key out of environments inherited by tools and MCP servers.
+	if err := os.Unsetenv("SLIMEBOT_PRIVACY_MAPPING_KEY"); err != nil {
+		return nil, fmt.Errorf("clear privacy mapping key from tool environment: %w", err)
+	}
 	providerFactory := llmsvc.NewFactory(privacyService.Wrap(openaiClient))
 	providerFactory.Register(llmsvc.ProviderAnthropic, privacyService.Wrap(anthropicClient))
 	providerFactory.SetTextProtector(privacyService.ProtectText)
@@ -138,10 +147,18 @@ func newCore(cfg config.Config, desktop bool) (*Core, error) {
 	memoryService := memorysvc.NewServiceFromSettings(repo)
 	scheduleService := schedulesvc.NewService(repo, nil, schedulesvc.Options{})
 	chatService := chatsvc.NewChatService(repo, repo, providerFactory, mcpManager, skillRuntime)
+	skillLearning := skillsvc.NewLearningService(providerFactory, skillRuntime)
+	chatService.SetSkillLearningService(skillLearning)
+	chatService.SetFileCheckpoints(workspace.NewCheckpoints(filepath.Join(filepath.Dir(cfg.DBPath), "file-checkpoints")))
+	usageService := usagesvc.NewService(repo, repo)
+	chatService.SetUsageService(usageService)
 	chatService.SetTeamService(teamService)
 	chatService.SetMemoryService(memoryService)
 	chatService.SetScheduleService(scheduleService)
 	chatService.SetAgentsInstructions(agentsService)
+	if err := chatService.RecoverBackgroundTasks(context.Background()); err != nil {
+		return nil, fmt.Errorf("recover background tasks: %w", err)
+	}
 	if err := chatService.RecoverCooperativeWorkspaces(context.Background()); err != nil {
 		logging.Warn("agent_workspace_recovery", "err", err)
 	}
@@ -156,6 +173,7 @@ func newCore(cfg config.Config, desktop bool) (*Core, error) {
 	info := buildversion.Info()
 	updateService := updater.NewService(updater.ServiceOptions{CurrentVersion: info.Version})
 
+	privacyService.StartMappingCleanup(context.Background())
 	owned = true
 	return &Core{
 		Config:           cfg,
@@ -174,12 +192,14 @@ func newCore(cfg config.Config, desktop bool) (*Core, error) {
 		SkillStore:       skillStore,
 		SkillPackage:     skillPackage,
 		SkillRuntime:     skillRuntime,
+		SkillLearning:    skillLearning,
 		ChatUpload:       chatUpload,
 		MCPManager:       mcpManager,
 		PlanService:      planService,
 		UpdateService:    updateService,
 		TeamService:      teamService,
 		PrivacyService:   privacyService,
+		UsageService:     usageService,
 		warmupDone:       make(chan struct{}),
 	}, nil
 }

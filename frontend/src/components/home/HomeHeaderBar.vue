@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { mdiChevronDown, mdiDeleteOutline, mdiMenu, mdiPencilOutline } from '@mdi/js'
+import { ref } from 'vue'
+import { mdiChevronDown, mdiDeleteOutline, mdiFolderClockOutline, mdiMenu, mdiPencilOutline, mdiShieldOffOutline } from '@mdi/js'
 import { useI18n } from 'vue-i18n'
 import type { SessionItem } from '@/api/chat'
 import MdiIcon from '@/components/ui/MdiIcon.vue'
@@ -18,9 +19,12 @@ const emit = defineEmits<{
   'update:topMenuVisible': [visible: boolean]
   renameCurrent: []
   removeCurrent: []
+  openCheckpoints: []
+  clearPrivacyMappings: []
 }>()
 
 const { t } = useI18n()
+const titleButton = ref<HTMLButtonElement>()
 
 function toggleTopMenu() {
   emit('update:topMenuVisible', !props.topMenuVisible)
@@ -30,13 +34,30 @@ function onRenameClick() {
   emit('renameCurrent')
   emit('update:topMenuVisible', false)
 }
+
+function dismissTopMenu() {
+  if (!props.topMenuVisible) return
+  titleButton.value?.focus()
+  emit('update:topMenuVisible', false)
+}
+
+function onCheckpointsClick() {
+  dismissTopMenu()
+  emit('openCheckpoints')
+}
+
+function onClearPrivacyClick() {
+  dismissTopMenu()
+  emit('clearPrivacyMappings')
+}
 </script>
 
 <template>
-  <header class="header-bar relative z-30 flex items-center justify-center h-14 flex-shrink-0 backdrop-blur-sm">
+  <header class="header-bar relative z-30 flex items-center justify-center h-12 flex-shrink-0" @keydown.esc="dismissTopMenu">
     <button
       type="button"
-      class="sb-text-muted absolute left-3 w-9 h-9 flex items-center justify-center rounded-xl transition-all duration-150 cursor-pointer"
+      class="sb-text-muted absolute left-3 w-8 h-8 flex items-center justify-center rounded-lg hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] transition-colors duration-150 cursor-pointer"
+      :aria-label="t('scheduleToggleSidebar')"
       @click.stop="emit('toggleSidebar')"
     >
       <MdiIcon :path="mdiMenu" :size="19" />
@@ -44,8 +65,10 @@ function onRenameClick() {
 
     <button
       v-if="currentSession && canManageCurrentSession"
+      ref="titleButton"
       type="button"
-      class="group/tip flex min-w-0 items-center gap-1.5 px-3 py-1.5 rounded-xl transition-all duration-150 cursor-pointer max-w-[260px] header-title-btn"
+      :aria-expanded="topMenuVisible"
+      class="group/tip flex min-w-0 items-center gap-1.5 px-2.5 py-1 rounded-lg transition-colors duration-150 cursor-pointer max-w-[280px] header-title-btn"
       @click.stop="toggleTopMenu"
     >
       <TruncationTooltip
@@ -74,19 +97,22 @@ function onRenameClick() {
       <span class="text-[10px] px-1.5 py-0.5 rounded-md platform-badge">IM</span>
     </div>
 
-    <div
-      v-if="networkStatusText"
-      class="absolute right-3 flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium"
-      :class="connectionStatus === 'reconnecting' ? 'status-warning' : 'status-error'"
-    >
-      <span class="w-1.5 h-1.5 rounded-full animate-pulse" :class="connectionStatus === 'reconnecting' ? 'bg-amber-400' : 'bg-red-400'" />
-      {{ networkStatusText }}
+    <div class="absolute right-3 flex items-center gap-2">
+      <div
+        v-if="networkStatusText"
+        class="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium"
+        :class="connectionStatus === 'reconnecting' ? 'status-warning' : 'status-error'"
+      >
+        <span class="w-1.5 h-1.5 rounded-full animate-pulse" :class="connectionStatus === 'reconnecting' ? 'bg-amber-400' : 'bg-red-400'" />
+        {{ networkStatusText }}
+      </div>
+      <slot name="right" />
     </div>
 
     <Transition name="top-menu-pop">
       <div
         v-if="topMenuVisible && canManageCurrentSession"
-        class="absolute top-[52px] left-1/2 -translate-x-1/2 w-40 rounded-xl py-1 overflow-hidden z-[85] top-menu-glass"
+        class="absolute top-[46px] left-1/2 -translate-x-1/2 w-max min-w-40 max-w-[calc(100vw-2rem)] rounded-lg py-1 overflow-hidden z-[85] top-menu-glass"
         @click.stop
       >
         <button
@@ -97,6 +123,24 @@ function onRenameClick() {
         >
           <MdiIcon :path="mdiPencilOutline" :size="14" />
           <span>{{ t('rename') }}</span>
+        </button>
+        <button
+          v-if="currentSession?.workingDirectory?.trim()"
+          type="button"
+          class="w-full flex items-center gap-2.5 px-3 h-9 text-sm transition-colors duration-150 cursor-pointer menu-item"
+          @click="onCheckpointsClick"
+        >
+          <MdiIcon :path="mdiFolderClockOutline" :size="14" />
+          <span>{{ t('checkpoints.title') }}</span>
+        </button>
+        <button
+          v-if="currentSession"
+          type="button"
+          class="w-full flex items-center gap-2.5 px-3 h-9 text-sm text-left transition-colors duration-150 cursor-pointer menu-item"
+          @click="onClearPrivacyClick"
+        >
+          <MdiIcon :path="mdiShieldOffOutline" :size="14" class="shrink-0" />
+          <span>{{ t('sessionPrivacyDestroyTitle') }}</span>
         </button>
         <button
           v-if="currentSession"
@@ -111,3 +155,11 @@ function onRenameClick() {
     </Transition>
   </header>
 </template>
+
+<style scoped>
+.header-title-btn:focus-visible,
+.top-menu-glass button:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: -2px;
+}
+</style>

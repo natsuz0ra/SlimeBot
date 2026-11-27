@@ -118,22 +118,32 @@ type AgentEventMeta struct {
 	MemberRunID      string `json:"memberRunId,omitempty"`
 }
 
+type ContextLayerUsage struct {
+	Layer  string `json:"layer"`
+	Tokens int    `json:"tokens"`
+}
+
 type ContextUsage struct {
-	SessionID              string `json:"sessionId"`
-	ModelConfigID          string `json:"modelConfigId"`
-	UsedTokens             int    `json:"usedTokens"`
-	TotalTokens            int    `json:"totalTokens"`
-	UsedPercent            int    `json:"usedPercent"`
-	AvailablePercent       int    `json:"availablePercent"`
-	IsCompacted            bool   `json:"isCompacted"`
-	CompactedAt            string `json:"compactedAt,omitempty"`
-	InputBudget            int    `json:"inputBudget,omitempty"`
-	OutputReserve          int    `json:"outputReserve,omitempty"`
-	CompactionBeforeTokens int    `json:"compactionBeforeTokens,omitempty"`
-	CompactionAfterTokens  int    `json:"compactionAfterTokens,omitempty"`
-	CompactionReason       string `json:"compactionReason,omitempty"`
-	Source                 string `json:"source,omitempty"`
-	State                  string `json:"state,omitempty"`
+	SessionID              string              `json:"sessionId"`
+	ModelConfigID          string              `json:"modelConfigId"`
+	UsedTokens             int                 `json:"usedTokens"`
+	TotalTokens            int                 `json:"totalTokens"`
+	UsedPercent            int                 `json:"usedPercent"`
+	AvailablePercent       int                 `json:"availablePercent"`
+	IsCompacted            bool                `json:"isCompacted"`
+	CompactedAt            string              `json:"compactedAt,omitempty"`
+	InputBudget            int                 `json:"inputBudget,omitempty"`
+	OutputReserve          int                 `json:"outputReserve,omitempty"`
+	CompactionBeforeTokens int                 `json:"compactionBeforeTokens,omitempty"`
+	CompactionAfterTokens  int                 `json:"compactionAfterTokens,omitempty"`
+	CompactionReason       string              `json:"compactionReason,omitempty"`
+	CompactionDurationMs   int64               `json:"compactionDurationMs,omitempty"`
+	CompactionFailure      string              `json:"compactionFailure,omitempty"`
+	Layers                 []ContextLayerUsage `json:"layers,omitempty"`
+	Source                 string              `json:"source,omitempty"`
+	State                  string              `json:"state,omitempty"`
+	OutputBudgetTokens     int64               `json:"outputBudgetTokens,omitempty"`
+	OutputBudgetUsed       int64               `json:"outputBudgetUsed,omitempty"`
 }
 
 // AgentCallbacks wires the agent loop to the outside world (streaming, approval, results).

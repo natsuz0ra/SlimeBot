@@ -31,17 +31,12 @@ func (p *provider) StreamChatWithTools(ctx context.Context, cfg llm.ModelRuntime
 			break
 		}
 	}
-	if !mask {
-		p.service.mu.Lock()
-		hasState := len(p.service.scopes[llm.PrivacyScopeFromContext(ctx).SessionID].values) > 0
-		p.service.mu.Unlock()
-		if !hasState {
-			return p.next.StreamChatWithTools(ctx, cfg, messages, defs, callbacks)
-		}
-	}
-	t, err := p.service.begin(ctx, c, false)
+	t, err := p.service.beginRequest(ctx, c, false, !mask)
 	if err != nil {
 		return nil, err
+	}
+	if t == nil {
+		return p.next.StreamChatWithTools(ctx, cfg, messages, defs, callbacks)
 	}
 	defer func() {
 		if recover() != nil {
@@ -87,6 +82,9 @@ func (p *provider) StreamChatWithTools(ctx context.Context, cfg llm.ModelRuntime
 		if err = callbacks.OnPrivacy(llm.PrivacySummary{Masked: t.record.Masked, Warned: t.record.Warned}); err != nil {
 			return nil, err
 		}
+	}
+	if err = t.commitMapping(); err != nil {
+		return nil, err
 	}
 	text := restoreStream{tx: t, emit: callbacks.OnChunk}
 	thinking := restoreStream{tx: t, emit: callbacks.OnThinkingChunk}

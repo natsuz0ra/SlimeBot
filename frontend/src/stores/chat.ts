@@ -143,6 +143,7 @@ export const useChatStore = defineStore('chat', () => {
   const runtimeTodoUpdatedAt = bindRuntimeRef((runtime) => runtime.runtimeTodoUpdatedAt)
   const todoPanelOpen = bindRuntimeRef((runtime) => runtime.todoPanelOpen)
   const contextUsage = bindRuntimeRef((runtime) => runtime.contextUsage)
+  const contextCompacting = bindRuntimeRef((runtime) => runtime.contextCompacting)
   const replyBatches = bindRuntimeRef((runtime) => runtime.replyBatches)
   const currentBatchId = bindRuntimeRef((runtime) => runtime.currentBatchId)
   const pendingPlanConfirmation = bindRuntimeRef((runtime) => runtime.pendingPlanConfirmation)
@@ -154,6 +155,7 @@ export const useChatStore = defineStore('chat', () => {
   const resetSessionRuntimeState = (...args: Parameters<ReturnType<typeof createSessionRuntime>['resetSessionRuntimeState']>) => activeRuntime.value.resetSessionRuntimeState(...args)
   const clearContextUsage = (...args: Parameters<ReturnType<typeof createSessionRuntime>['clearContextUsage']>) => activeRuntime.value.clearContextUsage(...args)
   const refreshContextUsage = (...args: Parameters<ReturnType<typeof createSessionRuntime>['refreshContextUsage']>) => activeRuntime.value.refreshContextUsage(...args)
+  const compactContext = (...args: Parameters<ReturnType<typeof createSessionRuntime>['compactContext']>) => activeRuntime.value.compactContext(...args)
   const clearRuntimeTodos = (...args: Parameters<ReturnType<typeof createSessionRuntime>['clearRuntimeTodos']>) => activeRuntime.value.clearRuntimeTodos(...args)
   const applyRuntimeTodoUpdate = (...args: Parameters<ReturnType<typeof createSessionRuntime>['applyRuntimeTodoUpdate']>) => activeRuntime.value.applyRuntimeTodoUpdate(...args)
   const toggleTodoPanel = (...args: Parameters<ReturnType<typeof createSessionRuntime>['toggleTodoPanel']>) => activeRuntime.value.toggleTodoPanel(...args)
@@ -653,7 +655,9 @@ export const useChatStore = defineStore('chat', () => {
     runtimeTodoUpdatedAt,
     todoPanelOpen,
     contextUsage,
+    contextCompacting,
     refreshContextUsage,
+    compactContext,
     applyRuntimeTodoUpdate,
     clearRuntimeTodos,
     toggleTodoPanel,

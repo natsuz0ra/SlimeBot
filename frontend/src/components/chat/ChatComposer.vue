@@ -7,10 +7,14 @@ import MdiIcon from '@/components/ui/MdiIcon.vue'
 import TruncationTooltip from '@/components/ui/TruncationTooltip.vue'
 import type { SelectOption } from '@/components/ui/AppSelect.vue'
 import { formatSize } from '@/utils/format'
-import { contextUsageTone, formatContextTokenCount } from '@/utils/contextSize'
+import { formatContextTokenCount } from '@/utils/contextSize'
+import { getOutputBudgetProgress } from '@/utils/usageRange'
+import { extractPastedFiles, isImageFile, MAX_CHAT_UPLOAD_FILES, mergePendingFiles } from '@/utils/chatAttachments'
+import { useToast } from '@/composables/useToast'
 import type { ContextUsageData } from '@/api/chatSocket'
 import type { ApprovalMode } from '@/types/settings'
 import WorkspacePicker from '@/components/chat/WorkspacePicker.vue'
+import ContextUsagePopover from '@/components/chat/ContextUsagePopover.vue'
 import { getApprovalModeLabelKey, getApprovalModeOptions, getApprovalModeTone } from '@/utils/approvalMode'
 
 const props = defineProps<{
@@ -34,6 +38,7 @@ const props = defineProps<{
   workspaceEditable: boolean
   planConfirmationVisible?: boolean
   contextUsage?: ContextUsageData | null
+  contextCompacting?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -51,11 +56,42 @@ const emit = defineEmits<{
   planExecute: []
   planCancel: []
   workspaceChange: [path: string]
+  compactContext: []
+  openUsageSettings: []
 }>()
 
 const textareaRef = ref<HTMLTextAreaElement | null>(null)
 const fileInputRef = ref<HTMLInputElement | null>(null)
 const { t } = useI18n()
+const toast = useToast()
+const budgetProgress = computed(() => getOutputBudgetProgress(props.contextUsage))
+const imagePreviewMap = new Map<File, string>()
+const previewUrls = ref<Map<File, string>>(new Map())
+
+function syncImagePreviews(files: File[]) {
+  const currentSet = new Set(files)
+  let changed = false
+  for (const [file, url] of imagePreviewMap.entries()) {
+    if (!currentSet.has(file)) {
+      URL.revokeObjectURL(url)
+      imagePreviewMap.delete(file)
+      changed = true
+    }
+  }
+  for (const file of files) {
+    if (isImageFile(file) && !imagePreviewMap.has(file)) {
+      imagePreviewMap.set(file, URL.createObjectURL(file))
+      changed = true
+    }
+  }
+  if (changed) {
+    previewUrls.value = new Map(imagePreviewMap)
+  }
+}
+
+watch(() => props.pendingFiles, (files) => {
+  syncImagePreviews(files)
+}, { immediate: true, deep: true })
 
 function resizeTextarea(el: HTMLTextAreaElement) {
   el.style.height = 'auto'
@@ -80,18 +116,43 @@ function openFilePicker() {
   fileInputRef.value?.click()
 }
 
+function addFiles(incoming: File[]) {
+  if (incoming.length === 0) return
+  if (props.planConfirmationVisible) return
+  if (props.isStreaming) {
+    toast.warning(t('uploadBlockedStreaming'))
+    return
+  }
+  const result = mergePendingFiles(props.pendingFiles, incoming)
+  if (result.skippedTooLarge.length > 0) {
+    toast.warning(t('uploadSkippedTooLarge', { names: result.skippedTooLarge.join(', ') }))
+  }
+  if (result.skippedOverflow > 0) {
+    toast.warning(t('uploadSkippedOverflow', { max: MAX_CHAT_UPLOAD_FILES }))
+  }
+  if (result.addedCount > 0) {
+    emit('filesChange', result.files)
+  }
+}
+
 function onFileChange(event: Event) {
   const input = event.target as HTMLInputElement
-  const selected = Array.from(input.files || [])
-  const merged: File[] = [...props.pendingFiles]
-  for (const file of selected) {
-    if (merged.length >= 5) break
-    if (file.size > 10 * 1024 * 1024) continue
-    merged.push(file)
-  }
-  emit('filesChange', merged)
+  addFiles(Array.from(input.files || []))
   input.value = ''
 }
+
+function onTextareaPaste(event: ClipboardEvent) {
+  const files = extractPastedFiles(event.clipboardData)
+  if (files.length === 0) return
+  event.preventDefault()
+  addFiles(files)
+}
+
+function focus() {
+  textareaRef.value?.focus()
+}
+
+defineExpose({ focus, addFiles })
 
 function getFileExt(name: string) {
   const parts = name.split('.')
@@ -130,14 +191,6 @@ const currentSubagentModelLabel = computed(() => {
 const approvalModeOptions = getApprovalModeOptions()
 const currentApprovalModeLabel = computed(() => t(getApprovalModeLabelKey(props.approvalMode)))
 const currentApprovalModeTone = computed(() => getApprovalModeTone(props.approvalMode))
-const contextTone = computed(() => contextUsageTone(props.contextUsage?.usedPercent ?? 0))
-const contextCircleStyle = computed(() => {
-  const usage = Math.max(0, Math.min(100, props.contextUsage?.usedPercent ?? 0))
-  return { '--context-usage-deg': `${usage * 3.6}deg` }
-})
-const contextUsedLabel = computed(() => formatContextTokenCount(props.contextUsage?.usedTokens ?? 0))
-const contextTotalLabel = computed(() => formatContextTokenCount(props.contextUsage?.totalTokens ?? 0))
-const contextStatusLabel = computed(() => props.contextUsage?.state === 'compacting' ? t('contextStatusCompacting') : props.contextUsage?.isCompacted ? t('contextStatusCompacted') : t('contextStatusFull'))
 
 function calcMenuStyle() {
   if (!menuTriggerRef.value) return
@@ -245,12 +298,22 @@ onUnmounted(() => {
   document.removeEventListener('keydown', onMenuKeydown)
   window.removeEventListener('resize', closeMenu)
   window.removeEventListener('scroll', onScrollCapture, true)
+  for (const url of imagePreviewMap.values()) {
+    URL.revokeObjectURL(url)
+  }
+  imagePreviewMap.clear()
 })
 </script>
 
 <template>
   <WorkspacePicker v-if="workspaceEditable" :path="workingDirectory" :editable="workspaceEditable" @select="emit('workspaceChange', $event)" />
-  <div class="input-container focus-ring rounded-2xl">
+  <div v-if="budgetProgress?.exceeded" class="budget-exceeded-banner" role="alert">
+    <span>{{ t('usageBudgetExceededBanner', { used: formatContextTokenCount(budgetProgress.used), budget: formatContextTokenCount(budgetProgress.budget) }) }}</span>
+    <button type="button" class="budget-exceeded-action" @click="emit('openUsageSettings')">
+      {{ t('usageAdjustBudget') }}
+    </button>
+  </div>
+  <div class="input-container focus-ring rounded-xl">
     <div v-if="planConfirmationVisible" class="plan-confirm-inline" data-plan-confirmation="true">
       <div class="plan-confirm-copy">{{ t('planConfirmPrompt') }}</div>
       <div class="plan-confirm-actions">
@@ -277,6 +340,12 @@ onUnmounted(() => {
         :key="`${file.name}-${idx}`"
         class="chat-upload-chip group/tip inline-flex min-w-0 items-center gap-2 rounded-lg px-2 py-1 max-w-[260px]"
       >
+        <img
+          v-if="previewUrls.get(file)"
+          :src="previewUrls.get(file)"
+          :alt="file.name"
+          class="chat-upload-thumb"
+        />
         <TruncationTooltip inherit-group :text="file.name" wrapper-class="min-w-0 flex-1" content-class="text-xs" />
         <span class="text-[10px] opacity-70">{{ getFileExt(file.name) }} {{ formatSize(file.size) }}</span>
         <button type="button" class="opacity-80 hover:opacity-100 cursor-pointer" @click="emit('removeFile', idx)">
@@ -293,12 +362,14 @@ onUnmounted(() => {
     >
     <textarea
       ref="textareaRef"
+      data-chat-composer-input="true"
       :value="modelValue"
       class="textarea-primary w-full resize-none border-0 outline-none bg-transparent px-4 pt-3.5 pb-10  text-sm leading-relaxed min-h-[112px] max-h-[260px] overflow-y-auto"
       :placeholder="isStreaming ? t('steerPlaceholder') : placeholder"
       rows="1"
       @keydown="onTextareaKeydown"
       @input="onTextareaInput"
+      @paste="onTextareaPaste"
     />
     <div class="absolute bottom-2 left-3 right-3 flex items-center justify-between gap-2 z-10">
       <div class="flex items-center gap-1.5">
@@ -321,64 +392,15 @@ onUnmounted(() => {
         </button>
       </div>
       <div class="flex items-center gap-2">
-        <div v-if="contextUsage" class="context-usage-tip-wrap relative z-[120] group/context-tip">
-          <div
-            class="context-usage-indicator"
-            :class="`context-usage-indicator--${contextTone}`"
-            :style="contextCircleStyle"
-            :aria-label="t('contextUsageLabel')"
-          >
-            <span class="context-usage-core" />
-          </div>
-          <div
-            class="context-usage-tooltip pointer-events-none absolute bottom-full right-0 mb-2 w-[260px] rounded-lg px-3 py-2 text-sm leading-5 text-white bg-black/78 opacity-0 translate-y-1 transition-all duration-150 shadow-lg group-hover/context-tip:opacity-100 group-hover/context-tip:translate-y-0 group-focus-within/context-tip:opacity-100 group-focus-within/context-tip:translate-y-0"
-          >
-            <div class="font-semibold">{{ t('contextUsageLabel') }}</div>
-            <div class="mt-1 opacity-90">{{ currentModelLabel }}</div>
-            <div class="mt-2 grid grid-cols-2 gap-x-3 gap-y-1 text-xs">
-              <span class="opacity-75">{{ t('contextUsedPercent') }}</span>
-              <span class="text-right">{{ contextUsage.usedPercent }}%</span>
-              <span class="opacity-75">{{ t('contextAvailablePercent') }}</span>
-              <span class="text-right">{{ contextUsage.availablePercent }}%</span>
-              <span class="opacity-75">{{ t('contextUsedTokens') }}</span>
-              <span class="text-right">{{ contextUsedLabel }}</span>
-              <span class="opacity-75">{{ t('contextTotalTokens') }}</span>
-              <span class="text-right">{{ contextTotalLabel }}</span>
-              <template v-if="contextUsage.inputBudget">
-                <span class="opacity-75">{{ t('contextInputBudget') }}</span>
-                <span class="text-right">{{ formatContextTokenCount(contextUsage.inputBudget) }}</span>
-              </template>
-              <template v-if="contextUsage.outputReserve">
-                <span class="opacity-75">{{ t('contextOutputReserve') }}</span>
-                <span class="text-right">{{ formatContextTokenCount(contextUsage.outputReserve) }}</span>
-              </template>
-              <template v-if="contextUsage.source">
-                <span class="opacity-75">{{ t('contextMeasurement') }}</span>
-                <span class="text-right">{{ t(contextUsage.source === 'provider-reported' ? 'contextProviderReported' : 'contextEstimated') }}</span>
-              </template>
-              <span class="opacity-75">{{ t('contextStatus') }}</span>
-              <span class="text-right">{{ contextStatusLabel }}</span>
-              <template v-if="contextUsage.compactionBeforeTokens && contextUsage.compactionAfterTokens">
-                <div class="col-span-2 mt-1 pt-2 border-t border-white/15">
-                  <div class="opacity-75">{{ t('contextLastCompaction') }}</div>
-                  <div class="mt-1 flex items-center justify-between gap-2">
-                    <span>{{ formatContextTokenCount(contextUsage.compactionBeforeTokens) }}</span>
-                    <span class="opacity-60">→</span>
-                    <span>{{ formatContextTokenCount(contextUsage.compactionAfterTokens) }}</span>
-                  </div>
-                </div>
-              </template>
-              <template v-if="contextUsage.compactionReason">
-                <span class="opacity-75">{{ t('contextCompactionReason') }}</span>
-                <span class="text-right">{{ t(contextUsage.compactionReason === 'overflow' ? 'contextReasonOverflow' : 'contextReasonPressure') }}</span>
-              </template>
-              <template v-if="contextUsage.compactedAt">
-                <span class="opacity-75">{{ t('contextCompactedTime') }}</span>
-                <span class="text-right">{{ new Date(contextUsage.compactedAt).toLocaleTimeString() }}</span>
-              </template>
-            </div>
-          </div>
-        </div>
+        <ContextUsagePopover
+          v-if="contextUsage"
+          :usage="contextUsage"
+          :model-label="currentModelLabel"
+          :compacting="contextCompacting"
+          :disabled="isStreaming"
+          @compact="emit('compactContext')"
+          @open-usage-settings="emit('openUsageSettings')"
+        />
         <div class="relative z-[120] group/upload-tip">
           <button
             type="button"
@@ -450,7 +472,7 @@ onUnmounted(() => {
               >
                 <span
                   class="w-1.5 h-1.5 rounded-full flex-shrink-0"
-                  :class="opt.value === selectedModelId ? 'bg-indigo-500' : 'bg-transparent'"
+                  :class="opt.value === selectedModelId ? 'composer-option-dot--active' : 'bg-transparent'"
                 />
                 {{ opt.label }}
               </button>
@@ -475,7 +497,7 @@ onUnmounted(() => {
               >
                 <span
                   class="w-1.5 h-1.5 rounded-full flex-shrink-0"
-                  :class="opt.value === selectedSubagentModelId ? 'bg-indigo-500' : 'bg-transparent'"
+                  :class="opt.value === selectedSubagentModelId ? 'composer-option-dot--active' : 'bg-transparent'"
                 />
                 {{ opt.label }}
               </button>
@@ -500,7 +522,7 @@ onUnmounted(() => {
             >
               <span
                 class="w-1.5 h-1.5 rounded-full flex-shrink-0"
-                :class="opt.value === selectedThinkingLevel ? 'bg-indigo-500' : 'bg-transparent'"
+                :class="opt.value === selectedThinkingLevel ? 'composer-option-dot--active' : 'bg-transparent'"
               />
               {{ opt.label }}
             </button>
@@ -621,6 +643,46 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
+.budget-exceeded-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 8px;
+  padding: 8px 12px;
+  border-radius: 10px;
+  border: 1px solid rgba(239, 68, 68, 0.35);
+  background: rgba(239, 68, 68, 0.1);
+  color: var(--tool-error-text);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.budget-exceeded-action {
+  flex-shrink: 0;
+  padding: 4px 10px;
+  border-radius: 8px;
+  border: 1px solid rgba(239, 68, 68, 0.4);
+  background: transparent;
+  color: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.budget-exceeded-action:hover {
+  background: rgba(239, 68, 68, 0.14);
+}
+
+.chat-upload-thumb {
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  object-fit: cover;
+  flex-shrink: 0;
+  border: 1px solid rgba(148, 163, 184, 0.25);
+}
+
 .plan-confirm-inline {
   display: flex;
   align-items: center;
@@ -699,8 +761,11 @@ onUnmounted(() => {
   color: var(--text-secondary);
 }
 .composer-settings-btn:hover {
-  background: var(--primary-alpha-08);
+  background: var(--bg-hover);
   color: var(--text-primary);
+}
+.composer-option-dot--active {
+  background: var(--sb-brand);
 }
 
 .context-usage-tip-wrap {
@@ -801,11 +866,10 @@ onUnmounted(() => {
 }
 
 .composer-settings-panel {
-  width: 220px;
+  width: 224px;
   background: var(--menu-bg);
   border: 1px solid var(--menu-border);
   box-shadow: var(--menu-shadow);
-  backdrop-filter: blur(16px);
 }
 
 .composer-menu-body {
@@ -827,7 +891,7 @@ onUnmounted(() => {
   font: inherit;
 }
 .composer-menu-item:hover {
-  background: var(--primary-alpha-07);
+  background: var(--bg-hover);
 }
 .composer-menu-item:disabled {
   opacity: 0.4;
@@ -876,7 +940,7 @@ onUnmounted(() => {
   background: transparent;
 }
 .composer-submenu-header:hover {
-  background: var(--primary-alpha-07);
+  background: var(--bg-hover);
 }
 
 .composer-model-group {
@@ -907,7 +971,7 @@ onUnmounted(() => {
   transition: background 100ms ease;
 }
 .composer-submenu-option:hover {
-  background: var(--primary-alpha-07);
+  background: var(--bg-hover);
   color: var(--text-primary);
 }
 

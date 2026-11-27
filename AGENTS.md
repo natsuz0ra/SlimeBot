@@ -45,7 +45,7 @@ internal/
 ├─ repositories/             # Persistence/data access
 ├─ runtime/                  # Host state, lifecycle, and managed agent execution
 │  ├─ agent/                 # Durable activations, inbox scheduling, root budgets, and database ownership
-│  └─ workspace/             # Isolated worktrees, validation, integration journals, and recovery
+│  └─ workspace/             # Isolated worktrees, integration journals, and main-session file checkpoints
 ├─ sandbox/                  # Tool sandbox policies and OS sandbox runners
 ├─ server/
 │  ├─ apierrors/             # HTTP API error mapping
@@ -70,7 +70,8 @@ internal/
 │  ├─ settings/              # User/system settings
 │  ├─ skill/                 # Skill loading/execution
 │  ├─ subagent/              # Persistent agents, scoped messaging, task DAG/CAS, and artifact acceptance
-│  └─ team/                  # Legacy Agent Team history and compatibility records
+│  ├─ team/                  # Legacy Agent Team history and compatibility records
+│  └─ usage/                 # Provider-reported token accounting and session output budgets
 ├─ tools/                    # Tool implementations
 ├─ updater/                  # Release update checking/apply helper
 └─ version/                  # Build/version metadata
@@ -132,13 +133,16 @@ Quick index (feature -> first place to inspect):
 - LLM abstraction/provider wiring: `internal/services/llm/`, `internal/services/openai/`, `internal/services/anthropic/`
 - Active-turn steering: `internal/services/chat/steering.go`, `internal/services/chat/agent.go`, `AGENT-FLOW.md`
 - Web conversation history navigation: `frontend/src/components/chat/ChatHistoryNav.vue`, `frontend/src/composables/home/useHomeScroll.ts`
-- Background command completion and automatic continuation: `internal/tools/process.go`, `internal/tools/exec.go`, `internal/services/chat/background_tasks.go`, `AGENT-FLOW.md`
+- Background command completion, persistence and manual recovery: `internal/tools/process.go`, `internal/tools/exec.go`, `internal/services/chat/background_tasks.go`, `internal/services/chat/background_recovery.go`, `AGENT-FLOW.md`
 - Context compaction: `internal/services/context/`, `internal/repositories/repo_context.go`, `internal/services/chat/context_bridge.go` (raw model steps are separate from UI messages; usage reads never call models; `SLIMEBOT_CONTEXT_COMPACTION=off` bypasses checkpoints while keeping pruning/budget guards)
-- Sensitive data masking and local model lifecycle: `internal/services/privacy/`, `internal/server/controller/privacy.go`
+- Sensitive data masking, encrypted mapping retention and local model lifecycle: `internal/services/privacy/`, `internal/server/controller/privacy.go`, `internal/server/controller/session_privacy.go`
+- Main-session file checkpoints and rollback: `internal/runtime/workspace/checkpoints.go`, `internal/services/chat/file_checkpoints.go`, `internal/server/controller/file_checkpoints.go`, `frontend/src/components/chat/ChatCheckpointDialog.vue`
 - Pure Go privacy inference and tokenizer reference tests: `internal/services/privacy/inference/`
 - Long-term memory store/service: `internal/services/memory/`, `internal/tools/memory.go`
 - Scheduled tasks and execution history: `internal/services/schedule/`, `internal/tools/schedule.go`, `internal/app/schedule_runner.go`, `internal/server/controller/scheduled_tasks.go`
 - Home scheduled task workspace: `frontend/src/components/home/ScheduledTasksWorkspace.vue`, `frontend/src/components/home/TaskRunTimeline.vue`, `frontend/src/api/schedule.ts` (sidebar entry and `/tasks` route; execution contexts are excluded from ordinary chats)
+- Unified task center: `internal/app/task_center.go`, `internal/server/controller/task_center.go`, `frontend/src/api/taskCenter.ts` (background commands, subagents and scheduled runs in the `/tasks` overview)
+- Token usage summaries and output budgets: `internal/services/usage/`, `internal/services/llm/request_observer.go`, `internal/repositories/repo_usage.go`, `frontend/src/components/settings/SettingsUsageTab.vue`
 - Persistent subagents and collaboration: `internal/services/subagent/`, `internal/runtime/agent/`, `internal/runtime/workspace/`, `internal/services/chat/cooperative.go`, `internal/server/controller/cooperative.go` (hidden sessions, durable inbox, budgets, isolated worker artifacts, validation and recoverable integration)
 - Web collaboration workspace: `frontend/src/components/chat/CooperativePanel.vue`, `frontend/src/api/cooperative.ts` (agents, shared task board, artifacts and pending approvals; available in chat and scheduled run details)
 - CLI collaboration: `cli/src/components/CooperativeView.tsx`, `/agents` routing in `cli/src/controllers/commands.ts` and `cli/src/app.tsx`

@@ -144,13 +144,13 @@ onUnmounted(() => {
       <div
         v-if="visible"
         class="fixed inset-0 z-[200] flex items-center justify-center p-4"
-        style="background: rgba(0, 0, 0, 0.45); backdrop-filter: blur(4px)"
+        style="background: var(--overlay-backdrop)"
         @pointerdown="onMaskPointerDown"
         @click="onMaskClick"
       >
         <div
           ref="panelRef"
-          class="dialog-panel relative flex flex-col overflow-hidden rounded-2xl"
+          class="dialog-panel relative flex flex-col overflow-hidden rounded-xl"
           :style="{ width: '100%', maxWidth: width, maxHeight: '90vh' }"
           role="dialog"
           aria-modal="true"
@@ -215,9 +215,9 @@ onUnmounted(() => {
 
 <style scoped>
 .dialog-panel {
-  background: var(--bg-main);
-  border: 1px solid var(--card-border);
-  box-shadow: 0 25px 60px rgba(0, 0, 0, 0.35), 0 0 0 1px var(--primary-alpha-08);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-default);
+  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.24);
 }
 
 .dialog-title {
@@ -228,16 +228,16 @@ onUnmounted(() => {
   color: var(--text-muted);
 }
 .dialog-close-btn:hover {
-  background: var(--primary-alpha-08);
+  background: var(--bg-hover);
   color: var(--text-primary);
 }
 
 .dialog-confirm-primary {
-  background: var(--sb-brand);
+  background: var(--color-primary);
   box-shadow: none;
 }
 .dialog-confirm-primary:hover:not(:disabled) {
-  background: var(--sb-brand-hover);
+  background: var(--color-primary-hover);
   box-shadow: none;
   transform: none;
 }

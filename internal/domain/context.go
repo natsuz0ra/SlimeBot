@@ -30,15 +30,28 @@ func (e ContextEntry) Message() (llm.ChatMessage, error) {
 }
 
 type ContextHead struct {
-	LastToolsJSON      string `gorm:"type:text"`
-	LastConfigID       string `gorm:"size:36"`
-	LastModel          string `gorm:"size:256"`
-	LastWindow         int
-	LastOutputReserve  int
-	ScopeID            string `gorm:"primaryKey;size:64"`
-	HistoryRevision    int64  `gorm:"not null;default:0"`
-	ProjectionRevision int64  `gorm:"not null;default:0"`
-	UpdatedAt          time.Time
+	LastToolsJSON           string `gorm:"type:text"`
+	LastConfigID            string `gorm:"size:36"`
+	LastModel               string `gorm:"size:256"`
+	LastWindow              int
+	LastOutputReserve       int
+	ScopeID                 string `gorm:"primaryKey;size:64"`
+	HistoryRevision         int64  `gorm:"not null;default:0"`
+	ProjectionRevision      int64  `gorm:"not null;default:0"`
+	CompactionFailures      int    `gorm:"not null;default:0"`
+	CompactionCooldownUntil *time.Time
+	UpdatedAt               time.Time
+}
+
+// ContextCalibration persists the conservative local-to-provider token ratio.
+// It is keyed only by provider and model; endpoint credentials are never stored.
+type ContextCalibration struct {
+	ID        string  `gorm:"primaryKey;size:64"`
+	Provider  string  `gorm:"size:32;not null;index:idx_context_calibration_route,unique,priority:1"`
+	Model     string  `gorm:"size:256;not null;index:idx_context_calibration_route,unique,priority:2"`
+	Ratio     float64 `gorm:"not null;default:1"`
+	Samples   int64   `gorm:"not null;default:0"`
+	UpdatedAt time.Time
 }
 
 type ContextCheckpoint struct {
@@ -67,6 +80,7 @@ type ContextSnapshot struct {
 	Head        ContextHead
 	Entries     []ContextEntry
 	Checkpoints []ContextCheckpoint
+	LastAttempt *ContextCheckpoint `gorm:"-"`
 }
 type ContextSeed struct {
 	MessageID  string

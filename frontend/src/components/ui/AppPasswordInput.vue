@@ -125,11 +125,11 @@ input.app-input::placeholder {
 
 .password-toggle-btn:hover {
   color: var(--text-primary);
-  background: rgba(99, 102, 241, 0.1);
+  background: var(--bg-hover);
 }
 
 .password-toggle-btn:focus-visible {
-  outline: 2px solid rgba(99, 102, 241, 0.5);
+  outline: 2px solid var(--focus-ring);
   outline-offset: 1px;
 }
 

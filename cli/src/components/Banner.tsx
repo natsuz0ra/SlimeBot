@@ -1,48 +1,70 @@
 /**
- * Banner — top bar showing product name, version, model, and working directory.
+ * Banner — top bar showing pixel Slime logo, product name, version, model, session, and working directory.
  */
 
 import React from "react";
 import { Box, Text } from "ink";
+import { CLI_THEME } from "../utils/theme.js";
+import { shortenHomePath } from "../utils/terminal.js";
 
 interface BannerProps {
   version: string;
   modelName: string;
   cwd: string;
+  sessionName?: string;
   approvalMode?: string;
   thinkingLevel?: string;
   updateAvailable?: boolean;
 }
 
-export function Banner({ version, modelName, cwd, approvalMode, thinkingLevel, updateAvailable }: BannerProps): React.ReactElement {
-  const logoLines = [
-    "██████████",
-    "███ ██ ███",
-    "██████████",
-  ];
+export function Banner({
+  version,
+  modelName,
+  cwd,
+  sessionName,
+  approvalMode,
+  thinkingLevel,
+  updateAvailable,
+}: BannerProps): React.ReactElement {
+  const shortCwd = shortenHomePath(cwd);
+  const trimmedSession = sessionName?.trim();
 
   return (
     <Box flexDirection="row">
       <Box flexDirection="column" marginRight={2} width={10} flexShrink={0}>
-        {logoLines.map((line, i) => (
-          <Text key={i} color="#a78bfa">
-            {line}
-          </Text>
-        ))}
+        <Text>
+          {" "}
+          <Text backgroundColor={CLI_THEME.logo}>{"        "}</Text>
+          {" "}
+        </Text>
+        <Text>
+          <Text backgroundColor={CLI_THEME.logo}>{"   "}</Text>
+          <Text backgroundColor={CLI_THEME.logoEye}>{" "}</Text>
+          <Text backgroundColor={CLI_THEME.logo}>{"  "}</Text>
+          <Text backgroundColor={CLI_THEME.logoEye}>{" "}</Text>
+          <Text backgroundColor={CLI_THEME.logo}>{"   "}</Text>
+        </Text>
+        <Text backgroundColor={CLI_THEME.logo}>{"          "}</Text>
       </Box>
 
       <Box flexDirection="column" flexGrow={1} flexShrink={1} minWidth={0}>
-        <Text>
-          <Text bold color="white">
-            SlimeBot CLI{" "}
-          </Text>
-          <Text color="#94a3b8">{version}</Text>
-          {updateAvailable && <Text color="#facc15"> [new]</Text>}
-          {approvalMode === "auto_review" && <Text color="#eab308"> [auto review]</Text>}
-          {approvalMode === "auto" && <Text color="#eab308"> [auto]</Text>}
+        <Text wrap="truncate">
+          <Text bold>SlimeBot CLI </Text>
+          <Text color={CLI_THEME.secondary}>{version}</Text>
+          {updateAvailable && <Text color={CLI_THEME.warning}> [new]</Text>}
+          {approvalMode === "auto_review" && <Text color={CLI_THEME.warning}> [auto review]</Text>}
+          {approvalMode === "auto" && <Text color={CLI_THEME.warning}> [auto]</Text>}
         </Text>
-        <Text color="#9ca3af">{modelName || "(none)"}{thinkingLevel && thinkingLevel !== "off" ? <Text color="#a78bfa"> [think:{thinkingLevel}]</Text> : ""}</Text>
-        <Text color="#9ca3af">{cwd}</Text>
+        <Text wrap="truncate">
+          <Text color={CLI_THEME.secondary}>{modelName || "(none)"}</Text>
+          {thinkingLevel && thinkingLevel !== "off" ? (
+            <Text color={CLI_THEME.accent}> [think:{thinkingLevel}]</Text>
+          ) : null}
+          {trimmedSession ? <Text color={CLI_THEME.hint}> · {trimmedSession}</Text> : null}
+        </Text>
+        <Text color={CLI_THEME.hint} wrap="truncate">
+          {shortCwd || cwd}
+        </Text>
       </Box>
     </Box>
   );

@@ -15,6 +15,7 @@ require (
 	github.com/joho/godotenv v1.5.1
 	github.com/kardianos/service v1.2.4
 	github.com/openai/openai-go/v3 v3.35.0
+	github.com/pmezard/go-difflib v1.0.0
 	github.com/rivo/uniseg v0.4.7
 	go.uber.org/zap v1.28.0
 	golang.org/x/crypto v0.51.0

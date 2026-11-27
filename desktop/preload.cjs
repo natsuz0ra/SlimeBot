@@ -5,4 +5,5 @@ contextBridge.exposeInMainWorld('slimebotDesktop', Object.freeze({
   updateJob: () => ipcRenderer.invoke('desktop:update-job'),
   updateApply: () => ipcRenderer.invoke('desktop:update-apply'),
   chooseWorkingDirectory: currentPath => ipcRenderer.invoke('desktop:choose-working-directory', currentPath),
+  notify: body => ipcRenderer.invoke('desktop:notify', { body }),
 }))

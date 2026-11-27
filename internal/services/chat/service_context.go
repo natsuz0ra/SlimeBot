@@ -41,6 +41,8 @@ type contextCompressionResult struct {
 	meterTools     []llmsvc.ToolDef
 	meterConfig    *llmsvc.ModelRuntimeConfig
 	lastCheckpoint *domain.ContextCheckpoint
+	lastAttempt    *domain.ContextCheckpoint
+	cooldownUntil  *time.Time
 }
 
 type contextBuildResult struct {
@@ -158,7 +160,11 @@ func (s *ChatService) buildContextMessagesDetailed(ctx context.Context, sessionI
 	msgs = append(msgs, stablePrefix...)
 	msgs = append(msgs, dynamicTail...)
 
-	compression, err := s.applyContextCompression(ctx, sessionID, modelConfig, msgs, history, toolRecords)
+	runtimeState, err := s.contextRuntimeState(ctx, sessionID)
+	if err != nil {
+		return contextBuildResult{}, err
+	}
+	compression, err := s.applyContextCompression(ctx, sessionID, modelConfig, msgs, history, toolRecords, runtimeState)
 	if err != nil {
 		return contextBuildResult{}, err
 	}
@@ -179,14 +185,26 @@ func (s *ChatService) buildContextMessagesDetailed(ctx context.Context, sessionI
 		}
 		meterTools = append(meterTools, contextReadToolDef())
 	}
-	usage := buildContextUsage(sessionID, meterConfig, msgs, history, toolRecords, compression.compacted, compression.compactedAt)
+	usage := buildContextUsage(sessionID, meterConfig, msgs, history, toolRecords, compression.compacted, compression.compactedAt, meterTools)
 	usage.UsedTokens = contextsvc.Estimate(msgs, meterTools)
-	if cp := compression.lastCheckpoint; cp != nil {
+	cp := compression.lastCheckpoint
+	if compression.lastAttempt != nil {
+		cp = compression.lastAttempt
+	}
+	if cp != nil {
 		usage.CompactionBeforeTokens = cp.BeforeTokens
 		usage.CompactionAfterTokens = cp.AfterTokens
 		usage.CompactionReason = cp.Reason
+		usage.CompactionDurationMs = max(0, cp.UpdatedAt.Sub(cp.CreatedAt).Milliseconds())
+		if cp.Status == "failed" || cp.Status == "interrupted" {
+			usage.CompactionFailure = cp.Failure
+		}
+	}
+	if compression.cooldownUntil != nil && time.Now().Before(*compression.cooldownUntil) {
+		usage.State = "cooldown"
 	}
 	usage = normalizeContextUsagePercentages(usage)
+	s.attachOutputBudget(ctx, sessionID, &usage)
 	logging.Info(
 		"chat_context_ready",
 		"session", sessionID,
@@ -199,17 +217,30 @@ func (s *ChatService) buildContextMessagesDetailed(ctx context.Context, sessionI
 	return contextBuildResult{messages: msgs, usage: usage, compactedNow: compression.compactedNow}, nil
 }
 
+func (s *ChatService) attachOutputBudget(ctx context.Context, sessionID string, usage *ContextUsage) {
+	if s == nil || s.usage == nil || usage == nil || strings.TrimSpace(sessionID) == "" {
+		return
+	}
+	status, err := s.usage.SessionBudgetStatus(ctx, sessionID)
+	if err != nil {
+		return
+	}
+	usage.OutputBudgetTokens = status.BudgetTokens
+	usage.OutputBudgetUsed = status.UsedTokens
+}
+
 func (s *ChatService) buildStableContextPrefix(ctx context.Context) ([]llmsvc.ChatMessage, error) {
 	systemPrompt, err := s.loadStableSystemPrompt(ctx)
 	if err != nil {
 		return nil, err
 	}
-	return []llmsvc.ChatMessage{{Role: "system", Content: systemPrompt}}, nil
+	return []llmsvc.ChatMessage{{Role: "system", Content: systemPrompt, ContextLayer: "system"}}, nil
 }
 
 func (s *ChatService) buildDynamicContextTail(ctx context.Context, sessionID string) ([]llmsvc.ChatMessage, error) {
-	workingDirectory := ""
+	workingDirectory := s.runContext.WorkingDir
 	if !s.runContext.IsCLI && sessionID != "" {
+		workingDirectory = ""
 		session, err := s.store.GetSessionByID(ctx, sessionID)
 		if err != nil && !errors.Is(err, apperrors.ErrNotFound) {
 			return nil, err
@@ -218,30 +249,39 @@ func (s *ChatService) buildDynamicContextTail(ctx context.Context, sessionID str
 			workingDirectory = session.WorkingDirectory
 		}
 	}
-	runtimeEnvPrompt := s.buildRuntimeEnvironmentPrompt(workingDirectory)
-	projectPrompt := ""
+	messages := make([]llmsvc.ChatMessage, 0, 4)
 	if workingDirectory != "" && s.agents != nil {
 		content, err := s.agents.ReadProject(ctx, workingDirectory)
 		if err != nil {
 			return nil, err
 		}
 		if strings.TrimSpace(content) != "" {
-			projectPrompt = "# AGENTS.md instructions for " + workingDirectory + "\n\n<INSTRUCTIONS>\n" + strings.TrimSpace(content) + "\n</INSTRUCTIONS>"
+			projectPrompt := "# AGENTS.md instructions for " + workingDirectory + "\n\n<INSTRUCTIONS>\n" + strings.TrimSpace(content) + "\n</INSTRUCTIONS>"
+			messages = append(messages, llmsvc.ChatMessage{Role: "system", Content: projectPrompt, ContextLayer: "project"})
 		}
 	}
-	memoryPrompt := ""
+	if s.skillRuntime != nil {
+		catalog, _, err := s.skillRuntime.BuildCatalogPrompt()
+		if err != nil {
+			return nil, err
+		}
+		if strings.TrimSpace(catalog) != "" {
+			messages = append(messages, llmsvc.ChatMessage{Role: "system", Content: strings.TrimSpace(catalog), ContextLayer: "skill_catalog"})
+		}
+	}
 	if s.memory != nil {
 		block, err := s.memory.FormatForSystemPrompt(ctx)
 		if err != nil {
 			return nil, err
 		}
-		memoryPrompt = strings.TrimSpace(block)
+		if strings.TrimSpace(block) != "" {
+			messages = append(messages, llmsvc.ChatMessage{Role: "system", Content: strings.TrimSpace(block), ContextLayer: "memory"})
+		}
 	}
-	content := strings.TrimSpace(strings.Join(nonEmptyStrings(runtimeEnvPrompt, projectPrompt, memoryPrompt), "\n\n"))
-	if content == "" {
-		return nil, nil
+	if runtimePrompt := strings.TrimSpace(s.buildRuntimeEnvironmentPrompt(workingDirectory)); runtimePrompt != "" {
+		messages = append(messages, llmsvc.ChatMessage{Role: "system", Content: runtimePrompt, ContextLayer: "runtime"})
 	}
-	return []llmsvc.ChatMessage{{Role: "system", Content: content}}, nil
+	return messages, nil
 }
 
 func nonEmptyStrings(values ...string) []string {
@@ -255,7 +295,7 @@ func nonEmptyStrings(values ...string) []string {
 }
 
 // Projection is read-only. Actual compaction happens after all runtime input and tool definitions are known.
-func (s *ChatService) applyContextCompression(ctx context.Context, sessionID string, modelConfig llmsvc.ModelRuntimeConfig, prefix []llmsvc.ChatMessage, history []domain.Message, toolRecords []domain.ToolCallRecord) (contextCompressionResult, error) {
+func (s *ChatService) applyContextCompression(ctx context.Context, sessionID string, modelConfig llmsvc.ModelRuntimeConfig, prefix []llmsvc.ChatMessage, history []domain.Message, toolRecords []domain.ToolCallRecord, runtimeState ...contextsvc.RuntimeState) (contextCompressionResult, error) {
 	fallback := historyToChatMessages(history, toolRecords)
 	store, ok := s.store.(contextsvc.Store)
 	if !ok {
@@ -298,11 +338,15 @@ func (s *ChatService) applyContextCompression(ctx context.Context, sessionID str
 			id--
 		}
 	}
-	messages, compacted, at, err := contextsvc.SnapshotView(snapshot, nil)
+	runtime := contextsvc.RuntimeState{}
+	if len(runtimeState) > 0 {
+		runtime = runtimeState[0]
+	}
+	messages, compacted, at, err := contextsvc.SnapshotViewWithState(snapshot, nil, runtime)
 	if err != nil {
 		return contextCompressionResult{}, err
 	}
-	result := contextCompressionResult{messages: messages, compacted: compacted, compactedAt: at}
+	result := contextCompressionResult{messages: messages, compacted: compacted, compactedAt: at, lastAttempt: snapshot.LastAttempt, cooldownUntil: snapshot.Head.CompactionCooldownUntil}
 	for _, cp := range snapshot.Checkpoints {
 		if result.lastCheckpoint == nil || cp.UpdatedAt.After(result.lastCheckpoint.UpdatedAt) {
 			latest := cp
@@ -319,7 +363,7 @@ func (s *ChatService) applyContextCompression(ctx context.Context, sessionID str
 	return result, nil
 }
 
-func buildContextUsage(sessionID string, modelConfig llmsvc.ModelRuntimeConfig, messages []llmsvc.ChatMessage, history []domain.Message, toolRecords []domain.ToolCallRecord, compacted bool, compactedAt string) ContextUsage {
+func buildContextUsage(sessionID string, modelConfig llmsvc.ModelRuntimeConfig, messages []llmsvc.ChatMessage, history []domain.Message, toolRecords []domain.ToolCallRecord, compacted bool, compactedAt string, toolDefs ...[]llmsvc.ToolDef) ContextUsage {
 	total := modelConfig.ContextSize
 	if total <= 0 {
 		total = constants.DefaultContextSize
@@ -336,6 +380,10 @@ func buildContextUsage(sessionID string, modelConfig llmsvc.ModelRuntimeConfig, 
 		usedPercent = 100
 	}
 	budget, _ := contextsvc.RequestBudget(modelConfig)
+	var tools []llmsvc.ToolDef
+	if len(toolDefs) > 0 {
+		tools = toolDefs[0]
+	}
 	return ContextUsage{
 		InputBudget: budget.HardInput, OutputReserve: budget.Output, Source: "estimated",
 		SessionID:        sessionID,
@@ -346,7 +394,68 @@ func buildContextUsage(sessionID string, modelConfig llmsvc.ModelRuntimeConfig, 
 		AvailablePercent: 100 - usedPercent,
 		IsCompacted:      compacted,
 		CompactedAt:      compactedAt,
+		Layers:           buildContextLayerUsage(messages, tools),
 	}
+}
+
+func buildContextLayerUsage(messages []llmsvc.ChatMessage, tools []llmsvc.ToolDef) []ContextLayerUsage {
+	order := []string{"system", "project", "tools", "skill_catalog", "memory", "runtime", "compaction", "recent_conversation", "current_turn", "runtime_state"}
+	counts := make(map[string]int, len(order))
+	latestUser := -1
+	for i, message := range messages {
+		if message.Role == "user" && !strings.HasPrefix(message.Content, "[Historical context checkpoint:") && message.ContextLayer != "runtime_state" {
+			latestUser = i
+		}
+	}
+	for i, message := range messages {
+		layer := message.ContextLayer
+		if layer == "" {
+			switch {
+			case strings.HasPrefix(message.Content, "[Historical context checkpoint:"):
+				layer = "compaction"
+			case i >= latestUser && latestUser >= 0:
+				layer = "current_turn"
+			default:
+				layer = "recent_conversation"
+			}
+		}
+		counts[layer] += contextsvc.Estimate([]llmsvc.ChatMessage{message}, nil) - 3
+	}
+	if len(tools) > 0 {
+		counts["tools"] = contextsvc.Estimate(nil, tools) - 3
+	}
+	// Account for the fixed protocol overhead instead of hiding it from the total.
+	accounted := 0
+	for _, tokens := range counts {
+		accounted += tokens
+	}
+	if overhead := contextsvc.Estimate(messages, tools) - accounted; overhead > 0 {
+		counts["recent_conversation"] += overhead
+	}
+	layers := make([]ContextLayerUsage, 0, len(order))
+	for _, layer := range order {
+		if counts[layer] > 0 {
+			layers = append(layers, ContextLayerUsage{Layer: layer, Tokens: counts[layer]})
+		}
+	}
+	return layers
+}
+
+func upsertContextLayerUsage(layers []ContextLayerUsage, layer string, tokens int) []ContextLayerUsage {
+	for i := range layers {
+		if layers[i].Layer == layer {
+			layers[i].Tokens = tokens
+			return layers
+		}
+	}
+	result := append([]ContextLayerUsage{}, layers...)
+	for i, item := range result {
+		if item.Layer == "recent_conversation" || item.Layer == "current_turn" || item.Layer == "runtime_state" {
+			result = append(result[:i], append([]ContextLayerUsage{{Layer: layer, Tokens: tokens}}, result[i:]...)...)
+			return result
+		}
+	}
+	return append(result, ContextLayerUsage{Layer: layer, Tokens: tokens})
 }
 
 func nonZeroTokenUsage(usage llmsvc.TokenUsage) *llmsvc.TokenUsage {
@@ -530,40 +639,26 @@ func (s *ChatService) loadSystemPrompt() (string, error) {
 	return prompt, nil
 }
 
-// loadStableSystemPrompt builds and caches stable system prompt; refreshes when skill catalog or AGENTS.md content changes.
+// loadStableSystemPrompt caches only stable identity and global instructions.
+// Project files, skill catalogs, memory and runtime data live in later layers so
+// their changes do not invalidate the provider's stable prefix cache.
 func (s *ChatService) loadStableSystemPrompt(ctx context.Context) (string, error) {
 	basePrompt, err := s.loadSystemPrompt()
 	if err != nil {
 		return "", err
 	}
-
-	catalogPrompt := ""
-	if s.skillRuntime != nil {
-		var catalogErr error
-		catalogPrompt, _, catalogErr = s.skillRuntime.BuildCatalogPrompt()
-		if catalogErr != nil {
-			return "", catalogErr
-		}
-		catalogPrompt = strings.TrimSpace(catalogPrompt)
-	}
-
 	agentsPrompt, err := s.buildAgentsInstructionsPrompt(ctx)
 	if err != nil {
 		return "", err
 	}
-
-	if cachedPrompt, cachedCatalog, cachedAgents := s.getStableSystemPromptCached(); strings.TrimSpace(cachedPrompt) != "" && cachedCatalog == catalogPrompt && cachedAgents == agentsPrompt {
+	if cachedPrompt, cachedCatalog, cachedAgents := s.getStableSystemPromptCached(); strings.TrimSpace(cachedPrompt) != "" && cachedCatalog == "" && cachedAgents == agentsPrompt {
 		return cachedPrompt, nil
 	}
-
 	stable := basePrompt
-	if catalogPrompt != "" {
-		stable = stable + "\n\n" + catalogPrompt
-	}
 	if agentsPrompt != "" {
 		stable = stable + "\n\n" + agentsPrompt
 	}
-	s.setStableSystemPromptCached(stable, catalogPrompt, agentsPrompt)
+	s.setStableSystemPromptCached(stable, "", agentsPrompt)
 	return stable, nil
 }
 
@@ -577,22 +672,7 @@ func (s *ChatService) buildAgentsInstructionsPrompt(ctx context.Context) (string
 		return "", err
 	}
 	globalContent := strings.TrimSpace(global.Content)
-	projectContent := ""
-	if s.runContext.IsCLI && strings.TrimSpace(s.runContext.WorkingDir) != "" {
-		projectContent, err = s.agents.ReadProject(ctx, s.runContext.WorkingDir)
-		if err != nil {
-			return "", err
-		}
-		projectContent = strings.TrimSpace(projectContent)
-	}
-
-	content := globalContent
-	if content != "" && projectContent != "" {
-		content += "\n\n--- project-doc ---\n\n" + projectContent
-	} else if projectContent != "" {
-		content = projectContent
-	}
-	if content == "" {
+	if globalContent == "" {
 		return "", nil
 	}
 
@@ -608,7 +688,7 @@ func (s *ChatService) buildAgentsInstructionsPrompt(ctx context.Context) (string
 	b.WriteString("# AGENTS.md instructions for ")
 	b.WriteString(directory)
 	b.WriteString("\n\n<INSTRUCTIONS>\n")
-	b.WriteString(content)
+	b.WriteString(globalContent)
 	b.WriteString("\n</INSTRUCTIONS>")
 	return b.String(), nil
 }

@@ -17,6 +17,7 @@ import (
 	contextsvc "slimebot/internal/services/context"
 	llm "slimebot/internal/services/llm"
 	subagent "slimebot/internal/services/subagent"
+	usagesvc "slimebot/internal/services/usage"
 	"slimebot/internal/tools"
 	"strings"
 	"time"
@@ -399,6 +400,7 @@ func (s *ChatService) runCooperativeTurn(ctx context.Context, d domain.AgentDesc
 		}
 	}
 	ctx = sandbox.WithWorkingDirectory(ctx, workspace)
+	ctx = usagesvc.WithScope(ctx, usagesvc.Scope{RootSessionID: d.RootID, SessionID: d.SessionID, RequestID: t.ID, WorkingDirectory: workspace})
 	messages, err := s.BuildSubagentMessages(ctx, d.SessionID, input.Content, "")
 	if err != nil {
 		return agentruntime.Result{}, err

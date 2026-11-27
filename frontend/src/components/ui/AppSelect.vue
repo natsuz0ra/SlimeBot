@@ -199,7 +199,7 @@ onUnmounted(() => {
             >
               <span
                 class="w-1.5 h-1.5 rounded-full flex-shrink-0 transition-all duration-150"
-                :class="opt.value === modelValue ? 'bg-indigo-500' : 'bg-transparent'"
+                :class="opt.value === modelValue ? 'select-option-dot--active' : 'bg-transparent'"
               />
               {{ opt.label }}
             </button>
@@ -211,6 +211,9 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
+.select-option-dot--active {
+  background: var(--sb-brand);
+}
 .select-trigger {
   color: var(--text-secondary);
 }

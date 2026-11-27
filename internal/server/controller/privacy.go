@@ -2,6 +2,7 @@ package controller
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"time"
 
@@ -32,16 +33,27 @@ func (h *HTTPController) UpdatePrivacy(c WebContext) {
 	if !h.privacyReady(c) {
 		return
 	}
-	config := privacysvc.DefaultConfig()
-	if !bindJSONOrBadRequest(c, &config, "Invalid privacy configuration.") {
+	input := struct {
+		privacysvc.Config
+		MappingPersistence *bool `json:"mappingPersistence"`
+		MappingTTLMinutes  *int  `json:"mappingTtlMinutes"`
+	}{Config: privacysvc.DefaultConfig()}
+	if !bindJSONOrBadRequest(c, &input, "Invalid privacy configuration.") {
 		return
 	}
-	if err := config.Validate(); err != nil {
+	if input.MappingTTLMinutes != nil {
+		input.Config.MappingTTLMinutes = *input.MappingTTLMinutes
+	}
+	if err := input.Config.Validate(); err != nil {
 		jsonError(c, http.StatusBadRequest, err.Error())
 		return
 	}
-	if err := h.privacy.Update(c.Request().Context(), config); err != nil {
-		jsonInternalError(c, err)
+	if err := h.privacy.UpdateWithMappingSettings(c.Request().Context(), input.Config, input.MappingPersistence, input.MappingTTLMinutes); err != nil {
+		if errors.Is(err, privacysvc.ErrMappingConfiguration) {
+			jsonError(c, http.StatusBadRequest, err.Error())
+		} else {
+			jsonInternalError(c, err)
+		}
 		return
 	}
 	c.Status(http.StatusNoContent)

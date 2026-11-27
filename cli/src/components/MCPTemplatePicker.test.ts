@@ -19,7 +19,7 @@ test("MCP template picker leaves a single title gap", () => {
 });
 
 test("MCP template picker hint preserves existing keyboard operations", () => {
-	assert.equal(MCP_TEMPLATE_HINT, "Arrow keys to navigate | Enter to select | Esc to cancel");
+	assert.equal(MCP_TEMPLATE_HINT, "↑↓ navigate · Enter select · Esc cancel");
 });
 
 test("MCP template picker palette separates selected, idle, and hint text", () => {

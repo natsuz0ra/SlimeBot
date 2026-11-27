@@ -36,7 +36,10 @@ func (s *Service) ProtectText(ctx context.Context, cfg llm.ModelRuntimeConfig, t
 			out = ""
 			err = errors.New("privacy input preparation failed")
 		}
-		t.finish(err != nil)
+		if finishErr := t.finish(err != nil); err == nil && finishErr != nil {
+			out = ""
+			err = finishErr
+		}
 	}()
 	if c.ModelEnabled {
 		var cancel context.CancelFunc

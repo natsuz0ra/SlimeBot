@@ -28,7 +28,7 @@ export function formatContextUsageStatus(
     totalTokens: number;
     usedPercent: number;
     isCompacted?: boolean;
-    state?: "compacting" | "ready";
+    state?: "compacting" | "ready" | "cooldown";
     source?: "estimated" | "provider-reported";
   } | null | undefined,
   width: number,
@@ -36,7 +36,8 @@ export function formatContextUsageStatus(
   if (!usage) return "";
   const base = `CTX ${Math.max(0, Math.min(100, Math.round(usage.usedPercent)))}%`;
   if (width < 24) return base;
-  const status = `${base}${usage.state === "compacting" ? " · organizing" : ""}`;
+  const stateLabel = usage.state === "compacting" ? " · organizing" : usage.state === "cooldown" ? " · cooldown" : "";
+  const status = `${base}${stateLabel}`;
   const full = `${status} · ${formatContextTokenCount(usage.usedTokens)}/${formatContextTokenCount(usage.totalTokens)}${usage.isCompacted ? " · compacted" : ""}${usage.source === "estimated" ? " · est." : ""}`;
   if (width < full.length + 4) return status;
   return full;

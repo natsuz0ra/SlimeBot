@@ -1,6 +1,7 @@
 import { Box, Text, useInput } from "ink";
 import { wrapText } from "../utils/format.js";
 import { CLI_ACCENT_COLOR } from "../utils/terminal.js";
+import { CLI_THEME } from "../utils/theme.js";
 import { MENU_ITEM_COLORS } from "./MenuView.js";
 
 export const QUESTION_ANSWER_COLORS = {
@@ -8,10 +9,10 @@ export const QUESTION_ANSWER_COLORS = {
   activeCursor: CLI_ACCENT_COLOR,
   activeText: "#f8fafc",
   inactiveText: "#cbd5e1",
-  description: "#94a3b8",
+  description: CLI_THEME.secondary,
   answered: "#34d399",
   warning: "#fbbf24",
-  hint: "#64748b",
+  hint: CLI_THEME.hint,
 } as const;
 
 interface QuestionItem {

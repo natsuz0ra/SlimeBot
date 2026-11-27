@@ -5,11 +5,14 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/google/uuid"
+	"slimebot/internal/apperrors"
 	"slimebot/internal/constants"
+	"slimebot/internal/domain"
 	"slimebot/internal/logging"
 	llm "slimebot/internal/services/llm"
 	"slimebot/internal/tools"
@@ -17,6 +20,8 @@ import (
 
 type deliveryKey struct{}
 type wakeDepthKey struct{}
+type backgroundTaskIDKey struct{}
+type backgroundOriginTurnKey struct{}
 
 // WithTurnDelivery keeps a completion-triggered turn behind the originating
 // transport's final done event, including a disconnect. Other callers need no gate.
@@ -26,11 +31,13 @@ func WithTurnDelivery(ctx context.Context, delivered <-chan struct{}) context.Co
 
 type backgroundOptions struct {
 	sessionID, modelID, thinking, subagent, surface, approval string
+	originTurnID                                              string
 	plan                                                      bool
 	epoch                                                     uint64
 	depth                                                     int
 	source                                                    *turnInbox
 	delivered                                                 <-chan struct{}
+	spec                                                      tools.ProcessSpec
 }
 type backgroundWake struct {
 	options backgroundOptions
@@ -38,10 +45,19 @@ type backgroundWake struct {
 	taskID  string
 }
 type backgroundTask struct {
-	TaskID    string `json:"taskId"`
-	ProcessID string `json:"processId"`
-	Status    string `json:"status"`
+	domain.BackgroundTask
 }
+
+func newBackgroundTask(task domain.BackgroundTask) backgroundTask {
+	if task.TaskID == "" {
+		task.TaskID = task.ID
+	}
+	if task.ProcessID == "" {
+		task.ProcessID = strings.TrimPrefix(task.ID, "background:")
+	}
+	return backgroundTask{task}
+}
+
 type backgroundReplay struct {
 	events []any
 	bytes  int
@@ -64,12 +80,37 @@ type backgroundRuntime struct {
 	wg           sync.WaitGroup
 }
 
+func backgroundTaskStatus(status string) bool {
+	switch status {
+	case domain.BackgroundStatusRunning, domain.BackgroundStatusQueued, domain.BackgroundStatusWaking:
+		return true
+	default:
+		return false
+	}
+}
+
 func (s *ChatService) backgrounds() *backgroundRuntime {
 	s.backgroundOnce.Do(func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		s.background = &backgroundRuntime{service: s, ctx: ctx, cancel: cancel, subscribers: map[string]map[chan any]struct{}{}, queued: map[string]int{}, queueDone: map[string]chan struct{}{}, queues: map[string][]backgroundWake{}, workers: map[string]bool{}, epochs: map[string]uint64{}, tasks: map[string]map[string]backgroundTask{}, replay: map[string]*backgroundReplay{}, activeCancel: map[string]context.CancelFunc{}}
 	})
 	return s.background
+}
+
+// start registers work before CloseBackground can begin waiting. Cancellation
+// and registration share b.mu, so no new goroutine can be added after shutdown.
+func (b *backgroundRuntime) start(task func()) bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.ctx.Err() != nil {
+		return false
+	}
+	b.wg.Add(1)
+	go func() {
+		defer b.wg.Done()
+		task()
+	}()
+	return true
 }
 
 // QueueForeground reserves priority for a submitted user turn while the
@@ -120,6 +161,23 @@ func (s *ChatService) SubscribeSessionEvents(sessionID string) (<-chan any, func
 	items := make([]backgroundTask, 0)
 	for _, task := range b.tasks[sessionID] {
 		items = append(items, task)
+	}
+	if store, ok := b.service.store.(domain.BackgroundTaskStore); ok {
+		persisted, err := store.ListBackgroundTasks(context.Background(), sessionID, 100)
+		if err == nil {
+			for _, item := range persisted {
+				found := false
+				for _, active := range items {
+					if active.ID == item.ID {
+						found = true
+						break
+					}
+				}
+				if !found {
+					items = append(items, newBackgroundTask(item))
+				}
+			}
+		}
 	}
 	ch <- map[string]any{"type": "background_tasks", "sessionId": sessionID, "tasks": items}
 	if current := b.replay[sessionID]; current != nil {
@@ -180,20 +238,122 @@ func (b *backgroundRuntime) publish(sessionID string, payload any) bool {
 }
 
 func (b *backgroundRuntime) task(sessionID string, task backgroundTask) {
+	task = newBackgroundTask(task.BackgroundTask)
 	b.mu.Lock()
 	if b.tasks[sessionID] == nil {
 		b.tasks[sessionID] = map[string]backgroundTask{}
 	}
-	if task.Status == "finished" || task.Status == "failed" || task.Status == "stopped" {
+	previous := b.tasks[sessionID][task.TaskID]
+	item := previous.BackgroundTask
+	mergeBackgroundTask(&item, task.BackgroundTask)
+	if store, ok := b.service.store.(domain.BackgroundTaskStore); ok {
+		persisted, err := store.GetBackgroundTask(context.Background(), item.ID)
+		if err == nil {
+			item = *persisted
+			mergeBackgroundTask(&item, task.BackgroundTask)
+		} else if !errors.Is(err, apperrors.ErrNotFound) {
+			logging.Warn("background_task_load_failed", "task", item.ID, "err", err)
+		}
+	}
+	if !backgroundTaskStatus(item.Status) {
 		delete(b.tasks[sessionID], task.TaskID)
 	} else {
-		b.tasks[sessionID][task.TaskID] = task
+		b.tasks[sessionID][task.TaskID] = newBackgroundTask(item)
 	}
 	if len(b.tasks[sessionID]) == 0 {
 		delete(b.tasks, sessionID)
 	}
 	b.mu.Unlock()
+	if store, ok := b.service.store.(domain.BackgroundTaskStore); ok {
+		if err := store.SaveBackgroundTask(context.Background(), &item); err != nil {
+			logging.Warn("background_task_persist_failed", "task", item.ID, "err", err)
+		}
+	}
 	b.publish(sessionID, map[string]any{"type": "background_task", "sessionId": sessionID, "taskId": task.TaskID, "processId": task.ProcessID, "status": task.Status})
+}
+
+func mergeBackgroundTask(target *domain.BackgroundTask, update domain.BackgroundTask) {
+	if target.ID == "" {
+		*target = update
+		target.AutoWake = update.AutoWake
+		return
+	}
+	if target.Status == domain.BackgroundStatusStopped && update.Status != domain.BackgroundStatusStopped {
+		return
+	}
+	if update.TaskID != "" {
+		target.TaskID = update.TaskID
+	}
+	if update.ProcessID != "" {
+		target.ProcessID = update.ProcessID
+	}
+	if update.SessionID != "" {
+		target.SessionID = update.SessionID
+	}
+	if update.Command != "" {
+		target.Command = update.Command
+	}
+	if update.Shell != "" {
+		target.Shell = update.Shell
+	}
+	if update.WorkingDirectory != "" {
+		target.WorkingDirectory = update.WorkingDirectory
+	}
+	if update.SandboxMode != "" {
+		target.SandboxMode = update.SandboxMode
+	}
+	if update.TimeoutMs != 0 {
+		target.TimeoutMs = update.TimeoutMs
+	}
+	if update.ModelID != "" {
+		target.ModelID = update.ModelID
+	}
+	if update.Thinking != "" {
+		target.Thinking = update.Thinking
+	}
+	if update.Subagent != "" {
+		target.Subagent = update.Subagent
+	}
+	if update.Surface != "" {
+		target.Surface = update.Surface
+	}
+	if update.Approval != "" {
+		target.Approval = update.Approval
+	}
+	if update.Status != "" {
+		target.Status = update.Status
+	}
+	if !update.StartedAt.IsZero() {
+		target.AutoWake = update.AutoWake
+		target.WakeDepth = update.WakeDepth
+	}
+	if update.Output != "" {
+		target.Output = update.Output
+	}
+	if update.Error != "" {
+		target.Error = update.Error
+	}
+	target.ExitCode = update.ExitCode
+	if !update.StartedAt.IsZero() {
+		target.StartedAt = update.StartedAt
+	}
+	if update.Status != "" {
+		if backgroundTaskStatus(update.Status) {
+			target.FinishedAt = nil
+		} else {
+			now := time.Now()
+			if target.FinishedAt == nil {
+				target.FinishedAt = &now
+			}
+		}
+	}
+}
+
+func (s *ChatService) RecoverBackgroundTasks(ctx context.Context) error {
+	if store, ok := s.store.(domain.BackgroundTaskStore); ok {
+		return store.InterruptBackgroundTasks(ctx, time.Now())
+	}
+	return nil
 }
 
 func (s *ChatService) backgroundObserver(ctx context.Context, state *chatTurnState, subagent, approval string, plan bool) tools.BackgroundObserver {
@@ -205,7 +365,11 @@ func (s *ChatService) backgroundObserver(ctx context.Context, state *chatTurnSta
 	epoch := b.epochs[state.session.ID]
 	b.mu.Unlock()
 	options := backgroundOptions{sessionID: state.session.ID, modelID: state.modelConfig.ConfigID, thinking: state.modelConfig.ThinkingLevel, subagent: subagent, approval: approval, surface: constants.ClientSurfaceFromContext(ctx), plan: plan, epoch: epoch, depth: depth, source: source, delivered: delivered}
+	options.originTurnID, _ = ctx.Value(backgroundOriginTurnKey{}).(string)
 	identity := func(event tools.ProcessCompletion) string {
+		if id, _ := ctx.Value(backgroundTaskIDKey{}).(string); id != "" {
+			return id
+		}
 		prefix := ""
 		if source != nil {
 			prefix = source.id
@@ -215,18 +379,29 @@ func (s *ChatService) backgroundObserver(ctx context.Context, state *chatTurnSta
 	return tools.BackgroundObserver{
 		AutoWakeDisabled: depth >= 16,
 		Started: func(event tools.ProcessCompletion) {
-			b.task(options.sessionID, backgroundTask{identity(event), event.ID, "running"})
+			approval := s.backgroundApproval(context.Background(), options.approval)
+			options.spec = tools.ProcessSpec{Shell: event.Shell, WorkingDirectory: event.WorkingDirectory, SandboxMode: event.SandboxMode, TimeoutMs: event.TimeoutMs, AutoWake: event.AutoWake}
+			b.task(options.sessionID, backgroundTask{domain.BackgroundTask{ID: identity(event), TaskID: identity(event), ProcessID: event.ID, SessionID: options.sessionID, OriginTurnID: options.originTurnID, Command: event.Command, Shell: event.Shell, WorkingDirectory: event.WorkingDirectory, SandboxMode: event.SandboxMode, TimeoutMs: event.TimeoutMs, ModelID: options.modelID, Thinking: options.thinking, Subagent: options.subagent, Surface: options.surface, Approval: approval, PlanMode: options.plan, AutoWake: event.AutoWake, WakeDepth: options.depth, Status: domain.BackgroundStatusRunning, StartedAt: time.Now()}})
 		},
 		Completed: func(event tools.ProcessCompletion) {
 			taskID := identity(event)
+			record := domain.BackgroundTask{ID: taskID, ProcessID: event.ID, SessionID: options.sessionID, Command: event.Command, Output: event.Output, ExitCode: event.ExitCode}
 			if event.Status == "stopped" {
-				b.task(options.sessionID, backgroundTask{taskID, event.ID, "stopped"})
+				record.Status = domain.BackgroundStatusStopped
+				b.task(options.sessionID, backgroundTask{record})
 				return
 			}
 			b.mu.Lock()
-			if b.ctx.Err() != nil || b.epochs[options.sessionID] != options.epoch || options.depth >= 16 {
+			if b.ctx.Err() != nil || b.epochs[options.sessionID] != options.epoch {
 				b.mu.Unlock()
-				b.task(options.sessionID, backgroundTask{taskID, event.ID, "stopped"})
+				record.Status = domain.BackgroundStatusStopped
+				b.task(options.sessionID, backgroundTask{record})
+				return
+			}
+			if !event.AutoWake {
+				b.mu.Unlock()
+				record.Status = domain.BackgroundStatusCompleted
+				b.task(options.sessionID, backgroundTask{record})
 				return
 			}
 			b.queues[options.sessionID] = append(b.queues[options.sessionID], backgroundWake{options, event, taskID})
@@ -236,7 +411,8 @@ func (s *ChatService) backgroundObserver(ctx context.Context, state *chatTurnSta
 				b.wg.Add(1)
 			}
 			b.mu.Unlock()
-			b.task(options.sessionID, backgroundTask{taskID, event.ID, "queued"})
+			record.Status = domain.BackgroundStatusQueued
+			b.task(options.sessionID, backgroundTask{record})
 			if start {
 				go b.work(options.sessionID)
 			}
@@ -269,6 +445,10 @@ func (b *backgroundRuntime) work(sessionID string) {
 		}
 		wake := queue[0]
 		b.queues[sessionID] = queue[1:]
+		if task := b.tasks[sessionID][wake.taskID]; task.Status == domain.BackgroundStatusStopped {
+			b.mu.Unlock()
+			continue
+		}
 		b.mu.Unlock()
 		ctx, cancel := context.WithTimeout(b.ctx, constants.WSChatTimeout)
 		if wake.options.source != nil {
@@ -319,7 +499,7 @@ func (b *backgroundRuntime) work(sessionID string) {
 			startedRun := false
 			callbacks.OnTurnStarted = func(turnID string) error {
 				startedRun = true
-				b.task(sessionID, backgroundTask{wake.taskID, wake.event.ID, "waking"})
+				b.task(sessionID, backgroundTask{domain.BackgroundTask{ID: wake.taskID, ProcessID: wake.event.ID, SessionID: sessionID, Status: domain.BackgroundStatusWaking}})
 				b.publish(sessionID, map[string]any{"type": "start", "sessionId": sessionID, "turnId": turnID, "startedAt": started.Format(time.RFC3339Nano), "background": true})
 				return nil
 			}
@@ -342,15 +522,15 @@ func (b *backgroundRuntime) work(sessionID string) {
 				}
 				b.publish(sessionID, map[string]any{"type": kind, "sessionId": sessionID, "error": "后台任务已结束，但自动继续失败。请检查模型配置、权限或任务状态。"})
 				logging.Warn("background_resume_failed", "session", sessionID)
-				b.task(sessionID, backgroundTask{wake.taskID, wake.event.ID, "failed"})
+				b.task(sessionID, backgroundTask{domain.BackgroundTask{ID: wake.taskID, ProcessID: wake.event.ID, SessionID: sessionID, Status: domain.BackgroundStatusFailed, Error: "自动继续失败，请检查模型配置、权限或手动重试。"}})
 			} else {
 				b.publish(sessionID, map[string]any{"type": "done", "sessionId": sessionID, "answer": result.Answer, "isInterrupted": result.IsInterrupted, "isStopPlaceholder": result.IsStopPlaceholder, "finishedAt": time.Now().Format(time.RFC3339Nano), "durationMs": time.Since(started).Milliseconds(), "planId": result.PlanID, "planBody": result.PlanBody})
-				b.task(sessionID, backgroundTask{wake.taskID, wake.event.ID, "finished"})
+				b.task(sessionID, backgroundTask{domain.BackgroundTask{ID: wake.taskID, ProcessID: wake.event.ID, SessionID: sessionID, Status: domain.BackgroundStatusCompleted}})
 			}
 			break
 		}
 		if !handled {
-			b.task(sessionID, backgroundTask{wake.taskID, wake.event.ID, "stopped"})
+			b.task(sessionID, backgroundTask{domain.BackgroundTask{ID: wake.taskID, ProcessID: wake.event.ID, SessionID: sessionID, Status: domain.BackgroundStatusStopped}})
 		}
 		cancel()
 	}

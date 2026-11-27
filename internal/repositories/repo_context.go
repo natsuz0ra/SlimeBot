@@ -29,7 +29,18 @@ func (r *Repository) GetContextSnapshot(ctx context.Context, scope string) (doma
 		if err := tx.Where("scope_id = ?", scope).Order("message_seq asc, id asc").Find(&s.Entries).Error; err != nil {
 			return err
 		}
-		return tx.Where("scope_id = ? AND active = ? AND status = ?", scope, true, "committed").Order("created_at asc, id asc").Find(&s.Checkpoints).Error
+		if err := tx.Where("scope_id = ? AND active = ? AND status = ?", scope, true, "committed").Order("created_at asc, id asc").Find(&s.Checkpoints).Error; err != nil {
+			return err
+		}
+		var attempt domain.ContextCheckpoint
+		if err := tx.Where("scope_id = ?", scope).Order("updated_at desc, id desc").Take(&attempt).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return nil
+			}
+			return err
+		}
+		s.LastAttempt = &attempt
+		return nil
 	})
 	return s, err
 }
@@ -146,12 +157,39 @@ func (r *Repository) FinishContextAttempt(ctx context.Context, id, status, reaso
 	if len(reason) > 500 {
 		reason = reason[:500]
 	}
-	return r.dbWithContext(ctx).Model(&domain.ContextCheckpoint{}).Where("id = ? AND status = ?", id, "pending").Updates(map[string]any{"status": status, "failure": reason, "updated_at": time.Now()}).Error
+	return r.dbWithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var attempt domain.ContextCheckpoint
+		if err := tx.Select("id", "scope_id").Where("id = ? AND status = ?", id, "pending").Take(&attempt).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return nil
+			}
+			return err
+		}
+		now := time.Now()
+		result := tx.Model(&domain.ContextCheckpoint{}).Where("id = ? AND status = ?", id, "pending").Updates(map[string]any{"status": status, "failure": reason, "updated_at": now})
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected != 1 || status == "cancelled" {
+			return nil
+		}
+		cooldown := now.Add(2 * time.Minute)
+		return tx.Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "scope_id"}}, DoUpdates: clause.Assignments(map[string]any{
+			"compaction_failures":       gorm.Expr("compaction_failures + 1"),
+			"compaction_cooldown_until": cooldown,
+			"updated_at":                now,
+		})}).Create(&domain.ContextHead{ScopeID: attempt.ScopeID, CompactionFailures: 1, CompactionCooldownUntil: &cooldown, UpdatedAt: now}).Error
+	})
 }
 
 func (r *Repository) CommitContextCheckpoint(ctx context.Context, c *domain.ContextCheckpoint, replaced []string) error {
 	return r.dbWithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		result := tx.Model(&domain.ContextHead{}).Where("scope_id = ? AND history_revision = ? AND projection_revision = ?", c.ScopeID, c.HistoryRevision, c.ProjectionRevision).Updates(map[string]any{"projection_revision": c.ProjectionRevision + 1, "updated_at": time.Now()})
+		result := tx.Model(&domain.ContextHead{}).Where("scope_id = ? AND history_revision = ? AND projection_revision = ?", c.ScopeID, c.HistoryRevision, c.ProjectionRevision).Updates(map[string]any{
+			"projection_revision":       c.ProjectionRevision + 1,
+			"compaction_failures":       0,
+			"compaction_cooldown_until": nil,
+			"updated_at":                time.Now(),
+		})
 		if result.Error != nil {
 			return result.Error
 		}

@@ -7,6 +7,7 @@ import type React from "react";
 import type { MenuItem } from "../types.js";
 import { wrapText } from "../utils/format.js";
 import { CLI_ACCENT_COLOR } from "../utils/terminal.js";
+import { CLI_THEME } from "../utils/theme.js";
 import { stringWidth } from "../utils/stringWidth.js";
 import { getGraphemeSegmenter } from "../utils/intl.js";
 
@@ -25,15 +26,15 @@ const MAX_MENU_DESC_LENGTH = 80;
 
 export const MENU_TITLE_GAP_LINES = 1;
 export const MENU_VISIBLE_LIMIT = 5;
-export const CLI_HINT_COLOR = "#64748b";
+export const CLI_HINT_COLOR = CLI_THEME.hint;
 export const MENU_ITEM_COLORS = {
 	title: CLI_ACCENT_COLOR,
 	activeCursor: CLI_ACCENT_COLOR,
-	inactiveCursor: "#64748b",
-	activeTitle: "#f8fafc",
-	inactiveTitle: "#cbd5e1",
-	description: "#94a3b8",
-	empty: "#94a3b8",
+	inactiveCursor: CLI_THEME.hint,
+	activeTitle: CLI_ACCENT_COLOR,
+	inactiveTitle: undefined as string | undefined,
+	description: CLI_THEME.secondary,
+	empty: CLI_THEME.secondary,
 	hint: CLI_HINT_COLOR,
 } as const;
 

@@ -36,7 +36,7 @@ func (p *wakeSocketProvider) StreamChatWithTools(ctx context.Context, _ llm.Mode
 		if !ok {
 			return nil, context.Canceled
 		}
-		event := tools.ProcessCompletion{ID: "proc-ws", Command: "synthetic", Status: "completed", Output: "synthetic background output"}
+		event := tools.ProcessCompletion{ID: "proc-ws", Command: "synthetic", Status: "completed", Output: "synthetic background output", AutoWake: true}
 		observer.Started(event)
 		go func() { <-p.finish; observer.Completed(event) }()
 		if cb.OnChunk != nil {

@@ -136,6 +136,11 @@ export interface TeamMemberRunItem {
   updatedAt?: string
 }
 
+export interface ContextLayerUsage {
+  layer: string
+  tokens: number
+}
+
 export interface ContextUsageData {
   sessionId: string
   modelConfigId: string
@@ -150,8 +155,15 @@ export interface ContextUsageData {
   compactionBeforeTokens?: number
   compactionAfterTokens?: number
   compactionReason?: string
+  compactionDurationMs?: number
+  compactionFailure?: string
+  layers?: ContextLayerUsage[]
   source?: 'estimated' | 'provider-reported'
-  state?: 'compacting' | 'ready'
+  state?: 'compacting' | 'ready' | 'cooldown'
+}
+
+export interface ContextCompactionResult extends ContextUsageData {
+  compacted: boolean
 }
 
 export interface SessionHistoryQuery {
@@ -239,6 +251,8 @@ export const sessionAPI = {
         params: { modelId },
       })
     ).data,
+  compactContext: async (id: string, modelId: string) =>
+    (await apiClient.post<ContextCompactionResult>(`/api/sessions/${id}/context/compact`, { modelId })).data,
   uploadAttachments: async (id: string, files: File[]) => {
     const formData = new FormData()
     files.forEach((file) => formData.append('files', file))

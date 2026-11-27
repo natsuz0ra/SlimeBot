@@ -2,7 +2,22 @@
  * Terminal helpers.
  */
 
+import { homedir } from "node:os";
 import { wrapText } from "./format.js";
+import { CLI_THEME } from "./theme.js";
+
+export function shortenHomePath(dir: string): string {
+  const trimmed = (dir || "").trim();
+  if (!trimmed) return "";
+  const home = homedir();
+  if (!home) return trimmed;
+  const normalizedHome = home.replace(/[\\/]+$/, "");
+  if (trimmed === normalizedHome) return "~";
+  if (trimmed.startsWith(`${normalizedHome}/`) || trimmed.startsWith(`${normalizedHome}\\`)) {
+    return `~${trimmed.slice(normalizedHome.length)}`;
+  }
+  return trimmed;
+}
 
 // The workspace shares the terminal with the banner, spacer, separator and
 // context usage. Switch to a single-line banner when these would crowd it out.
@@ -64,5 +79,5 @@ export function setTerminalTitle(title: string): void {
 }
 
 export const DOT = "\u25CF"; // ●
-export const CLI_ACCENT_COLOR = "#c084fc";
-export const CLI_ACCENT_SOFT_COLOR = "#e9d5ff";
+export const CLI_ACCENT_COLOR = CLI_THEME.accent;
+export const CLI_ACCENT_SOFT_COLOR = CLI_THEME.accentSoft;

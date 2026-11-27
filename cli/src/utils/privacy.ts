@@ -8,6 +8,7 @@ interface PrivacyClient {
   installPrivacyModel(): Promise<unknown>;
   cancelPrivacyModel(): Promise<unknown>;
   removePrivacyModel(): Promise<void>;
+  destroySessionPrivacyMappings?: (sessionId: string) => Promise<void>;
 }
 
 export const privacyHelp = [
@@ -16,23 +17,34 @@ export const privacyHelp = [
   '/privacy model on|off|install|cancel|remove',
   '/privacy try <text>',
   '/privacy records|clear',
-  '/privacy config <JSON patch>  (rules, words, allow, kinds, actions, bypassProviderIds, threshold)',
+  '/privacy destroy  (destroy current session privacy mappings)',
+  '/privacy config <JSON patch>  (rules, words, allow, kinds, actions, bypassProviderIds, threshold, mappingPersistence, mappingTtlMinutes)',
   'Example: /privacy config {"words":["Project-A"],"actions":{"PASSWORD":"block"}}',
 ].join('\n');
 
 export function formatPrivacyStatus(snapshot: PrivacySnapshot): string {
-  const { config, model } = snapshot;
+  const { config, model, mappings } = snapshot;
+  const retentionLine = mappings || config.mappingPersistence !== undefined
+    ? `Mappings: ${mappings?.mode || (config.mappingPersistence ? 'encrypted' : 'memory')}${config.mappingTtlMinutes ? ` · TTL ${config.mappingTtlMinutes}m` : ''}${mappings?.keyStatus ? ` · key ${mappings.keyStatus}` : ''}`
+    : '';
   return [
     `Local masking: ${config.enabled ? 'ON' : 'OFF'} | credentials: ${config.secrets ? 'ON' : 'OFF'} | personal data: ${config.personal ? 'ON' : 'OFF'}`,
     `Local model: ${config.modelEnabled ? 'ON (strict)' : 'OFF'} | ${model.installing ? `installing (${model.stage})` : model.installed ? 'installed' : 'not installed'}`,
     `Custom words: ${config.words.length} | rules: ${config.rules.length} | exceptions: ${config.allow.length} | bypassed providers: ${config.bypassProviderIds.length}`,
+    retentionLine,
     model.error ? `Model: ${model.error}` : '',
     '', privacyHelp,
   ].filter(value => value !== '').join('\n');
 }
 
-export async function runPrivacyCommand(client: PrivacyClient, raw: string): Promise<string> {
+export async function runPrivacyCommand(client: PrivacyClient, raw: string, sessionId = ''): Promise<string> {
   const command = raw.trim();
+  if (command === 'destroy') {
+    if (!sessionId) throw new Error('Open or start a session first before destroying session privacy mappings.');
+    if (!client.destroySessionPrivacyMappings) throw new Error('Session privacy mapping destruction is unavailable.');
+    await client.destroySessionPrivacyMappings(sessionId);
+    return 'Current session privacy mappings destroyed.';
+  }
   if (command.startsWith('try ')) {
     const preview = await client.previewPrivacy(command.slice(4));
     return [`${preview.blocked ? 'BLOCKED' : 'Preview'}: ${preview.hits.length} sensitive occurrences`, preview.text, 'Preview stays local and does not change conversation mappings.'].join('\n');

@@ -270,6 +270,9 @@ func (r *Repository) UpdateUserMessageAndPruneAfter(ctx context.Context, session
 			return err
 		}
 		now := time.Now()
+		if !now.After(target.CreatedAt) {
+			now = target.CreatedAt.Add(time.Nanosecond)
+		}
 		if err := tx.Model(&domain.Message{}).
 			Where("id = ?", target.ID).
 			Updates(map[string]any{

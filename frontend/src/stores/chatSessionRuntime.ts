@@ -20,6 +20,8 @@ import { materializeStoppedMessages } from '@/utils/chatMessages'
 import { applyEditedUserMessage, findLatestEditableUserMessageId } from '@/utils/messageEditing'
 import { createClientId } from '@/utils/uuid'
 import { createAgentTeamState, mergeAgentTeamMember, mergeAgentTeamRun } from '@/utils/agentTeam'
+import { isBudgetExceededError } from '@/utils/usageRange'
+import { useToast } from '@/composables/useToast'
 
 export function createChatSessionRuntime(sessionId: string | undefined, callbacks: {
   onCompleted: (id: string) => void
@@ -51,6 +53,8 @@ export function createChatSessionRuntime(sessionId: string | undefined, callback
   const runtimeTodoUpdatedAt = ref<number>()
   const todoPanelOpen = ref(false)
   const contextUsage = ref<ContextUsageData | null>(null)
+  const contextCompacting = ref(false)
+  const toast = useToast()
 
   const replyBatches = ref<AssistantReplyBatch[]>([])
   const currentBatchId = ref<string>('')
@@ -122,6 +126,34 @@ export function createChatSessionRuntime(sessionId: string | undefined, callback
     }
   }
 
+  async function compactContext(modelId: string) {
+    const sessionId = currentSessionId.value
+    if (!sessionId || !modelId || isMessagePlatformSessionId(sessionId) || contextCompacting.value || waiting.value) return false
+    contextCompacting.value = true
+    if (contextUsage.value) applyContextUsage({ ...contextUsage.value, state: 'compacting' }, sessionId)
+    try {
+      const { compacted, ...usage } = await sessionAPI.compactContext(sessionId, modelId)
+      if (currentSessionId.value === sessionId) {
+        contextUsage.value = { ...usage, state: 'ready' }
+        if (compacted) {
+          appendContextCompactedNotice(sessionId)
+          toast.success(i18n.global.t('contextCompactSuccess') as string)
+        } else {
+          toast.info(i18n.global.t('contextCompactNoop') as string)
+        }
+      }
+      return compacted
+    } catch {
+      if (currentSessionId.value === sessionId) {
+        if (contextUsage.value) contextUsage.value = { ...contextUsage.value, state: 'ready' }
+        toast.error(i18n.global.t('contextCompactFailed') as string)
+      }
+      return false
+    } finally {
+      contextCompacting.value = false
+    }
+  }
+
   function clearRuntimeTodos() {
     runtimeTodos.value = []
     runtimeTodoNote.value = ''
@@ -189,6 +221,9 @@ export function createChatSessionRuntime(sessionId: string | undefined, callback
   }
 
   function formatAssistantError(rawError: string) {
+    if (isBudgetExceededError(rawError)) {
+      return i18n.global.t('usageBudgetExceededError') as string
+    }
     const safeError = rawError?.trim() || 'unknown error'
     return i18n.global.t('assistantReplyFailed', { error: safeError }) as string
   }
@@ -430,6 +465,12 @@ export function createChatSessionRuntime(sessionId: string | undefined, callback
           finalizeReplyBatchTiming(batch, parseSocketTimestamp(meta?.finishedAt), meta?.durationMs)
         }
         currentBatchId.value = ''
+        if (meta?.skillLearning) {
+          const key = meta.skillLearning.status === 'completed' ? 'skillLearningCompleted' : 'skillLearningFailed'
+          const message = i18n.global.t(key) as string
+          if (meta.skillLearning.status === 'completed') toast.success(message)
+          else toast.error(message)
+        }
         if (meta?.planId) {
           pendingPlanConfirmation.value = {
             sessionId,
@@ -763,8 +804,8 @@ export function createChatSessionRuntime(sessionId: string | undefined, callback
 
   return {
     sessionId: currentSessionId, ws, connectSocket, closeSocket,
-    messages, activeTurnId, backgroundTaskCount, waiting, streamingStarted, hasMoreHistory, loadingOlderHistory, loadingNewerMessages, focusedMessageId, hasNewerHistory, connectionStatus, connectionError, planGenerating, runtimeTodos, runtimeTodoNote, runtimeTodoUpdatedAt, todoPanelOpen, contextUsage, replyBatches, currentBatchId, assistantErrorIds, failedUserMessageIds, pendingPlanConfirmation, pendingEditMessageId, pendingQuestions,
-    resetSessionRuntimeState, clearContextUsage, refreshContextUsage, clearRuntimeTodos, applyRuntimeTodoUpdate, toggleTodoPanel, resetHistoryState, materializeMessages, rebuildReplyBatchesFromHistory, mergeReplyBatchesFromHistory, isStreamingMessage, isAssistantErrorMessage, isFailedUserMessage, pushFailedUserMessage,
+    messages, activeTurnId, backgroundTaskCount, waiting, streamingStarted, hasMoreHistory, loadingOlderHistory, loadingNewerMessages, focusedMessageId, hasNewerHistory, connectionStatus, connectionError, planGenerating, runtimeTodos, runtimeTodoNote, runtimeTodoUpdatedAt, todoPanelOpen, contextUsage, contextCompacting, replyBatches, currentBatchId, assistantErrorIds, failedUserMessageIds, pendingPlanConfirmation, pendingEditMessageId, pendingQuestions,
+    resetSessionRuntimeState, clearContextUsage, refreshContextUsage, compactContext, clearRuntimeTodos, applyRuntimeTodoUpdate, toggleTodoPanel, resetHistoryState, materializeMessages, rebuildReplyBatchesFromHistory, mergeReplyBatchesFromHistory, isStreamingMessage, isAssistantErrorMessage, isFailedUserMessage, pushFailedUserMessage,
     isSocketReady, pendingApprovalToolCallIds, latestEditableUserMessageId,
   }
 }

@@ -40,9 +40,10 @@ type Record struct {
 }
 
 type Snapshot struct {
-	Config  Config      `json:"config"`
-	Model   ModelStatus `json:"model"`
-	Records []Record    `json:"records"`
+	Config   Config        `json:"config"`
+	Model    ModelStatus   `json:"model"`
+	Records  []Record      `json:"records"`
+	Mappings MappingStatus `json:"mappings"`
 }
 
 type scopeState struct {
@@ -60,16 +61,36 @@ type Service struct {
 	records   []Record
 	ruleCache map[[32]byte][]span
 	model     *LocalModel
+
+	mappingDisk     mappingDisk
+	mappingOptions  mappingOptions
+	mappingLeases   map[string]*mappingLease
+	mappingEpoch    uint64
+	mappingErr      error
+	mappingWriteErr bool
+	closed          bool
+	now             func() time.Time
+
+	cleanupMu      sync.Mutex
+	cleanupStopped bool
+	cleanupCancel  context.CancelFunc
+	cleanupDone    chan struct{}
+
 	// Detector may be replaced in focused tests without loading model weights.
 	detect func(context.Context, string, float64) ([]span, error)
 }
 
 func NewService(store domain.SettingsStore, dir string) *Service {
-	s := &Service{store: store, dir: dir, scopes: map[string]scopeState{}, records: []Record{}, ruleCache: map[[32]byte][]span{}}
+	s := &Service{
+		store: store, dir: dir, scopes: map[string]scopeState{}, records: []Record{}, ruleCache: map[[32]byte][]span{},
+		mappingDisk: newMappingDisk(dir), mappingLeases: map[string]*mappingLease{}, now: time.Now,
+	}
 	s.model = NewLocalModel(filepath.Join(dir, "model"))
 	s.detect = s.model.Detect
 	return s
 }
+
+var errInvalidSavedConfig = errors.New("invalid saved privacy settings")
 
 func (s *Service) GetConfig(ctx context.Context) (Config, error) {
 	c := DefaultConfig()
@@ -80,74 +101,183 @@ func (s *Service) GetConfig(ctx context.Context) (Config, error) {
 	if err != nil {
 		return c, errors.New("cannot read privacy settings")
 	}
-	if raw != "" {
-		if json.Unmarshal([]byte(raw), &c) != nil {
-			return c, errors.New("invalid saved privacy settings")
-		}
+	if raw != "" && json.Unmarshal([]byte(raw), &c) != nil {
+		return c, errInvalidSavedConfig
 	}
-	if err = c.Validate(); err != nil {
-		return c, err
+	if c.Validate() != nil {
+		return c, errInvalidSavedConfig
 	}
 	return c.normalized(), nil
 }
 
 func (s *Service) Update(ctx context.Context, c Config) error {
+	return s.UpdateWithMappingSettings(ctx, c, &c.MappingPersistence, &c.MappingTTLMinutes)
+}
+
+// UpdateWithMappingSettings preserves either lifecycle option omitted by a
+// legacy client. In particular, only an explicit opt-out purges stored mappings.
+func (s *Service) UpdateWithMappingSettings(ctx context.Context, c Config, persistent *bool, ttl *int) error {
 	c = c.normalized()
-	if err := c.Validate(); err != nil {
-		return err
-	}
-	data, err := json.Marshal(c)
-	if err != nil {
-		return err
-	}
-	if err = s.store.SetSetting(ctx, settingKey, string(data)); err != nil {
-		return errors.New("cannot save privacy settings")
-	}
-	if !c.ModelEnabled {
+	err := func() error {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		if s.closed {
+			return errPrivacyClosed
+		}
+		old, err := s.GetConfig(ctx)
+		if errors.Is(err, errInvalidSavedConfig) {
+			// Allow an administrator to repair invalid saved settings without
+			// treating an existing encrypted store as implicitly opted out.
+			old = DefaultConfig()
+			if s.mappingOptions.ttl != 0 {
+				old.MappingPersistence = s.mappingOptions.encrypted
+				old.MappingTTLMinutes = int(s.mappingOptions.ttl / time.Minute)
+			} else {
+				old.MappingPersistence, err = s.mappingDisk.directoryExists()
+				if err != nil {
+					return err
+				}
+				if old.MappingPersistence {
+					old.MappingTTLMinutes = maxMappingTTLMinutes
+				}
+			}
+		} else if err != nil {
+			return err
+		}
+		c.MappingPersistence = old.MappingPersistence
+		c.MappingTTLMinutes = old.MappingTTLMinutes
+		if persistent != nil {
+			c.MappingPersistence = *persistent
+		}
+		if ttl != nil {
+			c.MappingTTLMinutes = *ttl
+		}
+		if err := c.Validate(); err != nil {
+			return err
+		}
+		data, err := json.Marshal(c)
+		if err != nil {
+			return err
+		}
+		if err = s.prepareMappingSettingsLocked(old, c); err != nil {
+			return err
+		}
+		if err = s.store.SetSetting(ctx, settingKey, string(data)); err != nil {
+			return errors.New("cannot save privacy settings")
+		}
+		return s.applyMappingSettingsLocked(c)
+	}()
+	if err == nil && !c.ModelEnabled {
 		s.model.Stop()
 	}
-	return nil
+	return err
 }
 
 func (s *Service) Snapshot(ctx context.Context) (Snapshot, error) {
+	s.mu.Lock()
 	c, err := s.GetConfig(ctx)
 	if err != nil {
+		s.mu.Unlock()
 		return Snapshot{}, err
 	}
-	s.mu.Lock()
+	if !s.closed {
+		s.initMappingsLocked(c)
+	}
 	records := append([]Record{}, s.records...)
+	status := s.mappingStatusLocked()
 	s.mu.Unlock()
-	return Snapshot{c, s.model.Status(), records}, nil
+	return Snapshot{Config: c, Model: s.model.Status(), Records: records, Mappings: status}, nil
 }
 
 func (s *Service) ClearRecords()      { s.mu.Lock(); s.records = []Record{}; s.mu.Unlock() }
 func (s *Service) Model() *LocalModel { return s.model }
 func (s *Service) Close() {
+	// Cancel before waiting for mu: startup cleanup may be reading settings
+	// under mu with the worker's context.
+	s.cleanupMu.Lock()
+	s.cleanupStopped = true
+	if s.cleanupCancel != nil {
+		s.cleanupCancel()
+	}
+	done := s.cleanupDone
+	s.cleanupMu.Unlock()
+
+	s.mu.Lock()
+	s.closed = true
+	clear(s.scopes)
+	clear(s.mappingLeases)
+	clear(s.ruleCache)
+	s.key = nil
+	s.mappingDisk.aead = nil
+	s.mu.Unlock()
+	if done != nil {
+		<-done
+	}
 	s.model.Cancel()
 	s.model.Stop()
-	s.mu.Lock()
-	s.scopes = map[string]scopeState{}
-	s.ruleCache = map[[32]byte][]span{}
-	s.mu.Unlock()
 }
 
 func (s *Service) begin(ctx context.Context, c Config, preview bool) (*transaction, error) {
+	return s.beginRequest(ctx, c, preview, false)
+}
+
+func (s *Service) beginRequest(ctx context.Context, c Config, preview, restoreOnly bool) (*transaction, error) {
 	scope := llm.PrivacyScopeFromContext(ctx)
-	if scope.SessionID == "" {
+	retained := !preview && scope.SessionID != ""
+	if !retained {
+		if restoreOnly {
+			return nil, nil
+		}
 		scope.SessionID = randomID()
+	} else if len(scope.SessionID) > maxMappingSessionID {
+		return nil, errMappingLimit
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.closed {
+		return nil, errPrivacyClosed
+	}
+	var state scopeState
+	var lease *mappingLease
+	if retained {
+		s.initMappingsLocked(c)
+		var err error
+		state, lease, err = s.takeMappingLocked(scope.SessionID, restoreOnly)
+		if err != nil || (restoreOnly && lease == nil) {
+			return nil, err
+		}
+	}
+	if err := s.loadPlaceholderKeyLocked(); err != nil {
+		if lease != nil {
+			lease.active--
+			if lease.active == 0 {
+				delete(s.mappingLeases, scope.SessionID)
+			}
+		}
+		return nil, err
+	}
+	values := make(map[string]entry, len(state.values))
+	t := &transaction{service: s, config: c, key: s.key, scope: scope, values: values, index: map[string][]entry{}, record: Record{ID: randomID(), Time: time.Now(), SessionID: scope.SessionID, Source: scope.Source, Kinds: map[string]int{}}, preview: preview, mappingContext: ctx, mappingLease: lease, mappingUsed: state.used, mappingEpoch: s.mappingEpoch}
+	encodedConfig, _ := json.Marshal(c)
+	t.configHash = sha256.Sum256(encodedConfig)
+	for p, v := range state.values {
+		values[p] = v
+		t.indexValue(v)
+	}
+	return t, nil
+}
+
+func (s *Service) loadPlaceholderKeyLocked() error {
 	if s.key == nil {
 		if err := os.MkdirAll(s.dir, 0o700); err != nil {
-			return nil, errors.New("cannot create privacy state directory")
+			return errors.New("cannot create privacy state directory")
 		}
 		path := filepath.Join(s.dir, "placeholder.key")
 		key, err := os.ReadFile(path)
 		if os.IsNotExist(err) {
 			key = make([]byte, 32)
 			if _, err = rand.Read(key); err != nil {
-				return nil, errors.New("cannot create privacy key")
+				return errors.New("cannot create privacy key")
 			}
 			f, openErr := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
 			if os.IsExist(openErr) {
@@ -163,68 +293,42 @@ func (s *Service) begin(ctx context.Context, c Config, preview bool) (*transacti
 			}
 		}
 		if err != nil || len(key) != 32 {
-			return nil, errors.New("cannot load privacy key")
+			return errors.New("cannot load privacy key")
 		}
 		s.key = key
 	}
-	values := map[string]entry{}
-	if !preview {
-		for p, v := range s.scopes[scope.SessionID].values {
-			values[p] = v
-		}
-	}
-	t := &transaction{service: s, config: c, key: s.key, scope: scope, values: values, index: map[string][]entry{}, record: Record{ID: randomID(), Time: time.Now(), SessionID: scope.SessionID, Source: scope.Source, Kinds: map[string]int{}}, preview: preview}
-	encodedConfig, _ := json.Marshal(c)
-	t.configHash = sha256.Sum256(encodedConfig)
-	for _, v := range values {
-		t.indexValue(v)
-	}
-	return t, nil
+	return nil
 }
 
-func (t *transaction) finish(failed bool) {
+func (t *transaction) finish(failed bool) error {
 	if t.preview {
-		return
+		return nil
 	}
 	s := t.service
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	// Each in-flight request has its own complete table. Eviction affects future
-	// reuse only, never a request which is restoring a live response.
-	state := s.scopes[t.scope.SessionID]
-	next := map[string]entry{}
-	bytes := 0
-	for _, values := range []map[string]entry{t.values, state.values} {
-		for p, v := range values {
-			if _, ok := next[p]; ok {
-				continue
-			}
-			if len(next) >= 8192 {
-				break
-			}
-			if bytes+len(v.Value) > 4<<20 {
-				continue
-			}
-			next[p] = v
-			bytes += len(v.Value)
-		}
+	if s.closed || t.finished {
+		return nil
 	}
-	state.values = next
-	state.used = time.Now()
-	s.scopes[t.scope.SessionID] = state
-	if len(s.scopes) > 128 {
-		oldest := ""
-		for id, v := range s.scopes {
-			if id != t.scope.SessionID && (oldest == "" || v.used.Before(s.scopes[oldest].used)) {
-				oldest = id
-			}
+	t.finished = true
+	var err error
+	if !failed && !t.mappingCommitted {
+		err = t.commitMappingLocked(s.now())
+	}
+	if t.mappingLease != nil {
+		id := t.scope.SessionID
+		if s.mappingLeases[id] != t.mappingLease {
+			return err
 		}
-		delete(s.scopes, oldest)
+		t.mappingLease.active--
+		if t.mappingLease.active == 0 {
+			delete(s.mappingLeases, id)
+		}
 	}
 	if t.suppressRecord {
-		return
+		return err
 	}
-	t.record.Failed = failed
+	t.record.Failed = failed || err != nil
 	if !t.scanComplete {
 		t.scanDuration = time.Since(t.record.Time)
 	}
@@ -233,6 +337,7 @@ func (t *transaction) finish(failed bool) {
 	if len(s.records) > 200 {
 		s.records = s.records[:200]
 	}
+	return err
 }
 
 type Preview struct {
@@ -254,7 +359,11 @@ func (s *Service) PreviewWithConfig(ctx context.Context, text string, config *Co
 		return Preview{}, err
 	}
 	if config != nil {
-		c = config.normalized()
+		previewConfig := config.normalized()
+		// A preview never uses live mappings, regardless of the client draft.
+		previewConfig.MappingPersistence = c.MappingPersistence
+		previewConfig.MappingTTLMinutes = c.MappingTTLMinutes
+		c = previewConfig
 		if err = c.Validate(); err != nil {
 			return Preview{}, err
 		}

@@ -10,6 +10,7 @@ import (
 	"slimebot/internal/domain"
 	"slimebot/internal/mcp"
 	agentruntime "slimebot/internal/runtime/agent"
+	"slimebot/internal/runtime/workspace"
 	agentssvc "slimebot/internal/services/agents"
 	contextsvc "slimebot/internal/services/context"
 	llmsvc "slimebot/internal/services/llm"
@@ -19,6 +20,7 @@ import (
 	skillsvc "slimebot/internal/services/skill"
 	subagentsvc "slimebot/internal/services/subagent"
 	teamsvc "slimebot/internal/services/team"
+	usagesvc "slimebot/internal/services/usage"
 )
 
 type agentsInstructionsReader interface {
@@ -28,32 +30,37 @@ type agentsInstructionsReader interface {
 
 // ChatService orchestrates the chat flow: context, agent, uploads, and per-session skills.
 type ChatService struct {
-	backgroundOnce  sync.Once
-	background      *backgroundRuntime
-	turnInboxes     sync.Map // session ID -> active turn inbox
-	store           domain.ChatStore
-	settingsStore   domain.SettingsStore
-	providerFactory *llmsvc.Factory
-	contexts        *contextsvc.Service
-	agent           *AgentService
-	memory          *memorysvc.Service
-	schedule        *schedulesvc.Service
-	skillRuntime    *skillsvc.SkillRuntimeService
-	planService     *plansvc.PlanService
-	teamService     *teamsvc.Service
-	cooperative     *subagentsvc.Service
-	uploads         *ChatUploadService
-	titleGen        *titleGenerator
-	turnsMu         sync.Mutex
-	turns           map[string]bool
-	skillsMu        sync.Mutex
-	skillsBySess    map[string]map[string]struct{}
-	skillTouchedAt  map[string]time.Time
-	promptMu        sync.RWMutex
-	systemPrompt    string
-	stablePrompt    string
-	stableCatalog   string
-	stableAgents    string
+	backgroundOnce     sync.Once
+	background         *backgroundRuntime
+	turnInboxes        sync.Map // session ID -> active turn inbox
+	store              domain.ChatStore
+	settingsStore      domain.SettingsStore
+	providerFactory    *llmsvc.Factory
+	contexts           *contextsvc.Service
+	agent              *AgentService
+	memory             *memorysvc.Service
+	schedule           *schedulesvc.Service
+	skillRuntime       *skillsvc.SkillRuntimeService
+	skillLearning      *skillsvc.LearningService
+	planService        *plansvc.PlanService
+	teamService        *teamsvc.Service
+	usage              *usagesvc.Service
+	cooperative        *subagentsvc.Service
+	checkpoints        *workspace.CheckpointManager
+	uploads            *ChatUploadService
+	titleGen           *titleGenerator
+	turnsMu            sync.Mutex
+	turns              map[string]bool
+	idleCompactions    map[string]idleCompactionRequest
+	idleCompactionRuns map[string]*idleCompactionRun
+	skillsMu           sync.Mutex
+	skillsBySess       map[string]map[string]struct{}
+	skillTouchedAt     map[string]time.Time
+	promptMu           sync.RWMutex
+	systemPrompt       string
+	stablePrompt       string
+	stableCatalog      string
+	stableAgents       string
 
 	runContext RunContext
 	agents     agentsInstructionsReader
@@ -63,6 +70,8 @@ type ChatService struct {
 	memoryReviewMu      sync.Mutex
 	memoryReviewTurns   map[string]int
 	memoryReviewTouched map[string]time.Time
+	skillLearningMu     sync.Mutex
+	skillLearningTurns  map[string]time.Time
 }
 
 // chatStreamAccumulator collects streamed text and the first push error, if any.
@@ -85,6 +94,7 @@ type ChatStreamResult struct {
 	PlanID            string
 	Narration         string // text before the first heading in plan mode
 	PlanBody          string // text from the first heading onwards in plan mode
+	SkillLearning     *SkillLearningNotice
 }
 
 // NewChatService constructs ChatService with per-session skill activation maps.
@@ -114,10 +124,21 @@ func NewChatService(store domain.ChatStore, settingsStore domain.SettingsStore, 
 	return s
 }
 
+func (s *ChatService) SetSkillLearningService(service *skillsvc.LearningService) {
+	s.skillLearning = service
+}
+
 func (s *ChatService) SetMemoryService(service *memorysvc.Service) {
 	s.memory = service
 	if s.agent != nil {
 		s.agent.SetMemoryService(service)
+	}
+}
+
+func (s *ChatService) SetUsageService(service *usagesvc.Service) {
+	s.usage = service
+	if service != nil {
+		s.providerFactory.SetRequestObserver(service.ObserveRequest)
 	}
 }
 
@@ -266,16 +287,43 @@ func (s *ChatService) setStableSystemPromptCached(prompt string, catalog string,
 }
 
 func (s *ChatService) acquireTurn(session string) (func(), error) {
-	s.turnsMu.Lock()
-	defer s.turnsMu.Unlock()
-	if s.turns[session] {
-		return nil, ErrTurnBusy
-	}
-	if s.cooperative != nil {
-		if _, _, ok := s.cooperative.Runtime.CurrentRoot(session); ok {
+	return s.acquireTurnWithContext(context.Background(), session)
+}
+
+// acquireTurnWithContext preempts only idle maintenance. Ordinary turns keep
+// their existing fail-fast mutual exclusion, while foreground work never has
+// to wait for a full idle summarization request.
+func (s *ChatService) acquireTurnWithContext(ctx context.Context, session string) (func(), error) {
+	for {
+		s.turnsMu.Lock()
+		if idle := s.idleCompactionRuns[session]; idle != nil {
+			idle.cancel()
+			done := idle.done
+			s.turnsMu.Unlock()
+			select {
+			case <-done:
+				continue
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			}
+		}
+		if s.turns[session] {
+			s.turnsMu.Unlock()
 			return nil, ErrTurnBusy
 		}
+		if s.cooperative != nil {
+			if _, _, ok := s.cooperative.Runtime.CurrentRoot(session); ok {
+				s.turnsMu.Unlock()
+				return nil, ErrTurnBusy
+			}
+		}
+		s.turns[session] = true
+		s.turnsMu.Unlock()
+		return func() {
+			s.turnsMu.Lock()
+			delete(s.turns, session)
+			s.turnsMu.Unlock()
+			s.startIdleCompaction(session)
+		}, nil
 	}
-	s.turns[session] = true
-	return func() { s.turnsMu.Lock(); delete(s.turns, session); s.turnsMu.Unlock() }, nil
 }

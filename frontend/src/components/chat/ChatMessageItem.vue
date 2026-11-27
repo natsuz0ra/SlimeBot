@@ -18,7 +18,6 @@ import { useI18n } from 'vue-i18n'
 import type { MessageItem } from '@/api/chat'
 import MdiIcon from '@/components/ui/MdiIcon.vue'
 import TruncationTooltip from '@/components/ui/TruncationTooltip.vue'
-import AppLogo from '@/components/ui/AppLogo.vue'
 import AssistantMessageBody from '@/components/chat/AssistantMessageBody.vue'
 import { formatSize } from '@/utils/format'
 import { useChatContext } from '@/composables/chat/useChatContext'
@@ -228,22 +227,12 @@ function handleEditKeydown(event: KeyboardEvent) {
     ref="messageItemRef"
     class="flex min-w-0 message-animate"
     :class="[
-      item.role === 'assistant' ? 'gap-2' : 'gap-3',
-      item.role === 'user' ? 'user-message-item flex-row-reverse' : 'flex-row',
+      item.role === 'user' ? 'user-message-item flex-row-reverse gap-3' : 'flex-row',
       item.role === 'user' && ctx.isFailedUserMessage(item.id)
         ? 'items-end'
         : 'items-start',
     ]"
   >
-    <div v-if="item.role === 'assistant'" class="flex-shrink-0 w-10 h-10 flex items-center justify-center">
-      <AppLogo
-        :size="40"
-        :animated="ctx.isChatAssistantAvatarAnimated(item.id)"
-        class="w-10 h-10 object-contain"
-        :class="ctx.isChatAssistantAvatarAnimated(item.id) ? 'chat-ai-avatar-animated' : 'chat-ai-avatar'"
-      />
-    </div>
-
     <div
       v-if="item.role === 'user' && ctx.isFailedUserMessage(item.id)"
       class="failed-user-icon flex-shrink-0"
@@ -365,11 +354,11 @@ function handleEditKeydown(event: KeyboardEvent) {
   position: relative;
   overflow: hidden;
   transform-origin: top right;
-  border: 1px solid transparent;
+  border: 1px solid var(--user-bubble-border);
   transition:
-    color 0.36s cubic-bezier(0.22, 1, 0.36, 1),
-    border-color 0.36s cubic-bezier(0.22, 1, 0.36, 1),
-    box-shadow 0.36s cubic-bezier(0.22, 1, 0.36, 1);
+    color 0.25s cubic-bezier(0.22, 1, 0.36, 1),
+    border-color 0.25s cubic-bezier(0.22, 1, 0.36, 1),
+    box-shadow 0.25s cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 .user-bubble::before {
@@ -378,9 +367,9 @@ function handleEditKeydown(event: KeyboardEvent) {
   inset: 0;
   z-index: 0;
   pointer-events: none;
-  background: linear-gradient(135deg, #eef2ff 0%, #e0e7ff 100%);
+  background: var(--bg-main);
   opacity: 0;
-  transition: opacity 0.36s cubic-bezier(0.22, 1, 0.36, 1);
+  transition: opacity 0.25s cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 .user-bubble--editing::before {
@@ -497,9 +486,9 @@ function handleEditKeydown(event: KeyboardEvent) {
 }
 
 .user-bubble--editing {
-  color: #312e81;
-  border-color: rgba(99, 102, 241, 0.26);
-  box-shadow: 0 2px 12px rgba(99, 102, 241, 0.14), inset 0 0 0 1px rgba(255, 255, 255, 0.55);
+  color: var(--text-primary);
+  border-color: var(--sb-brand);
+  box-shadow: var(--focus-ring-shadow);
 }
 
 .message-edit-input {
@@ -531,33 +520,35 @@ function handleEditKeydown(event: KeyboardEvent) {
 .message-action-btn {
   gap: 4px;
   min-height: 26px;
-  border-radius: 7px;
-  padding: 0 8px;
+  border-radius: 6px;
+  padding: 0 9px;
   font-size: 12px;
 }
 
 .message-action-btn--primary {
-  background: #6366f1;
+  background: var(--color-primary);
   color: #fff;
 }
 
 .user-bubble--editing .message-action-btn {
-  background: rgba(99, 102, 241, 0.09);
-  color: #4338ca;
+  background: var(--bg-subtle);
+  color: var(--text-secondary);
+  border: 1px solid var(--border-default);
 }
 
 .user-bubble--editing .message-action-btn:hover:not(:disabled) {
-  background: rgba(99, 102, 241, 0.14);
-  color: #312e81;
+  background: var(--bg-hover);
+  color: var(--text-primary);
 }
 
 .user-bubble--editing .message-action-btn--primary {
-  background: #6366f1;
+  background: var(--color-primary);
   color: #fff;
+  border-color: transparent;
 }
 
 .user-bubble--editing .message-action-btn--primary:hover:not(:disabled) {
-  background: #4f46e5;
+  background: var(--color-primary-hover);
   color: #fff;
 }
 
@@ -567,32 +558,34 @@ function handleEditKeydown(event: KeyboardEvent) {
 }
 
 :global(.dark) .user-bubble--editing {
-  color: #eef2ff;
-  border-color: rgba(165, 180, 252, 0.36);
-  box-shadow: 0 2px 14px rgba(99, 102, 241, 0.22), inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+  color: var(--text-primary);
+  border-color: var(--sb-brand);
+  box-shadow: var(--focus-ring-shadow);
 }
 
 :global(.dark) .user-bubble::before {
-  background: linear-gradient(135deg, rgba(99, 102, 241, 0.24), rgba(129, 140, 248, 0.18));
+  background: var(--bg-elevated);
 }
 
 :global(.dark) .user-bubble--editing .message-action-btn {
-  background: rgba(255, 255, 255, 0.08);
-  color: #c7d2fe;
+  background: var(--bg-subtle);
+  color: var(--text-secondary);
+  border-color: var(--border-default);
 }
 
 :global(.dark) .user-bubble--editing .message-action-btn:hover:not(:disabled) {
-  background: rgba(255, 255, 255, 0.12);
-  color: #eef2ff;
+  background: var(--bg-hover);
+  color: var(--text-primary);
 }
 
 :global(.dark) .user-bubble--editing .message-action-btn--primary {
-  background: #818cf8;
-  color: #111127;
+  background: var(--color-primary);
+  color: #fff;
+  border-color: transparent;
 }
 
 :global(.dark) .user-bubble--editing .message-action-btn--primary:hover:not(:disabled) {
-  background: #a5b4fc;
-  color: #111127;
+  background: var(--color-primary-hover);
+  color: #fff;
 }
 </style>

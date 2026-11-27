@@ -10,6 +10,7 @@ import (
 	"slimebot/internal/logging"
 	sbruntime "slimebot/internal/runtime"
 	workspaceruntime "slimebot/internal/runtime/workspace"
+	chatsvc "slimebot/internal/services/chat"
 	sessionsvc "slimebot/internal/services/session"
 	"strconv"
 	"strings"
@@ -154,13 +155,29 @@ func (h *HTTPController) DeleteSession(c WebContext) {
 		jsonError(c, http.StatusBadRequest, "Message platform sessions cannot be deleted.")
 		return
 	}
+	ctx, cancel := context.WithTimeout(c.Request().Context(), 10*time.Second)
+	defer cancel()
 	if h.cooperative != nil {
-		ctx, cancel := context.WithTimeout(c.Request().Context(), 10*time.Second)
-		defer cancel()
 		if err := h.cooperative.DrainRoot(ctx, id); err != nil {
 			jsonError(c, http.StatusConflict, err.Error())
 			return
 		}
+	}
+	if h.checkpoints != nil {
+		release, err := h.checkpoints.ReserveSessionMaintenance(id)
+		if err != nil {
+			fileCheckpointError(c, err)
+			return
+		}
+		defer release()
+		if err := h.checkpoints.CheckDeleteFileCheckpoints(id); err != nil {
+			fileCheckpointError(c, err)
+			return
+		}
+		h.checkpoints.CancelBackground(id)
+	}
+	mappingSessions := []string{id}
+	if h.cooperative != nil {
 		as, err := h.cooperative.Store.ListAgentArtifacts(ctx, id)
 		if err != nil {
 			jsonInternalError(c, err)
@@ -173,10 +190,41 @@ func (h *HTTPController) DeleteSession(c WebContext) {
 				return
 			}
 		}
+		if h.privacy != nil {
+			agents, err := h.cooperative.Store.ListAgents(ctx, id)
+			if err != nil {
+				jsonInternalError(c, err)
+				return
+			}
+			for _, agent := range agents {
+				mappingSessions = append(mappingSessions, agent.SessionID)
+			}
+		}
 	}
-	if err := h.sessions.Delete(c.Request().Context(), id); err != nil {
+	if h.privacy != nil {
+		for _, sessionID := range mappingSessions {
+			if err := h.privacy.DestroySession(sessionID); err != nil {
+				jsonInternalError(c, err)
+				return
+			}
+		}
+	}
+	if err := h.sessions.Delete(ctx, id); err != nil {
 		jsonInternalError(c, err)
 		return
+	}
+	if h.privacy != nil {
+		// Invalidate auxiliary requests that may have started before the DB commit.
+		for _, sessionID := range mappingSessions {
+			if err := h.privacy.DestroySession(sessionID); err != nil {
+				logging.Warn("session_privacy_cleanup_failed", "session", sessionID, "err", err)
+			}
+		}
+	}
+	if h.checkpoints != nil {
+		if err := h.checkpoints.DeleteFileCheckpoints(id); err != nil {
+			logging.Warn("session_file_checkpoint_cleanup_failed", "session", id, "err", err)
+		}
 	}
 	c.Status(http.StatusNoContent)
 }
@@ -273,6 +321,33 @@ func (h *HTTPController) GetContextUsage(c WebContext) {
 		return
 	}
 	c.JSON(http.StatusOK, usage)
+}
+
+func (h *HTTPController) CompactContext(c WebContext) {
+	if h.chatUsage == nil {
+		jsonError(c, http.StatusServiceUnavailable, "Context usage service is unavailable.")
+		return
+	}
+	var req struct {
+		ModelID string `json:"modelId"`
+	}
+	if !bindJSONOrBadRequest(c, &req, "modelId is required.") {
+		return
+	}
+	if strings.TrimSpace(req.ModelID) == "" {
+		jsonError(c, http.StatusBadRequest, "modelId is required.")
+		return
+	}
+	result, err := h.chatUsage.CompactContext(c.Request().Context(), c.Param("id"), req.ModelID)
+	if err != nil {
+		if errors.Is(err, chatsvc.ErrTurnBusy) {
+			jsonError(c, http.StatusConflict, err.Error())
+			return
+		}
+		jsonInternalError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, result)
 }
 
 func (h *HTTPController) SearchChats(c WebContext) {

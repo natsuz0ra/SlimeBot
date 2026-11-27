@@ -3,6 +3,7 @@ import { Box, Text } from "ink";
 import type { UpdateCheckResult, UpdateJobStatus } from "../types.js";
 import { renderMarkdownLines } from "../utils/markdownRenderer.js";
 import { CLI_ACCENT_COLOR } from "../utils/terminal.js";
+import { CLI_THEME } from "../utils/theme.js";
 
 interface UpdateViewProps {
 	check: UpdateCheckResult | null;
@@ -131,7 +132,7 @@ export function UpdateView({ check, job, loading, applying, confirming = false, 
 				<Text color="#94a3b8">The service may restart and disconnect this TUI.</Text>
 			)}
 			<Text> </Text>
-			<Text color="#64748b">{loading ? "Checking for updates..." : hint}</Text>
+			<Text color={CLI_THEME.hint}>{loading ? "Checking for updates..." : hint}</Text>
 		</Box>
 	);
 }

@@ -4,7 +4,13 @@ import test from "node:test";
 import { SUPPORTED_COMMANDS } from "../types.js";
 import type { CliCommandHandlers } from "../controllers/commands.js";
 import { runCliCommand } from "../controllers/commands.js";
-import { completeCommand, getVisibleCommandHints, matchCommandHints, moveCommandHintCursor } from "./commands.js";
+import {
+  completeCommand,
+  getVisibleCommandHints,
+  matchCommandHints,
+  moveCommandHintCursor,
+  resolveCommandHintEnter,
+} from "./commands.js";
 
 test("matchCommandHints returns all commands for slash input", () => {
   assert.deepEqual(
@@ -87,15 +93,63 @@ test("/team routes to Agent Team detail opener", async () => {
 test("matchCommandHints includes sandbox command", () => {
   assert.deepEqual(
     matchCommandHints("/s").map((hint) => hint.command),
-    ["/session", "/subagent_model", "/sandbox", "/skills"],
+    ["/session", "/skills", "/sandbox", "/subagent_model"].sort((a, b) =>
+      SUPPORTED_COMMANDS.findIndex((c) => c.command === a) - SUPPORTED_COMMANDS.findIndex((c) => c.command === b),
+    ),
   );
 });
 
-test("matchCommandHints includes update command", () => {
+test("matchCommandHints includes usage and update commands", () => {
   assert.deepEqual(
     matchCommandHints("/u").map((hint) => hint.command),
-    ["/update"],
+    ["/usage", "/update"],
   );
+});
+
+test("resolveCommandHintEnter executes zero-arg commands on single Enter and fills args commands", () => {
+  assert.deepEqual(resolveCommandHintEnter("/comp", 0), { action: "run", command: "/compact" });
+  assert.deepEqual(resolveCommandHintEnter("/eff", 0), { action: "fill", command: "/effort " });
+  assert.deepEqual(resolveCommandHintEnter("/effort", 0), { action: "run", command: "/effort" });
+  assert.deepEqual(resolveCommandHintEnter("/u", 0), { action: "fill", command: "/usage " });
+  assert.deepEqual(resolveCommandHintEnter("/usage", 0), { action: "run", command: "/usage" });
+});
+
+test("new 1.36 commands route to checkpoint, compact, context, usage, and background handlers", async () => {
+  const calls: string[] = [];
+  const handlers: CliCommandHandlers = {
+    newSession: () => calls.push("new"),
+    loadSessions: async () => { calls.push("sessions"); },
+    loadModels: async () => { calls.push("models"); },
+    loadProviders: async () => { calls.push("providers"); },
+    loadSubagentModels: async () => { calls.push("subagent"); },
+    toggleApprovalMode: async () => { calls.push("approval"); },
+    toggleThinkingLevel: () => calls.push("effort"),
+    setThinkingLevel: (level) => calls.push(`effort:${level}`),
+    loadSandboxSettings: async () => { calls.push("sandbox"); },
+    loadMemory: async () => { calls.push("memory"); },
+    resetMemory: async (target) => { calls.push(`reset:${target}`); },
+    loadUpdate: async () => { calls.push("update"); },
+    loadSkills: async () => { calls.push("skills"); },
+    loadMCPConfigs: async () => { calls.push("mcp"); },
+    openTeamDetail: () => calls.push("team"),
+    showHelp: () => calls.push("help"),
+    togglePlanMode: () => calls.push("plan"),
+    checkpoint: async () => { calls.push("checkpoints"); },
+    compactContext: async () => { calls.push("compact"); },
+    showContext: async () => { calls.push("context"); },
+    usage: async (args) => { calls.push(`usage:${args}`); },
+    background: async (args) => { calls.push(`bg:${args}`); },
+    unknownCommand: (cmd) => calls.push(`unknown:${cmd}`),
+  };
+
+  await runCliCommand("/checkpoint", handlers);
+  await runCliCommand("/rewind", handlers);
+  await runCliCommand("/compact", handlers);
+  await runCliCommand("/context", handlers);
+  await runCliCommand("/usage budget 50000", handlers);
+  await runCliCommand("/background list", handlers);
+
+  assert.deepEqual(calls, ["checkpoints", "checkpoints", "compact", "context", "usage:budget 50000", "bg:list"]);
 });
 
 test("matchCommandHints ignores completed commands with trailing content", () => {

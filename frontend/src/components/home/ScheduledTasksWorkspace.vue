@@ -368,12 +368,12 @@ onUnmounted(() => { generation++; listRequest?.abort(); detailRequest?.abort(); 
 
 <style scoped>
 .schedule-tab, .schedule-detail, .schedule-create-form {
-  --schedule-danger: #b91c1c;
-  --schedule-muted: #696780;
+  --schedule-danger: var(--color-danger);
+  --schedule-muted: var(--text-muted);
 }
 :global(.dark .schedule-tab), :global(.dark .schedule-detail), :global(.dark .schedule-create-form) {
-  --schedule-danger: #f87171;
-  --schedule-muted: #a7a4bd;
+  --schedule-danger: var(--color-danger);
+  --schedule-muted: var(--text-muted);
 }
 :global(.dark .status-running) {
   color: var(--sb-brand-soft);
@@ -429,8 +429,9 @@ h3 {
   transition: background 150ms, border-color 150ms;
 }
 .schedule-button:hover:not(:disabled) {
-  background: var(--primary-alpha-08);
-  border-color: var(--sb-brand);
+  background: var(--bg-hover);
+  border-color: var(--border-strong);
+  color: var(--text-primary);
 }
 button:disabled {
   opacity: .5;
@@ -438,14 +439,14 @@ button:disabled {
 }
 button:focus-visible, select:focus-visible {
   outline: 2px solid var(--sb-brand);
-  outline-offset: 3px;
+  outline-offset: 2px;
 }
 .schedule-summary {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  border: 1px solid var(--card-border);
-  border-radius: 12px;
-  background: var(--primary-alpha-05);
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+  background: var(--bg-subtle);
 }
 .schedule-summary > div {
   padding: 15px 18px;
@@ -489,8 +490,9 @@ button:focus-visible, select:focus-visible {
 }
 .schedule-task-info {
   padding: 12px;
-  border-radius: 9px;
-  background: var(--primary-alpha-05);
+  border-radius: 8px;
+  background: var(--bg-subtle);
+  border: 1px solid var(--border-subtle);
   font-size: 12px;
   margin-bottom: 12px;
   overflow-wrap: anywhere;
@@ -525,35 +527,36 @@ button:focus-visible, select:focus-visible {
   transition: background 150ms;
 }
 .schedule-filters button:hover {
-  background: var(--primary-alpha-05);
+  background: var(--bg-hover);
+  color: var(--text-primary);
 }
 .schedule-filters button.active {
   color: var(--sb-brand);
   background: var(--primary-alpha-10);
-  border-color: var(--primary-alpha-15);
+  border-color: var(--primary-alpha-18);
 }
 .schedule-run-list {
-  border: 1px solid var(--card-border);
-  border-radius: 12px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
   overflow: hidden;
 }
 .schedule-run-row {
   display: flex;
   align-items: flex-start;
   gap: 11px;
-  padding: 15px;
+  padding: 14px 15px;
   width: 100%;
   min-width: 0;
   text-align: left;
   cursor: pointer;
-  background: var(--card-bg);
+  background: var(--bg-main);
   transition: background 150ms;
 }
 .schedule-run-row + .schedule-run-row {
-  border-top: 1px solid var(--card-border);
+  border-top: 1px solid var(--border-subtle);
 }
 .schedule-run-row:hover {
-  background: var(--primary-alpha-05);
+  background: var(--bg-hover);
 }
 .schedule-status-icon {
   display: flex;
@@ -561,9 +564,9 @@ button:focus-visible, select:focus-visible {
   justify-content: center;
   width: 32px;
   height: 32px;
-  border-radius: 9px;
+  border-radius: 8px;
   flex-shrink: 0;
-  background: var(--primary-alpha-05);
+  background: var(--bg-subtle);
 }
 .schedule-run-content {
   flex: 1;
@@ -589,7 +592,7 @@ button:focus-visible, select:focus-visible {
   border-radius: 5px;
   font-size: 10px;
   font-weight: 500;
-  background: var(--primary-alpha-05);
+  background: var(--bg-subtle);
   white-space: nowrap;
 }
 .status-running {
@@ -780,16 +783,16 @@ h4 {
 }
 
 .schedule-page-title { display: flex; align-items: center; gap: 12px; }
-.schedule-page-title > span { display: flex; align-items: center; justify-content: center; width: 44px; height: 44px; border-radius: 13px; background: var(--primary-alpha-10); color: var(--sb-brand); }
-.schedule-page-title h2 { font-size: 23px; }
+.schedule-page-title > span { display: flex; align-items: center; justify-content: center; width: 40px; height: 40px; border-radius: 10px; background: var(--bg-subtle); border: 1px solid var(--border-subtle); color: var(--text-secondary); }
+.schedule-page-title h2 { font-size: 21px; }
 .schedule-header-actions { display: flex; gap: 8px; }
-.schedule-heading p { margin-left: 56px; }
-.schedule-new-task { background: var(--sb-brand); border-color: var(--sb-brand); color: white; padding: 9px 13px; }
-.schedule-new-task:hover:not(:disabled) { background: var(--sb-brand-hover); }
-.schedule-view-tabs { display: flex; gap: 24px; border-bottom: 1px solid var(--card-border); }
-.schedule-view-tabs button { display: flex; align-items: center; gap: 8px; padding: 5px 0 13px; font-size: 13px; font-weight: 550; cursor: pointer; color: var(--schedule-muted); border-bottom: 2px solid transparent; }
+.schedule-heading p { margin-left: 52px; }
+.schedule-new-task { background: var(--color-primary); border-color: var(--color-primary); color: white; padding: 8px 13px; }
+.schedule-new-task:hover:not(:disabled) { background: var(--color-primary-hover); border-color: var(--color-primary-hover); color: white; }
+.schedule-view-tabs { display: flex; gap: 24px; border-bottom: 1px solid var(--border-subtle); }
+.schedule-view-tabs button { display: flex; align-items: center; gap: 8px; padding: 5px 0 12px; font-size: 13px; font-weight: 550; cursor: pointer; color: var(--schedule-muted); border-bottom: 2px solid transparent; }
 .schedule-view-tabs button.active { color: var(--sb-brand); border-color: var(--sb-brand); }
-.schedule-view-tabs span { font-size: 10px; padding: 1px 6px; border-radius: 5px; background: var(--primary-alpha-08); }
+.schedule-view-tabs span { font-size: 10px; padding: 1px 6px; border-radius: 5px; background: var(--bg-subtle); }
 .schedule-task-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
 .schedule-task-grid > .schedule-empty, .schedule-task-grid > .schedule-error { grid-column: 1 / -1; }
 .schedule-task-card { display: flex; flex-direction: column; padding: 20px; border: 1px solid var(--card-border); border-radius: 14px; background: var(--card-bg); min-width: 0; }

@@ -1,5 +1,6 @@
 import { renderMarkdownLines } from "./markdownRenderer.js";
 import { CLI_ACCENT_COLOR, CLI_ACCENT_SOFT_COLOR, DOT } from "./terminal.js";
+import { CLI_THEME } from "./theme.js";
 import { stringWidth } from "./stringWidth.js";
 import type { RuntimeTodoItem, TimelineEntry, ToolCallStatus } from "../types.js";
 import {
@@ -26,8 +27,8 @@ import {
   isFileToolEntry as isFileToolTimelineEntry,
 } from "./fileToolDisplay.js";
 
-export const PLAN_GOLD = "#f59e0b";
-export const WAITING_STATS_COLOR = "#64748b";
+export const PLAN_GOLD = CLI_THEME.plan;
+export const WAITING_STATS_COLOR = CLI_THEME.hint;
 export const TOOL_SUMMARY_TAG_COLOR = CLI_ACCENT_SOFT_COLOR;
 export const SHOW_CLI_THINKING = false;
 
@@ -62,33 +63,33 @@ export function toolDotState(status: ToolCallStatus): { color: string; blink: bo
     case "pending":
     case "reviewing":
     case "executing":
-      return { color: "#B8860B", blink: true };
+      return { color: CLI_THEME.warning, blink: true };
     case "completed":
-      return { color: "#2E7D32", blink: false };
+      return { color: CLI_THEME.success, blink: false };
     case "error":
     case "rejected":
-      return { color: "#C62828", blink: false };
+      return { color: CLI_THEME.error, blink: false };
     default:
-      return { color: "white", blink: false };
+      return { color: CLI_THEME.muted, blink: false };
   }
 }
 
 export function formatToolStatusPart(status: ToolCallStatus): { text: string; color: string } {
   switch (status) {
     case "pending":
-      return { text: "? pending approval", color: "#B8860B" };
+      return { text: "? pending approval", color: CLI_THEME.warning };
     case "reviewing":
-      return { text: "… reviewing", color: "#B8860B" };
+      return { text: "… reviewing", color: CLI_THEME.warning };
     case "executing":
-      return { text: "… executing", color: "#B8860B" };
+      return { text: "… executing", color: CLI_THEME.warning };
     case "completed":
-      return { text: "✓ completed", color: "#2E7D32" };
+      return { text: "✓ completed", color: CLI_THEME.success };
     case "error":
-      return { text: "✕ failed", color: "#C62828" };
+      return { text: "✕ failed", color: CLI_THEME.error };
     case "rejected":
-      return { text: "✕ rejected", color: "#C62828" };
+      return { text: "✕ rejected", color: CLI_THEME.error };
     default:
-      return { text: "", color: "white" };
+      return { text: "", color: CLI_THEME.muted };
   }
 }
 

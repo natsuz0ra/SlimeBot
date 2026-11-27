@@ -7,7 +7,6 @@ import AppLogo from '@/components/ui/AppLogo.vue'
 import AppTextInput from '@/components/ui/AppTextInput.vue'
 import AppPasswordInput from '@/components/ui/AppPasswordInput.vue'
 import LanguageSwitcher from '@/components/ui/LanguageSwitcher.vue'
-import LoginAuroraBackgroundCanvas from '@/components/login/LoginAuroraBackgroundCanvas.vue'
 import { useI18n } from 'vue-i18n'
 import { useToast } from '@/composables/useToast'
 import { authAPI } from '@/api/auth'
@@ -77,11 +76,6 @@ onMounted(async () => {
 
 <template>
   <div class="login-page min-h-screen px-4 py-10 sm:py-14">
-    <div class="login-bg-layer" aria-hidden="true">
-      <LoginAuroraBackgroundCanvas />
-      <div class="login-bg-overlay" />
-    </div>
-
     <div class="login-top-actions">
       <div class="login-language-switcher">
         <LanguageSwitcher
@@ -95,7 +89,7 @@ onMounted(async () => {
       <div class="login-theme-switcher">
         <button
           type="button"
-          class="login-theme-switcher-trigger inline-flex items-center justify-center rounded-xl px-3 py-2 cursor-pointer"
+          class="login-theme-switcher-trigger inline-flex items-center justify-center rounded-lg px-2.5 py-2 cursor-pointer"
           :aria-label="t('toggleTheme')"
           @click="toggleTheme"
         >
@@ -105,21 +99,21 @@ onMounted(async () => {
     </div>
 
     <div class="login-content-layer">
-      <div class="login-card w-full max-w-[420px] mx-auto rounded-2xl p-5 sm:p-7">
-        <div class="logo-row login-brand-row login-fade-in-up flex items-center justify-center gap-3">
-          <AppLogo :size="88" animated class="login-brand-logo" />
+      <div class="login-card w-full max-w-[380px] mx-auto rounded-xl p-6 sm:p-7">
+        <div class="logo-row login-brand-row flex items-center justify-center gap-3">
+          <AppLogo :size="52" />
           <span class="brand-tech-font logo-text">SlimeBot</span>
         </div>
 
-        <div class="mt-6 flex flex-col gap-3.5">
-          <div class="input-wrap input-animate input-animate-1">
+        <div class="mt-6 flex flex-col gap-3">
+          <div class="input-wrap">
             <AppTextInput
               v-model="username"
               :placeholder="t('username')"
               autocomplete="username"
             />
           </div>
-          <div class="input-wrap password-wrap input-animate input-animate-2">
+          <div class="input-wrap password-wrap">
             <AppPasswordInput
               v-model="password"
               :placeholder="t('password')"
@@ -131,14 +125,14 @@ onMounted(async () => {
           </div>
           <button
             type="button"
-            class="btn-primary login-submit input-animate input-animate-3 w-full rounded-xl py-2.5 text-sm font-semibold cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+            class="btn-primary login-submit w-full rounded-lg py-2.5 text-sm font-medium cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
             :disabled="!canSubmit || submitting"
             @click="login"
           >
             <span v-if="!submitting">{{ t('login') }}</span>
             <span v-else>{{ t('loading') }}...</span>
           </button>
-          <p class="login-tip input-animate input-animate-4 text-xs">
+          <p class="login-tip text-xs text-center mt-1">
             {{ t('loginDefaultTip') }}
           </p>
         </div>

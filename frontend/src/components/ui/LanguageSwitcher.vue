@@ -145,7 +145,7 @@ onBeforeUnmount(() => {
   <div ref="switcherRef" class="language-switcher" :class="switcherClass">
     <button
       type="button"
-      class="language-switcher-trigger inline-flex items-center gap-2 rounded-xl px-3 py-2 text-xs font-medium cursor-pointer"
+      class="language-switcher-trigger inline-flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-xs font-medium cursor-pointer"
       :aria-label="ariaLabel"
       aria-haspopup="menu"
       :aria-expanded="menuOpen ? 'true' : 'false'"
@@ -208,31 +208,28 @@ onBeforeUnmount(() => {
 }
 
 .language-switcher-trigger {
-  min-height: 38px;
+  min-height: 36px;
   color: var(--text-primary);
-  border: 1px solid var(--input-border);
-  background: var(--input-bg);
-  box-shadow: 0 10px 26px rgba(15, 23, 42, 0.12);
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
-  transition: border-color 0.18s ease, box-shadow 0.18s ease, background-color 0.18s ease, color 0.18s ease;
+  border: 1px solid var(--border-default);
+  background: var(--bg-main);
+  box-shadow: none;
+  transition: border-color 0.15s ease, background-color 0.15s ease, color 0.15s ease;
 }
 
 .language-switcher-trigger:disabled {
-  opacity: 0.6;
+  opacity: 0.55;
   cursor: not-allowed;
 }
 
 .language-switcher-trigger:not(:disabled):hover {
-  border-color: var(--primary-alpha-38);
-  box-shadow: 0 12px 30px var(--primary-alpha-18);
-  background: color-mix(in srgb, var(--input-bg) 88%, var(--sb-brand) 12%);
+  border-color: var(--border-strong);
+  background: var(--bg-hover);
 }
 
 .language-switcher-trigger:focus-visible {
   outline: none;
-  border-color: var(--primary-alpha-62);
-  box-shadow: var(--focus-ring-shadow-strong);
+  border-color: var(--focus-ring);
+  box-shadow: var(--focus-ring-shadow);
 }
 
 .language-switcher--no-shadow .language-switcher-trigger,
@@ -257,14 +254,12 @@ onBeforeUnmount(() => {
 
 .language-switcher-menu {
   position: absolute;
-  top: calc(100% + 8px);
+  top: calc(100% + 6px);
   margin-top: 0;
   min-width: 124px;
   border: 1px solid var(--menu-border);
   background: var(--menu-bg);
   box-shadow: var(--menu-shadow);
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
   z-index: 20;
 }
 

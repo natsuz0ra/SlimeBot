@@ -446,7 +446,7 @@ function onClose() {
 .button-danger { background: var(--tool-error-bg); color: var(--tool-error-text); border-color: var(--tool-error-border); }
 .button-text { min-height: 1.625rem; padding: 0 0.375rem; color: inherit; border-color: transparent; }
 .checkpoint-button:hover:not(:disabled),
-.checkpoint-icon-button:hover:not([aria-disabled='true']) { background: var(--primary-alpha-10); }
+.checkpoint-icon-button:hover:not([aria-disabled='true']) { background: var(--bg-hover); }
 .checkpoint-button.button-danger:hover:not(:disabled) { background: var(--tool-error-bg-hover); }
 .checkpoint-button:disabled,
 .checkpoint-icon-button[aria-disabled='true'] { opacity: 0.5; cursor: default; }
@@ -529,9 +529,9 @@ function onClose() {
 }
 
 .history-button[aria-current='true'],
-.file-button[aria-pressed='true'] { background: var(--primary-alpha-08); border-color: var(--tool-running-border); }
+.file-button[aria-pressed='true'] { background: var(--bg-active); border-color: var(--border-default); }
 .history-button:hover,
-.file-button:hover { background: var(--primary-alpha-10); }
+.file-button:hover { background: var(--bg-hover); }
 
 .history-kind { color: var(--text-primary); font-weight: 650; }
 .history-icon {

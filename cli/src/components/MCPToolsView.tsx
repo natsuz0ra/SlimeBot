@@ -5,13 +5,14 @@
 import React from "react";
 import { Box, Text, useStdout } from "ink";
 import { CLI_ACCENT_COLOR } from "../utils/terminal.js";
+import { CLI_THEME } from "../utils/theme.js";
 import type { MCPConfig, MCPToolListResponse } from "../types.js";
 
 export const MCP_TOOLS_COLORS = {
   title: CLI_ACCENT_COLOR,
-  hint: "#64748b",
+  hint: CLI_THEME.hint,
   text: "#f8fafc",
-  muted: "#94a3b8",
+  muted: CLI_THEME.secondary,
   success: "#22c55e",
   warning: "#fbbf24",
   error: "#fb7185",

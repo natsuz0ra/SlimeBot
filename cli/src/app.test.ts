@@ -91,21 +91,21 @@ test("mapHistoryMessages restores only explicit Agent Team history", () => {
 test("getChatFooterHint returns toggle hint in plan mode", () => {
   assert.equal(
     getChatFooterHint(true, "standard"),
-    "/ for commands | Shift+Tab to toggle | Esc to cancel",
+    "/ for commands · Shift+Tab toggle · Esc cancel",
   );
 });
 
 test("getChatFooterHint returns toggle hint in auto mode", () => {
   assert.equal(
     getChatFooterHint(false, "auto"),
-    "/ for commands | Shift+Tab to toggle | Esc to cancel",
+    "/ for commands · Shift+Tab toggle · Esc cancel",
   );
 });
 
 test("getChatFooterHint returns toggle hint in auto review mode", () => {
   assert.equal(
     getChatFooterHint(false, "auto_review"),
-    "/ for commands | Shift+Tab to toggle | Esc to cancel",
+    "/ for commands · Shift+Tab toggle · Esc cancel",
   );
 });
 
@@ -130,13 +130,13 @@ test("Agent Team command opens a dedicated compact detail view", () => {
   assert.match(source, /<TeamView/);
   assert.match(source, /teamRunCursor/);
   assert.match(source, /teamMemberCursor/);
-  assert.match(source, /←\/→ Team \| ↑\/↓ member \| Esc back/);
+  assert.match(source, /←\/→ Team · ↑\/↓ member · Esc back/);
 });
 
 test("getChatFooterHint returns default hint in standard mode", () => {
   assert.equal(
     getChatFooterHint(false, "standard"),
-    "/ for commands | Shift+Tab plan mode | Esc to cancel",
+    "/ for commands · Shift+Tab plan · Esc cancel",
   );
 });
 

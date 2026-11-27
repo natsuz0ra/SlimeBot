@@ -53,10 +53,10 @@ function onClearPrivacyClick() {
 </script>
 
 <template>
-  <header class="header-bar relative z-30 flex items-center justify-center h-14 flex-shrink-0 backdrop-blur-sm" @keydown.esc="dismissTopMenu">
+  <header class="header-bar relative z-30 flex items-center justify-center h-12 flex-shrink-0" @keydown.esc="dismissTopMenu">
     <button
       type="button"
-      class="sb-text-muted absolute left-3 w-9 h-9 flex items-center justify-center rounded-xl transition-all duration-150 cursor-pointer"
+      class="sb-text-muted absolute left-3 w-8 h-8 flex items-center justify-center rounded-lg hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] transition-colors duration-150 cursor-pointer"
       :aria-label="t('scheduleToggleSidebar')"
       @click.stop="emit('toggleSidebar')"
     >
@@ -68,7 +68,7 @@ function onClearPrivacyClick() {
       ref="titleButton"
       type="button"
       :aria-expanded="topMenuVisible"
-      class="group/tip flex min-w-0 items-center gap-1.5 px-3 py-1.5 rounded-xl transition-all duration-150 cursor-pointer max-w-[260px] header-title-btn"
+      class="group/tip flex min-w-0 items-center gap-1.5 px-2.5 py-1 rounded-lg transition-colors duration-150 cursor-pointer max-w-[280px] header-title-btn"
       @click.stop="toggleTopMenu"
     >
       <TruncationTooltip
@@ -97,19 +97,22 @@ function onClearPrivacyClick() {
       <span class="text-[10px] px-1.5 py-0.5 rounded-md platform-badge">IM</span>
     </div>
 
-    <div
-      v-if="networkStatusText"
-      class="absolute right-3 flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium"
-      :class="connectionStatus === 'reconnecting' ? 'status-warning' : 'status-error'"
-    >
-      <span class="w-1.5 h-1.5 rounded-full animate-pulse" :class="connectionStatus === 'reconnecting' ? 'bg-amber-400' : 'bg-red-400'" />
-      {{ networkStatusText }}
+    <div class="absolute right-3 flex items-center gap-2">
+      <div
+        v-if="networkStatusText"
+        class="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium"
+        :class="connectionStatus === 'reconnecting' ? 'status-warning' : 'status-error'"
+      >
+        <span class="w-1.5 h-1.5 rounded-full animate-pulse" :class="connectionStatus === 'reconnecting' ? 'bg-amber-400' : 'bg-red-400'" />
+        {{ networkStatusText }}
+      </div>
+      <slot name="right" />
     </div>
 
     <Transition name="top-menu-pop">
       <div
         v-if="topMenuVisible && canManageCurrentSession"
-        class="absolute top-[52px] left-1/2 -translate-x-1/2 w-max min-w-40 max-w-[calc(100vw-2rem)] rounded-xl py-1 overflow-hidden z-[85] top-menu-glass"
+        class="absolute top-[46px] left-1/2 -translate-x-1/2 w-max min-w-40 max-w-[calc(100vw-2rem)] rounded-lg py-1 overflow-hidden z-[85] top-menu-glass"
         @click.stop
       >
         <button

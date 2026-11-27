@@ -14,6 +14,7 @@ interface UseCliSocketProps {
   dispatch: React.Dispatch<AppAction>;
   refreshSessionName: (sessionId: string) => Promise<void>;
   applyTerminalTitle: (sessionName?: string) => void;
+  onBackgroundCountChange?: (count: number) => void;
 }
 
 export function useCliSocket({
@@ -27,6 +28,7 @@ export function useCliSocket({
   dispatch,
   refreshSessionName,
   applyTerminalTitle,
+  onBackgroundCountChange,
 }: UseCliSocketProps): void {
   useEffect(() => {
     const socket = new CLISocket();
@@ -37,11 +39,15 @@ export function useCliSocket({
       acceptSession: (sessionId) => sessionId === sessionRef.current.id,
       onOpen: () => {socket.watchSession(sessionRef.current.id);},
       onBackgroundError: (error) => {dispatch({ type: "APPEND_ENTRY", entry: { kind: "system", content: error } });},
-      onBackgroundTasks: (tasks) => {socket.backgroundTasks = new Map(tasks.map(task => [task.taskId, task]));},
+      onBackgroundTasks: (tasks) => {
+        socket.backgroundTasks = new Map(tasks.map(task => [task.taskId, task]));
+        onBackgroundCountChange?.(socket.backgroundTasks.size);
+      },
       onBackgroundTask: (task) => {
-        if (["finished", "failed", "stopped"].includes(task.status)) socket.backgroundTasks.delete(task.taskId);
+        if (["finished", "failed", "stopped", "completed"].includes(task.status)) socket.backgroundTasks.delete(task.taskId);
         else socket.backgroundTasks.set(task.taskId, task);
-        if (task.status === "running") dispatch({ type: "APPEND_ENTRY", entry: { kind: "system", content: `Background task ${task.processId} is running. Completion will resume this conversation. Use /background stop to cancel.` } });
+        onBackgroundCountChange?.(socket.backgroundTasks.size);
+        if (task.status === "running") dispatch({ type: "APPEND_ENTRY", entry: { kind: "system", content: `Background task ${task.processId} is running. Completion will resume this conversation. Use /background to inspect or stop.` } });
       },
 
       onSession: (sessionId) => {
@@ -81,6 +87,17 @@ export function useCliSocket({
             type: "SET_PLAN_CONFIRMATION",
             planId: meta.planId,
             content: meta.planBody || liveAssistantRef.current || "",
+          });
+        }
+        if (meta?.skillLearning?.message) {
+          dispatch({
+            type: "APPEND_ENTRY",
+            entry: {
+              kind: "system",
+              content: meta.skillLearning.skillId
+                ? `Skill learning (${meta.skillLearning.status}): ${meta.skillLearning.skillId} — ${meta.skillLearning.message}`
+                : `Skill learning (${meta.skillLearning.status}): ${meta.skillLearning.message}`,
+            },
           });
         }
         const current = sessionRef.current;
@@ -345,5 +362,6 @@ export function useCliSocket({
     dispatch,
     refreshSessionName,
     applyTerminalTitle,
+    onBackgroundCountChange,
   ]);
 }

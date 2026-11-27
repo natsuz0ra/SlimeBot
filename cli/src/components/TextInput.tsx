@@ -13,6 +13,7 @@ export interface TextInputProps {
   focus: boolean;
   columns: number;
   prompt?: string;
+  placeholder?: string;
   multiline?: boolean;
   maxVisibleLines?: number;
   enableCtrlShortcuts?: boolean;
@@ -30,6 +31,7 @@ export function TextInput({
   onEscape,
   focus,
   columns,
+  placeholder,
   multiline = true,
   maxVisibleLines,
   enableCtrlShortcuts = true,
@@ -60,6 +62,17 @@ export function TextInput({
     }
     inputState.onInput(input, key);
   }, { isActive: focus });
+
+  if (!value && placeholder) {
+    return (
+      <Box flexDirection="column">
+        <Text wrap="truncate">
+          {focus ? chalk.inverse(placeholder[0] || " ") : (placeholder[0] || "")}
+          <Text dimColor>{placeholder.slice(1)}</Text>
+        </Text>
+      </Box>
+    );
+  }
 
   return (
     <Box flexDirection="column">

@@ -447,11 +447,11 @@ test("formatThinkingLabel uses fixed duration after thinking completes", () => {
 });
 
 test("formatToolStatusPart maps statuses to distinct colored labels", () => {
-  assert.deepEqual(formatToolStatusPart("completed"), { text: "✓ completed", color: "#2E7D32" });
-  assert.deepEqual(formatToolStatusPart("error"), { text: "✕ failed", color: "#C62828" });
-  assert.deepEqual(formatToolStatusPart("rejected"), { text: "✕ rejected", color: "#C62828" });
-  assert.deepEqual(formatToolStatusPart("pending"), { text: "? pending approval", color: "#B8860B" });
-  assert.deepEqual(formatToolStatusPart("executing"), { text: "… executing", color: "#B8860B" });
+  assert.deepEqual(formatToolStatusPart("completed"), { text: "✓ completed", color: "green" });
+  assert.deepEqual(formatToolStatusPart("error"), { text: "✕ failed", color: "red" });
+  assert.deepEqual(formatToolStatusPart("rejected"), { text: "✕ rejected", color: "red" });
+  assert.deepEqual(formatToolStatusPart("pending"), { text: "? pending approval", color: "yellow" });
+  assert.deepEqual(formatToolStatusPart("executing"), { text: "… executing", color: "yellow" });
 });
 
 test("formatToolSummaryTag wraps non-empty summaries and hides empty ones", () => {
@@ -1005,7 +1005,7 @@ test("Timeline renders todo content with Ink strikethrough only for completed it
 });
 
 test("WAITING_STATS_COLOR matches the chat footer hint color", () => {
-  assert.equal(WAITING_STATS_COLOR, "#64748b");
+  assert.equal(WAITING_STATS_COLOR, "#7c8ba1");
 });
 
 test("formatPlanFrameLines renders only top and bottom borders", () => {

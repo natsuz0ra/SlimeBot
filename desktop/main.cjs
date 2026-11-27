@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Tray, Menu, dialog, ipcMain, nativeImage, shell, session, Notification } = require('electron')
+const { app, BrowserWindow, Tray, Menu, dialog, ipcMain, nativeImage, nativeTheme, shell, session, Notification } = require('electron')
 const { autoUpdater } = require('electron-updater')
 const { spawn } = require('node:child_process')
 const { randomBytes } = require('node:crypto')
@@ -159,6 +159,7 @@ function makeWindow(origin) {
     width: 1280, height: 850, minWidth: 900, minHeight: 620,
     title: 'SlimeBot',
     icon: path.join(__dirname, 'resources', 'icon.png'),
+    backgroundColor: nativeTheme.shouldUseDarkColors ? '#141416' : '#ffffff',
     show: false,
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),

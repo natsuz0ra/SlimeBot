@@ -357,3 +357,88 @@ test("dispatchWSMessage routes context compacted events", () => {
 
   assert.deepEqual(calls, [{ sessionId: "sid-context", usedTokens: 120000 }]);
 });
+
+test("dispatchWSMessage preserves extended context usage layers, budget, and cooldown state", () => {
+  const received: Array<{
+    state?: string;
+    layersCount: number;
+    outputBudgetTokens?: number;
+    outputBudgetUsed?: number;
+  }> = [];
+
+  dispatchWSMessage(
+    JSON.stringify({
+      type: "context_usage",
+      sessionId: "sid-ext",
+      modelConfigId: "model-1",
+      usedTokens: 60000,
+      totalTokens: 128000,
+      usedPercent: 47,
+      availablePercent: 53,
+      isCompacted: false,
+      state: "cooldown",
+      outputBudgetTokens: 100000,
+      outputBudgetUsed: 82000,
+      layers: [
+        { layer: "system", tokens: 4000 },
+        { layer: "history", tokens: 56000 },
+      ],
+    }),
+    {
+      onSession: () => {},
+      onStart: () => {},
+      onChunk: () => {},
+      onDone: () => {},
+      onError: () => {},
+      onContextUsage: (usage) => {
+        received.push({
+          state: usage.state,
+          layersCount: usage.layers?.length ?? 0,
+          outputBudgetTokens: usage.outputBudgetTokens,
+          outputBudgetUsed: usage.outputBudgetUsed,
+        });
+      },
+    },
+  );
+
+  assert.deepEqual(received, [{
+    state: "cooldown",
+    layersCount: 2,
+    outputBudgetTokens: 100000,
+    outputBudgetUsed: 82000,
+  }]);
+});
+
+test("dispatchWSMessage routes done skillLearning metadata", () => {
+  const received: Array<{ action?: string; skillName?: string; summary?: string }> = [];
+  dispatchWSMessage(
+    JSON.stringify({
+      type: "done",
+      sessionId: "sid-skill",
+      skillLearning: {
+        action: "created",
+        skillName: "deploy-helper",
+        summary: "Saved release verification steps",
+      },
+    }),
+    {
+      onSession: () => {},
+      onStart: () => {},
+      onChunk: () => {},
+      onDone: (_sid, meta) => {
+        received.push({
+          action: meta?.skillLearning?.action,
+          skillName: meta?.skillLearning?.skillName,
+          summary: meta?.skillLearning?.summary,
+        });
+      },
+      onError: () => {},
+    },
+  );
+
+  assert.deepEqual(received, [{
+    action: "created",
+    skillName: "deploy-helper",
+    summary: "Saved release verification steps",
+  }]);
+});

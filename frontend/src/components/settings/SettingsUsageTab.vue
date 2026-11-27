@@ -221,31 +221,31 @@ onUnmounted(() => {
 <style scoped>
 .usage-tab { display: flex; flex-direction: column; gap: 16px; color: var(--text-primary); }
 .usage-description, .usage-budget p { margin: 0; font-size: 12px; color: var(--text-muted); line-height: 1.7; }
-.usage-budget { padding: 16px; border: 1px solid var(--card-border); border-radius: 10px; background: var(--primary-alpha-05); }
+.usage-budget { padding: 14px 16px; border: 1px solid var(--border-subtle); border-radius: 8px; background: var(--bg-subtle); }
 .usage-budget label { display: block; font-size: 13px; font-weight: 600; margin-bottom: 10px; }
 .usage-budget > div { display: flex; gap: 8px; }
 .usage-budget input { flex: 1; min-width: 0; padding: 8px 10px; border: 1px solid var(--input-border); border-radius: 8px; background: var(--input-bg); color: var(--text-primary); }
 button { padding: 6px 11px; border: 1px solid var(--input-border); border-radius: 8px; cursor: pointer; color: var(--text-secondary); background: var(--input-bg); font-size: 12px; transition: border-color 140ms ease, color 140ms ease, background 140ms ease; }
-button:hover:not(:disabled) { border-color: var(--primary-alpha-25); color: var(--text-primary); }
-button.active { color: var(--sb-brand); border-color: var(--sb-brand); background: var(--primary-alpha-08); }
+button:hover:not(:disabled) { border-color: var(--border-strong); background: var(--bg-hover); color: var(--text-primary); }
+button.active { color: var(--sb-brand); border-color: var(--sb-brand); background: var(--primary-alpha-10); }
 .usage-budget p { margin-top: 8px; }
 .usage-toolbar { display: flex; justify-content: space-between; gap: 10px; align-items: center; flex-wrap: wrap; font-size: 12px; }
 .usage-btn-group { display: flex; gap: 6px; flex-wrap: wrap; }
 .usage-summary-strip { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
-.usage-stat { padding: 10px 12px; border: 1px solid var(--card-border); border-radius: 10px; background: var(--primary-alpha-05); display: flex; flex-direction: column; gap: 4px; font-variant-numeric: tabular-nums; }
+.usage-stat { padding: 10px 12px; border: 1px solid var(--border-subtle); border-radius: 8px; background: var(--bg-subtle); display: flex; flex-direction: column; gap: 4px; font-variant-numeric: tabular-nums; }
 .usage-stat span { font-size: 11px; color: var(--text-muted); }
 .usage-stat strong { font-size: 15px; font-weight: 650; color: var(--text-primary); }
-.usage-table { border: 1px solid var(--card-border); border-radius: 10px; overflow-x: auto; }
+.usage-table { border: 1px solid var(--border-subtle); border-radius: 8px; overflow-x: auto; }
 .usage-row { display: grid; grid-template-columns: minmax(190px, 1fr) repeat(4, minmax(84px, auto)); gap: 12px; padding: 11px 12px; align-items: center; font-size: 12px; font-variant-numeric: tabular-nums; }
-.usage-row + .usage-row { border-top: 1px solid var(--card-border); }
+.usage-row + .usage-row { border-top: 1px solid var(--border-subtle); }
 .usage-name-cell { display: flex; align-items: center; gap: 6px; min-width: 0; }
 .usage-name-cell strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .usage-session-link { padding: 0; border: 0; background: transparent; color: var(--text-primary); font-weight: 600; text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
-.usage-session-link:hover { color: var(--sb-brand); text-decoration: underline; }
-.usage-badge { flex-shrink: 0; padding: 1px 6px; border-radius: 999px; font-size: 10px; font-weight: 600; line-height: 1.5; }
-.usage-badge--muted { color: var(--text-muted); background: var(--primary-alpha-08); }
-.usage-badge--accent { color: var(--sb-brand); background: var(--primary-alpha-12); }
-.usage-head { color: var(--text-muted); background: var(--primary-alpha-05); }
+.usage-session-link:hover { color: var(--sb-brand); text-decoration: underline; background: transparent; }
+.usage-badge { flex-shrink: 0; padding: 1px 6px; border-radius: 6px; font-size: 10px; font-weight: 600; line-height: 1.5; }
+.usage-badge--muted { color: var(--text-muted); background: var(--bg-subtle); }
+.usage-badge--accent { color: var(--sb-brand); background: var(--primary-alpha-10); }
+.usage-head { color: var(--text-muted); background: var(--bg-subtle); }
 .usage-empty { padding: 30px; display: flex; justify-content: center; color: var(--text-muted); font-size: 12px; }
 @media (max-width: 640px) {
   .usage-summary-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }

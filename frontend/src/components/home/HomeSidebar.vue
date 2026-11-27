@@ -102,11 +102,11 @@ function toggleGroup(path: string) {
 </script>
 
 <template>
-  <aside class="sidebar-panel absolute inset-y-0 left-0 w-64 flex flex-col z-30 backdrop-blur-xl">
-    <div class="sidebar-header flex items-center justify-between px-4 h-14">
-      <div class="flex items-center gap-2.5 min-w-0">
-        <AppLogo :size="36" />
-        <span class="sb-text-primary text-lg font-semibold tracking-wide brand-tech-font truncate">SlimeBot</span>
+  <aside class="sidebar-panel absolute inset-y-0 left-0 w-64 flex flex-col z-30">
+    <div class="sidebar-header flex items-center justify-between px-3.5 h-12">
+      <div class="flex items-center gap-2 min-w-0">
+        <AppLogo :size="24" />
+        <span class="sb-text-primary text-[15px] font-semibold brand-tech-font truncate">SlimeBot</span>
       </div>
 
       <div class="flex items-center gap-1 flex-shrink-0">
@@ -284,20 +284,20 @@ function toggleGroup(path: string) {
 </template>
 
 <style scoped>
-.sidebar-primary-nav { padding: 10px 10px 4px; }
-.sidebar-task-link { width: 100%; display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 10px; font-size: 13px; font-weight: 550; color: var(--text-secondary); cursor: pointer; transition: background 150ms; }
-.sidebar-task-link:hover { background: var(--primary-alpha-08); }
-.sidebar-task-link.active { background: var(--primary-alpha-12); color: var(--sb-brand); }
+.sidebar-primary-nav { padding: 8px 8px 4px; }
+.sidebar-task-link { width: 100%; display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 8px; font-size: 13px; font-weight: 500; color: var(--text-secondary); cursor: pointer; transition: background 150ms, color 150ms; }
+.sidebar-task-link:hover { background: var(--bg-hover); color: var(--text-primary); }
+.sidebar-task-link.active { background: var(--primary-alpha-10); color: var(--sb-brand); font-weight: 600; }
 .sidebar-task-link:focus-visible { outline: 2px solid var(--sb-brand); outline-offset: -2px; }
 
 .workspace-group { color: var(--text-primary); transition: background 150ms ease, color 150ms ease; }
-.workspace-group:hover, .workspace-group:focus-visible, .workspace-group-add:hover, .workspace-group-add:focus-visible { color: var(--text-primary); background: var(--primary-alpha-08); }
+.workspace-group:hover, .workspace-group:focus-visible, .workspace-group-add:hover, .workspace-group-add:focus-visible { color: var(--text-primary); background: var(--bg-hover); }
 .workspace-group-add { color: var(--text-muted); }
-.workspace-session-list { border-color: var(--primary-alpha-15); }
+.workspace-session-list { border-color: var(--border-subtle); }
 .workspace-session-row { color: var(--text-secondary); border: 1px solid transparent; transition: background 150ms ease, color 150ms ease, border-color 150ms ease; }
-.workspace-session-row:hover, .workspace-session-row:focus-within { color: var(--text-primary); background: var(--primary-alpha-06); }
-.workspace-session-row-active { color: var(--text-primary); background: var(--primary-alpha-12); border-color: var(--primary-alpha-15); }
-.workspace-session-row-active:hover, .workspace-session-row-active:focus-within { background: var(--primary-alpha-15); }
+.workspace-session-row:hover, .workspace-session-row:focus-within { color: var(--text-primary); background: var(--bg-hover); }
+.workspace-session-row-active { color: var(--text-primary); background: var(--bg-active); border-color: var(--border-subtle); }
+.workspace-session-row-active:hover, .workspace-session-row-active:focus-within { background: var(--bg-active); }
 .session-running-spinner.loading-spinner-accent { color: var(--text-muted); }
 .session-unread-dot { background: var(--sb-brand); }
 @media (prefers-reduced-motion: reduce) { .session-running-spinner { animation-duration: 2.5s; } }
@@ -306,9 +306,9 @@ function toggleGroup(path: string) {
 .workspace-session-menu { color: var(--text-muted); opacity: 0; }
 .workspace-session-row:hover .workspace-session-menu, .workspace-session-menu:focus-visible { opacity: 1; }
 .workspace-session-row:hover .session-activity, .workspace-session-row:has(.workspace-session-menu:focus-visible) .session-activity { opacity: 0; }
-.workspace-session-menu:hover, .workspace-session-menu:focus-visible { color: var(--text-primary); background: var(--primary-alpha-10); }
+.workspace-session-menu:hover, .workspace-session-menu:focus-visible { color: var(--text-primary); background: var(--bg-hover); }
 .workspace-session-more, .workspace-load-more { color: var(--text-muted); transition: background 150ms ease, color 150ms ease; }
-.workspace-session-more:hover, .workspace-session-more:focus-visible, .workspace-load-more:hover:not(:disabled), .workspace-load-more:focus-visible { color: var(--text-primary); background: var(--primary-alpha-08); }
+.workspace-session-more:hover, .workspace-session-more:focus-visible, .workspace-load-more:hover:not(:disabled), .workspace-load-more:focus-visible { color: var(--text-primary); background: var(--bg-hover); }
 .update-notice-dot {
   width: 7px;
   height: 7px;

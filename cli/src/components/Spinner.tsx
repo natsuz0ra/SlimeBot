@@ -5,6 +5,7 @@
 
 import React, { useEffect, useRef, useState } from "react";
 import { Text } from "ink";
+import { CLI_THEME } from "../utils/theme.js";
 
 const FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 const FRAME_INTERVAL = 80; // Same refresh rate as GradientFlowText
@@ -14,7 +15,7 @@ interface SpinnerProps {
   color?: string;
 }
 
-export function Spinner({ enabled, color = "#a78bfa" }: SpinnerProps): React.ReactElement {
+export function Spinner({ enabled, color = CLI_THEME.accent }: SpinnerProps): React.ReactElement {
   const [frameIndex, setFrameIndex] = useState(0);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 

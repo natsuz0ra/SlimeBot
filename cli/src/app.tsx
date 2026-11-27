@@ -12,7 +12,9 @@ import { ApprovalView } from "./components/ApprovalView.js";
 import { PlanConfirmView } from "./components/PlanConfirmView.js";
 import QuestionAnswerView from "./components/QuestionAnswerView.js";
 import { Banner } from "./components/Banner.js";
+import { CheckpointView } from "./components/CheckpointView.js";
 import { CommandHints } from "./components/CommandHints.js";
+import { ContextView } from "./components/ContextView.js";
 import { MCPEditor } from "./components/MCPEditor.js";
 import { MCPTemplatePicker } from "./components/MCPTemplatePicker.js";
 import { MCPToolsView } from "./components/MCPToolsView.js";
@@ -26,12 +28,13 @@ import { ProviderEditor } from "./components/ProviderEditor.js";
 import { TextInput } from "./components/TextInput.js";
 import { Timeline } from "./components/Timeline.js";
 import { UpdateView, getInitialUpdateJobForView, isUpdateActive } from "./components/UpdateView.js";
+import { UsageView } from "./components/UsageView.js";
 import { getChatFooterHint, handleChatShortcut, runCliCommand } from "./controllers/commands.js";
 import { useCliKeyboard } from "./hooks/useCliKeyboard.js";
-import { clampContextSize, formatContextSize, formatContextUsageStatus } from "./utils/contextSize.js";
+import { clampContextSize, formatContextSize, formatContextTokenCount, formatContextUsageStatus } from "./utils/contextSize.js";
 import { useCliSocket } from "./hooks/useCliSocket.js";
 import { reducer, createInitialState } from "./reducer.js";
-import { completeCommand, isCommand, matchCommandHints, moveCommandHintCursor } from "./utils/commands.js";
+import { completeCommand, getCommandMeta, isCommand, matchCommandHints, moveCommandHintCursor, resolveCommandHintEnter } from "./utils/commands.js";
 import { formatTimestamp, formatWaitingStatsSuffix } from "./utils/format.js";
 import { getAgentTeamRuns } from "./utils/agentTeam.js";
 import { mapHistoryMessages } from "./utils/history.js";
@@ -45,7 +48,9 @@ import {
   type MemoryConsoleEditField,
 } from "./utils/memoryConsole.js";
 import { CLI_ACCENT_COLOR, clearScreen, setTerminalTitle, terminalWorkspaceLayout } from "./utils/terminal.js";
+import { CLI_THEME } from "./utils/theme.js";
 import { SHOW_CLI_THINKING } from "./utils/timelineFormat.js";
+import { getOutputBudgetStatus } from "./utils/usage.js";
 import { CLISocket } from "./ws/socket.js";
 import type {
   AppAction,
@@ -56,10 +61,11 @@ import type {
   MCPTemplate,
   MenuItem,
   ModelProvider,
+  PersistedBackgroundTask,
   Session,
   Skill,
 } from "./types.js";
-import { THINKING_LEVELS } from "./types.js";
+import { SUPPORTED_COMMANDS, THINKING_LEVELS } from "./types.js";
 
 export { getChatFooterHint, handleChatShortcut } from "./controllers/commands.js";
 
@@ -97,6 +103,9 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
   const [cooperativeTab, setCooperativeTab] = React.useState(0);
   const [cooperativeSnapshot, setCooperativeSnapshot] = React.useState<CooperativeSnapshot|null>(null);
   const [commandHintCursor, setCommandHintCursor] = React.useState(0);
+  const [backgroundTaskCount, setBackgroundTaskCount] = React.useState(0);
+  const [contextCompacting, setContextCompacting] = React.useState(false);
+  const [outputBudgetTokens, setOutputBudgetTokens] = React.useState<number>(0);
   const border = "─".repeat(width);
 
   const [state, dispatch] = useReducer(
@@ -189,6 +198,7 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
   const loadDefaultModel = useCallback(async () => {
     try {
       const settings = await apiRef.current.getSettings();
+      setOutputBudgetTokens(Number(settings.sessionOutputTokenBudget) || 0);
       const configs = await apiRef.current.listLLMConfigs();
       const model = configs.find((c) => c.id === settings.defaultModel) ?? configs[0];
       const modelId = model?.id ?? "";
@@ -260,7 +270,7 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
       kind: "effort",
       title: "Thinking Level",
       items,
-      hint: "Arrow keys to navigate | Enter to select | Esc to cancel",
+      hint: "↑↓ navigate · Enter select · Esc cancel",
     } as AppAction);
   }, [state.thinkingLevel]);
 
@@ -294,7 +304,7 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
         kind: "session",
         title: "Session Menu",
         items,
-        hint: "Arrow keys to navigate | Enter to switch | D to delete | Esc to close",
+        hint: "↑↓ navigate · Enter switch · D delete · Esc close",
       } as AppAction);
     } catch (error) {
       appendSystem(`Failed to load sessions: ${(error as Error).message}`);
@@ -315,7 +325,7 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
         kind: "model",
         title: "Model Menu",
         items,
-        hint: "Enter switch | A providers | E edit | D delete | Esc close",
+        hint: "Enter switch · A providers · E edit · D delete · Esc close",
       } as AppAction);
     } catch (error) {
       appendSystem(`Failed to load models: ${(error as Error).message}`);
@@ -328,7 +338,7 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
       dispatch({
         type: "SET_MENU", kind: "provider", title: "Model Providers",
         items: providers.map(provider => ({ title: provider.name, desc: `${provider.protocol} · ${provider.baseUrl}`, data: provider })),
-        hint: "Enter models | A add | E edit | D delete | R discover | Esc back",
+        hint: "Enter models · A add · E edit · D delete · R discover · Esc back",
       } as AppAction);
     } catch (error) {
       appendSystem(`Failed to load providers: ${(error as Error).message}`);
@@ -342,7 +352,7 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
       dispatch({
         type: "SET_MENU", kind: "provider-model", title: provider.name,
         items: models.map(model => ({ title: model.name, desc: `${model.model} · ${formatContextSize(model.contextSize || 1_000_000)} ${model.contextSizeSource === "detected" ? "(detected)" : model.contextSizeSource === "fallback" ? "(estimate)" : "(custom)"}`, data: model })),
-        hint: "Enter edit | A add manually | D delete | R discover | Esc providers",
+        hint: "Enter edit · A add manually · D delete · R discover · Esc providers",
       } as AppAction);
     } catch (error) {
       appendSystem(`Failed to load provider models: ${(error as Error).message}`);
@@ -357,7 +367,7 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
       dispatch({
         type: "SET_MENU", kind: "discovered-model", title: `${provider.name} · Discovery`,
         items: found.map(model => ({ title: model.name, desc: existing.has(model.id) ? `${model.id} · already added` : `${model.id} · ${model.contextSize ? formatContextSize(model.contextSize) : "context unknown"}`, data: { ...model, added: existing.has(model.id) } })),
-        hint: "Enter add model | Esc provider models",
+        hint: "Enter add model · Esc provider models",
       } as AppAction);
     } catch (error) {
       appendSystem(`Model discovery failed: ${(error as Error).message}`);
@@ -380,7 +390,7 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
         kind: "subagent_model",
         title: "Sub-agent Model",
         items,
-        hint: "Arrow keys to navigate | Enter to select | Esc to close",
+        hint: "↑↓ navigate · Enter select · Esc close",
       } as AppAction);
     } catch (error) {
       appendSystem(`Failed to load subagent models: ${(error as Error).message}`);
@@ -390,17 +400,21 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
   const loadSkills = useCallback(async () => {
     try {
       const skills = await apiRef.current.listSkills();
-      const items: MenuItem[] = skills.map((s: Skill) => ({
-        title: s.name,
-        desc: `${s.sourceLabel || "SlimeBot"}${s.readOnly ? " · read-only" : ""}${s.enabled === false ? " · disabled" : ""} · ${s.description}`,
-        data: s,
-      }));
+      const items: MenuItem[] = skills.map((s: Skill) => {
+        const isEnabled = s.enabled !== false;
+        const statusMark = isEnabled ? "● ON" : "○ OFF";
+        return {
+          title: s.name,
+          desc: `${statusMark} · ${s.sourceLabel || "SlimeBot"}${s.readOnly ? " · read-only" : ""} · ${s.description}`,
+          data: s,
+        };
+      });
       dispatch({
         type: "SET_MENU",
         kind: "skills",
         title: "Skills Menu",
         items,
-        hint: "Arrow keys to navigate | D to delete | Esc to close",
+        hint: "↑↓ navigate · Space toggle · D delete · Esc close",
       } as AppAction);
     } catch (error) {
       appendSystem(`Failed to load skills: ${(error as Error).message}`);
@@ -420,7 +434,7 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
         kind: "mcp",
         title: "MCP Menu",
         items,
-        hint: "Arrow keys to navigate | Enter or E to edit | T tools | A to add | Space to toggle | D to delete | Esc to close",
+        hint: "↑↓ navigate · Enter/E edit · T tools · A add · Space toggle · D delete · Esc close",
       } as AppAction);
     } catch (error) {
       appendSystem(`Failed to load MCP configs: ${(error as Error).message}`);
@@ -435,7 +449,7 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
         kind: "sandbox",
         title: "Sandbox Settings",
         items: buildSandboxMenuItems(settings),
-        hint: "Arrow keys to navigate | Enter to apply | Esc to close",
+        hint: "↑↓ navigate · Enter apply · Esc close",
       } as AppAction);
     } catch (error) {
       appendSystem(`Failed to load sandbox settings: ${(error as Error).message}`);
@@ -443,9 +457,162 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
   }, [appendSystem]);
 
   const privacy = useCallback(async (input: string) => {
-    try { appendSystem(await runPrivacyCommand(apiRef.current, input)); }
+    try { appendSystem(await runPrivacyCommand(apiRef.current, input, sessionRef.current.id)); }
     catch (error) { appendSystem(`Privacy: ${(error as Error).message}`); }
   }, [appendSystem]);
+
+  const loadBackgroundTasksMenu = useCallback(async () => {
+    const sid = sessionRef.current.id;
+    if (!sid) {
+      appendSystem("Create or open a session first.");
+      return;
+    }
+    try {
+      const tasks = await apiRef.current.listBackgroundTasks(sid);
+      const activeCount = tasks.filter((t) => t.status === "running" || t.status === "queued" || t.status === "waking").length;
+      setBackgroundTaskCount(activeCount);
+      const items: MenuItem[] = tasks.map((task) => {
+        const cmdPreview = (task.command || task.processId || task.id).replace(/\s+/g, " ").trim();
+        const exitPart = task.status === "completed" || task.status === "failed" ? ` · exit ${task.exitCode}` : "";
+        return {
+          title: `[${task.status}] ${cmdPreview}`,
+          desc: `${task.processId || task.id.slice(0, 8)}${exitPart} · ${formatTimestamp(task.finishedAt || task.startedAt)}${task.error ? ` · ${task.error}` : ""}`,
+          data: task,
+        };
+      });
+      dispatch({
+        type: "SET_MENU",
+        kind: "background",
+        title: "Background Tasks",
+        items,
+        hint: "Enter smart action · C continue · R retry · S stop · Esc close",
+      } as AppAction);
+    } catch (error) {
+      appendSystem(`Failed to load background tasks: ${(error as Error).message}`);
+    }
+  }, [appendSystem]);
+
+  const handleBackgroundAction = useCallback(async (
+    item: MenuItem | undefined,
+    action: "continue" | "retry" | "stop",
+  ) => {
+    if (!item) return;
+    const task = item.data as PersistedBackgroundTask;
+    try {
+      await apiRef.current.actOnBackgroundTask(task.id, action);
+      appendSystem(`Background task ${task.processId || task.id.slice(0, 8)}: ${action} requested.`);
+      await loadBackgroundTasksMenu();
+    } catch (error) {
+      appendSystem(`Background action failed: ${(error as Error).message}`);
+    }
+  }, [appendSystem, loadBackgroundTasksMenu]);
+
+  const handleCompactContext = useCallback(async () => {
+    const sid = sessionRef.current.id;
+    if (!sid) {
+      appendSystem("Create or open a session first.");
+      return;
+    }
+    if (!state.modelId) {
+      appendSystem("Please select a model first with /model.");
+      return;
+    }
+    if (state.streaming || contextCompacting) {
+      appendSystem("Cannot compact context while a turn or compaction is already running.");
+      return;
+    }
+    setContextCompacting(true);
+    try {
+      const result = await apiRef.current.compactContext(sid, state.modelId);
+      if (result.usage) {
+        dispatch({ type: "CONTEXT_USAGE", usage: result.usage } as AppAction);
+      } else {
+        await refreshContextUsage(sid, state.modelId);
+      }
+      if (result.compacted) {
+        const before = result.usage?.compactionBeforeTokens;
+        const after = result.usage?.compactionAfterTokens;
+        const summary = before !== undefined && after !== undefined
+          ? `Context compacted: ${formatContextTokenCount(before)} → ${formatContextTokenCount(after)} (saved ${formatContextTokenCount(Math.max(0, before - after))}).`
+          : "Context compacted successfully.";
+        appendSystem(summary);
+      } else {
+        appendSystem(result.reason ? `Context compaction skipped: ${result.reason}` : "Context does not need compaction right now.");
+      }
+    } catch (error) {
+      appendSystem(`Context compaction failed: ${(error as Error).message}`);
+    } finally {
+      setContextCompacting(false);
+    }
+  }, [appendSystem, contextCompacting, refreshContextUsage, state.modelId, state.streaming]);
+
+  const handleShowContext = useCallback(async () => {
+    if (sessionRef.current.id && state.modelId) {
+      await refreshContextUsage(sessionRef.current.id, state.modelId);
+    }
+    dispatch({ type: "SET_VIEW", view: "context" } as AppAction);
+  }, [refreshContextUsage, state.modelId]);
+
+  const handleCheckpointCommand = useCallback(async (input: string) => {
+    const sid = sessionRef.current.id;
+    if (!sid) {
+      appendSystem("Create or open a session first.");
+      return;
+    }
+    if (input === "list") {
+      try {
+        const list = await apiRef.current.listCheckpoints(sid);
+        if (list.length === 0) {
+          appendSystem("No file checkpoints recorded for this session.");
+          return;
+        }
+        appendSystem(
+          list.map((cp) => `${cp.id.slice(0, 8)} · ${cp.kind} · ${cp.fileCount} file(s) · ${formatTimestamp(cp.createdAt)}`).join("\n"),
+        );
+      } catch (error) {
+        appendSystem(`Failed to list checkpoints: ${(error as Error).message}`);
+      }
+      return;
+    }
+    dispatch({ type: "SET_VIEW", view: "checkpoint" } as AppAction);
+  }, [appendSystem]);
+
+  const handleUsageCommand = useCallback(async (input: string) => {
+    const trimmed = input.trim();
+    if (trimmed === "budget" || trimmed.startsWith("budget ")) {
+      const raw = trimmed.slice(6).trim();
+      if (!raw) {
+        appendSystem(
+          outputBudgetTokens > 0
+            ? `Current session output token budget: ${formatContextTokenCount(outputBudgetTokens)}. Use /usage budget <tokens|0> to change.`
+            : "Session output token budget is unlimited. Use /usage budget <tokens> to set a limit.",
+        );
+        return;
+      }
+      const parsed = Number(raw.replace(/[,_]/g, ""));
+      if (!Number.isFinite(parsed) || parsed < 0) {
+        appendSystem("Usage: /usage budget <non-negative integer|0>");
+        return;
+      }
+      const nextBudget = Math.round(parsed);
+      try {
+        await apiRef.current.updateSettings({ sessionOutputTokenBudget: nextBudget });
+        setOutputBudgetTokens(nextBudget);
+        if (sessionRef.current.id && state.modelId) {
+          await refreshContextUsage(sessionRef.current.id, state.modelId);
+        }
+        appendSystem(
+          nextBudget > 0
+            ? `Session output token budget set to ${formatContextTokenCount(nextBudget)}.`
+            : "Session output token budget cleared (unlimited).",
+        );
+      } catch (error) {
+        appendSystem(`Failed to update output budget: ${(error as Error).message}`);
+      }
+      return;
+    }
+    dispatch({ type: "SET_VIEW", view: "usage" } as AppAction);
+  }, [appendSystem, outputBudgetTokens, refreshContextUsage, state.modelId]);
 
   const loadMemory = useCallback(async () => {
     dispatch({ type: "SET_MEMORY_CONSOLE", loading: true, message: "" } as AppAction);
@@ -641,28 +808,31 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
   }, [state.updateApplying]);
 
   const showHelp = useCallback(() => {
+    const categoryLabels: Record<string, string> = {
+      session: "Session",
+      model: "Model",
+      workspace: "Workspace",
+      safety: "Safety",
+      system: "System",
+    };
     const items: MenuItem[] = [
-      { title: "/new", desc: "Create a new chat (lazy session creation)", data: null },
-      { title: "/session", desc: "Browse, switch, or delete sessions", data: null },
-      { title: "/model", desc: "Switch default model", data: null },
-      { title: "/provider", desc: "Manage model providers and available models", data: null },
-      { title: "/background", desc: "Show background tasks; /background stop cancels them", data: null },
-      { title: "/memory", desc: "Open memory console", data: null },
-      { title: "/privacy", desc: "Local masking settings and preview", data: null },
-      { title: "/approval", desc: "Toggle approval mode (standard/auto review/auto)", data: null },
-      { title: "/effort", desc: "Toggle thinking level (off/low/medium/high)", data: null },
-      { title: "/sandbox", desc: "Configure sandbox mode and network access", data: null },
-      { title: "/update", desc: "Check and apply SlimeBot updates", data: null },
-      { title: "/skills", desc: "Browse and delete installed skills", data: null },
-      { title: "/mcp", desc: "Manage MCP configs", data: null },
-      { title: "/help", desc: "Show available commands", data: null },
+      ...SUPPORTED_COMMANDS.map((cmd) => ({
+        title: cmd.command,
+        desc: `[${categoryLabels[cmd.category] || cmd.category}] ${cmd.description}`,
+        data: cmd.command,
+      })),
+      {
+        title: "Shortcuts",
+        desc: "Shift+Tab plan mode · Ctrl+O tool output · Ctrl+K compact markdown · Esc cancel/back",
+        data: null,
+      },
     ];
     dispatch({
       type: "SET_MENU",
       kind: "help",
-      title: "Help",
+      title: "Help · Commands & Shortcuts",
       items,
-      hint: "Esc to return to chat",
+      hint: "↑↓ navigate · Enter run · Esc close",
     } as AppAction);
   }, []);
 
@@ -776,11 +946,30 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
         } as AppAction);
         return;
       }
+      if (state.menuKind === "background") {
+        const task = item.data as PersistedBackgroundTask;
+        const smartAction: "stop" | "retry" | "continue" =
+          task.status === "running" || task.status === "queued" || task.status === "waking"
+            ? "stop"
+            : task.status === "interrupted" || task.status === "failed"
+              ? "retry"
+              : "continue";
+        await handleBackgroundAction(item, smartAction);
+        return;
+      }
+      if (state.menuKind === "help" && typeof item.data === "string" && item.data.startsWith("/")) {
+        dispatch({ type: "CLOSE_MENU" } as AppAction);
+        const targetCmd = item.data;
+        if (targetCmd !== "/help") {
+          setImmediate(() => { void handleCommandRef.current?.(targetCmd); });
+        }
+        return;
+      }
       dispatch({ type: "CLOSE_MENU" } as AppAction);
     } catch (error) {
       appendSystem(`Menu action failed: ${(error as Error).message}`);
     }
-  }, [appendSystem, loadProviderModels, loadSandboxSettings, refreshContextUsage, state.menuKind, state.sessionId, switchSession]);
+  }, [appendSystem, handleBackgroundAction, loadProviderModels, loadSandboxSettings, refreshContextUsage, state.menuKind, state.sessionId, switchSession]);
 
   const handleMenuDelete = useCallback(async (item: MenuItem | undefined) => {
     if (!item || !state.menuKind) return;
@@ -800,7 +989,7 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
       if (state.menuKind === "skills") {
         const skill = item.data as Skill;
         if (skill.readOnly) {
-          appendSystem("External skills are read-only. Use the web settings page to enable or disable them.");
+          appendSystem("External skills are read-only and cannot be deleted. Press Space to enable or disable them.");
           return;
         }
         await apiRef.current.deleteSkill(skill.id);
@@ -882,7 +1071,20 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
   }, [loadDiscoveredModels, state.menuKind]);
 
   const handleMenuToggle = useCallback(async (item: MenuItem | undefined) => {
-    if (state.menuKind !== "mcp" || !item) return;
+    if (!item) return;
+    if (state.menuKind === "skills") {
+      const skill = item.data as Skill;
+      try {
+        const nextEnabled = skill.enabled === false;
+        await apiRef.current.setSkillEnabled(skill.id, nextEnabled);
+        appendSystem(`Skill ${skill.name} ${nextEnabled ? "enabled" : "disabled"}.`);
+        await loadSkills();
+      } catch (error) {
+        appendSystem(`Failed to toggle skill: ${(error as Error).message}`);
+      }
+      return;
+    }
+    if (state.menuKind !== "mcp") return;
     const mcp = item.data as MCPConfig;
     try {
       await apiRef.current.updateMCPConfig(mcp.id, {
@@ -894,7 +1096,7 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
     } catch (error) {
       appendSystem(`Failed to toggle MCP config: ${(error as Error).message}`);
     }
-  }, [appendSystem, loadMCPConfigs, state.menuKind]);
+  }, [appendSystem, loadMCPConfigs, loadSkills, state.menuKind]);
 
   const loadMCPToolsForConfig = useCallback(async (mcp: MCPConfig) => {
     dispatch({ type: "SET_MCP_TOOLS_LOADING", loading: true } as AppAction);
@@ -1128,11 +1330,14 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
     return () => { disposed = true; clearTimeout(timer); };
   }, [cooperativeView, state.view, state.sessionId]);
 
+  const handleCommandRef = useRef<((raw: string) => Promise<void>) | null>(null);
+
   const handleCommand = useCallback(async (raw: string) => {
     if (raw.trim() === "/team") setCooperativeView(false);
     await runCliCommand(raw, {
       manageAgents,
       newSession: () => {
+        setBackgroundTaskCount(0);
         dispatch({ type: "RESET_SESSION" } as AppAction);
         applyTerminalTitle("");
         redrawTerminal();
@@ -1149,14 +1354,33 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
       loadMCPConfigs,
       loadSandboxSettings,
       loadMemory,
-      background: (input) => {
+      checkpoint: handleCheckpointCommand,
+      compactContext: handleCompactContext,
+      showContext: handleShowContext,
+      usage: handleUsageCommand,
+      background: async (input) => {
         const socket = socketRef.current;
-        if (input === "stop") {
-          appendSystem(socket?.cancelBackground(sessionRef.current.id) ? "Background cancellation requested." : "WebSocket is not connected.");
-        } else {
-          const tasks = [...(socket?.backgroundTasks.values() || [])];
-          appendSystem(tasks.length ? tasks.map(task => `${task.processId}: ${task.status}`).join("\n") + "\nUse /background stop to cancel." : "No background tasks for this session.");
+        const parts = input.split(/\s+/).filter(Boolean);
+        const sub = parts[0]?.toLowerCase() || "";
+        const targetId = parts[1] || "";
+        if (!sub) {
+          await loadBackgroundTasksMenu();
+          return;
         }
+        if (sub === "stop" && !targetId) {
+          appendSystem(socket?.cancelBackground(sessionRef.current.id) ? "Background cancellation requested." : "WebSocket is not connected.");
+          return;
+        }
+        if ((sub === "stop" || sub === "retry" || sub === "continue") && targetId) {
+          try {
+            await apiRef.current.actOnBackgroundTask(targetId, sub);
+            appendSystem(`Background task ${targetId}: ${sub} requested.`);
+          } catch (error) {
+            appendSystem(`Background action failed: ${(error as Error).message}`);
+          }
+          return;
+        }
+        appendSystem("Usage: /background [stop [taskId] | retry <taskId> | continue <taskId>]");
       },
       privacy,
       resetMemory,
@@ -1170,6 +1394,11 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
     applyTerminalTitle,
     redrawTerminal,
     manageAgents,
+    loadBackgroundTasksMenu,
+    handleCheckpointCommand,
+    handleCompactContext,
+    handleShowContext,
+    handleUsageCommand,
     loadMCPConfigs,
     loadModels,
     loadProviders,
@@ -1186,6 +1415,7 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
     toggleApprovalMode,
     toggleThinkingLevel,
   ]);
+  handleCommandRef.current = handleCommand;
 
   // Initial clear + default model.
   useEffect(() => {
@@ -1247,6 +1477,7 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
     dispatch,
     refreshSessionName,
     applyTerminalTitle,
+    onBackgroundCountChange: setBackgroundTaskCount,
   });
 
   const workspaceLayout = terminalWorkspaceLayout(width, terminalRows, [
@@ -1273,6 +1504,7 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
     handleMenuToggle,
     handleMenuTools,
     handleMenuDiscover,
+    handleBackgroundAction,
     loadUpdate,
     applyUpdate,
     loadMemory,
@@ -1293,22 +1525,28 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
   const topLevelThinkingActive = state.timeline.some((entry) =>
     entry.kind === "thinking" && entry.thinkingDone !== true
   );
-
+  const budgetStatus = getOutputBudgetStatus(state.contextUsage);
+  const isFullSubview = state.view === "menu"
+    || state.view === "checkpoint"
+    || state.view === "usage"
+    || state.view === "context"
+    || (state.view === "team-detail" && cooperativeView);
 
   return (
     <Box flexDirection="column">
-      {(state.view === "menu" || (state.view === "team-detail" && cooperativeView)) && workspaceLayout.compactBanner ? (
+      {isFullSubview && workspaceLayout.compactBanner ? (
         <Text bold color={CLI_ACCENT_COLOR} wrap="truncate">SlimeBot CLI {state.version} · {state.modelName || "(none)"}</Text>
       ) : <Banner
         version={state.version}
         modelName={state.modelName}
         cwd={state.cwd}
+        sessionName={state.sessionName}
         approvalMode={state.approvalMode}
         thinkingLevel={state.thinkingLevel}
         updateAvailable={Boolean(state.updateCheck?.updateAvailable)}
       />}
       <Text> </Text>
-      {state.view !== "team-detail" && state.view !== "menu" && (state.timeline.length > 0 || state.streaming) && (
+      {!isFullSubview && state.view !== "team-detail" && (state.timeline.length > 0 || state.streaming) && (
         <>
           <Timeline
             entries={state.timeline}
@@ -1332,21 +1570,37 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
           <Text> </Text>
         </>
       )}
-      {state.contextUsage && (
-        <Text color={state.contextUsage.usedPercent >= 90 ? "red" : state.contextUsage.usedPercent >= 70 ? "yellow" : "green"}>
-          {formatContextUsageStatus(state.contextUsage, width)}
-        </Text>
+      {(state.contextUsage || budgetStatus || backgroundTaskCount > 0) && (
+        <Box justifyContent="space-between">
+          <Text>
+            {state.contextUsage && (
+              <Text color={state.contextUsage.usedPercent >= 90 ? CLI_THEME.error : state.contextUsage.usedPercent >= 70 ? CLI_THEME.warning : CLI_THEME.success}>
+                {formatContextUsageStatus(state.contextUsage, width)}
+              </Text>
+            )}
+            {budgetStatus && (budgetStatus.tone === "warning" || budgetStatus.tone === "danger") && (
+              <Text color={budgetStatus.tone === "danger" ? CLI_THEME.error : CLI_THEME.warning} bold>
+                {state.contextUsage ? " · " : ""}
+                {budgetStatus.exceeded ? "BUDGET EXCEEDED (/usage budget)" : `BUDGET ${budgetStatus.percent}%`}
+              </Text>
+            )}
+          </Text>
+          {backgroundTaskCount > 0 && (
+            <Text color={CLI_THEME.accent} bold>BG {backgroundTaskCount}</Text>
+          )}
+        </Box>
       )}
-      <Text color="white">{border}</Text>
+      <Text color={CLI_THEME.border}>{border}</Text>
 
       {state.view === "chat" && (
         <Box>
-          <Text bold color={state.streaming ? "gray" : "white"}>
+          <Text bold color={state.streaming ? CLI_THEME.muted : CLI_THEME.accent}>
             ❯{" "}
           </Text>
           <TextInput
             key={state.inputKey}
             value={state.inputValue}
+            placeholder={state.streaming ? "Type to steer current turn, or press Esc to cancel..." : "Ask anything or type / for commands..."}
             onChange={(value) => dispatch({ type: "SET_INPUT", value } as AppAction)}
             onSubmit={(rawValue) => {
               const value = rawValue.trim();
@@ -1375,7 +1629,8 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
             onTab={() => {
               const completed = completeCommand(state.inputValue, selectedCommandHintIndex);
               if (!completed) return undefined;
-              const next = `${completed} `;
+              const meta = getCommandMeta(completed);
+              const next = meta?.acceptsArgs ? `${completed} ` : completed;
               dispatch({
                 type: "SET_INPUT_WITH_KEY",
                 value: next,
@@ -1396,11 +1651,16 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
                 return true;
               }
               if (key.return) {
-                const completed = completeCommand(state.inputValue, selectedCommandHintIndex);
-                if (!completed) return false;
+                const resolved = resolveCommandHintEnter(state.inputValue, selectedCommandHintIndex);
+                if (!resolved) return false;
+                if (resolved.action === "run") {
+                  dispatch({ type: "SET_INPUT_WITH_KEY", value: "" } as AppAction);
+                  void handleCommand(resolved.command);
+                  return true;
+                }
                 dispatch({
                   type: "SET_INPUT_WITH_KEY",
-                  value: `${completed} `,
+                  value: resolved.command,
                 } as AppAction);
                 return true;
               }
@@ -1414,6 +1674,48 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
             columns={Math.max(20, width - 3)}
           />
         </Box>
+      )}
+
+      {state.view === "checkpoint" && state.sessionId && (
+        <CheckpointView
+          sessionId={state.sessionId}
+          busy={state.streaming || backgroundTaskCount > 0}
+          columns={width}
+          height={workspaceLayout.height}
+          listCheckpoints={(sid) => apiRef.current.listCheckpoints(sid)}
+          getCheckpoint={(sid, cpId) => apiRef.current.getCheckpoint(sid, cpId)}
+          diffCheckpoint={(sid, cpId, filePath) => apiRef.current.diffCheckpoint(sid, cpId, filePath)}
+          rollbackCheckpoint={(sid, cpId, mode) => apiRef.current.rollbackCheckpoint(sid, cpId, mode)}
+          onRolledBack={(message) => appendSystem(message)}
+          onClose={() => dispatch({ type: "SET_VIEW", view: "chat" } as AppAction)}
+        />
+      )}
+
+      {state.view === "usage" && (
+        <UsageView
+          columns={width}
+          height={workspaceLayout.height}
+          outputBudgetTokens={outputBudgetTokens || state.contextUsage?.outputBudgetTokens}
+          loadSummary={(groupBy, opts) => apiRef.current.getUsageSummary(groupBy, opts)}
+          onClose={() => dispatch({ type: "SET_VIEW", view: "chat" } as AppAction)}
+        />
+      )}
+
+      {state.view === "context" && (
+        <ContextView
+          usage={state.contextUsage}
+          modelName={state.modelName}
+          streaming={state.streaming}
+          compacting={contextCompacting}
+          columns={width}
+          onCompact={() => { void handleCompactContext(); }}
+          onRefresh={() => {
+            if (state.sessionId && state.modelId) {
+              void refreshContextUsage(state.sessionId, state.modelId);
+            }
+          }}
+          onClose={() => dispatch({ type: "SET_VIEW", view: "chat" } as AppAction)}
+        />
       )}
 
       {state.view === "menu" && state.menuKind && (
@@ -1496,7 +1798,7 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
 
       {state.view === "thinking-detail" && (
         <Box flexDirection="column">
-          <Text bold color="magenta">{"Thinking Detail"}</Text>
+          <Text bold color={CLI_THEME.accent}>{"Thinking Detail"}</Text>
           <Text color="gray">Press Esc to return</Text>
           <Text> </Text>
           <Box flexDirection="column">
@@ -1621,75 +1923,75 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
         />
       )}
 
-      <Text color="white">{border}</Text>
+      <Text color={CLI_THEME.border}>{border}</Text>
 
       {state.view === "chat" && state.streaming && (
-        <Text color={CLI_HINT_COLOR}>
-          Generating response | Esc to cancel
+        <Text color={CLI_HINT_COLOR} wrap="truncate">
+          Generating response · Type to steer · ^O tools · Esc cancel
         </Text>
       )}
 
       {hasCommandHints && (
         <Box flexDirection="column">
           <CommandHints input={state.inputValue} selectedIndex={selectedCommandHintIndex} />
-          <Text color={CLI_HINT_COLOR}>
-            ↑↓ to select | Enter/Tab to fill | Esc to clear
+          <Text color={CLI_HINT_COLOR} wrap="truncate">
+            ↑↓ select · Enter run/fill · Tab fill · Esc clear
           </Text>
         </Box>
       )}
 
       {state.view === "chat" && !state.streaming && !hasCommandHints && (
         <Box justifyContent="space-between">
-          <Text color={CLI_HINT_COLOR}>
-            {getChatFooterHint(state.planMode, state.approvalMode)}
+          <Text color={CLI_HINT_COLOR} wrap="truncate">
+            {getChatFooterHint(state.planMode, state.approvalMode)}{width >= 88 ? " · ^O tools · ^K compact" : ""}
           </Text>
           <Box>
-            {state.planMode && <Text color={CLI_ACCENT_COLOR} bold>◆ Plan </Text>}
-            {state.approvalMode === "auto_review" && <Text color="#eab308" bold>◆ Auto Review </Text>}
-            {state.approvalMode === "auto" && <Text color="#eab308" bold>◆ Auto </Text>}
+            {state.planMode && <Text color={CLI_THEME.plan} bold>◆ Plan </Text>}
+            {state.approvalMode === "auto_review" && <Text color={CLI_THEME.warning} bold>◆ Auto Review </Text>}
+            {state.approvalMode === "auto" && <Text color={CLI_THEME.warning} bold>◆ Auto </Text>}
           </Box>
         </Box>
       )}
 
       {state.view === "approval" && (
-        <Text color={CLI_HINT_COLOR}>
-          ↑/↓ switch | Y approve | N reject | A approve all | R reject all
+        <Text color={CLI_HINT_COLOR} wrap="truncate">
+          ↑↓ switch · Y approve · N reject · A approve all · R reject all
         </Text>
       )}
 
       {state.view === "plan-confirm" && (
-        <Text color={CLI_HINT_COLOR}>
-          Arrow keys to navigate | Enter to select | Esc to cancel
+        <Text color={CLI_HINT_COLOR} wrap="truncate">
+          ↑↓ navigate · Enter select · Esc cancel
         </Text>
       )}
 
       {state.view === "team-detail" && !cooperativeView && (
-        <Text color={CLI_HINT_COLOR}>
-          ←/→ Team | ↑/↓ member | Esc back
+        <Text color={CLI_HINT_COLOR} wrap="truncate">
+          ←/→ Team · ↑/↓ member · Esc back
         </Text>
       )}
 
       {state.view === "mcp-editor" && (
-        <Text color={CLI_HINT_COLOR}>
-          Tab to switch field | Ctrl+S to save | Ctrl+E to toggle | Esc to go back
+        <Text color={CLI_HINT_COLOR} wrap="truncate">
+          Tab switch · Ctrl+S save · Ctrl+E toggle · Esc back
         </Text>
       )}
 
       {state.view === "mcp-template" && (
-        <Text color={CLI_HINT_COLOR}>
-          Arrow keys to navigate | Enter to select | Esc to cancel
+        <Text color={CLI_HINT_COLOR} wrap="truncate">
+          ↑↓ navigate · Enter select · Esc cancel
         </Text>
       )}
 
       {state.view === "model-editor" && (
-        <Text color={CLI_HINT_COLOR}>
-          Tab to switch field | Ctrl+S to save | Esc to go back
+        <Text color={CLI_HINT_COLOR} wrap="truncate">
+          Tab switch · Ctrl+S save · Esc back
         </Text>
       )}
 
       {state.view === "provider-editor" && (
-        <Text color={CLI_HINT_COLOR}>
-          Tab to switch field | Ctrl+S to save | Esc to go back{state.modelEditorFocusIndex === 1 ? " | Enter to change protocol" : ""}
+        <Text color={CLI_HINT_COLOR} wrap="truncate">
+          Tab switch · Ctrl+S save · Esc back{state.modelEditorFocusIndex === 1 ? " · Enter protocol" : ""}
         </Text>
       )}
     </Box>

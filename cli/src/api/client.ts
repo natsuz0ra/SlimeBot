@@ -18,6 +18,14 @@ import type {
   MemorySnapshot,
   MemoryTarget,
   ContextUsage,
+  CompactContextResult,
+  Checkpoint,
+  CheckpointDetail,
+  CheckpointDiff,
+  CheckpointRollbackMode,
+  PersistedBackgroundTask,
+  UsageGroup,
+  UsageSummary,
   UpdateCheckResult,
   UpdateJobStatus,
 } from "../types.js";
@@ -96,7 +104,74 @@ export class APIClient {
 
   getContextUsage(id: string, modelId: string): Promise<ContextUsage> {
     const params = new URLSearchParams({ modelId });
-    return this.request(`/api/sessions/${id}/context-usage?${params}`);
+    return this.request(`/api/sessions/${encodeURIComponent(id)}/context-usage?${params}`);
+  }
+
+  compactContext(id: string, modelId: string): Promise<CompactContextResult> {
+    return this.request(`/api/sessions/${encodeURIComponent(id)}/context/compact`, {
+      method: "POST",
+      body: JSON.stringify({ modelId }),
+    });
+  }
+
+  // ===== Checkpoints =====
+
+  async listCheckpoints(sessionId: string): Promise<Checkpoint[]> {
+    const resp = await this.request<{ checkpoints: Checkpoint[] }>(
+      `/api/sessions/${encodeURIComponent(sessionId)}/checkpoints`,
+    );
+    return resp?.checkpoints ?? [];
+  }
+
+  getCheckpoint(sessionId: string, checkpointId: string): Promise<CheckpointDetail> {
+    return this.request(
+      `/api/sessions/${encodeURIComponent(sessionId)}/checkpoints/${encodeURIComponent(checkpointId)}`,
+    );
+  }
+
+  diffCheckpoint(sessionId: string, checkpointId: string, filePath: string): Promise<CheckpointDiff> {
+    const params = new URLSearchParams({ path: filePath });
+    return this.request(
+      `/api/sessions/${encodeURIComponent(sessionId)}/checkpoints/${encodeURIComponent(checkpointId)}/diff?${params}`,
+    );
+  }
+
+  rollbackCheckpoint(sessionId: string, checkpointId: string, mode: CheckpointRollbackMode): Promise<void> {
+    return this.request(
+      `/api/sessions/${encodeURIComponent(sessionId)}/checkpoints/${encodeURIComponent(checkpointId)}/rollback`,
+      {
+        method: "POST",
+        body: JSON.stringify({ mode }),
+      },
+    ).then(() => {});
+  }
+
+  // ===== Background Tasks =====
+
+  listBackgroundTasks(sessionId: string, limit = 100): Promise<PersistedBackgroundTask[]> {
+    const params = new URLSearchParams({ limit: String(limit) });
+    return this.request(`/api/sessions/${encodeURIComponent(sessionId)}/background-tasks?${params}`);
+  }
+
+  actOnBackgroundTask(taskId: string, action: "retry" | "continue" | "stop"): Promise<PersistedBackgroundTask> {
+    return this.request(`/api/background-tasks/${encodeURIComponent(taskId)}/actions`, {
+      method: "POST",
+      body: JSON.stringify({ action }),
+    });
+  }
+
+  // ===== Usage =====
+
+  async getUsageSummary(
+    groupBy: UsageGroup,
+    options?: { since?: string; until?: string; rootSessionId?: string },
+  ): Promise<UsageSummary[]> {
+    const params = new URLSearchParams({ groupBy });
+    if (options?.since) params.set("since", options.since);
+    if (options?.until) params.set("until", options.until);
+    if (options?.rootSessionId) params.set("rootSessionId", options.rootSessionId);
+    const resp = await this.request<{ items: UsageSummary[] }>(`/api/usage/summary?${params}`);
+    return resp?.items ?? [];
   }
 
   // ===== Settings =====
@@ -127,6 +202,9 @@ export class APIClient {
   installPrivacyModel(): Promise<unknown> { return this.request("/api/privacy/model/install", { method: "POST" }); }
   cancelPrivacyModel(): Promise<unknown> { return this.request("/api/privacy/model/cancel", { method: "POST" }); }
   removePrivacyModel(): Promise<void> { return this.request("/api/privacy/model", { method: "DELETE" }); }
+  destroySessionPrivacyMappings(sessionId: string): Promise<void> {
+    return this.request(`/api/sessions/${encodeURIComponent(sessionId)}/privacy-mappings`, { method: "DELETE" }).then(() => {});
+  }
 
   // ===== Updates =====
 
@@ -234,6 +312,13 @@ export class APIClient {
 
   listSkills(): Promise<Skill[]> {
     return this.request("/api/skills");
+  }
+
+  setSkillEnabled(id: string, enabled: boolean): Promise<void> {
+    return this.request(`/api/skills/${encodeURIComponent(id)}/enabled`, {
+      method: "PATCH",
+      body: JSON.stringify({ enabled }),
+    }).then(() => {});
   }
 
   deleteSkill(id: string): Promise<void> {

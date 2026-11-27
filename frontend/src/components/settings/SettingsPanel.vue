@@ -518,9 +518,9 @@ watch(tab, (nextTab) => {
   <div class="h-full flex flex-col overflow-hidden settings-root">
     <div class="flex items-center justify-between px-5 h-13 flex-shrink-0 settings-header">
       <div class="flex items-center gap-2.5">
-        <div class="w-6 h-6 rounded-lg flex items-center justify-center" style="background: linear-gradient(135deg, #6366f1 0%, #a78bfa 100%)">
+        <div class="w-6 h-6 rounded-md flex items-center justify-center" style="background: var(--bg-subtle); border: 1px solid var(--border-default); color: var(--text-secondary)">
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none">
-            <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+            <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
           </svg>
         </div>
         <span class="settings-title">{{ t('settings') }}</span>
@@ -547,7 +547,7 @@ watch(tab, (nextTab) => {
           <span
             v-if="tab === item.key"
             class="absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-5 rounded-r-full"
-            style="background: #6366f1"
+            style="background: var(--sb-brand)"
           />
           <span class="settings-tab-label">{{ t(item.labelKey) }}</span>
           <span v-if="item.key === 'update' && hasUpdateNotice" class="update-notice-dot" aria-hidden="true" />
@@ -726,15 +726,15 @@ watch(tab, (nextTab) => {
         <label class="settings-dialog-label">{{ t('provider') }}</label>
         <div class="flex gap-3">
           <label class="flex items-center gap-1.5 cursor-pointer settings-radio-label">
-            <input type="radio" v-model="providerForm.protocol" value="openai" class="accent-[#6366f1]" />
+            <input type="radio" v-model="providerForm.protocol" value="openai" style="accent-color: var(--sb-brand)" />
             {{ t('providerOpenAI') }}
           </label>
           <label class="flex items-center gap-1.5 cursor-pointer settings-radio-label">
-            <input type="radio" v-model="providerForm.protocol" value="anthropic" class="accent-[#6366f1]" />
+            <input type="radio" v-model="providerForm.protocol" value="anthropic" style="accent-color: var(--sb-brand)" />
             {{ t('providerAnthropic') }}
           </label>
           <label class="flex items-center gap-1.5 cursor-pointer settings-radio-label">
-            <input type="radio" v-model="providerForm.protocol" value="deepseek" class="accent-[#6366f1]" />
+            <input type="radio" v-model="providerForm.protocol" value="deepseek" style="accent-color: var(--sb-brand)" />
             {{ t('providerDeepSeek') }}
           </label>
         </div>
@@ -752,7 +752,7 @@ watch(tab, (nextTab) => {
         <AppPasswordInput id="llm-provider-key" v-model="providerForm.apiKey" :disabled="providerForm.clearApiKey" autocomplete="new-password" />
         <span class="settings-item-meta">{{ t(providerEditingId ? 'providerKeyHint' : 'providerKeyOptionalHint') }}</span>
         <label v-if="providerEditingId && providerRows.find(item => item.id === providerEditingId)?.hasApiKey" class="flex items-center gap-2 settings-radio-label cursor-pointer">
-          <input v-model="providerForm.clearApiKey" type="checkbox" class="accent-[#6366f1]" />
+          <input v-model="providerForm.clearApiKey" type="checkbox" style="accent-color: var(--sb-brand)" />
           {{ t('clearProviderKey') }}
         </label>
       </div>

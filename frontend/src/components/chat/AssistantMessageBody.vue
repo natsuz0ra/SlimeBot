@@ -284,7 +284,7 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   gap: 8px;
-  width: min(100%, 680px);
+  width: 100%;
   min-height: 32px;
   padding: 6px 10px;
   border: 1px solid var(--tool-card-border);
@@ -352,7 +352,7 @@ onUnmounted(() => {
 .assistant-reply-segment--tool_start,
 .assistant-reply-segment--notice,
 .assistant-reply-segment--plan {
-  max-width: min(100%, 680px);
+  max-width: 100%;
 }
 
 .assistant-context-notice {

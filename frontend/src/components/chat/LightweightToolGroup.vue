@@ -92,23 +92,19 @@ function toggleExpanded() {
   position: relative;
   width: min(100%, 760px);
   border-radius: 8px;
-  border: 1px solid color-mix(in srgb, var(--tool-card-border, rgba(100, 116, 139, 0.15)) 78%, var(--tool-running-border, rgba(99, 102, 241, 0.26)));
-  background:
-    linear-gradient(90deg, color-mix(in srgb, var(--tool-running-bg, rgba(99, 102, 241, 0.12)) 64%, transparent) 0%, transparent 42%),
-    linear-gradient(180deg, color-mix(in srgb, var(--tool-section-bg, rgba(99, 102, 241, 0.04)) 72%, var(--card-bg, rgba(255, 255, 255, 0.8))) 0%, var(--card-bg, rgba(255, 255, 255, 0.8)) 100%);
-  box-shadow: inset 3px 0 0 color-mix(in srgb, var(--tool-running-dot, #6366f1) 60%, transparent);
+  border: 1px solid var(--tool-card-border);
+  background: var(--tool-card-bg);
+  box-shadow: inset 2px 0 0 var(--tool-running-dot, var(--accent-primary));
   overflow: hidden;
   transition: border-color 180ms ease, background-color 180ms ease, box-shadow 180ms ease;
 }
 
 .light-tool-group:hover {
-  border-color: var(--tool-card-border-hover, rgba(100, 116, 139, 0.3));
-  box-shadow:
-    inset 3px 0 0 color-mix(in srgb, var(--tool-running-dot, #6366f1) 72%, transparent),
-    var(--tool-card-shadow-hover, none);
+  border-color: var(--tool-card-border-hover);
 }
 
 .light-tool-group--running {
+  border-color: var(--tool-running-border);
   animation: light-tool-running-breathe 2.3s ease-in-out infinite;
 }
 
@@ -117,36 +113,31 @@ function toggleExpanded() {
   position: absolute;
   inset: 0;
   pointer-events: none;
-  background: linear-gradient(90deg, transparent 0%, color-mix(in srgb, var(--tool-running-dot, #6366f1) 12%, transparent) 38%, transparent 72%);
+  background: linear-gradient(90deg, transparent 0%, color-mix(in srgb, var(--tool-running-dot, var(--accent-primary)) 8%, transparent) 38%, transparent 72%);
   opacity: 0;
   transform: translateX(-110%);
   animation: light-tool-sweep-breathe 2.7s ease-in-out infinite;
 }
 
 .light-tool-group--completed {
-  border-color: color-mix(in srgb, var(--tool-card-border, rgba(100, 116, 139, 0.15)) 78%, rgba(91, 33, 182, 0.42));
-  box-shadow: inset 3px 0 0 color-mix(in srgb, #5b21b6 58%, transparent);
+  border-color: var(--tool-card-border);
+  box-shadow: inset 2px 0 0 color-mix(in srgb, var(--accent-primary) 52%, transparent);
 }
 
 .light-tool-group--completed:hover {
-  box-shadow:
-    inset 3px 0 0 color-mix(in srgb, #5b21b6 76%, transparent),
-    var(--tool-card-shadow-hover, none);
+  border-color: var(--tool-card-border-hover);
+  box-shadow: inset 2px 0 0 color-mix(in srgb, var(--accent-primary) 75%, transparent);
 }
 
 .light-tool-group--failed {
-  border-color: color-mix(in srgb, var(--tool-card-border, rgba(100, 116, 139, 0.15)) 58%, var(--tool-error-border, rgba(239, 68, 68, 0.3)));
-  background:
-    linear-gradient(90deg, color-mix(in srgb, var(--tool-error-bg, rgba(239, 68, 68, 0.1)) 62%, transparent) 0%, transparent 42%),
-    linear-gradient(180deg, color-mix(in srgb, var(--tool-section-bg, rgba(99, 102, 241, 0.04)) 68%, var(--card-bg, rgba(255, 255, 255, 0.8))) 0%, var(--card-bg, rgba(255, 255, 255, 0.8)) 100%);
-  box-shadow: inset 3px 0 0 color-mix(in srgb, var(--tool-error-dot, #ef4444) 64%, transparent);
+  border-color: var(--tool-error-border);
+  background: var(--tool-card-bg);
+  box-shadow: inset 2px 0 0 color-mix(in srgb, var(--tool-error-dot, #ef4444) 70%, transparent);
 }
 
 .light-tool-group--failed:hover {
-  border-color: var(--tool-error-border, rgba(239, 68, 68, 0.3));
-  box-shadow:
-    inset 3px 0 0 color-mix(in srgb, var(--tool-error-dot, #ef4444) 78%, transparent),
-    var(--tool-card-shadow-hover, none);
+  border-color: var(--tool-error-border);
+  box-shadow: inset 2px 0 0 var(--tool-error-dot, #ef4444);
 }
 
 .light-tool-summary {
@@ -268,7 +259,7 @@ function toggleExpanded() {
 }
 
 .light-tool-status--active {
-  color: var(--tool-running-dot, #6366f1);
+  color: var(--tool-running-dot, var(--accent-primary));
 }
 
 .light-tool-running-dot {
@@ -314,15 +305,13 @@ function toggleExpanded() {
 @keyframes light-tool-running-breathe {
   0%,
   100% {
-    border-color: color-mix(in srgb, var(--tool-card-border, rgba(100, 116, 139, 0.15)) 78%, var(--tool-running-border, rgba(99, 102, 241, 0.26)));
-    box-shadow: inset 3px 0 0 color-mix(in srgb, var(--tool-running-dot, #6366f1) 60%, transparent);
+    border-color: var(--tool-card-border);
+    box-shadow: inset 2px 0 0 color-mix(in srgb, var(--tool-running-dot, var(--accent-primary)) 60%, transparent);
   }
 
   50% {
-    border-color: color-mix(in srgb, var(--tool-card-border, rgba(100, 116, 139, 0.15)) 34%, var(--tool-running-border, rgba(99, 102, 241, 0.26)));
-    box-shadow:
-      inset 3px 0 0 color-mix(in srgb, var(--tool-running-dot, #6366f1) 86%, transparent),
-      0 0 0 4px color-mix(in srgb, var(--tool-running-dot, #6366f1) 8%, transparent);
+    border-color: var(--tool-running-border);
+    box-shadow: inset 2px 0 0 var(--tool-running-dot, var(--accent-primary));
   }
 }
 

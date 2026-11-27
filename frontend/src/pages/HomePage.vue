@@ -208,9 +208,6 @@ const {
 } = useUpdateNotice()
 const authStore = useAuthStore()
 const {
-  titlePhase,
-  displayedWelcomeTitle,
-  showTypeCursor,
   playHomeLoginEnter,
   playChatContentSwitch,
   chatContentSwitchDirection,
@@ -355,12 +352,12 @@ onUnmounted(() => {
   </AppDialog>
   <p class="sr-only" role="status">{{ announcePrivacyMappingCleared ? t('sessionPrivacyDestroyed') : '' }}</p>
   <div
-    class="page-shell h-screen flex items-center justify-center p-2 sm:p-3 transition-colors duration-300"
+    class="page-shell h-screen w-screen flex overflow-hidden transition-colors duration-200"
     :class="{ 'home-login-entering': playHomeLoginEnter }"
   >
-    <!-- Outer card shell -->
+    <!-- Full-bleed edge-to-edge workspace shell -->
     <div
-      class="page-card relative w-full h-full rounded-2xl flex overflow-hidden"
+      class="page-card relative w-full h-full flex overflow-hidden"
     >
 
       <!-- ───── Sidebar ───── -->
@@ -395,12 +392,12 @@ onUnmounted(() => {
       <!-- ───── Main content ───── -->
       <main class="relative z-0 flex-1 flex flex-col min-w-0">
 
-        <header v-if="isTasksWorkspace" class="header-bar flex items-center gap-3 h-14 shrink-0 px-3">
-          <button type="button" class="sb-text-muted w-9 h-9 flex items-center justify-center rounded-xl cursor-pointer" :aria-label="t('scheduleToggleSidebar')" @click="ui.toggleSidebar"><MdiIcon :path="mdiMenu" :size="19" /></button>
-          <MdiIcon :path="mdiCalendarClockOutline" :size="18" class="sb-text-muted" />
+        <header v-if="isTasksWorkspace" class="header-bar flex items-center gap-2.5 h-12 shrink-0 px-3">
+          <button type="button" class="sb-text-muted w-8 h-8 flex items-center justify-center rounded-lg cursor-pointer" :aria-label="t('scheduleToggleSidebar')" @click="ui.toggleSidebar"><MdiIcon :path="mdiMenu" :size="18" /></button>
+          <MdiIcon :path="mdiCalendarClockOutline" :size="17" class="sb-text-muted" />
           <span class="sb-text-primary text-sm font-semibold">{{ t('scheduleSettings') }}</span>
         </header>
-        <div v-if="isTasksWorkspace" class="flex-1 min-h-0 overflow-y-auto">
+        <div v-if="isTasksWorkspace" class="sb-scrollbar flex-1 min-h-0 overflow-y-auto">
           <ScheduledTasksWorkspace :model-options="models.modelSelectOptions" :initial-working-directory="store.currentWorkingDirectory" />
         </div>
         <template v-else>
@@ -416,9 +413,15 @@ onUnmounted(() => {
           @remove-current="sessions.currentSession && sessions.removeSession(sessions.currentSession.id)"
           @open-checkpoints="checkpointSessionId = checkpointSession?.id"
           @clear-privacy-mappings="openPrivacyMappingConfirmation"
-        />
-
-        <CooperativePanel v-if="!isTasksWorkspace" :session-id="store.currentSessionId" @settled="id => !store.waiting && store.loadNewMessagesForSession(id)" />
+        >
+          <template #right>
+            <CooperativePanel
+              header
+              :session-id="store.currentSessionId"
+              @settled="id => !store.waiting && store.loadNewMessagesForSession(id)"
+            />
+          </template>
+        </HomeHeaderBar>
         <div
           class="chat-content-shell relative"
           :class="[
@@ -454,27 +457,18 @@ onUnmounted(() => {
             </div>
 
             <template v-else>
-              <!-- AI gradient logo -->
-              <AppLogo :size="80" animated class="new-chat-logo mb-1.0 drop-shadow-lg" />
+              <AppLogo :size="64" class="mb-1" />
 
               <!-- Welcome title -->
-              <h2 v-if="!sessions.isMessagePlatformSession" class="text-2xl font-bold mb-2 text-center welcome-title">
-                {{ displayedWelcomeTitle }}
-                <span
-                  v-if="showTypeCursor"
-                  class="welcome-cursor"
-                  :class="titlePhase === 'cursor' ? 'welcome-cursor-pre' : 'welcome-cursor-typing'"
-                  aria-hidden="true"
-                >
-                  |
-                </span>
+              <h2 v-if="!sessions.isMessagePlatformSession" class="text-xl font-semibold mb-1.5 text-center welcome-title">
+                {{ t('welcomeTitle') }}
               </h2>
               <p class="sb-text-muted text-sm mb-6 text-center">
                 {{ sessions.isMessagePlatformSession ? t('messagePlatformEmptySubtitle') : t('welcomeSubtitle') }}
               </p>
 
               <!-- Centered composer -->
-              <div v-if="!sessions.isMessagePlatformSession" class="w-full max-w-[640px]">
+              <div v-if="!sessions.isMessagePlatformSession" class="w-full max-w-[680px]">
                 <ChatComposer
                   ref="composerRef"
                   v-model="composer.inputValue"
@@ -541,7 +535,7 @@ onUnmounted(() => {
             v-if="!sessions.isMessagePlatformSession"
             class="composer-footer flex-shrink-0 px-4 py-3"
           >
-            <div class="max-w-[680px] mx-auto">
+            <div class="max-w-[760px] mx-auto">
               <ChatComposer
                 ref="composerRef"
                 v-model="composer.inputValue"
@@ -670,9 +664,8 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 16px;
-  background: color-mix(in srgb, var(--bg-card, #ffffff) 78%, transparent);
-  backdrop-filter: blur(8px);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--bg-main) 88%, transparent);
 }
 
 .chat-drop-card {
@@ -680,10 +673,10 @@ onUnmounted(() => {
   flex-direction: column;
   align-items: center;
   gap: 8px;
-  padding: 28px 36px;
-  border-radius: 16px;
-  border: 2px dashed var(--sb-brand, #6366f1);
-  background: var(--primary-alpha-05);
+  padding: 24px 32px;
+  border-radius: 12px;
+  border: 1.5px dashed var(--sb-brand);
+  background: var(--primary-alpha-06);
   color: var(--text-primary);
   text-align: center;
 }

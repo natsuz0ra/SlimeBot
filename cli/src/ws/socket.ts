@@ -4,7 +4,7 @@
  */
 
 import WebSocket from "ws";
-import type { AgentTeamMemberRun, AgentTeamRun, ContextUsage, SubagentChunkData, SubagentDoneData, SubagentStartData, TodoUpdateData, ToolApprovalRequiredData, ToolCallReviewData, ToolCallStartData, ToolCallResultData } from "../types.js";
+import type { AgentTeamMemberRun, AgentTeamRun, ContextLayerUsage, ContextUsage, SkillLearningData, SubagentChunkData, SubagentDoneData, SubagentStartData, TodoUpdateData, ToolApprovalRequiredData, ToolCallReviewData, ToolCallStartData, ToolCallResultData } from "../types.js";
 
 export interface ThinkingEventData {
   content?: string;
@@ -29,7 +29,7 @@ export interface WSHandlers {
   onSessionTitle?: (title: string, sessionId?: string) => void;
   onDone: (
     sessionId?: string,
-    meta?: { isInterrupted?: boolean; isStopPlaceholder?: boolean; planId?: string; planBody?: string; narration?: string },
+    meta?: { isInterrupted?: boolean; isStopPlaceholder?: boolean; planId?: string; planBody?: string; narration?: string; skillLearning?: SkillLearningData },
   ) => void;
   onError: (error: string, sessionId?: string) => void;
   onToolCallStart?: (data: ToolCallStartData, sessionId?: string) => void;
@@ -109,9 +109,15 @@ interface WSIncoming {
   outputReserve?: number;
   compactionBeforeTokens?: number;
   compactionAfterTokens?: number;
+  compactionDurationMs?: number;
   compactionReason?: string;
+  compactionFailure?: string;
+  layers?: ContextLayerUsage[];
   source?: "estimated" | "provider-reported";
-  state?: "compacting" | "ready";
+  state?: "compacting" | "ready" | "cooldown";
+  outputBudgetTokens?: number;
+  outputBudgetUsed?: number;
+  skillLearning?: SkillLearningData;
 }
 
 function teamIdentity(msg: WSIncoming): { teamRunId?: string; memberRunId?: string } {
@@ -181,9 +187,14 @@ function normalizeContextUsage(msg: WSIncoming | ContextUsage | undefined, fallb
     ...(Number.isFinite(source.outputReserve) ? { outputReserve: Math.max(0, Number(source.outputReserve)) } : {}),
     ...(Number.isFinite(source.compactionBeforeTokens) ? { compactionBeforeTokens: Math.max(0, Number(source.compactionBeforeTokens)) } : {}),
     ...(Number.isFinite(source.compactionAfterTokens) ? { compactionAfterTokens: Math.max(0, Number(source.compactionAfterTokens)) } : {}),
+    ...(Number.isFinite(source.compactionDurationMs) ? { compactionDurationMs: Math.max(0, Number(source.compactionDurationMs)) } : {}),
     ...(source.compactionReason ? { compactionReason: source.compactionReason } : {}),
+    ...(source.compactionFailure ? { compactionFailure: source.compactionFailure } : {}),
+    ...(Array.isArray(source.layers) ? { layers: source.layers.filter((item) => item && typeof item.layer === "string").map((item) => ({ layer: item.layer, tokens: Math.max(0, Math.round(Number(item.tokens) || 0)) })) } : {}),
     ...(source.source ? { source: source.source } : {}),
     ...(source.state ? { state: source.state } : {}),
+    ...(Number.isFinite(source.outputBudgetTokens) ? { outputBudgetTokens: Math.max(0, Number(source.outputBudgetTokens)) } : {}),
+    ...(Number.isFinite(source.outputBudgetUsed) ? { outputBudgetUsed: Math.max(0, Number(source.outputBudgetUsed)) } : {}),
   };
 }
 
@@ -356,6 +367,7 @@ export function dispatchWSMessage(raw: string, handlers: WSHandlers | null): voi
       planId: msg.planId,
       planBody: msg.planBody,
       narration: msg.narration,
+      ...(msg.skillLearning ? { skillLearning: msg.skillLearning } : {}),
     });
   }
   if (msg.type === "error")

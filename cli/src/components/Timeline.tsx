@@ -183,7 +183,7 @@ function TimelineBlock({
         compact={compact}
         renderPrefix={(index) =>
           index === 0 ? (
-            <Text bold color="white">
+            <Text bold>
               {DOT}{" "}
             </Text>
           ) : (
@@ -195,12 +195,13 @@ function TimelineBlock({
   }
 
   if (entry.kind === "system") {
+    const isError = entry.content.startsWith("Error:") || entry.content.startsWith("Failed ");
     return (
       <Text>
-        <Text bold color="yellow">
-          {DOT}{" "}
+        <Text bold color={isError ? "red" : CLI_ACCENT_COLOR}>
+          {isError ? "⚠ " : "ℹ "}
         </Text>
-        <Text>{entry.content}</Text>
+        <Text color={isError ? "red" : undefined} dimColor={!isError}>{entry.content}</Text>
       </Text>
     );
   }
@@ -400,7 +401,7 @@ export function Timeline({
                     <Text bold color={dot.color}>{dot.blink && !blinkOn ? " " : DOT}</Text>
                     <Text>{" "}</Text>
                     <Text bold>tools</Text>
-                    <Text color="white">{` ${formatLightweightToolGroupHeader(row.items, groupExpanded, groupFormatOptions)}`}</Text>
+                    <Text dimColor>{` ${formatLightweightToolGroupHeader(row.items, groupExpanded, groupFormatOptions)}`}</Text>
                   </Text>
                   {detailLines.map((line, lineIndex) => (
                     <Text key={`${row.id}-line-${lineIndex}`}>{line}</Text>
@@ -450,7 +451,7 @@ export function Timeline({
                 compact={compact}
                 renderPrefix={(index) =>
                   index === 0 ? (
-                    <Text bold color="white">
+                    <Text bold>
                       {DOT}{" "}
                     </Text>
                   ) : (

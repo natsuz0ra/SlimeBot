@@ -313,7 +313,7 @@ onUnmounted(() => {
       {{ t('usageAdjustBudget') }}
     </button>
   </div>
-  <div class="input-container focus-ring rounded-2xl">
+  <div class="input-container focus-ring rounded-xl">
     <div v-if="planConfirmationVisible" class="plan-confirm-inline" data-plan-confirmation="true">
       <div class="plan-confirm-copy">{{ t('planConfirmPrompt') }}</div>
       <div class="plan-confirm-actions">
@@ -472,7 +472,7 @@ onUnmounted(() => {
               >
                 <span
                   class="w-1.5 h-1.5 rounded-full flex-shrink-0"
-                  :class="opt.value === selectedModelId ? 'bg-indigo-500' : 'bg-transparent'"
+                  :class="opt.value === selectedModelId ? 'composer-option-dot--active' : 'bg-transparent'"
                 />
                 {{ opt.label }}
               </button>
@@ -497,7 +497,7 @@ onUnmounted(() => {
               >
                 <span
                   class="w-1.5 h-1.5 rounded-full flex-shrink-0"
-                  :class="opt.value === selectedSubagentModelId ? 'bg-indigo-500' : 'bg-transparent'"
+                  :class="opt.value === selectedSubagentModelId ? 'composer-option-dot--active' : 'bg-transparent'"
                 />
                 {{ opt.label }}
               </button>
@@ -522,7 +522,7 @@ onUnmounted(() => {
             >
               <span
                 class="w-1.5 h-1.5 rounded-full flex-shrink-0"
-                :class="opt.value === selectedThinkingLevel ? 'bg-indigo-500' : 'bg-transparent'"
+                :class="opt.value === selectedThinkingLevel ? 'composer-option-dot--active' : 'bg-transparent'"
               />
               {{ opt.label }}
             </button>
@@ -761,8 +761,11 @@ onUnmounted(() => {
   color: var(--text-secondary);
 }
 .composer-settings-btn:hover {
-  background: var(--primary-alpha-08);
+  background: var(--bg-hover);
   color: var(--text-primary);
+}
+.composer-option-dot--active {
+  background: var(--sb-brand);
 }
 
 .context-usage-tip-wrap {
@@ -863,11 +866,10 @@ onUnmounted(() => {
 }
 
 .composer-settings-panel {
-  width: 220px;
+  width: 224px;
   background: var(--menu-bg);
   border: 1px solid var(--menu-border);
   box-shadow: var(--menu-shadow);
-  backdrop-filter: blur(16px);
 }
 
 .composer-menu-body {
@@ -889,7 +891,7 @@ onUnmounted(() => {
   font: inherit;
 }
 .composer-menu-item:hover {
-  background: var(--primary-alpha-07);
+  background: var(--bg-hover);
 }
 .composer-menu-item:disabled {
   opacity: 0.4;
@@ -938,7 +940,7 @@ onUnmounted(() => {
   background: transparent;
 }
 .composer-submenu-header:hover {
-  background: var(--primary-alpha-07);
+  background: var(--bg-hover);
 }
 
 .composer-model-group {
@@ -969,7 +971,7 @@ onUnmounted(() => {
   transition: background 100ms ease;
 }
 .composer-submenu-option:hover {
-  background: var(--primary-alpha-07);
+  background: var(--bg-hover);
   color: var(--text-primary);
 }
 

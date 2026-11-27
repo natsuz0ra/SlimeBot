@@ -19,7 +19,7 @@
   color: var(--text-muted);
 }
 .settings-close-btn:hover {
-  background: var(--primary-alpha-08);
+  background: var(--bg-hover);
   color: var(--text-primary);
 }
 
@@ -42,15 +42,15 @@
 }
 
 .settings-sidebar button.settings-tab.settings-tab-active {
-  background: var(--primary-alpha-12);
-  color: var(--sb-brand);
+  background: var(--bg-active);
+  color: var(--text-primary);
   font-weight: 600;
 }
 .settings-sidebar button.settings-tab.settings-tab-inactive {
   color: var(--text-secondary);
 }
 .settings-sidebar button.settings-tab.settings-tab-inactive:hover {
-  background: var(--primary-alpha-07);
+  background: var(--bg-hover);
   color: var(--text-primary);
 }
 
@@ -325,9 +325,9 @@ button.account-edit-btn:hover {
   gap: 12px;
   min-width: 0;
   padding: 12px;
-  border: 1px solid var(--primary-alpha-10);
-  border-radius: 10px;
-  background: var(--primary-alpha-04);
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  background: var(--bg-subtle);
 }
 
 .memory-status-pill {
@@ -426,9 +426,9 @@ button.account-edit-btn:hover {
 .memory-summary-card {
   min-width: 0;
   padding: 12px;
-  border: 1px solid var(--card-border);
-  border-radius: 10px;
-  background: color-mix(in srgb, var(--bg-main) 86%, var(--sb-brand) 14%);
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  background: var(--bg-subtle);
 }
 
 .memory-summary-topline {
@@ -579,7 +579,7 @@ button.account-edit-btn:hover {
   flex-direction: column;
   gap: 0;
   margin-top: 12px;
-  border-top: 1px solid var(--primary-alpha-10);
+  border-top: 1px solid var(--border-subtle);
 }
 
 .memory-entry-row {
@@ -588,7 +588,7 @@ button.account-edit-btn:hover {
   gap: 10px;
   min-width: 0;
   padding: 10px 0;
-  border-bottom: 1px solid var(--primary-alpha-10);
+  border-bottom: 1px solid var(--border-subtle);
 }
 
 .memory-entry-text {
@@ -642,20 +642,20 @@ button.account-edit-btn:hover {
 .mcp-codemirror .cm-line,
 .mcp-codemirror .cm-token,
 .mcp-codemirror .cm-editor {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
-  font-weight: 600;
+  font-family: var(--font-mono);
+  font-weight: 400;
 }
 
 .mcp-codemirror .cm-content * {
-  font-weight: 600;
+  font-weight: 400;
 }
 
 .agents-editor-card {
-  --agents-editor-bg: color-mix(in srgb, var(--bg-main) 96%, var(--sb-brand) 4%);
-  --agents-editor-gutter-bg: color-mix(in srgb, var(--bg-main) 91%, var(--sb-brand) 9%);
-  --agents-editor-divider: color-mix(in srgb, var(--card-border) 72%, var(--sb-brand) 28%);
-  --agents-editor-active-line-bg: color-mix(in srgb, var(--sb-brand) 9%, transparent);
-  --agents-editor-selection-bg: color-mix(in srgb, var(--sb-brand) 24%, transparent);
+  --agents-editor-bg: var(--bg-subtle);
+  --agents-editor-gutter-bg: var(--bg-base);
+  --agents-editor-divider: var(--border-default);
+  --agents-editor-active-line-bg: var(--bg-hover);
+  --agents-editor-selection-bg: var(--primary-alpha-22);
   background: var(--agents-editor-bg);
   border-color: var(--agents-editor-divider);
 }

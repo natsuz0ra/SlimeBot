@@ -198,11 +198,10 @@ onUnmounted(() => {
   overflow-y: auto;
   padding: 14px;
   border: 1px solid var(--menu-border);
-  border-radius: 12px;
+  border-radius: 10px;
   color: var(--text-primary);
   background: var(--menu-bg);
   box-shadow: var(--menu-shadow);
-  backdrop-filter: blur(16px);
 }
 .context-usage-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
 .context-usage-header h3 { margin: 0; font-size: 14px; font-weight: 650; }

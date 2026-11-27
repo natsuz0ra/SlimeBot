@@ -10,7 +10,7 @@ import { cooperativeStatus, cooperativeReport, cooperativeError, latestAgentTurn
 import { settingAPI } from '@/api/settings'
 import { renderMarkdown } from '@/utils/markdown'
 
-const props = defineProps<{ sessionId?: string }>()
+const props = defineProps<{ sessionId?: string; header?: boolean }>()
 const emit = defineEmits<{ settled: [sessionId: string] }>()
 const { locale } = useI18n()
 const english = computed(() => locale.value.startsWith('en'))
@@ -151,16 +151,35 @@ function approvalLabel(payload: string) { try { const p = JSON.parse(payload); r
 </script>
 
 <template>
-  <div v-if="sessionId" class="cooperative-entry">
-    <button type="button" class="coop-trigger" :aria-expanded="visible" @click="open">
-      <MdiIcon :path="mdiAccountGroupOutline" :size="17" />
+  <template v-if="sessionId">
+    <button
+      v-if="header"
+      type="button"
+      class="coop-trigger coop-trigger--header"
+      :class="{
+        'coop-trigger--active': snapshot.agents.length > 0 || active > 0,
+        'coop-trigger--attention': approvals.length > 0,
+      }"
+      :aria-expanded="visible"
+      @click="open"
+    >
+      <MdiIcon :path="mdiAccountGroupOutline" :size="16" />
       <span>{{ text('协作', 'Collaboration') }}</span>
       <span v-if="snapshot.agents.length" class="coop-count">{{ snapshot.agents.length }}</span>
       <span v-if="active" class="coop-running"><i class="coop-dot" />{{ active }} {{ text('运行中', 'running') }}</span>
       <span v-if="approvals.length" class="coop-attention">{{ text('待批准', 'Approval needed') }}</span>
-      <MdiIcon :path="mdiChevronRight" :size="14" />
     </button>
-  </div>
+    <div v-else class="cooperative-entry">
+      <button type="button" class="coop-trigger" :aria-expanded="visible" @click="open">
+        <MdiIcon :path="mdiAccountGroupOutline" :size="17" />
+        <span>{{ text('协作', 'Collaboration') }}</span>
+        <span v-if="snapshot.agents.length" class="coop-count">{{ snapshot.agents.length }}</span>
+        <span v-if="active" class="coop-running"><i class="coop-dot" />{{ active }} {{ text('运行中', 'running') }}</span>
+        <span v-if="approvals.length" class="coop-attention">{{ text('待批准', 'Approval needed') }}</span>
+        <MdiIcon :path="mdiChevronRight" :size="14" />
+      </button>
+    </div>
+  </template>
   <Teleport to="body">
     <div v-if="visible" class="coop-overlay" @click.self="close">
       <section ref="panel" class="coop-panel" role="dialog" aria-modal="true" data-modal-layer="300" :aria-label="text('协作工作区', 'Collaboration workspace')">
@@ -267,27 +286,32 @@ function approvalLabel(payload: string) { try { const p = JSON.parse(payload); r
 
 <style scoped>
 .cooperative-entry { display: flex; justify-content: flex-end; padding: 0 16px 8px; flex-shrink: 0; }
-.coop-trigger { display: flex; align-items: center; gap: 7px; padding: 6px 10px; border: 1px solid var(--card-border); border-radius: 9px; background: var(--bg-main); color: var(--text-secondary); font-size: 12px; cursor: pointer; transition: background 160ms; }
-.coop-trigger:hover { background: var(--primary-alpha-06); }
-.coop-count { font-variant-numeric: tabular-nums; border-radius: 5px; background: var(--primary-alpha-08); padding: 0 5px; }
+.coop-trigger { display: flex; align-items: center; gap: 7px; padding: 5px 10px; border: 1px solid var(--border-default); border-radius: 8px; background: var(--bg-main); color: var(--text-secondary); font-size: 12px; cursor: pointer; transition: background 150ms, border-color 150ms, color 150ms; }
+.coop-trigger:hover { background: var(--bg-hover); color: var(--text-primary); }
+.coop-trigger--header { height: 32px; gap: 6px; padding: 0 10px; border-color: transparent; background: transparent; color: var(--text-muted); font-size: 12.5px; }
+.coop-trigger--header:hover { background: var(--bg-hover); color: var(--text-primary); }
+.coop-trigger--header.coop-trigger--active { border-color: var(--border-subtle); background: var(--bg-subtle); color: var(--text-primary); }
+.coop-trigger--header.coop-trigger--active:hover { background: var(--bg-hover); border-color: var(--border-default); }
+.coop-trigger--header.coop-trigger--attention { border-color: var(--warning-alpha-20); background: var(--warning-alpha-12); color: var(--text-primary); }
+.coop-count { font-variant-numeric: tabular-nums; border-radius: 5px; background: var(--bg-subtle); padding: 0 5px; }
 .coop-running { display: flex; align-items: center; gap: 5px; color: var(--tool-success-text); }
 .coop-attention { color: var(--tool-pending-text); }
-.coop-overlay { position: fixed; inset: 0; z-index: 300; display: flex; justify-content: flex-end; background: var(--overlay-backdrop); backdrop-filter: blur(3px); }
-.coop-panel { width: min(880px, 94vw); height: 100%; display: flex; flex-direction: column; background: var(--bg-main); color: var(--text-primary); box-shadow: -16px 0 60px rgba(0, 0, 0, .16); overflow: hidden; font-size: 13px; animation: coop-enter 220ms var(--ease-out-smooth); }
-.coop-panel button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 34px; padding: 7px 11px; border: 1px solid var(--card-border); border-radius: 8px; background: var(--bg-main); color: var(--text-secondary); font: inherit; cursor: pointer; transition: background 160ms, border-color 160ms; }
-.coop-panel button:hover:not(:disabled) { background: var(--primary-alpha-06); border-color: var(--primary-alpha-22); }
+.coop-overlay { position: fixed; inset: 0; z-index: 300; display: flex; justify-content: flex-end; background: var(--overlay-backdrop); }
+.coop-panel { width: min(880px, 94vw); height: 100%; display: flex; flex-direction: column; background: var(--bg-main); color: var(--text-primary); border-left: 1px solid var(--border-subtle); box-shadow: -12px 0 40px rgba(0, 0, 0, .18); overflow: hidden; font-size: 13px; animation: coop-enter 200ms var(--ease-out-smooth); }
+.coop-panel button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 34px; padding: 7px 11px; border: 1px solid var(--border-default); border-radius: 8px; background: var(--bg-main); color: var(--text-secondary); font: inherit; cursor: pointer; transition: background 150ms, border-color 150ms, color 150ms; }
+.coop-panel button:hover:not(:disabled) { background: var(--bg-hover); border-color: var(--border-strong); color: var(--text-primary); }
 .coop-panel button:disabled { opacity: .45; cursor: default; }
-.coop-panel button:focus-visible, .coop-panel summary:focus-visible, .coop-trigger:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 3px; }
-.coop-panel .coop-primary { background: var(--btn-primary-gradient); border-color: transparent; color: #fff; font-weight: 600; }
-.coop-panel .coop-primary:hover:not(:disabled) { background: var(--color-primary-hover); border-color: transparent; }
+.coop-panel button:focus-visible, .coop-panel summary:focus-visible, .coop-trigger:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+.coop-panel .coop-primary { background: var(--color-primary); border-color: transparent; color: #fff; font-weight: 600; }
+.coop-panel .coop-primary:hover:not(:disabled) { background: var(--color-primary-hover); border-color: transparent; color: #fff; }
 .coop-panel .coop-icon-button { padding: 7px; width: 36px; height: 36px; border: none; background: transparent; }
 .coop-panel .coop-stop { color: var(--color-danger); background: var(--danger-alpha-04); border-color: var(--danger-alpha-12); }
-.coop-header { padding: 26px 28px 21px; display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.coop-header { padding: 22px 26px 18px; display: flex; justify-content: space-between; align-items: center; gap: 12px; }
 .coop-heading, .coop-header-actions { display: flex; align-items: center; gap: 12px; }
-.coop-brand { width: 48px; height: 48px; border-radius: 15px; background: var(--primary-alpha-10); color: var(--color-primary); display: flex; align-items: center; justify-content: center; box-shadow: inset 0 0 0 1px var(--primary-alpha-10); }
-.coop-header h2 { font-size: 20px; font-weight: 650; letter-spacing: -.4px; margin: 0; }
-.coop-header p, .coop-section-heading p, .coop-artifact-heading p { font-size: 12px; color: var(--text-secondary); margin: 6px 0 0; }
-.coop-overview { margin: 0 28px 22px; display: grid; grid-template-columns: repeat(3, 1fr); background: var(--primary-alpha-04); border: 1px solid var(--card-border); border-radius: 13px; padding: 16px 0; }
+.coop-brand { width: 42px; height: 42px; border-radius: 10px; background: var(--bg-subtle); color: var(--text-secondary); display: flex; align-items: center; justify-content: center; border: 1px solid var(--border-subtle); }
+.coop-header h2 { font-size: 19px; font-weight: 650; letter-spacing: -.3px; margin: 0; }
+.coop-header p, .coop-section-heading p, .coop-artifact-heading p { font-size: 12px; color: var(--text-secondary); margin: 5px 0 0; }
+.coop-overview { margin: 0 26px 20px; display: grid; grid-template-columns: repeat(3, 1fr); background: var(--bg-subtle); border: 1px solid var(--border-subtle); border-radius: 10px; padding: 14px 0; }
 .coop-overview > div { padding: 0 22px; border-right: 1px solid var(--card-border); }
 .coop-overview > div:last-child { border: none; }
 .coop-overview-label { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-secondary); margin-bottom: 8px; }
@@ -306,10 +330,10 @@ function approvalLabel(payload: string) { try { const p = JSON.parse(payload); r
 .coop-status[data-status="failed"], .coop-status[data-status="conflict"], .coop-status[data-status="validation_failed"] { color: var(--color-danger); background: var(--danger-alpha-08); }
 .coop-status[data-status="waiting"], .coop-status[data-status="needs_attention"], .coop-status[data-status="awaiting_integration"], .coop-status[data-status="ready"] { color: var(--tool-pending-text); background: var(--warning-alpha-12); }
 .coop-body { display: grid; grid-template-columns: 245px minmax(0, 1fr); flex: 1; min-height: 0; }
-.coop-agent-list { overflow-y: auto; padding: 20px 12px; border-right: 1px solid var(--card-border); background: var(--primary-alpha-04); }
-.coop-list-caption { margin: 0 12px 14px; color: var(--text-secondary); font-size: 11px; font-weight: 600; }
-.coop-agent-list button { width: 100%; display: flex; flex-direction: column; align-items: stretch; padding: 14px 12px; margin-bottom: 8px; border-color: transparent; border-radius: 11px; text-align: left; background: transparent; gap: 10px; }
-.coop-agent-list button.selected { background: var(--bg-main); border-color: var(--primary-alpha-20); box-shadow: 0 3px 12px var(--primary-alpha-06); }
+.coop-agent-list { overflow-y: auto; padding: 18px 12px; border-right: 1px solid var(--border-subtle); background: var(--bg-base); }
+.coop-list-caption { margin: 0 12px 12px; color: var(--text-muted); font-size: 11px; font-weight: 600; }
+.coop-agent-list button { width: 100%; display: flex; flex-direction: column; align-items: stretch; padding: 12px; margin-bottom: 6px; border-color: transparent; border-radius: 8px; text-align: left; background: transparent; gap: 8px; }
+.coop-agent-list button.selected { background: var(--bg-main); border-color: var(--border-default); box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06); }
 .coop-agent-row { display: flex; align-items: center; gap: 10px; min-width: 0; }
 .coop-avatar { flex-shrink: 0; display: flex; align-items: center; justify-content: center; width: 35px; height: 35px; border-radius: 10px; background: var(--primary-alpha-08); color: var(--color-primary); }
 .coop-agent-name { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
@@ -348,7 +372,7 @@ function approvalLabel(payload: string) { try { const p = JSON.parse(payload); r
 .coop-section-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 22px; }
 .coop-section-heading h3 { font-size: 15px; font-weight: 600; margin: 0; }
 .coop-board { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 13px; align-items: start; }
-.coop-lane { background: var(--primary-alpha-04); border: 1px solid var(--card-border); border-radius: 12px; padding: 12px 10px; min-width: 0; }
+.coop-lane { background: var(--bg-subtle); border: 1px solid var(--border-subtle); border-radius: 10px; padding: 12px 10px; min-width: 0; }
 .coop-lane > h3 { display: flex; align-items: center; gap: 7px; font-size: 12px; margin: 2px 3px 14px; font-weight: 600; }
 .coop-lane > h3 .coop-dot { color: var(--text-muted); }
 .coop-lane[data-lane="active"] > h3 .coop-dot { color: var(--color-primary); }
@@ -396,7 +420,7 @@ function approvalLabel(payload: string) { try { const p = JSON.parse(payload); r
 .coop-approval-actions { display: flex; gap: 6px; flex-shrink: 0; }
 .coop-error { flex-shrink: 0; max-height: 110px; overflow: auto; font-size: 12px; color: var(--color-danger); padding: 12px 15px; margin: 12px 28px; background: var(--danger-alpha-08); border-radius: 9px; overflow-wrap: anywhere; }
 .coop-agent-detail .coop-error { margin: 12px 0; }
-.coop-footer { display: flex; align-items: center; justify-content: space-between; flex-shrink: 0; gap: 12px; padding: 14px 28px; border-top: 1px solid var(--card-border); color: var(--text-secondary); font-size: 11px; background: var(--primary-alpha-04); }
+.coop-footer { display: flex; align-items: center; justify-content: space-between; flex-shrink: 0; gap: 12px; padding: 12px 26px; border-top: 1px solid var(--border-subtle); color: var(--text-secondary); font-size: 11px; background: var(--bg-base); }
 .coop-settings { position: relative; }
 .coop-settings summary { cursor: pointer; display: flex; align-items: center; gap: 6px; min-height: 28px; list-style: none; }
 .coop-settings summary::-webkit-details-marker { display: none; }

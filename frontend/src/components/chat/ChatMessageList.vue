@@ -86,7 +86,7 @@ watch([scroller, content, history], ([el, body], _, onCleanup) => {
 
 <template>
   <section :ref="setScroller" class="messages-section scroll-area min-w-0 flex-1 overflow-y-auto overflow-x-hidden px-4 py-6" :class="{ 'has-history-nav': history.length > 1 }">
-    <div ref="content" class="flex min-w-0 flex-col gap-5 max-w-[720px] mx-auto">
+    <div ref="content" class="flex min-w-0 flex-col gap-5 max-w-[760px] mx-auto">
       <div
         v-if="loadingOlderHistory"
         class="flex justify-center py-2"

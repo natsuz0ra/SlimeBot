@@ -23,8 +23,8 @@ export function handleChatShortcut(input: string, key: Key, dispatch: React.Disp
 
 export function getChatFooterHint(planMode: boolean, approvalMode: AppState["approvalMode"]): string {
   return planMode || approvalMode === "auto" || approvalMode === "auto_review"
-    ? "/ for commands | Shift+Tab to toggle | Esc to cancel"
-    : "/ for commands | Shift+Tab plan mode | Esc to cancel";
+    ? "/ for commands · Shift+Tab toggle · Esc cancel"
+    : "/ for commands · Shift+Tab plan · Esc cancel";
 }
 
 export interface CliCommandHandlers {
@@ -38,7 +38,11 @@ export interface CliCommandHandlers {
   setThinkingLevel: (level: string) => void;
   loadSandboxSettings: () => Promise<void>;
   loadMemory: () => Promise<void>;
-  background?: (input: string) => void;
+  background?: (input: string) => void | Promise<void>;
+  checkpoint?: (input: string) => Promise<void>;
+  compactContext?: () => Promise<void>;
+  showContext?: () => Promise<void>;
+  usage?: (input: string) => Promise<void>;
   privacy?: (input: string) => Promise<void>;
   resetMemory: (target: string) => Promise<void>;
   loadUpdate: () => Promise<void>;
@@ -54,7 +58,32 @@ export interface CliCommandHandlers {
 export async function runCliCommand(raw: string, handlers: CliCommandHandlers): Promise<void> {
   const cmd = raw.trim();
   if (cmd === "/background" || cmd.startsWith("/background ")) {
-    handlers.background?.(cmd.slice(11).trim());
+    await handlers.background?.(cmd.slice(11).trim());
+    return;
+  }
+  if (cmd === "/checkpoint" || cmd.startsWith("/checkpoint ")) {
+    if (handlers.checkpoint) await handlers.checkpoint(cmd.slice(11).trim());
+    else handlers.unknownCommand(cmd);
+    return;
+  }
+  if (cmd === "/rewind" || cmd.startsWith("/rewind ")) {
+    if (handlers.checkpoint) await handlers.checkpoint(cmd.slice(7).trim());
+    else handlers.unknownCommand(cmd);
+    return;
+  }
+  if (cmd === "/compact") {
+    if (handlers.compactContext) await handlers.compactContext();
+    else handlers.unknownCommand(cmd);
+    return;
+  }
+  if (cmd === "/context") {
+    if (handlers.showContext) await handlers.showContext();
+    else handlers.unknownCommand(cmd);
+    return;
+  }
+  if (cmd === "/usage" || cmd.startsWith("/usage ")) {
+    if (handlers.usage) await handlers.usage(cmd.slice(6).trim());
+    else handlers.unknownCommand(cmd);
     return;
   }
   if (cmd === "/new") {

@@ -97,16 +97,14 @@ const canToggle = computed(() => props.done && hasVisibleContent.value)
   flex-direction: column;
   gap: 0;
   border-radius: 8px;
-  border: 1px solid rgba(125, 211, 252, 0.22);
-  background:
-    linear-gradient(90deg, rgba(125, 211, 252, 0.08), rgba(125, 211, 252, 0.02)),
-    var(--card-bg, rgba(139, 92, 246, 0.04));
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-subtle);
   overflow: hidden;
-  transition: border-color 180ms ease, background-color 180ms ease;
+  transition: border-color 150ms ease, background-color 150ms ease;
 }
 
 .thinking-block:hover {
-  border-color: rgba(56, 189, 248, 0.36);
+  border-color: var(--border-default);
 }
 
 .thinking-summary {
@@ -115,12 +113,12 @@ const canToggle = computed(() => props.done && hasVisibleContent.value)
   gap: 8px;
   width: 100%;
   min-height: 34px;
-  padding: 8px 12px;
+  padding: 7px 12px;
   background: none;
   border: none;
   cursor: default;
-  color: var(--text-secondary, #4c4980);
-  font-size: 14px;
+  color: var(--text-secondary);
+  font-size: 13px;
   font-weight: 500;
   line-height: 1;
   text-align: left;
@@ -132,39 +130,38 @@ const canToggle = computed(() => props.done && hasVisibleContent.value)
 }
 
 .thinking-summary[aria-expanded]:hover {
-  background: rgba(14, 165, 233, 0.06);
+  background: var(--bg-hover);
 }
 
 .thinking-summary[aria-expanded]:focus-visible {
-  outline: 2px solid var(--focus-ring, rgba(139, 92, 246, 0.5));
+  outline: 2px solid var(--focus-ring);
   outline-offset: -2px;
-  border-radius: 10px;
+  border-radius: 8px;
 }
 
 .thinking-dot {
   flex-shrink: 0;
-  color: #0ea5e9;
+  color: var(--text-muted);
 }
 
 .thinking-dot--pulsing {
-  animation: thinking-pulse 1.4s ease-in-out infinite;
+  color: var(--sb-brand);
+  animation: thinking-pulse 1.6s ease-in-out infinite;
 }
 
 @keyframes thinking-pulse {
   0%, 100% {
     opacity: 1;
-    transform: scale(1);
   }
   50% {
-    opacity: 0.4;
-    transform: scale(0.85);
+    opacity: 0.35;
   }
 }
 
 .thinking-summary-text {
   flex: 0 0 auto;
-  color: #0284c7;
-  font-weight: 650;
+  color: var(--text-secondary);
+  font-weight: 550;
   white-space: nowrap;
 }
 
@@ -176,9 +173,9 @@ const canToggle = computed(() => props.done && hasVisibleContent.value)
   overflow: hidden;
   margin-left: 4px;
   margin-right: 8px;
-  color: var(--text-muted, #94a3b8);
+  color: var(--text-muted);
   font-size: 12px;
-  font-weight: 450;
+  font-weight: 400;
   line-height: 1.2;
 }
 
@@ -198,7 +195,7 @@ const canToggle = computed(() => props.done && hasVisibleContent.value)
   font-size: 0;
   flex-shrink: 0;
   margin-left: auto;
-  color: var(--text-muted, #9ca3af);
+  color: var(--text-muted);
   transition: transform 150ms ease;
   transform: rotate(-90deg);
 }
@@ -208,43 +205,22 @@ const canToggle = computed(() => props.done && hasVisibleContent.value)
 }
 
 .thinking-content {
-  border-left: 3px solid #0ea5e9;
+  border-left: 2px solid var(--border-strong);
   margin: 0 12px 10px 12px;
-  padding: 8px 10px;
-  border-radius: 0 8px 8px 0;
-  background: rgba(14, 165, 233, 0.05);
+  padding: 6px 10px;
+  background: transparent;
 }
 
 .thinking-content-text {
   margin: 0;
-  color: var(--text-secondary, #4c4980);
-  font-size: 14px;
-  line-height: 1.55;
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1.6;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   max-height: 240px;
   overflow-y: auto;
   scrollbar-width: thin;
-}
-
-.dark .thinking-block {
-  border-color: rgba(56, 189, 248, 0.24);
-  background:
-    linear-gradient(90deg, rgba(56, 189, 248, 0.12), rgba(56, 189, 248, 0.04)),
-    var(--card-bg, rgba(255, 255, 255, 0.04));
-}
-
-.dark .thinking-block:hover {
-  border-color: rgba(125, 211, 252, 0.36);
-}
-
-.dark .thinking-summary-text,
-.dark .thinking-dot {
-  color: #7dd3fc;
-}
-
-.dark .thinking-content-text {
-  color: #dbeafe;
 }
 
 .thinking-expand-enter-active {

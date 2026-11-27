@@ -6,6 +6,7 @@
 import React from "react";
 import { Box, Text, useStdout } from "ink";
 import { CLI_ACCENT_COLOR } from "../utils/terminal.js";
+import { CLI_THEME } from "../utils/theme.js";
 import { TextInput } from "./TextInput.js";
 import { truncateDisplayValue } from "./ModelEditor.js";
 
@@ -20,8 +21,8 @@ export const MCP_EDITOR_COLORS = {
   inactive: "#94a3b8",
   enabled: "#22c55e",
   disabled: "#fb7185",
-  divider: "#475569",
-  hint: "#64748b",
+  divider: CLI_THEME.border,
+  hint: CLI_THEME.hint,
   valid: "#22c55e",
   invalid: "#fb7185",
 } as const;

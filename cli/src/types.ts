@@ -75,6 +75,7 @@ export interface Skill {
 export interface Settings {
   defaultModel: string;
   approvalMode?: string;
+  sessionOutputTokenBudget?: number;
   memoryEnabled?: boolean;
   memoryUserProfileEnabled?: boolean;
   memoryCharLimit?: number;
@@ -334,6 +335,11 @@ export interface TodoUpdateData {
   updatedAt?: string;
 }
 
+export interface ContextLayerUsage {
+  layer: string;
+  tokens: number;
+}
+
 export interface ContextUsage {
   sessionId: string;
   modelConfigId: string;
@@ -347,14 +353,106 @@ export interface ContextUsage {
   outputReserve?: number;
   compactionBeforeTokens?: number;
   compactionAfterTokens?: number;
+  compactionDurationMs?: number;
   compactionReason?: string;
+  compactionFailure?: string;
+  layers?: ContextLayerUsage[];
   source?: "estimated" | "provider-reported";
-  state?: "compacting" | "ready";
+  state?: "compacting" | "ready" | "cooldown";
+  outputBudgetTokens?: number;
+  outputBudgetUsed?: number;
+}
+
+export interface CompactContextResult {
+  compacted: boolean;
+  skipped?: boolean;
+  reason?: string;
+  usage?: ContextUsage;
+}
+
+export type CheckpointRollbackMode = "undo" | "restore";
+
+export interface Checkpoint {
+  id: string;
+  requestId?: string;
+  userMessageId?: string;
+  createdAt: string;
+  kind: "turn" | CheckpointRollbackMode;
+  sourceId?: string;
+  fileCount: number;
+  limited?: boolean;
+  unavailable?: boolean;
+}
+
+export interface CheckpointFile {
+  path: string;
+  kind: "added" | "modified" | "deleted";
+}
+
+export interface CheckpointDetail extends Checkpoint {
+  files: CheckpointFile[];
+}
+
+export interface CheckpointDiff {
+  diff: string;
+  binary: boolean;
+  truncated: boolean;
+}
+
+export type BackgroundTaskStatus =
+  | "running"
+  | "queued"
+  | "waking"
+  | "completed"
+  | "failed"
+  | "stopped"
+  | "interrupted";
+
+export interface PersistedBackgroundTask {
+  id: string;
+  taskId: string;
+  processId: string;
+  sessionId: string;
+  command: string;
+  workingDirectory?: string;
+  status: BackgroundTaskStatus;
+  output?: string;
+  error?: string;
+  exitCode: number;
+  autoWake: boolean;
+  startedAt: string;
+  finishedAt?: string;
+}
+
+export type UsageGroup = "session" | "model" | "project";
+export type UsageTimeRange = "all" | "today" | "7d" | "30d";
+
+export interface UsageSummary {
+  groupKey: string;
+  rootSessionId?: string;
+  sessionName?: string;
+  sessionKind?: string;
+  sessionExists?: boolean;
+  modelConfigId?: string;
+  model?: string;
+  workingDirectory?: string;
+  requestCount: number;
+  inputTokens: number;
+  outputTokens: number;
+  cacheCreationInputTokens: number;
+  cacheReadInputTokens: number;
+  totalTokens: number;
+}
+
+export interface SkillLearningData {
+  skillId?: string;
+  status: string;
+  message: string;
 }
 
 // ===== UI state types =====
 
-export type ViewMode = "chat" | "menu" | "mcp-editor" | "mcp-template" | "mcp-tools" | "model-editor" | "provider-editor" | "approval" | "thinking-detail" | "plan-confirm" | "question-answer" | "update" | "memory-console" | "team-detail";
+export type ViewMode = "chat" | "menu" | "mcp-editor" | "mcp-template" | "mcp-tools" | "model-editor" | "provider-editor" | "approval" | "thinking-detail" | "plan-confirm" | "question-answer" | "update" | "memory-console" | "team-detail" | "checkpoint" | "usage" | "context";
 
 export type MenuKind =
   | "session"
@@ -367,6 +465,7 @@ export type MenuKind =
   | "effort"
   | "subagent_model"
   | "sandbox"
+  | "background"
   | "update"
   | "help";
 
@@ -499,29 +598,38 @@ export interface MCPToolListResponse {
 
 // ===== Command types =====
 
+export type CommandCategory = "session" | "model" | "workspace" | "safety" | "system";
+
 export interface CommandMeta {
   command: string;
   description: string;
+  category: CommandCategory;
+  acceptsArgs?: boolean;
 }
 
 export const SUPPORTED_COMMANDS: CommandMeta[] = [
-  { command: "/new", description: "Create a new chat session" },
-  { command: "/session", description: "Open session menu to switch or delete" },
-  { command: "/model", description: "Choose the default model" },
-  { command: "/provider", description: "Manage model providers and available models" },
-  { command: "/memory", description: "Open memory console" },
-  { command: "/agents", description: "Persistent agents, tasks and artifacts" },
-  { command: "/privacy", description: "Local masking settings and preview" },
-  { command: "/team", description: "Open Agent Team details" },
-  { command: "/subagent_model", description: "Choose sub-agent model" },
-  { command: "/approval", description: "Toggle approval mode (standard/auto review/auto)" },
-  { command: "/effort", description: "Toggle thinking level (off/low/medium/high)" },
-  { command: "/sandbox", description: "Configure sandbox mode and network access" },
-  { command: "/update", description: "Check and apply SlimeBot updates" },
-  { command: "/skills", description: "View and manage installed skills" },
-  { command: "/mcp", description: "Manage MCP configurations" },
-  { command: "/plan", description: "Toggle plan mode (on/off)" },
-  { command: "/help", description: "Show available commands" },
+  { command: "/new", description: "Create a new chat session", category: "session" },
+  { command: "/session", description: "Switch or delete chat sessions", category: "session" },
+  { command: "/compact", description: "Compact current session context", category: "session" },
+  { command: "/context", description: "Inspect context layers and compaction status", category: "session" },
+  { command: "/model", description: "Choose the default model", category: "model" },
+  { command: "/provider", description: "Manage model providers and discovered models", category: "model" },
+  { command: "/subagent_model", description: "Choose sub-agent model", category: "model" },
+  { command: "/effort", description: "Set thinking level (off/low/medium/high/max)", category: "model", acceptsArgs: true },
+  { command: "/plan", description: "Toggle plan mode (on/off)", category: "workspace" },
+  { command: "/checkpoint", description: "Browse file checkpoints, diffs, and rollback", category: "workspace", acceptsArgs: true },
+  { command: "/background", description: "Inspect, continue, retry, or stop background tasks", category: "workspace", acceptsArgs: true },
+  { command: "/agents", description: "Persistent agents, tasks, and artifacts", category: "workspace", acceptsArgs: true },
+  { command: "/team", description: "Open Agent Team details", category: "workspace" },
+  { command: "/memory", description: "Open long-term memory console", category: "workspace", acceptsArgs: true },
+  { command: "/skills", description: "Browse, toggle, and manage skills", category: "workspace" },
+  { command: "/mcp", description: "Manage MCP configurations", category: "workspace" },
+  { command: "/approval", description: "Cycle approval mode (standard/auto review/auto)", category: "safety" },
+  { command: "/sandbox", description: "Configure sandbox mode and network access", category: "safety" },
+  { command: "/privacy", description: "Local masking settings, preview, and destroy", category: "safety", acceptsArgs: true },
+  { command: "/usage", description: "View token usage summary and output budget", category: "system", acceptsArgs: true },
+  { command: "/update", description: "Check and apply SlimeBot updates", category: "system" },
+  { command: "/help", description: "Show available commands and shortcuts", category: "system" },
 ];
 
 // ===== App state =====

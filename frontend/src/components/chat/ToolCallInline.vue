@@ -661,7 +661,7 @@ function toggleSubagentTimeline() {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   line-height: 1.4;
-  border-left: 2px solid rgba(99, 102, 241, 0.4);
+  border-left: 2px solid var(--sb-brand);
 }
 
 .inline-exec-pre--stderr {
@@ -690,7 +690,7 @@ function toggleSubagentTimeline() {
 }
 
 .inline-web-title {
-  color: var(--tool-command-text, #4f46e5);
+  color: var(--tool-command-text, var(--accent-primary));
   font-size: 14px;
   font-weight: 600;
   line-height: 1.4;

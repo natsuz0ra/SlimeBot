@@ -1,6 +1,9 @@
 .btn-primary {
-  background: var(--btn-primary-gradient);
+  background: var(--color-primary);
   color: #fff;
+}
+.btn-primary:hover:not(:disabled) {
+  background: var(--color-primary-hover);
 }
 
 .sb-text-primary {

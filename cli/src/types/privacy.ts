@@ -13,10 +13,18 @@ export interface PrivacyConfig {
   modelEnabled: boolean;
   modelThreshold: number;
   modelTimeoutSeconds: number;
+  mappingPersistence?: boolean;
+  mappingTtlMinutes?: number;
+}
+export interface PrivacyMappingStatus {
+  mode: 'memory' | 'encrypted' | 'unavailable';
+  keyStatus: 'ready' | 'missing' | 'invalid' | 'mismatch';
+  storageError?: boolean;
 }
 export interface PrivacySnapshot {
   config: PrivacyConfig;
   model: { installed: boolean; installing: boolean; running: boolean; stage: string; downloadedBytes: number; totalBytes: number; error?: string };
   records: { id: string; time: string; source: string; masked: number; warned: number; blocked: boolean; failed: boolean; restored: number; durationMs: number; kinds: Record<string, number> }[];
+  mappings?: PrivacyMappingStatus;
 }
 export interface PrivacyPreview { text: string; hits: { kind: string; action: string }[]; blocked: boolean }

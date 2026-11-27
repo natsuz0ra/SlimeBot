@@ -1,11 +1,11 @@
 /**
- * CommandHints — shows available commands when input starts with /.
+ * CommandHints — aligned slash-command autocomplete list when input starts with /.
  */
 
 import React from "react";
 import { Box, Text } from "ink";
 import { getVisibleCommandHints, matchCommandHints } from "../utils/commands.js";
-import { CLI_ACCENT_COLOR } from "../utils/terminal.js";
+import { CLI_THEME } from "../utils/theme.js";
 
 interface CommandHintsProps {
   input: string;
@@ -18,6 +18,7 @@ export function CommandHints({ input, selectedIndex }: CommandHintsProps): React
   const hints = matchCommandHints(input);
   if (hints.length === 0) return null;
   const visible = getVisibleCommandHints(hints, selectedIndex);
+  const cmdWidth = Math.max(12, ...visible.hints.map((h) => h.command.length)) + 2;
 
   return (
     <Box flexDirection="column">
@@ -25,13 +26,21 @@ export function CommandHints({ input, selectedIndex }: CommandHintsProps): React
         const absoluteIndex = visible.startIndex + index;
         const selected = absoluteIndex === selectedIndex;
         return (
-          <Text key={h.command}>
-            <Text color={selected ? CLI_ACCENT_COLOR : "gray"}>{selected ? "❯ " : "  "}</Text>
-            <Text color={CLI_ACCENT_COLOR}>{h.command}</Text>
-            <Text color="gray"> - {h.description}</Text>
+          <Text key={h.command} wrap="truncate">
+            <Text color={selected ? CLI_THEME.accent : CLI_THEME.muted}>{selected ? "❯ " : "  "}</Text>
+            <Text color={CLI_THEME.accent} bold={selected}>{h.command.padEnd(cmdWidth, " ")}</Text>
+            <Text color={CLI_THEME.secondary}>{h.description}</Text>
           </Text>
         );
       })}
+      {(visible.aboveCount > 0 || visible.belowCount > 0) && (
+        <Text color={CLI_THEME.hint}>
+          {"  "}
+          {visible.startIndex + 1}–{visible.startIndex + visible.hints.length} / {hints.length}
+          {visible.aboveCount > 0 ? `  ↑${visible.aboveCount}` : ""}
+          {visible.belowCount > 0 ? `  ↓${visible.belowCount}` : ""}
+        </Text>
+      )}
     </Box>
   );
 }

@@ -84,9 +84,6 @@ func (f *fileReadTool) read(ctx context.Context, params map[string]any) (*Execut
 	}
 
 	out.WriteString(fmt.Sprintf("\n\nSummary: succeeded=%d failed=%d total=%d", success, failed, len(requests)))
-	if len(requests) == 1 {
-		return &ExecuteResult{Output: strings.TrimSpace(out.String())}, nil
-	}
 	return &ExecuteResult{Output: strings.TrimSpace(out.String())}, nil
 }
 

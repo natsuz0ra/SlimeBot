@@ -118,9 +118,6 @@ func (s *ChatService) HandleEditedChatStream(
 	callbacks AgentCallbacks,
 ) (*ChatStreamResult, error) {
 	ctx = llmsvc.WithPrivacyScope(ctx, sessionID, requestID, "chat")
-	if strings.TrimSpace(content) == "" {
-		return nil, fmt.Errorf("Message cannot be empty.")
-	}
 	ctx, endTurn, err := s.beginTurn(ctx, sessionID, requestID)
 	if err != nil {
 		return nil, err
@@ -523,7 +520,6 @@ func (s *ChatService) executeChatTurn(
 	subagentModelID string,
 	approvalModeOverride string,
 ) (*chatTurnResult, error) {
-	parser := newTitleStreamParser()
 	accumulator := &chatStreamAccumulator{}
 	usageTracker := newContextUsageTracker(state.contextUsage, callbacks.OnContextUsage)
 	streamStart := time.Now()
@@ -601,14 +597,7 @@ func (s *ChatService) executeChatTurn(
 			if chunk != "" && firstTokenAt.IsZero() {
 				firstTokenAt = time.Now()
 			}
-			if state.acpAgentID != "" {
-				return pushBodyLocked(chunk)
-			}
-			body := parser.Feed(chunk)
-			if err := pushBodyLocked(body); err != nil {
-				return err
-			}
-			return nil
+			return pushBodyLocked(chunk)
 		},
 		OnToolCallStart: func(req ApprovalRequest) error {
 			callbackMu.Lock()
@@ -620,10 +609,6 @@ func (s *ChatService) executeChatTurn(
 				startStatus = constants.ToolCallStatusReviewing
 			}
 			if err := s.recordToolCallStart(ctx, sessionID, requestID, req, startStatus); err != nil {
-				callbackMu.Unlock()
-				return err
-			}
-			if err := pushBodyLocked(parser.BeginAssistantTurn()); err != nil {
 				callbackMu.Unlock()
 				return err
 			}
@@ -941,14 +926,6 @@ func (s *ChatService) executeChatTurn(
 		firstTokenMs = firstTokenAt.Sub(streamStart).Milliseconds()
 	}
 	logging.Info("chat_stream_done", "session", sessionID, "first_token_ms", firstTokenMs, "total_stream_ms", time.Since(streamStart).Milliseconds())
-
-	callbackMu.Lock()
-	flushed := parser.Flush()
-	flushErr := pushBodyLocked(flushed)
-	callbackMu.Unlock()
-	if flushErr != nil && !interrupted {
-		return nil, flushErr
-	}
 
 	var finalAnswer string
 	var resultNarration string

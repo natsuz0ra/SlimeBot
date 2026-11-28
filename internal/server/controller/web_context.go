@@ -79,16 +79,8 @@ func (c chiContext) Error(err error) {
 }
 
 func (c chiContext) ShouldBindJSON(dst any) error {
-	if dst == nil {
-		return io.ErrUnexpectedEOF
-	}
 	dec := json.NewDecoder(io.LimitReader(c.r.Body, 1<<20))
-	err := dec.Decode(dst)
-	// Gin-compatible empty body: return io.EOF so callers can treat empty JSON specially.
-	if err == io.EOF {
-		return io.EOF
-	}
-	return err
+	return dec.Decode(dst)
 }
 
 func (c chiContext) MultipartForm() (*multipart.Form, error) {

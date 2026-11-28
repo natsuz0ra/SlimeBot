@@ -218,7 +218,7 @@ func (s *ChatService) buildContextMessagesDetailed(ctx context.Context, sessionI
 }
 
 func (s *ChatService) attachOutputBudget(ctx context.Context, sessionID string, usage *ContextUsage) {
-	if s == nil || s.usage == nil || usage == nil || strings.TrimSpace(sessionID) == "" {
+	if s.usage == nil || strings.TrimSpace(sessionID) == "" {
 		return
 	}
 	status, err := s.usage.SessionBudgetStatus(ctx, sessionID)

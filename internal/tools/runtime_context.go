@@ -31,9 +31,6 @@ type SubagentRunner interface {
 }
 
 func WithSkillRuntime(ctx context.Context, runtime *skillsvc.SkillRuntimeService) context.Context {
-	if ctx == nil {
-		ctx = context.Background()
-	}
 	if runtime == nil {
 		return ctx
 	}
@@ -49,9 +46,6 @@ func skillRuntimeFromContext(ctx context.Context) (*skillsvc.SkillRuntimeService
 }
 
 func WithActivatedSkills(ctx context.Context, activated map[string]struct{}) context.Context {
-	if ctx == nil {
-		ctx = context.Background()
-	}
 	if activated == nil {
 		return ctx
 	}
@@ -69,9 +63,6 @@ func activatedSkillsFromContext(ctx context.Context) map[string]struct{} {
 }
 
 func WithSubagentRunner(ctx context.Context, runner SubagentRunner) context.Context {
-	if ctx == nil {
-		ctx = context.Background()
-	}
 	if runner == nil {
 		return ctx
 	}
@@ -87,9 +78,6 @@ func subagentRunnerFromContext(ctx context.Context) (SubagentRunner, bool) {
 }
 
 func WithTodoState(ctx context.Context, state *TodoState) context.Context {
-	if ctx == nil {
-		ctx = context.Background()
-	}
 	if state == nil {
 		return ctx
 	}
@@ -107,9 +95,6 @@ func todoStateFromContext(ctx context.Context) *TodoState {
 }
 
 func WithProcessManager(ctx context.Context, manager *ProcessManager) context.Context {
-	if ctx == nil {
-		ctx = context.Background()
-	}
 	if manager == nil {
 		return ctx
 	}
@@ -127,9 +112,6 @@ func processManagerFromContext(ctx context.Context) *ProcessManager {
 }
 
 func WithMemoryService(ctx context.Context, service *memorysvc.Service) context.Context {
-	if ctx == nil {
-		ctx = context.Background()
-	}
 	if service == nil {
 		return ctx
 	}
@@ -145,9 +127,6 @@ func memoryServiceFromContext(ctx context.Context) (*memorysvc.Service, bool) {
 }
 
 func WithScheduleService(ctx context.Context, service *schedulesvc.Service) context.Context {
-	if ctx == nil {
-		ctx = context.Background()
-	}
 	if service == nil {
 		return ctx
 	}
@@ -163,9 +142,6 @@ func scheduleServiceFromContext(ctx context.Context) (*schedulesvc.Service, bool
 }
 
 func WithCurrentSessionID(ctx context.Context, sessionID string) context.Context {
-	if ctx == nil {
-		ctx = context.Background()
-	}
 	if sessionID == "" {
 		return ctx
 	}

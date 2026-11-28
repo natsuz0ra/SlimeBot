@@ -26,10 +26,6 @@ func (h *HTTPController) SetFileCheckpointService(service fileCheckpointService)
 }
 
 func (h *HTTPController) fileCheckpointsReady(c WebContext) bool {
-	if h.checkpoints == nil {
-		jsonError(c, http.StatusServiceUnavailable, "File checkpoints are unavailable.")
-		return false
-	}
 	c.Writer().Header().Set("Cache-Control", "no-store")
 	return true
 }

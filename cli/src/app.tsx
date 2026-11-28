@@ -30,6 +30,7 @@ import { Timeline } from "./components/Timeline.js";
 import { UpdateView, getInitialUpdateJobForView, isUpdateActive } from "./components/UpdateView.js";
 import { UsageView } from "./components/UsageView.js";
 import { getChatFooterHint, handleChatShortcut, runCliCommand } from "./controllers/commands.js";
+import { applySessionResponse, captureSessionRequest, type SessionSelection } from "./controllers/sessionRequests.js";
 import { useCliKeyboard } from "./hooks/useCliKeyboard.js";
 import { clampContextSize, formatContextSize, formatContextTokenCount, formatContextUsageStatus } from "./utils/contextSize.js";
 import { useCliSocket } from "./hooks/useCliSocket.js";
@@ -118,7 +119,8 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
   const pendingProviderDeleteRef = useRef<{ id: string; at: number } | null>(null);
   const socketRef = useRef<CLISocket | null>(null);
   const blinkRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const sessionRef = useRef({ id: "", name: "" });
+  const sessionRef = useRef<SessionSelection>({ id: "", name: "", generation: 0 });
+  const modelIdRef = useRef(state.modelId);
   const liveAssistantRef = useRef("");
   const planModeRef = useRef(false);
   const planStartedRef = useRef(false);
@@ -146,16 +148,23 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
     dispatch({ type: "APPEND_ENTRY", entry: { kind: "system", content } } as AppAction);
   }, []);
 
+  const invalidateSessionRequests = useCallback(() => {
+    sessionRef.current.generation++;
+  }, []);
+
+  const setCurrentSession = useCallback((id: string, name = "") => {
+    if (id !== sessionRef.current.id) setBackgroundTaskCount(0);
+    sessionRef.current = { id, name, generation: sessionRef.current.generation + 1 };
+    socketRef.current?.watchSession(id);
+  }, []);
+
   const refreshContextUsage = useCallback(async (sessionId: string, modelId: string) => {
     if (!sessionId || !modelId) return;
-    try {
-      const usage = await apiRef.current.getContextUsage(sessionId, modelId);
-      if (sessionRef.current.id === sessionId) {
-        dispatch({ type: "CONTEXT_USAGE", usage } as AppAction);
-      }
-    } catch {
-      // Context usage is informational; keep chat usable if it cannot be loaded.
-    }
+    await applySessionResponse(
+      captureSessionRequest(sessionRef, sessionId),
+      () => apiRef.current.getContextUsage(sessionId, modelId),
+      (usage) => dispatch({ type: "CONTEXT_USAGE", usage }),
+    );
   }, []);
 
   const applyTerminalTitle = useCallback((sessionName = "") => {
@@ -163,8 +172,8 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
   }, []);
 
   useEffect(() => {
-    sessionRef.current = { id: state.sessionId, name: state.sessionName };
-  }, [state.sessionId, state.sessionName]);
+    modelIdRef.current = state.modelId;
+  }, [state.modelId]);
 
   useEffect(() => {
     liveAssistantRef.current = state.liveAssistant;
@@ -179,20 +188,18 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
   }, [state.inputValue]);
 
   const refreshSessionName = useCallback(async (sessionId: string) => {
-    if (!sessionId) {
-      dispatch({ type: "SET_SESSION_NAME", sessionName: "" } as AppAction);
-      applyTerminalTitle("");
-      return;
-    }
-    try {
-      const resp = await apiRef.current.listSessions(200, 0);
-      const session = resp.sessions.find((s) => s.id === sessionId);
-      if (!session) return;
-      dispatch({ type: "SET_SESSION_NAME", sessionName: session.name } as AppAction);
-      applyTerminalTitle(session.name);
-    } catch {
-      // Ignore session name refresh failures.
-    }
+    if (!sessionId) return;
+    await applySessionResponse(
+      captureSessionRequest(sessionRef, sessionId),
+      () => apiRef.current.listSessions(200, 0),
+      ({ sessions }) => {
+        const session = sessions.find((s) => s.id === sessionId);
+        if (!session) return;
+        sessionRef.current.name = session.name;
+        dispatch({ type: "SET_SESSION_NAME", sessionName: session.name });
+        applyTerminalTitle(session.name);
+      },
+    );
   }, [applyTerminalTitle]);
 
   const loadDefaultModel = useCallback(async () => {
@@ -836,29 +843,40 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
     } as AppAction);
   }, []);
 
-  const switchSession = useCallback(async (session: Session) => {
-    sessionRef.current = { id: session.id, name: session.name };
-    dispatch({ type: "SET_SESSION", sessionId: session.id, sessionName: session.name } as AppAction);
-    dispatch({ type: "CLOSE_MENU" } as AppAction);
-    applyTerminalTitle(session.name);
-    redrawTerminal();
-    try {
-      const history = await apiRef.current.getSessionMessages(session.id);
-      dispatch({
-        type: "LOAD_HISTORY",
-        entries: mapHistoryMessages(
+  const syncSessionHistory = useCallback(async (sessionId: string, afterReconnect = false) => {
+    await applySessionResponse(
+      captureSessionRequest(sessionRef, sessionId),
+      () => apiRef.current.getSessionMessages(sessionId),
+      (history) => {
+        const entries = mapHistoryMessages(
           history.messages,
           history.toolCallsByAssistantMessageId || {},
           history.thinkingByAssistantMessageId || {},
           history.teamRuns || [],
           history.teamMemberRuns || [],
-        ),
-      } as AppAction);
-      await refreshContextUsage(session.id, state.modelId);
-    } catch (error) {
-      appendSystem(`Failed to load session history: ${(error as Error).message}`);
-    }
-  }, [appendSystem, applyTerminalTitle, redrawTerminal, refreshContextUsage, state.modelId]);
+        );
+        dispatch({ type: "LOAD_HISTORY", entries, afterReconnect });
+        void refreshContextUsage(sessionId, modelIdRef.current);
+      },
+      (error) => appendSystem(`Failed to load session history: ${(error as Error).message}`),
+    );
+  }, [appendSystem, refreshContextUsage]);
+
+  const resyncSessionHistory = useCallback((sessionId: string) => {
+    invalidateSessionRequests();
+    void syncSessionHistory(sessionId, true);
+  }, [invalidateSessionRequests, syncSessionHistory]);
+
+  const switchSession = useCallback(async (session: Session) => {
+    const changed = session.id !== sessionRef.current.id;
+    setCurrentSession(session.id, session.name);
+    dispatch({ type: "SET_SESSION", sessionId: session.id, sessionName: session.name } as AppAction);
+    if (changed) dispatch({ type: "LOAD_HISTORY", entries: [] });
+    dispatch({ type: "CLOSE_MENU" } as AppAction);
+    applyTerminalTitle(session.name);
+    redrawTerminal();
+    await syncSessionHistory(session.id);
+  }, [applyTerminalTitle, redrawTerminal, setCurrentSession, syncSessionHistory]);
 
   const handleMenuSelect = useCallback(async (item: MenuItem | undefined) => {
     if (!item || !state.menuKind) return;
@@ -978,7 +996,8 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
       if (state.menuKind === "session") {
         const session = item.data as Session;
         await apiRef.current.deleteSession(session.id);
-        if (session.id === state.sessionId) {
+        if (session.id === sessionRef.current.id) {
+          setCurrentSession("");
           dispatch({ type: "RESET_SESSION" } as AppAction);
           applyTerminalTitle("");
           redrawTerminal();
@@ -1030,7 +1049,7 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
     } catch (error) {
       appendSystem(`Delete failed: ${(error as Error).message}`);
     }
-  }, [appendSystem, applyTerminalTitle, redrawTerminal, loadDefaultModel, loadMCPConfigs, loadModels, loadProviderModels, loadProviders, loadSessions, loadSkills, state.menuKind, state.sessionId]);
+  }, [appendSystem, applyTerminalTitle, redrawTerminal, loadDefaultModel, loadMCPConfigs, loadModels, loadProviderModels, loadProviders, loadSessions, loadSkills, setCurrentSession, state.menuKind]);
 
   const handleMenuAdd = useCallback(() => {
     if (state.menuKind === "mcp") {
@@ -1214,8 +1233,9 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
   ]);
 
   const sendMessage = useCallback(async (content: string) => {
+    const sessionId = sessionRef.current.id;
     if (state.streaming || state.assistantWaiting) {
-      if (!socketRef.current?.sendSteering(content, state.sessionId, randomUUID())) { dispatch({ type: "SET_INPUT", value: content } as AppAction); appendSystem("The active turn is not ready for changes. Your input has been kept."); }
+      if (!socketRef.current?.sendSteering(content, sessionId, randomUUID())) { dispatch({ type: "SET_INPUT", value: content } as AppAction); appendSystem("The active turn is not ready for changes. Your input has been kept."); }
       return;
     }
 
@@ -1224,6 +1244,7 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
       return;
     }
 
+    invalidateSessionRequests();
     dispatch({ type: "APPEND_ENTRY", entry: { kind: "user", content } } as AppAction);
     dispatch({ type: "STREAM_START" } as AppAction);
 
@@ -1231,15 +1252,19 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
       return socketRef.current?.send(content, sid, state.modelId, state.thinkingLevel, state.planMode, state.subagentModelId) || false;
     };
 
-    if (!state.sessionId) {
+    if (!sessionId) {
+      const isCurrent = captureSessionRequest(sessionRef, "");
       try {
         const session = await apiRef.current.createSession(undefined, state.cwd);
+        if (!isCurrent()) return;
+        setCurrentSession(session.id, session.name);
         dispatch({ type: "SET_SESSION", sessionId: session.id, sessionName: session.name } as AppAction);
         applyTerminalTitle(session.name);
         if (!sendToSocket(session.id)) {
           dispatch({ type: "STREAM_DONE", error: "WebSocket is not connected." } as AppAction);
         }
       } catch (error) {
+        if (!isCurrent()) return;
         dispatch({
           type: "STREAM_DONE",
           error: `Failed to create session: ${(error as Error).message}`,
@@ -1248,10 +1273,10 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
       return;
     }
 
-    if (!sendToSocket(state.sessionId)) {
+    if (!sendToSocket(sessionId)) {
       dispatch({ type: "STREAM_DONE", error: "WebSocket is not connected." } as AppAction);
     }
-  }, [appendSystem, applyTerminalTitle, state.modelId, state.sessionId, state.planMode, state.thinkingLevel, state.streaming, state.assistantWaiting]);
+  }, [appendSystem, applyTerminalTitle, invalidateSessionRequests, setCurrentSession, state.cwd, state.modelId, state.planMode, state.subagentModelId, state.thinkingLevel, state.streaming, state.assistantWaiting]);
 
   const manageAgents = useCallback(async (command: string, inline = false) => {
     if (!state.sessionId) { appendSystem("Create or open a session first."); return; }
@@ -1337,7 +1362,7 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
     await runCliCommand(raw, {
       manageAgents,
       newSession: () => {
-        setBackgroundTaskCount(0);
+        setCurrentSession("");
         dispatch({ type: "RESET_SESSION" } as AppAction);
         applyTerminalTitle("");
         redrawTerminal();
@@ -1393,6 +1418,7 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
     appendSystem,
     applyTerminalTitle,
     redrawTerminal,
+    setCurrentSession,
     manageAgents,
     loadBackgroundTasksMenu,
     handleCheckpointCommand,
@@ -1462,10 +1488,6 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
     };
   }, [state.streaming, state.assistantWaiting]);
 
-  useEffect(() => {
-    socketRef.current?.watchSession(state.sessionId);
-  }, [state.sessionId]);
-
   useCliSocket({
     apiURL,
     cliToken,
@@ -1476,6 +1498,8 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
     preambleShownRef,
     dispatch,
     refreshSessionName,
+    invalidateSessionRequests,
+    resyncSessionHistory,
     applyTerminalTitle,
     onBackgroundCountChange: setBackgroundTaskCount,
   });

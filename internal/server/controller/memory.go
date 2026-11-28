@@ -10,10 +10,6 @@ import (
 )
 
 func (h *HTTPController) GetMemory(c WebContext) {
-	if h.memory == nil {
-		jsonError(c, http.StatusInternalServerError, "Memory service is not initialized.")
-		return
-	}
 	snapshot, err := h.memory.Snapshot(c.Request().Context())
 	if err != nil {
 		jsonInternalError(c, err)
@@ -23,10 +19,6 @@ func (h *HTTPController) GetMemory(c WebContext) {
 }
 
 func (h *HTTPController) ClearMemory(c WebContext) {
-	if h.memory == nil {
-		jsonError(c, http.StatusInternalServerError, "Memory service is not initialized.")
-		return
-	}
 	targetText := strings.TrimSpace(c.Param("target"))
 	if strings.EqualFold(targetText, "all") {
 		if _, err := h.memory.Clear(c.Request().Context(), memorysvc.TargetMemory); err != nil {
@@ -53,10 +45,6 @@ func (h *HTTPController) ClearMemory(c WebContext) {
 }
 
 func (h *HTTPController) DeleteMemoryEntry(c WebContext) {
-	if h.memory == nil {
-		jsonError(c, http.StatusInternalServerError, "Memory service is not initialized.")
-		return
-	}
 	target, err := memorysvc.NormalizeTarget(c.Param("target"))
 	if err != nil {
 		jsonError(c, http.StatusBadRequest, "target must be memory or user.")

@@ -16,10 +16,6 @@ import (
 func (h *HTTPController) SetCooperativeService(s *subagent.Service) { h.cooperative = s }
 
 func (h *HTTPController) ApproveCooperative(c WebContext) {
-	if h.cooperative == nil {
-		jsonError(c, http.StatusServiceUnavailable, "Cooperative runtime unavailable")
-		return
-	}
 	var p struct {
 		Approved *bool `json:"approved"`
 	}
@@ -44,10 +40,6 @@ func (h *HTTPController) ApproveCooperative(c WebContext) {
 	c.JSON(http.StatusOK, map[string]string{"status": status})
 }
 func (h *HTTPController) CooperativeArtifact(c WebContext) {
-	if h.cooperative == nil {
-		jsonError(c, http.StatusServiceUnavailable, "Cooperative runtime unavailable")
-		return
-	}
 	var p struct {
 		Command string `json:"command"`
 		RootID  string `json:"rootId"`
@@ -117,10 +109,6 @@ func (h *HTTPController) CooperativeArtifact(c WebContext) {
 	c.JSON(http.StatusOK, map[string]any{"artifact": artifact})
 }
 func (h *HTTPController) ListCooperative(c WebContext) {
-	if h.cooperative == nil {
-		jsonError(c, http.StatusServiceUnavailable, "Cooperative runtime unavailable")
-		return
-	}
 	after, _ := strconv.ParseInt(c.Query("after"), 10, 64)
 	ctx := c.Request().Context()
 	if waitMS, _ := strconv.Atoi(c.Query("wait")); waitMS > 0 {
@@ -138,10 +126,6 @@ func (h *HTTPController) ListCooperative(c WebContext) {
 	c.JSON(http.StatusOK, x)
 }
 func (h *HTTPController) AgentAction(c WebContext) {
-	if h.cooperative == nil {
-		jsonError(c, http.StatusServiceUnavailable, "Cooperative runtime unavailable")
-		return
-	}
 	var p struct {
 		Action    string `json:"action"`
 		Message   string `json:"message"`
@@ -211,10 +195,6 @@ func (h *HTTPController) AgentAction(c WebContext) {
 	c.JSON(http.StatusAccepted, m)
 }
 func (h *HTTPController) CooperativeTask(c WebContext) {
-	if h.cooperative == nil {
-		jsonError(c, http.StatusServiceUnavailable, "Cooperative runtime unavailable")
-		return
-	}
 	var p subagent.TaskMutation
 	if err := c.ShouldBindJSON(&p); err != nil {
 		jsonError(c, http.StatusBadRequest, "Invalid task mutation")
@@ -249,10 +229,6 @@ func (h *HTTPController) CooperativeTask(c WebContext) {
 	c.JSON(http.StatusOK, t)
 }
 func (h *HTTPController) GetAgentTurns(c WebContext) {
-	if h.cooperative == nil {
-		jsonError(c, http.StatusServiceUnavailable, "Cooperative runtime unavailable")
-		return
-	}
 	id := c.Param("id")
 	if _, err := h.cooperative.Store.GetAgent(c.Request().Context(), id); err != nil {
 		jsonError(c, http.StatusNotFound, "Agent not found")
@@ -280,10 +256,6 @@ func (h *HTTPController) GetAgentTurns(c WebContext) {
 }
 
 func (h *HTTPController) StopCooperative(c WebContext) {
-	if h.cooperative == nil {
-		jsonError(c, http.StatusServiceUnavailable, "Cooperative runtime unavailable")
-		return
-	}
 	h.cooperative.Runtime.StopRoot(c.Param("id"))
 	c.JSON(http.StatusAccepted, map[string]string{"status": "stopping"})
 }

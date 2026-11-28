@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -60,7 +61,14 @@ func (p *wakeSocketProvider) StreamChatWithTools(ctx context.Context, _ llm.Mode
 }
 
 func TestBackgroundWakeSurvivesDisconnectAndApprovalReconnect(t *testing.T) {
-	repo := repositories.New(repositories.NewSQLiteDBTest(t, "background_ws"))
+	// Disconnecting can discard a cancelled SQLite connection. Use a file so
+	// reconnect exercises the chat lifecycle without losing the test database.
+	db, err := repositories.NewSQLite(filepath.Join(t.TempDir(), "background.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	repo := repositories.New(db)
+	defer repo.Close()
 	ctx := context.Background()
 	session, err := repo.CreateSession(ctx, "synthetic background")
 	if err != nil {
@@ -101,6 +109,7 @@ func TestBackgroundWakeSurvivesDisconnectAndApprovalReconnect(t *testing.T) {
 		return message
 	}
 	conn := connect()
+	defer conn.Close()
 	if err = conn.WriteJSON(map[string]any{"type": "chat", "sessionId": session.ID, "modelId": model.ID, "content": "运行后台测试"}); err != nil {
 		t.Fatal(err)
 	}
@@ -122,7 +131,7 @@ func TestBackgroundWakeSurvivesDisconnectAndApprovalReconnect(t *testing.T) {
 	}
 	for {
 		event := read(reconnected)
-		if event["type"] == "error" {
+		if event["type"] == "error" || event["type"] == "background_error" {
 			t.Fatal(event)
 		}
 		if event["toolCallId"] == "wake-needs-approval" && event["requiresApproval"] == true {

@@ -1,6 +1,97 @@
 import assert from "node:assert/strict";
-import test from "node:test";
-import { dispatchWSMessage, type WSHandlers } from "./socket";
+import { EventEmitter, once } from "node:events";
+import test, { type TestContext } from "node:test";
+import { setTimeout as delay } from "node:timers/promises";
+import { WebSocketServer, type WebSocket } from "ws";
+import { CLISocket, dispatchWSMessage, type WSHandlers } from "./socket";
+
+async function startSocketServer(t: TestContext) {
+  const server = new WebSocketServer({ host: "127.0.0.1", port: 0 });
+  const client = new CLISocket();
+  const watches = new EventEmitter();
+  server.on("connection", (peer) => {
+    peer.on("message", (data) => {
+      const msg = JSON.parse(data.toString());
+      if (msg.type === "watch_session") watches.emit("watch", msg.sessionId);
+    });
+  });
+  t.after(async () => {
+    client.close();
+    for (const peer of server.clients) peer.terminate();
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  });
+  await once(server, "listening");
+  const address = server.address();
+  assert.ok(address && typeof address !== "string");
+  return { server, client, watches, url: `http://127.0.0.1:${address.port}` };
+}
+
+const noOpHandlers: WSHandlers = {
+  onSession: () => {},
+  onStart: () => {},
+  onChunk: () => {},
+  onDone: () => {},
+  onError: () => {},
+};
+
+test("unexpected close clears the turn and reconnects watching the latest session", { timeout: 5_000 }, async (t) => {
+  const { server, client, watches, url } = await startSocketServer(t);
+  const opens: boolean[] = [];
+  let disconnects = 0;
+  const connected = once(server, "connection");
+  const firstWatch = once(watches, "watch");
+  client.connect(url, "token", {
+    ...noOpHandlers,
+    onOpen: (reconnected) => opens.push(reconnected),
+    onClose: () => {
+      disconnects++;
+      assert.equal(client.activeTurnId, "");
+      assert.equal(client.watchSession("b"), false);
+    },
+  });
+  client.watchSession("a");
+  const [peer] = await connected as [WebSocket];
+  assert.deepEqual(await firstWatch, ["a"]);
+
+  client.activeTurnId = "lost-turn";
+  const secondWatch = once(watches, "watch");
+  peer.terminate();
+  assert.deepEqual(await secondWatch, ["b"]);
+  assert.deepEqual(opens, [false, true]);
+  assert.equal(disconnects, 1);
+});
+
+test("active close does not notify a disconnect or reconnect", { timeout: 5_000 }, async (t) => {
+  const { server, client, url } = await startSocketServer(t);
+  let connections = 0;
+  let disconnects = 0;
+  server.on("connection", () => { connections++; });
+  const connected = once(server, "connection");
+  client.connect(url, "token", { ...noOpHandlers, onClose: () => { disconnects++; } });
+  const [peer] = await connected as [WebSocket];
+  const closed = once(peer, "close");
+  client.close();
+  await closed;
+  await delay(350);
+  assert.equal(disconnects, 0);
+  assert.equal(connections, 1);
+});
+
+test("active close cancels a scheduled reconnect", { timeout: 5_000 }, async (t) => {
+  const { server, client, url } = await startSocketServer(t);
+  let connections = 0;
+  server.on("connection", () => { connections++; });
+  const connected = once(server, "connection");
+  const events = new EventEmitter();
+  const disconnected = once(events, "disconnect");
+  client.connect(url, "token", { ...noOpHandlers, onClose: () => events.emit("disconnect") });
+  const [peer] = await connected as [WebSocket];
+  peer.terminate();
+  await disconnected;
+  client.close();
+  await delay(350);
+  assert.equal(connections, 1);
+});
 
 test("dispatchWSMessage routes plan_chunk with content and session id", () => {
   const calls: Array<{ chunk: string; sessionId?: string }> = [];

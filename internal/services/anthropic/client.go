@@ -257,9 +257,6 @@ func (c *AnthropicClient) StreamChatWithTools(
 }
 
 func mergeAnthropicUsage(target *llmsvc.TokenUsage, inputTokens, outputTokens, cacheCreationInputTokens, cacheReadInputTokens int64) {
-	if target == nil {
-		return
-	}
 	if inputTokens > 0 {
 		target.InputTokens = int(inputTokens)
 	}

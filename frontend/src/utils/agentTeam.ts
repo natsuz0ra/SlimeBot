@@ -148,7 +148,7 @@ export function selectVisibleAgentTeamMembers(
 }
 
 export function buildAgentTeamResultPreview(value: string | undefined, maxLength = 320) {
-  const firstParagraph = (value || '').trim().split(/\n\s*\n/, 1)[0]?.replace(/\s+/g, ' ') || ''
+  const firstParagraph = (value || '').trim().split(/\n\s*\n/, 1)[0]!.replace(/\s+/g, ' ') || ''
   if (firstParagraph.length <= maxLength) return firstParagraph
   if (maxLength <= 0) return ''
   return `${firstParagraph.slice(0, Math.max(0, maxLength - 1))}…`

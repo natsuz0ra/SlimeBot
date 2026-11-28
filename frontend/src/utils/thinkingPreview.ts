@@ -8,5 +8,5 @@ export function getThinkingPreviewLineIndex(content: string): number {
 
 export function getThinkingPreviewLine(content: string): string {
   const lines = content.replace(/\r\n/g, '\n').split('\n')
-  return (lines[getThinkingPreviewLineIndex(content)] || '').trim()
+  return lines[getThinkingPreviewLineIndex(content)]!.trim()
 }

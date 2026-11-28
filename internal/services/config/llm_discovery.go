@@ -36,13 +36,13 @@ func (s *LLMConfigService) DiscoverModels(ctx context.Context, providerID string
 		path += "/v1"
 	}
 	path += "/models"
+	requestURL, err := url.Parse(path)
+	if err != nil {
+		return nil, err
+	}
 	models := make(map[string]DiscoveredModel)
 	nextCursor := ""
 	for page := 0; page < 10 && len(models) < 2000; page++ {
-		requestURL, err := url.Parse(path)
-		if err != nil {
-			return nil, err
-		}
 		if provider.Protocol == "anthropic" {
 			query := requestURL.Query()
 			query.Set("limit", "200")

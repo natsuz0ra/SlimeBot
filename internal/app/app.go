@@ -2,16 +2,15 @@ package app
 
 import (
 	"context"
-	"fmt"
 	"io/fs"
 	"net"
 	"net/http"
-	"slimebot/internal/logging"
 	"sync"
 	"time"
 
 	"slimebot/internal/auth"
 	"slimebot/internal/config"
+	"slimebot/internal/logging"
 	"slimebot/internal/platforms"
 	"slimebot/internal/platforms/telegram"
 	"slimebot/internal/server/controller"
@@ -42,9 +41,6 @@ func New(cfg config.Config) (*App, error) {
 
 // NewDesktop runs the full server with an ephemeral local token and no password account.
 func NewDesktop(cfg config.Config, desktopToken string) (*App, error) {
-	if desktopToken == "" {
-		return nil, fmt.Errorf("desktop token is required")
-	}
 	return newApp(cfg, desktopToken)
 }
 
@@ -53,6 +49,12 @@ func newApp(cfg config.Config, desktopToken string) (*App, error) {
 	if err != nil {
 		return nil, err
 	}
+	ok := false
+	defer func() {
+		if !ok {
+			core.Close(context.Background())
+		}
+	}()
 	tokenManager, err := auth.NewTokenManager(cfg.JWTSecret, cfg.JWTExpireMinutes)
 	if err != nil {
 		return nil, err
@@ -62,37 +64,12 @@ func newApp(cfg config.Config, desktopToken string) (*App, error) {
 	platformDispatcher := platforms.NewDispatcher(core.ChatService, approvalBroker)
 	telegramWorker := telegram.NewWorker(core.Repo, platformDispatcher, core.ChatUpload)
 
-	httpController := controller.NewHTTPController(
-		core.AuthService,
-		core.SessionService,
-		core.SettingsService,
-		core.LLMConfigService,
-		core.MCPConfigService,
-		core.PlatformService,
-		core.PlanService,
-		core.SkillPackage,
-		core.SkillRuntime,
-		core.ChatUpload,
-		tokenManager,
-	)
-	httpController.SetChatContextUsageService(core.ChatService)
-	httpController.SetFileCheckpointService(core.ChatService)
-	httpController.SetSessionWorkbenchService(core.SessionService)
-	httpController.SetACPServices(core.ACPConfigService, core.ACPClient, core.ChatService.ResetACPSession)
-	httpController.SetCooperativeService(core.ChatService.CooperativeService())
-	httpController.SetAgentsInstructionsService(core.AgentsService)
-	httpController.SetUpdateService(core.UpdateService)
-	httpController.SetMemoryService(core.MemoryService)
-	httpController.SetScheduleService(core.ScheduleService)
-	httpController.SetTaskCenterService(core)
-	httpController.SetBackgroundTaskService(core.ChatService)
-	httpController.SetUsageService(core.UsageService)
-	httpController.SetPrivacyService(core.PrivacyService)
-	wsController := ws.NewController(core.ChatService, core.PlanService, cfg.Frontend)
 	subDist, err := fs.Sub(web.DistFS, "dist")
 	if err != nil {
 		return nil, err
 	}
+	httpController := wireHTTPController(core, tokenManager)
+	wsController := ws.NewController(core.ChatService, core.PlanService, cfg.Frontend)
 	engine := router.New(cfg, tokenManager, httpController, wsController, subDist,
 		router.RouterConfig{DesktopToken: desktopToken})
 	terminals := wireTerminal(httpController, wsController, core)
@@ -123,6 +100,7 @@ func newApp(cfg config.Config, desktopToken string) (*App, error) {
 	core.ChatService.SetRunContext(rc)
 	configureSkillSources(core, rc.IsCLI, rc.WorkingDir)
 
+	ok = true
 	return app, nil
 }
 
@@ -133,11 +111,13 @@ func NewHeadless(cfg config.Config) (*App, error) {
 	if err != nil {
 		return nil, err
 	}
+	ok := false
+	defer func() {
+		if !ok {
+			core.Close(context.Background())
+		}
+	}()
 
-	// CLI headless mode auto-generates JWT secret (no user configuration required).
-	if cfg.JWTSecret == "" {
-		cfg.JWTSecret = auth.GenerateCLIToken()
-	}
 	tokenManager, err := auth.NewTokenManager(cfg.JWTSecret, cfg.JWTExpireMinutes)
 	if err != nil {
 		return nil, err
@@ -145,35 +125,9 @@ func NewHeadless(cfg config.Config) (*App, error) {
 
 	cliToken := auth.GenerateCLIToken()
 
-	httpController := controller.NewHTTPController(
-		core.AuthService,
-		core.SessionService,
-		core.SettingsService,
-		core.LLMConfigService,
-		core.MCPConfigService,
-		core.PlatformService,
-		core.PlanService,
-		core.SkillPackage,
-		core.SkillRuntime,
-		core.ChatUpload,
-		tokenManager,
-	)
-	httpController.SetChatContextUsageService(core.ChatService)
-	httpController.SetFileCheckpointService(core.ChatService)
-	httpController.SetSessionWorkbenchService(core.SessionService)
-	httpController.SetACPServices(core.ACPConfigService, core.ACPClient, core.ChatService.ResetACPSession)
-	httpController.SetCooperativeService(core.ChatService.CooperativeService())
-	httpController.SetAgentsInstructionsService(core.AgentsService)
-	httpController.SetUpdateService(core.UpdateService)
-	httpController.SetMemoryService(core.MemoryService)
-	httpController.SetScheduleService(core.ScheduleService)
-	httpController.SetBackgroundTaskService(core.ChatService)
-	httpController.SetUsageService(core.UsageService)
-	httpController.SetTaskCenterService(core)
-	httpController.SetPrivacyService(core.PrivacyService)
+	httpController := wireHTTPController(core, tokenManager)
 	wsController := ws.NewController(core.ChatService, core.PlanService)
-	subDist, _ := fs.Sub(web.DistFS, "dist") // fs required by router; unused in headless UI
-	engine := router.New(cfg, tokenManager, httpController, wsController, subDist,
+	engine := router.New(cfg, tokenManager, httpController, wsController, nil,
 		router.RouterConfig{
 			CLIToken: cliToken,
 			Headless: true,
@@ -199,6 +153,7 @@ func NewHeadless(cfg config.Config) (*App, error) {
 	core.ChatService.SetRunContext(rc)
 	configureSkillSources(core, rc.IsCLI, rc.WorkingDir)
 
+	ok = true
 	return app, nil
 }
 
@@ -315,8 +270,16 @@ func (a *App) startHTTPServer(ctx context.Context) error {
 
 // cleanup closes memory, MCP, and other background resources to avoid lingering handles on exit.
 func (a *App) cleanup(ctx context.Context) {
-	if a == nil || a.core == nil {
-		return
+	if a.scheduleRunner != nil {
+		stopCtx := ctx
+		if stopCtx.Err() != nil {
+			var cancel context.CancelFunc
+			stopCtx, cancel = context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+		}
+		if err := a.scheduleRunner.Stop(stopCtx); err != nil {
+			logging.Warn("scheduled_tasks_stop_timeout", "err", err)
+		}
 	}
 	if a.terminalManager != nil {
 		deadline, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -324,6 +287,36 @@ func (a *App) cleanup(ctx context.Context) {
 		a.terminalManager.CloseAll(deadline)
 	}
 	a.core.Close(ctx)
+}
+
+func wireHTTPController(core *Core, tokenManager *auth.TokenManager) *controller.HTTPController {
+	httpController := controller.NewHTTPController(
+		core.AuthService,
+		core.SessionService,
+		core.SettingsService,
+		core.LLMConfigService,
+		core.MCPConfigService,
+		core.PlatformService,
+		core.PlanService,
+		core.SkillPackage,
+		core.SkillRuntime,
+		core.ChatUpload,
+		tokenManager,
+	)
+	httpController.SetChatContextUsageService(core.ChatService)
+	httpController.SetFileCheckpointService(core.ChatService)
+	httpController.SetSessionWorkbenchService(core.SessionService)
+	httpController.SetACPServices(core.ACPConfigService, core.ACPClient, core.ChatService.ResetACPSession)
+	httpController.SetCooperativeService(core.ChatService.CooperativeService())
+	httpController.SetAgentsInstructionsService(core.AgentsService)
+	httpController.SetUpdateService(core.UpdateService)
+	httpController.SetMemoryService(core.MemoryService)
+	httpController.SetScheduleService(core.ScheduleService)
+	httpController.SetTaskCenterService(core)
+	httpController.SetBackgroundTaskService(core.ChatService)
+	httpController.SetUsageService(core.UsageService)
+	httpController.SetPrivacyService(core.PrivacyService)
+	return httpController
 }
 
 func wireTerminal(httpController *controller.HTTPController, wsController *ws.Controller, core *Core) *terminal.Manager {

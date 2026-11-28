@@ -27,10 +27,6 @@ type terminalControl struct {
 }
 
 func (w *Controller) Terminal(rw http.ResponseWriter, r *http.Request) {
-	if w.terminal == nil {
-		http.NotFound(rw, r)
-		return
-	}
 	policy, err := w.terminalSettings(r.Context())
 	if err != nil {
 		http.Error(rw, "Terminal unavailable.", http.StatusServiceUnavailable)

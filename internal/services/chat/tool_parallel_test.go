@@ -7,8 +7,59 @@ import (
 	"time"
 
 	"slimebot/internal/constants"
+	sandboxpolicy "slimebot/internal/sandbox"
 	"slimebot/internal/tools"
 )
+
+func TestRunParallelToolJobsKeepsEscalationGrantWithApprovedJob(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	aExecuting := make(chan struct{})
+	bExecuting := make(chan struct{})
+	var aHasGrant, bHasGrant bool
+	jobs := []parallelToolJob{
+		{
+			index: 0, toolCallID: "a", requiresApproval: true,
+			awaitApproval: func(context.Context) approvalDecision {
+				return approvalDecision{approved: true, escalationGrant: true}
+			},
+			execute: func(ctx context.Context) *tools.ExecuteResult {
+				aHasGrant = sandboxpolicy.HasEscalationGrant(ctx)
+				close(aExecuting)
+				select {
+				case <-bExecuting:
+				case <-ctx.Done():
+				}
+				return &tools.ExecuteResult{}
+			},
+		},
+		{
+			index: 1, toolCallID: "b", requiresApproval: true,
+			awaitApproval: func(ctx context.Context) approvalDecision {
+				select {
+				case <-aExecuting:
+					return approvalDecision{approved: true}
+				case <-ctx.Done():
+					return approvalDecision{}
+				}
+			},
+			execute: func(ctx context.Context) *tools.ExecuteResult {
+				bHasGrant = sandboxpolicy.HasEscalationGrant(ctx)
+				close(bExecuting)
+				return &tools.ExecuteResult{}
+			},
+		},
+	}
+
+	for _, outcome := range runParallelToolJobs(ctx, jobs, 2, nil) {
+		if outcome.status != constants.ToolCallStatusCompleted {
+			t.Fatalf("job %s did not complete: %+v", outcome.toolCallID, outcome)
+		}
+	}
+	if !aHasGrant || bHasGrant {
+		t.Fatalf("escalation grants: a = %t, b = %t, want a = true, b = false", aHasGrant, bHasGrant)
+	}
+}
 
 func TestRunParallelToolJobsExecutesConcurrentlyAndReturnsOriginalOrder(t *testing.T) {
 	started := make(chan string, 2)

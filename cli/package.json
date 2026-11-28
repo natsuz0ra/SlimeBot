@@ -10,7 +10,7 @@
     "build:native": "napi build --cwd native/color-diff --release",
     "build": "npm --prefix packages/ink run build && tsup",
     "start": "node dist/index.js",
-    "test": "node --import tsx --test src/**/*.test.ts"
+    "test": "node --import tsx --test \"src/**/*.test.ts\""
   },
   "dependencies": {
     "@types/argparse": "^2.0.17",

@@ -207,9 +207,6 @@ func markLocalSkill(item domain.Skill) domain.Skill {
 	item.Provider = "slimebot"
 	item.ReadOnly = false
 	item.Enabled = true
-	if item.ID == "" {
-		item.ID = item.Name
-	}
 	return item
 }
 

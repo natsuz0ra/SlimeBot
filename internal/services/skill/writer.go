@@ -46,9 +46,6 @@ func (w *skillWriter) write(name string, blockedTerms []string, generate func(cu
 
 	root := filepath.Clean(w.runtime.skillsRootAbs)
 	dir := filepath.Join(root, name)
-	if !isWithinRoot(root, dir) {
-		return nil, fmt.Errorf("skill path escapes local root")
-	}
 	current := ""
 	if info, err := os.Lstat(dir); err == nil {
 		if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {

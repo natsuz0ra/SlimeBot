@@ -8,10 +8,6 @@ import (
 
 // ListSkills returns installed skill packages.
 func (h *HTTPController) ListSkills(c WebContext) {
-	if h.skillRuntime == nil {
-		jsonError(c, http.StatusInternalServerError, "Skills runtime service is not initialized.")
-		return
-	}
 	items, err := h.skillRuntime.ListSkills()
 	if err != nil {
 		jsonInternalError(c, err)
@@ -22,11 +18,6 @@ func (h *HTTPController) ListSkills(c WebContext) {
 
 // UploadSkills installs multiple skill zips and reports per-file success/failure.
 func (h *HTTPController) UploadSkills(c WebContext) {
-	if h.skillPackage == nil {
-		jsonError(c, http.StatusInternalServerError, "Skills upload service is not initialized.")
-		return
-	}
-
 	form, err := c.MultipartForm()
 	if err != nil {
 		jsonError(c, http.StatusBadRequest, "Please upload ZIP files using multipart/form-data.")
@@ -107,10 +98,6 @@ func (h *HTTPController) DeleteSkill(c WebContext) {
 		jsonError(c, http.StatusBadRequest, "id is required.")
 		return
 	}
-	if h.skillRuntime == nil {
-		jsonError(c, http.StatusInternalServerError, "Skills runtime service is not initialized.")
-		return
-	}
 	if err := h.skillRuntime.DeleteSkillByID(id); err != nil {
 		jsonInternalError(c, err)
 		return
@@ -123,10 +110,6 @@ func (h *HTTPController) SetSkillEnabled(c WebContext) {
 	id := strings.TrimSpace(c.Param("id"))
 	if id == "" {
 		jsonError(c, http.StatusBadRequest, "id is required.")
-		return
-	}
-	if h.skillRuntime == nil {
-		jsonError(c, http.StatusInternalServerError, "Skills runtime service is not initialized.")
 		return
 	}
 	var req struct {

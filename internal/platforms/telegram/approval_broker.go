@@ -43,9 +43,6 @@ func NewApprovalBroker() *approvalBroker {
 // Register sets up approval state for a pending tool call and returns approve/reject callback_data.
 // Indexes by toolCallID and by token for waiters vs callback parsing.
 func (b *approvalBroker) Register(toolCallID string, chatID string, ttl time.Duration) (string, string, error) {
-	if b == nil {
-		return "", "", fmt.Errorf("approval broker is nil")
-	}
 	toolCallID = strings.TrimSpace(toolCallID)
 	chatID = strings.TrimSpace(chatID)
 	if toolCallID == "" || chatID == "" {
@@ -78,9 +75,6 @@ func (b *approvalBroker) Register(toolCallID string, chatID string, ttl time.Dur
 
 // Wait blocks until approval arrives for toolCallID, or ctx is cancelled/timed out.
 func (b *approvalBroker) Wait(ctx context.Context, toolCallID string) (*chatsvc.ApprovalResponse, error) {
-	if b == nil {
-		return nil, fmt.Errorf("approval broker is nil")
-	}
 	toolCallID = strings.TrimSpace(toolCallID)
 	b.mu.Lock()
 	entry, ok := b.byToolCall[toolCallID]
@@ -103,9 +97,6 @@ func (b *approvalBroker) Wait(ctx context.Context, toolCallID string) (*chatsvc.
 // ResolveByCallback parses callback_data and delivers the approval result;
 // only the original chatID may consume the token to prevent cross-chat misuse.
 func (b *approvalBroker) ResolveByCallback(chatID string, callbackData string) (bool, error) {
-	if b == nil {
-		return false, fmt.Errorf("approval broker is nil")
-	}
 	chatID = strings.TrimSpace(chatID)
 	action, token, err := parseApprovalCallbackData(callbackData)
 	if err != nil {
@@ -136,9 +127,6 @@ func (b *approvalBroker) ResolveByCallback(chatID string, callbackData string) (
 }
 
 func (b *approvalBroker) Remove(toolCallID string) {
-	if b == nil {
-		return
-	}
 	toolCallID = strings.TrimSpace(toolCallID)
 	b.mu.Lock()
 	defer b.mu.Unlock()

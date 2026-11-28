@@ -61,8 +61,9 @@ func runParallelToolJobs(
 	for _, job := range jobs {
 		job := job
 		go func() {
+			jobCtx := ctx
 			if job.requiresApproval && job.awaitApproval != nil {
-				decision := job.awaitApproval(ctx)
+				decision := job.awaitApproval(jobCtx)
 				if !decision.approved {
 					status := decision.status
 					if status == "" {
@@ -93,26 +94,26 @@ func runParallelToolJobs(
 					return
 				}
 				if decision.escalationGrant {
-					ctx = sandboxpolicy.WithEscalationGrant(ctx)
+					jobCtx = sandboxpolicy.WithEscalationGrant(jobCtx)
 				}
 				_ = decision.answers
 			}
 
 			select {
-			case <-ctx.Done():
+			case <-jobCtx.Done():
 				outCh <- parallelToolOutcome{
 					index:          job.index,
 					toolCallID:     job.toolCallID,
 					messageContent: "Approval timed out or failed. The tool call was cancelled.",
 					status:         constants.ToolCallStatusError,
-					error:          ctx.Err().Error(),
+					error:          jobCtx.Err().Error(),
 				}
 				return
 			case sem <- struct{}{}:
 			}
 			defer func() { <-sem }()
 
-			execResult := job.execute(ctx)
+			execResult := job.execute(jobCtx)
 			status := buildToolResultStatus(execResult)
 			result := ToolCallResult{
 				ToolCallID:       job.toolCallID,
@@ -122,18 +123,13 @@ func runParallelToolJobs(
 				RequiresApproval: job.requiresApproval,
 				Status:           status,
 			}
-			if execResult != nil {
-				result.Output = execResult.Output
-				result.Error = execResult.Error
-				result.Metadata = execResult.Metadata
-			}
+			result.Output = execResult.Output
+			result.Error = execResult.Error
+			result.Metadata = execResult.Metadata
 			if onResult != nil && !job.silent {
 				onResult(result)
 			}
-			imageURL := ""
-			if execResult != nil {
-				imageURL = execResult.ImageURL
-			}
+			imageURL := execResult.ImageURL
 			outCh <- parallelToolOutcome{
 				index:          job.index,
 				toolCallID:     job.toolCallID,

@@ -87,9 +87,6 @@ func NewServiceFromSettings(store settingsStore) *Service {
 }
 
 func (s *Service) Config(ctx context.Context) (Config, error) {
-	if s == nil || s.provider == nil {
-		return DefaultConfig(), nil
-	}
 	cfg, err := s.provider.MemoryConfig(ctx)
 	if err != nil {
 		return Config{}, err
@@ -209,9 +206,6 @@ func (s *Service) ToolsEnabled(ctx context.Context) bool {
 }
 
 func (s *Service) configForWrite(ctx context.Context, target Target) (Config, error) {
-	if s == nil || s.store == nil {
-		return Config{}, fmt.Errorf("memory service is not initialized")
-	}
 	cfg, err := s.Config(ctx)
 	if err != nil {
 		return Config{}, err

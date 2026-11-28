@@ -30,10 +30,6 @@ func parseOptionalUsageTime(raw string) (*time.Time, error) {
 }
 
 func (h *HTTPController) GetUsageSummary(c WebContext) {
-	if h.usage == nil {
-		jsonError(c, http.StatusServiceUnavailable, "Usage service is unavailable.")
-		return
-	}
 	groupBy := strings.ToLower(strings.TrimSpace(c.Query("groupBy")))
 	if groupBy == "" {
 		groupBy = domain.UsageGroupBySession

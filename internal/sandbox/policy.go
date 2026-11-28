@@ -126,7 +126,7 @@ func FromContext(ctx context.Context) (*Policy, bool) {
 		return nil, false
 	}
 	p, ok := ctx.Value(contextKey{}).(*Policy)
-	return p, ok && p != nil
+	return p, ok
 }
 
 func WithEscalationGrant(ctx context.Context) context.Context {
@@ -145,35 +145,27 @@ func HasEscalationGrant(ctx context.Context) bool {
 }
 
 func (p *Policy) Mode() Mode {
-	if p == nil {
-		return ModeDangerFullAccess
-	}
 	return p.mode
 }
 
 func (p *Policy) CWD() string {
-	if p == nil {
-		return ""
-	}
 	return p.cwd
 }
 
 func (p *Policy) WritableRoots() []string {
 	if p == nil {
+		// exec.go:143 calls this on a nil policy when FromContext reports ok=false.
 		return nil
 	}
 	return append([]string(nil), p.writableRoots...)
 }
 
 func (p *Policy) Network() NetworkPolicy {
-	if p == nil {
-		return NetworkPolicy{Enabled: true}
-	}
 	return p.network
 }
 
 func (p *Policy) CheckRead(path string) error {
-	if p == nil || p.mode == ModeDangerFullAccess {
+	if p.mode == ModeDangerFullAccess {
 		return nil
 	}
 	normalized, err := normalizePath(path)
@@ -187,7 +179,7 @@ func (p *Policy) CheckRead(path string) error {
 }
 
 func (p *Policy) CheckWrite(path string) error {
-	if p == nil || p.mode == ModeDangerFullAccess {
+	if p.mode == ModeDangerFullAccess {
 		return nil
 	}
 	normalized, err := normalizePath(path)
@@ -209,9 +201,6 @@ func (p *Policy) CheckWrite(path string) error {
 }
 
 func (p *Policy) CheckNetworkURL(raw string) error {
-	if p == nil {
-		return nil
-	}
 	networkPolicy := p.network
 	if !networkPolicy.Enabled {
 		return fmt.Errorf("sandbox network denied for %s: network is disabled", raw)

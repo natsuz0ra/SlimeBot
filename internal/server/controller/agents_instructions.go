@@ -3,10 +3,6 @@ package controller
 import "net/http"
 
 func (h *HTTPController) GetAgentsInstructions(c WebContext) {
-	if h.agents == nil {
-		jsonError(c, http.StatusServiceUnavailable, "AGENTS instructions service is not configured.")
-		return
-	}
 	file, err := h.agents.ReadGlobal(c.Request().Context())
 	if err != nil {
 		jsonInternalError(c, err)
@@ -19,10 +15,6 @@ func (h *HTTPController) GetAgentsInstructions(c WebContext) {
 }
 
 func (h *HTTPController) UpdateAgentsInstructions(c WebContext) {
-	if h.agents == nil {
-		jsonError(c, http.StatusServiceUnavailable, "AGENTS instructions service is not configured.")
-		return
-	}
 	var req struct {
 		Content string `json:"content"`
 	}

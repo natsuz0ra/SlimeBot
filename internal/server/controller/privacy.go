@@ -9,18 +9,7 @@ import (
 	privacysvc "slimebot/internal/services/privacy"
 )
 
-func (h *HTTPController) privacyReady(c WebContext) bool {
-	if h.privacy == nil {
-		jsonError(c, http.StatusServiceUnavailable, "Privacy service is unavailable.")
-		return false
-	}
-	return true
-}
-
 func (h *HTTPController) GetPrivacy(c WebContext) {
-	if !h.privacyReady(c) {
-		return
-	}
 	snapshot, err := h.privacy.Snapshot(c.Request().Context())
 	if err != nil {
 		jsonInternalError(c, err)
@@ -30,9 +19,6 @@ func (h *HTTPController) GetPrivacy(c WebContext) {
 }
 
 func (h *HTTPController) UpdatePrivacy(c WebContext) {
-	if !h.privacyReady(c) {
-		return
-	}
 	input := struct {
 		privacysvc.Config
 		MappingPersistence *bool `json:"mappingPersistence"`
@@ -60,9 +46,6 @@ func (h *HTTPController) UpdatePrivacy(c WebContext) {
 }
 
 func (h *HTTPController) PreviewPrivacy(c WebContext) {
-	if !h.privacyReady(c) {
-		return
-	}
 	var input struct {
 		Text   string             `json:"text"`
 		Config *privacysvc.Config `json:"config,omitempty"`
@@ -82,29 +65,17 @@ func (h *HTTPController) PreviewPrivacy(c WebContext) {
 }
 
 func (h *HTTPController) ClearPrivacyRecords(c WebContext) {
-	if !h.privacyReady(c) {
-		return
-	}
 	h.privacy.ClearRecords()
 	c.Status(http.StatusNoContent)
 }
 func (h *HTTPController) InstallPrivacyModel(c WebContext) {
-	if !h.privacyReady(c) {
-		return
-	}
 	c.JSON(http.StatusAccepted, h.privacy.Model().Install())
 }
 func (h *HTTPController) CancelPrivacyModel(c WebContext) {
-	if !h.privacyReady(c) {
-		return
-	}
 	h.privacy.Model().Cancel()
 	c.JSON(http.StatusAccepted, h.privacy.Model().Status())
 }
 func (h *HTTPController) RemovePrivacyModel(c WebContext) {
-	if !h.privacyReady(c) {
-		return
-	}
 	config, err := h.privacy.GetConfig(c.Request().Context())
 	if err != nil {
 		jsonInternalError(c, err)

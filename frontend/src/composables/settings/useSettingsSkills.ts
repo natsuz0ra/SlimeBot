@@ -43,12 +43,6 @@ export function useSettingsSkills(options: {
 
   async function uploadSkills(files: File[]) {
     if (!files.length) return
-    const invalidCount = files.filter((file) => !file.name.toLowerCase().endsWith('.zip')).length
-    if (invalidCount > 0) {
-      toast.error(t('onlyZipAllowed'))
-      return
-    }
-
     skillsUploading.value = true
     try {
       const result = await skillsAPI.upload(files)

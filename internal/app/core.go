@@ -213,12 +213,6 @@ func newCore(cfg config.Config, desktop bool) (*Core, error) {
 
 // WarmupInBackground starts lightweight background warmup work.
 func (c *Core) WarmupInBackground(ctx context.Context) {
-	if c == nil {
-		return
-	}
-	if ctx == nil {
-		ctx = context.Background()
-	}
 	c.warmupStarted.Store(true)
 	c.warmupOnce.Do(func() {
 		go func() {
@@ -231,13 +225,6 @@ func (c *Core) WarmupInBackground(ctx context.Context) {
 
 // Close releases background resources held by Core.
 func (c *Core) Close(ctx context.Context) {
-	if c == nil {
-		return
-	}
-	if ctx == nil {
-		ctx = context.Background()
-	}
-
 	if c.warmupStarted.Load() {
 		waitCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
 		defer cancel()

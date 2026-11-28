@@ -14,10 +14,6 @@ import (
 )
 
 func (h *HTTPController) ListScheduledTasks(c WebContext) {
-	if h.schedule == nil {
-		jsonError(c, http.StatusServiceUnavailable, "Schedule service is unavailable.")
-		return
-	}
 	tasks, err := h.schedule.List(c.Request().Context(), true)
 	if err != nil {
 		jsonInternalError(c, err)
@@ -54,10 +50,6 @@ func (h *HTTPController) ListScheduledTaskRuns(c WebContext) {
 			offset = value
 		}
 	}
-	if h.schedule == nil {
-		jsonError(c, http.StatusServiceUnavailable, "Schedule service is unavailable.")
-		return
-	}
 	page, err := h.schedule.ListRuns(c.Request().Context(), c.Query("taskId"), status, limit, offset)
 	if err != nil {
 		jsonInternalError(c, err)
@@ -67,10 +59,6 @@ func (h *HTTPController) ListScheduledTaskRuns(c WebContext) {
 }
 
 func (h *HTTPController) GetScheduledTaskRun(c WebContext) {
-	if h.schedule == nil {
-		jsonError(c, http.StatusServiceUnavailable, "Schedule service is unavailable.")
-		return
-	}
 	run, err := h.schedule.GetRun(c.Request().Context(), c.Param("id"))
 	if errors.Is(err, apperrors.ErrNotFound) {
 		jsonError(c, http.StatusNotFound, "Run record not found.")
@@ -84,10 +72,6 @@ func (h *HTTPController) GetScheduledTaskRun(c WebContext) {
 }
 
 func (h *HTTPController) GetScheduledTaskRunHistory(c WebContext) {
-	if h.schedule == nil || h.sessions == nil {
-		jsonError(c, http.StatusServiceUnavailable, "Run history is unavailable.")
-		return
-	}
 	run, err := h.schedule.GetRun(c.Request().Context(), c.Param("id"))
 	if errors.Is(err, apperrors.ErrNotFound) {
 		jsonError(c, http.StatusNotFound, "Run record not found.")
@@ -132,10 +116,6 @@ func (h *HTTPController) GetScheduledTaskRunHistory(c WebContext) {
 }
 
 func (h *HTTPController) CreateScheduledTask(c WebContext) {
-	if h.schedule == nil {
-		jsonError(c, http.StatusServiceUnavailable, "Schedule service is unavailable.")
-		return
-	}
 	var input struct {
 		Name             string                   `json:"name"`
 		Prompt           string                   `json:"prompt"`
@@ -175,10 +155,6 @@ func (h *HTTPController) CreateScheduledTask(c WebContext) {
 }
 
 func (h *HTTPController) ActOnScheduledTask(c WebContext) {
-	if h.schedule == nil {
-		jsonError(c, http.StatusServiceUnavailable, "Schedule service is unavailable.")
-		return
-	}
 	var input struct {
 		Action string `json:"action"`
 	}

@@ -25,9 +25,7 @@ func (r *Repository) ListSessions(ctx context.Context, limit int, offset int, qu
 		like := "%" + escapeSQLiteLikePattern(trimmed) + "%"
 		q = q.Where("name LIKE ? ESCAPE '\\'", like)
 	}
-	if limit > 0 {
-		q = q.Limit(limit).Offset(offset)
-	}
+	q = q.Limit(limit).Offset(offset)
 	err := q.Find(&sessions).Error
 	return sessions, err
 }

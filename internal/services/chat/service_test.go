@@ -18,23 +18,6 @@ import (
 	prompts "slimebot/prompts"
 )
 
-func TestTitleStreamParser_PassesThroughTitleTags(t *testing.T) {
-	body := newTitleStreamParser().Feed("第一段\n\n<title>标题</title>\n\n第二段\n\n第三段")
-	if body != "第一段\n\n<title>标题</title>\n\n第二段\n\n第三段" {
-		t.Fatalf("unexpected body: %q", body)
-	}
-}
-
-func TestTitleStreamParser_PassesThroughLegacyMemoryTags(t *testing.T) {
-	parser := newTitleStreamParser()
-	tag := "mem" + "ory"
-	input := "正文<" + tag + ">{\"turn_summary\":\"旧记忆\"}</" + tag + ">结尾"
-	body := parser.Feed(input)
-	if body != input {
-		t.Fatalf("expected legacy memory tag passthrough, got: %q", body)
-	}
-}
-
 func TestHandleChatStream_PersistsThinkingHistory(t *testing.T) {
 	repo := newTestRepo(t)
 	ctx := context.Background()

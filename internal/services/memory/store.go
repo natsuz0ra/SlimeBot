@@ -20,17 +20,11 @@ func NewStore(dir string) *Store {
 }
 
 func (s *Store) Dir() string {
-	if s == nil {
-		return ""
-	}
 	return s.dir
 }
 
 func (s *Store) Load(ctx context.Context, target Target, limit int) (TargetState, error) {
 	if err := ctx.Err(); err != nil {
-		return TargetState{}, err
-	}
-	if _, err := targetFilename(target); err != nil {
 		return TargetState{}, err
 	}
 	s.mu.Lock()
@@ -163,9 +157,6 @@ func (s *Store) Clear(ctx context.Context, target Target) (TargetState, error) {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if _, err := targetFilename(target); err != nil {
-		return TargetState{}, err
-	}
 	if err := s.saveEntriesLocked(target, nil); err != nil {
 		return TargetState{}, err
 	}
@@ -232,7 +223,7 @@ func (s *Store) pathForTarget(target Target) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if s == nil || strings.TrimSpace(s.dir) == "" {
+	if strings.TrimSpace(s.dir) == "" {
 		return "", fmt.Errorf("memory directory is empty")
 	}
 	return filepath.Join(s.dir, filename), nil

@@ -127,9 +127,6 @@ func (t *computerTool) Commands() []Command {
 }
 
 func (t *computerTool) Execute(ctx context.Context, command string, params map[string]any) (*ExecuteResult, error) {
-	if ctx == nil {
-		ctx = context.Background()
-	}
 	if runtime.GOOS != "darwin" && runtime.GOOS != "windows" && runtime.GOOS != "linux" {
 		return nil, fmt.Errorf("computer use is unsupported on %s", runtime.GOOS)
 	}

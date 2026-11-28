@@ -266,9 +266,6 @@ func requireFreshFullRead(ctx context.Context, path string, current string, info
 	if current != entry.Content {
 		return fmt.Errorf("file has been modified since it was read. Read it again before attempting to write")
 	}
-	if fileMTimeUnix(info) > entry.MTimeUnix && current != entry.Content {
-		return fmt.Errorf("file has been modified since it was read. Read it again before attempting to write")
-	}
 	return nil
 }
 
@@ -439,9 +436,6 @@ func applyAnchorSelector(original, oldString, newString string, selector *fileEd
 		return "", 0, structuredEditError("ANCHOR_NOT_UNIQUE", total, "add more before/after context to make anchor unique")
 	}
 	pos := strings.Index(original, anchor)
-	if pos < 0 {
-		return "", 0, structuredEditError("NOT_FOUND", 0, "anchor_context not found")
-	}
 	targetStart := pos + len(before)
 	targetEnd := targetStart + len(target)
 	updated := original[:targetStart] + newString + original[targetEnd:]

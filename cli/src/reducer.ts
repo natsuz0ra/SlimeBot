@@ -21,6 +21,8 @@ import {
   upsertAgentTeamRun,
 } from "./utils/agentTeam.js";
 
+const SOCKET_INTERRUPTION = "WebSocket connection interrupted.";
+
 function clearTurnStats() {
   return {
     turnStartedAt: undefined,
@@ -35,6 +37,33 @@ function clearRuntimeTodos() {
     runtimeTodos: [],
     runtimeTodosNote: "",
     runtimeTodosUpdatedAt: undefined,
+  };
+}
+
+function clearPendingApprovals() {
+  return {
+    pendingApprovals: [],
+    approvalReviewItems: [],
+    approvalCursor: 0,
+    markedApprovalIds: [],
+    approvalToolCallId: "",
+    approvalToolName: "",
+    approvalCommand: "",
+    approvalParams: {},
+    approvalReplyCh: null,
+  };
+}
+
+function clearQuestionAnswer() {
+  return {
+    qaToolCallId: "",
+    qaQuestions: [],
+    qaCurrentIndex: 0,
+    qaAnswers: [],
+    qaStep: "questions" as const,
+    qaCursor: 0,
+    qaCustomInput: "",
+    qaEditingFromConfirm: false,
   };
 }
 
@@ -339,8 +368,11 @@ export function reducer(state: AppState, action: AppAction): AppState {
         ],
       };
 
+    case "SOCKET_DISCONNECTED":
     case "STREAM_DONE": {
-      let entries = finalizeOpenRuntimeEntries([...state.timeline], action.error || "Execution cancelled.");
+      const disconnected = action.type === "SOCKET_DISCONNECTED";
+      const error = disconnected ? SOCKET_INTERRUPTION : action.error;
+      const entries = finalizeOpenRuntimeEntries(state.timeline, error || "Execution cancelled.");
       // In the current plan turn, PLAN_BODY already flushed liveAssistant; older plan entries
       // must not suppress a later execution response.
       if (!state.planReceived && state.liveAssistant.trim()) {
@@ -349,10 +381,10 @@ export function reducer(state: AppState, action: AppAction): AppState {
           content: state.liveAssistant,
         });
       }
-      if (action.error) {
+      if (error) {
         entries.push({
           kind: "system",
-          content: `Error: ${action.error}`,
+          content: `Error: ${error}`,
         });
       }
       return {
@@ -365,6 +397,11 @@ export function reducer(state: AppState, action: AppAction): AppState {
         planReceived: false,
         ...clearTurnStats(),
         ...clearRuntimeTodos(),
+        ...(disconnected ? {
+          ...clearPendingApprovals(),
+          ...clearQuestionAnswer(),
+          view: state.view === "approval" || state.view === "question-answer" ? "chat" : state.view,
+        } : {}),
       };
     }
 
@@ -808,15 +845,7 @@ export function reducer(state: AppState, action: AppAction): AppState {
       return {
         ...state,
         view: "chat",
-        pendingApprovals: [],
-        approvalReviewItems: [],
-        approvalCursor: 0,
-        markedApprovalIds: [],
-        approvalToolCallId: "",
-        approvalToolName: "",
-        approvalCommand: "",
-        approvalParams: {},
-        approvalReplyCh: null,
+        ...clearPendingApprovals(),
       };
 
     case "APPROVAL_NAV": {
@@ -850,10 +879,18 @@ export function reducer(state: AppState, action: AppAction): AppState {
     case "LOAD_HISTORY":
       return {
         ...state,
-        timeline: [...action.entries],
+        timeline: action.afterReconnect
+          ? [
+            ...finalizeOpenRuntimeEntries(action.entries, SOCKET_INTERRUPTION),
+            { kind: "system", content: "WebSocket reconnected. Session history refreshed." },
+          ]
+          : [...action.entries],
         streaming: false,
         assistantWaiting: false,
         liveAssistant: "",
+        planGenerating: false,
+        planReceived: false,
+        ...clearTurnStats(),
         ...clearRuntimeTodos(),
       };
 
@@ -1267,14 +1304,7 @@ export function reducer(state: AppState, action: AppAction): AppState {
       return {
         ...state,
         view: "chat",
-        qaToolCallId: "",
-        qaQuestions: [],
-        qaCurrentIndex: 0,
-        qaAnswers: [],
-        qaStep: "questions",
-        qaCursor: 0,
-        qaCustomInput: "",
-        qaEditingFromConfirm: false,
+        ...clearQuestionAnswer(),
       };
 
     case "FLUSH_AND_WAIT": {

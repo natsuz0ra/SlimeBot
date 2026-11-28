@@ -8,10 +8,6 @@ import (
 )
 
 func (h *HTTPController) GetUpdateCheck(c WebContext) {
-	if h.update == nil {
-		jsonError(c, http.StatusServiceUnavailable, "Update service is not configured.")
-		return
-	}
 	force := strings.TrimSpace(c.Request().URL.Query().Get("force")) == "1"
 	result, err := h.update.Check(c.Request().Context(), force)
 	if err != nil {
@@ -22,10 +18,6 @@ func (h *HTTPController) GetUpdateCheck(c WebContext) {
 }
 
 func (h *HTTPController) GetUpdateJob(c WebContext) {
-	if h.update == nil {
-		jsonError(c, http.StatusServiceUnavailable, "Update service is not configured.")
-		return
-	}
 	status, err := h.update.Status(c.Request().Context())
 	if err != nil {
 		jsonInternalError(c, err)
@@ -35,10 +27,6 @@ func (h *HTTPController) GetUpdateJob(c WebContext) {
 }
 
 func (h *HTTPController) ApplyUpdate(c WebContext) {
-	if h.update == nil {
-		jsonError(c, http.StatusServiceUnavailable, "Update service is not configured.")
-		return
-	}
 	var req updater.ApplyRequest
 	if !bindJSONOrBadRequest(c, &req, "Invalid request payload format.") {
 		return

@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 import type React from "react";
+import type { SessionSelection } from "../controllers/sessionRequests.js";
 import type { AppAction, ToolCallResultData, ToolCallStartData } from "../types.js";
 import { CLISocket } from "../ws/socket.js";
 
@@ -7,12 +8,14 @@ interface UseCliSocketProps {
   apiURL: string;
   cliToken: string;
   socketRef: React.MutableRefObject<CLISocket | null>;
-  sessionRef: React.MutableRefObject<{ id: string; name: string }>;
+  sessionRef: React.MutableRefObject<SessionSelection>;
   liveAssistantRef: React.MutableRefObject<string>;
   planStartedRef: React.MutableRefObject<boolean>;
   preambleShownRef: React.MutableRefObject<string>;
   dispatch: React.Dispatch<AppAction>;
   refreshSessionName: (sessionId: string) => Promise<void>;
+  invalidateSessionRequests: () => void;
+  resyncSessionHistory: (sessionId: string) => void;
   applyTerminalTitle: (sessionName?: string) => void;
   onBackgroundCountChange?: (count: number) => void;
 }
@@ -27,6 +30,8 @@ export function useCliSocket({
   preambleShownRef,
   dispatch,
   refreshSessionName,
+  invalidateSessionRequests,
+  resyncSessionHistory,
   applyTerminalTitle,
   onBackgroundCountChange,
 }: UseCliSocketProps): void {
@@ -34,10 +39,20 @@ export function useCliSocket({
     const socket = new CLISocket();
     socketRef.current = socket;
 
-    const wsBase = apiURL.replace(/^http/, "ws");
-    socket.connect(wsBase, cliToken, {
+    socket.connect(apiURL, cliToken, {
       acceptSession: (sessionId) => sessionId === sessionRef.current.id,
-      onOpen: () => {socket.watchSession(sessionRef.current.id);},
+      onOpen: (reconnected) => {
+        const { id } = sessionRef.current;
+        if (reconnected && id) resyncSessionHistory(id);
+      },
+      onClose: () => {
+        invalidateSessionRequests();
+        liveAssistantRef.current = "";
+        planStartedRef.current = false;
+        preambleShownRef.current = "";
+        onBackgroundCountChange?.(0);
+        dispatch({ type: "SOCKET_DISCONNECTED" });
+      },
       onBackgroundError: (error) => {dispatch({ type: "APPEND_ENTRY", entry: { kind: "system", content: error } });},
       onBackgroundTasks: (tasks) => {
         socket.backgroundTasks = new Map(tasks.map(task => [task.taskId, task]));
@@ -51,11 +66,12 @@ export function useCliSocket({
       },
 
       onSession: (sessionId) => {
-        sessionRef.current = { id: sessionId, name: sessionRef.current.id === sessionId ? sessionRef.current.name : "" };
-        dispatch({ type: "SET_SESSION", sessionId });
+        // The server echoes the session for each submitted turn; a late echo must not switch the view.
+        if (sessionId !== sessionRef.current.id) return;
         void refreshSessionName(sessionId);
       },
       onStart: (_sid, turnId) => {
+        invalidateSessionRequests();
         socket.activeTurnId = turnId || "";
         planStartedRef.current = false;
         preambleShownRef.current = "";
@@ -347,8 +363,11 @@ export function useCliSocket({
         dispatch({ type: "PLAN_START" });
       },
     });
+    socket.watchSession(sessionRef.current.id);
 
     return () => {
+      invalidateSessionRequests();
+      socketRef.current = null;
       socket.close();
     };
   }, [
@@ -361,6 +380,8 @@ export function useCliSocket({
     preambleShownRef,
     dispatch,
     refreshSessionName,
+    invalidateSessionRequests,
+    resyncSessionHistory,
     applyTerminalTitle,
     onBackgroundCountChange,
   ]);

@@ -2,6 +2,7 @@ package schedule
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -9,6 +10,65 @@ import (
 	"slimebot/internal/domain"
 	"slimebot/internal/repositories"
 )
+
+func TestNormalizeSpecValidatesTimezone(t *testing.T) {
+	spec := ScheduleSpec{Kind: ScheduleKindCron, CronExpr: "0 9 * * *"}
+	normalized, err := normalizeSpec(spec, fixedNow())
+	if err != nil || normalized.Timezone != "Local" {
+		t.Fatalf("default timezone = %q, error = %v", normalized.Timezone, err)
+	}
+	spec.Timezone = "Invalid/Location"
+	if _, err := normalizeSpec(spec, fixedNow()); err == nil || !strings.Contains(err.Error(), spec.Timezone) {
+		t.Fatalf("invalid timezone error = %v", err)
+	}
+}
+
+func TestComputeNextCronRunInScheduleTimezone(t *testing.T) {
+	utc := func(month time.Month, day, hour, minute int) time.Time {
+		return time.Date(2026, month, day, hour, minute, 0, 0, time.UTC)
+	}
+	for _, tt := range []struct {
+		name, zone, expr string
+		now, want        time.Time
+	}{
+		{"UTC", "UTC", "0 9 * * *", utc(time.January, 12, 0, 0), utc(time.January, 12, 9, 0)},
+		{"Shanghai", "Asia/Shanghai", "0 9 * * *", utc(time.January, 12, 0, 0), utc(time.January, 12, 1, 0)},
+		{"New York", "America/New_York", "0 9 * * *", utc(time.January, 12, 0, 0), utc(time.January, 12, 14, 0)},
+		{"spring gap", "America/New_York", "30 2 * * *", utc(time.March, 8, 6, 0), utc(time.March, 9, 6, 30)},
+		{"first fall overlap", "America/New_York", "30 1 * * *", utc(time.November, 1, 5, 0), utc(time.November, 1, 5, 30)},
+		{"second fall overlap", "America/New_York", "30 1 * * *", utc(time.November, 1, 5, 30), utc(time.November, 1, 6, 30)},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			spec := ScheduleSpec{Kind: ScheduleKindCron, CronExpr: tt.expr, Timezone: tt.zone}
+			next, err := computeNextRun(spec, tt.now.In(time.FixedZone("test", 3*60*60)), nil)
+			if err != nil || next == nil || !next.Equal(tt.want) || next.Location() != time.UTC {
+				t.Fatalf("next run = %v, error = %v, want %v", next, err, tt.want)
+			}
+		})
+	}
+}
+
+func TestCronDueAtSameInstantAcrossTimezones(t *testing.T) {
+	ctx := context.Background()
+	now := time.Date(2026, time.January, 12, 0, 0, 0, 0, time.FixedZone("server", -5*60*60))
+	repo := repositories.New(repositories.NewSQLiteDBTest(t, "cron_due_timezone"))
+	svc := NewService(repo, nil, Options{Now: func() time.Time { return now }})
+	task, err := svc.Create(ctx, CreateInput{
+		Prompt: "check", SessionID: "source",
+		Schedule: ScheduleSpec{Kind: ScheduleKindCron, CronExpr: "0 14 * * *", Timezone: "Asia/Shanghai"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	now = now.Add(59 * time.Minute)
+	if due, err := svc.DueTasks(ctx); err != nil || len(due) != 0 {
+		t.Fatalf("tasks due before the scheduled instant: %v, %v", due, err)
+	}
+	now = now.Add(time.Minute)
+	if due, err := svc.DueTasks(ctx); err != nil || len(due) != 1 || due[0].ID != task.ID {
+		t.Fatalf("tasks due at the scheduled instant: %v, %v", due, err)
+	}
+}
 
 func TestServiceCreateTaskComputesNextRunAndDefaults(t *testing.T) {
 	db := repositories.NewSQLiteDBTest(t, "schedule_create")

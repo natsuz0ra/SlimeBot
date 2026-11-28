@@ -36,10 +36,6 @@ func EnsureAndLoadEnv() error {
 }
 
 func ensureAndLoadEnv(envPath string, template string) error {
-	if strings.TrimSpace(template) == "" {
-		return fmt.Errorf("embedded env template is empty")
-	}
-
 	if err := os.MkdirAll(filepath.Dir(envPath), os.ModePerm); err != nil {
 		return fmt.Errorf("create env dir failed: %w", err)
 	}

@@ -67,9 +67,6 @@ func (w *webExtractTool) extract(ctx context.Context, params map[string]any) (*E
 			return nil, err
 		}
 	}
-	if ctx == nil {
-		ctx = context.Background()
-	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to build request: %w", err)

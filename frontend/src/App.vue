@@ -30,7 +30,7 @@ function clearLoginToHomeToken() {
 
 function normalizePath(pathLike: string | undefined) {
   if (!pathLike) return ''
-  return pathLike.split('?')[0]?.split('#')[0] ?? ''
+  return pathLike.split('?')[0]!.split('#')[0]!
 }
 
 function isHomeWorkspacePath(pathLike: string | undefined) {

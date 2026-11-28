@@ -13,9 +13,6 @@ import (
 
 // EnsureSession ensures a normal chat session exists; reuses valid sessionID or creates one.
 func (s *ChatService) EnsureSession(ctx context.Context, sessionID string) (*domain.Session, error) {
-	if ctx == nil {
-		ctx = context.Background()
-	}
 	if sessionID != "" {
 		existing, err := s.store.GetSessionByID(ctx, sessionID)
 		if err != nil && !errors.Is(err, apperrors.ErrNotFound) {
@@ -30,9 +27,6 @@ func (s *ChatService) EnsureSession(ctx context.Context, sessionID string) (*dom
 
 // EnsureMessagePlatformSession ensures each platform has a stable session.
 func (s *ChatService) EnsureMessagePlatformSession(ctx context.Context, platform string) (*domain.Session, error) {
-	if ctx == nil {
-		ctx = context.Background()
-	}
 	platform = strings.ToLower(strings.TrimSpace(platform))
 	if platform == "" {
 		return nil, fmt.Errorf("platform is required")
@@ -58,9 +52,6 @@ func (s *ChatService) EnsureMessagePlatformSession(ctx context.Context, platform
 
 // ResolvePlatformModel resolves the default model for platform ingress (platform setting, then global, then first).
 func (s *ChatService) ResolvePlatformModel(ctx context.Context) (string, error) {
-	if ctx == nil {
-		ctx = context.Background()
-	}
 	// Helper to verify a model ID exists without duplicating store lookups.
 	resolveModel := func(modelID string) (string, bool, error) {
 		trimmed := strings.TrimSpace(modelID)
@@ -113,9 +104,6 @@ func (s *ChatService) ResolvePlatformModel(ctx context.Context) (string, error) 
 
 // ResolvePlatformRuntimeSettings loads Telegram/message-platform runtime options.
 func (s *ChatService) ResolvePlatformRuntimeSettings(ctx context.Context) (string, string, error) {
-	if ctx == nil {
-		ctx = context.Background()
-	}
 	thinkingLevel, err := s.store.GetSetting(ctx, constants.SettingMessagePlatformThinkingLevel)
 	if err != nil {
 		return "", "", err

@@ -83,7 +83,6 @@ export function resolveCommandHintEnter(
   const matched = matchCommandHints(input);
   if (matched.length === 0) return null;
   const selected = matched[clampSelectedIndex(selectedIndex, matched.length)];
-  if (!selected) return null;
   const trimmed = input.trim();
   if (!selected.acceptsArgs || trimmed === selected.command) {
     return { action: "run", command: selected.command };

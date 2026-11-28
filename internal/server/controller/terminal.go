@@ -27,18 +27,7 @@ func terminalOwner(c WebContext) string {
 	return owner
 }
 
-func (h *HTTPController) terminalAvailable(c WebContext) bool {
-	if h.terminal == nil || h.terminalSettings == nil {
-		jsonError(c, http.StatusServiceUnavailable, "Terminal unavailable.")
-		return false
-	}
-	return true
-}
-
 func (h *HTTPController) GetTerminalStatus(c WebContext) {
-	if !h.terminalAvailable(c) {
-		return
-	}
 	policy, err := h.terminalSettings.Terminal(c.Request().Context())
 	if err != nil {
 		jsonInternalError(c, err)
@@ -53,9 +42,6 @@ func (h *HTTPController) GetTerminalStatus(c WebContext) {
 }
 
 func (h *HTTPController) UpdateTerminalSettings(c WebContext) {
-	if !h.terminalAvailable(c) {
-		return
-	}
 	var req struct {
 		Enabled      *bool   `json:"enabled"`
 		DefaultShell *string `json:"defaultShell"`
@@ -78,9 +64,6 @@ func (h *HTTPController) UpdateTerminalSettings(c WebContext) {
 }
 
 func (h *HTTPController) CreateTerminal(c WebContext) {
-	if !h.terminalAvailable(c) {
-		return
-	}
 	ctx := c.Request().Context()
 	policy, err := h.terminalSettings.Terminal(ctx)
 	if err != nil {
@@ -132,9 +115,6 @@ func (h *HTTPController) CreateTerminal(c WebContext) {
 }
 
 func (h *HTTPController) DeleteTerminal(c WebContext) {
-	if !h.terminalAvailable(c) {
-		return
-	}
 	ctx, cancel := context.WithTimeout(c.Request().Context(), 5*time.Second)
 	defer cancel()
 	err := h.terminal.Delete(ctx, terminalOwner(c), c.Param("id"))

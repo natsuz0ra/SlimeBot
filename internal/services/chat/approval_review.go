@@ -33,9 +33,6 @@ func (a *AgentService) reviewToolApproval(
 	transcript []llmsvc.ChatMessage,
 	req ApprovalReviewRequest,
 ) (*ApprovalReviewResult, error) {
-	if a == nil || a.providerFactory == nil {
-		return nil, fmt.Errorf("approval reviewer is not initialized")
-	}
 	provider := a.providerFactory.GetProvider(modelConfig.Provider)
 	if provider == nil {
 		return nil, fmt.Errorf("approval reviewer provider is not initialized")

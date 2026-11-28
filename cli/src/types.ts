@@ -774,6 +774,7 @@ export type AppAction =
   | { type: "STREAM_START"; startedAt?: number }
   | { type: "STREAM_CHUNK"; chunk: string }
   | { type: "STREAM_DONE"; error: string | null }
+  | { type: "SOCKET_DISCONNECTED" }
   | { type: "CONTEXT_USAGE"; usage: ContextUsage }
   | { type: "CONTEXT_COMPACTED"; usage: ContextUsage }
   | { type: "TURN_STATS_TICK"; now?: number }
@@ -828,7 +829,7 @@ export type AppAction =
   | { type: "SET_APPROVAL_MODE"; mode: ApprovalMode }
   | { type: "SET_THINKING_LEVEL"; level: ThinkingLevel }
   | { type: "SET_SUBAGENT_MODEL"; modelId: string; modelName: string }
-  | { type: "LOAD_HISTORY"; entries: TimelineEntry[] }
+  | { type: "LOAD_HISTORY"; entries: TimelineEntry[]; afterReconnect?: boolean }
   | { type: "THINKING_START"; parentToolCallId?: string; subagentRunId?: string; startedAt?: number }
   | { type: "THINKING_CHUNK"; chunk: string; parentToolCallId?: string; subagentRunId?: string }
   | { type: "THINKING_DONE"; finishedAt?: number; parentToolCallId?: string; subagentRunId?: string }

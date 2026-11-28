@@ -58,12 +58,6 @@ func RequireJWT(tokenManager *auth.TokenManager, cliToken ...string) func(http.H
 				)
 			}
 
-			if tokenManager == nil {
-				logging.Error("auth_token_manager_nil")
-				apierrors2.WriteJSONError(w, http.StatusInternalServerError, apierrors2.APIError{Message: "Authentication service is not initialized."})
-				return
-			}
-
 			token := extractToken(r)
 			if token == "" {
 				logging.Warn("auth_empty_token", "path", r.URL.Path, "remote_addr", r.RemoteAddr)

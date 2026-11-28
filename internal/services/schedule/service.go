@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	_ "time/tzdata"
 
 	"slimebot/internal/apperrors"
 	"slimebot/internal/constants"
@@ -103,16 +104,10 @@ func NewService(store Store, runner Runner, opts Options) *Service {
 }
 
 func (s *Service) SetRunner(runner Runner) {
-	if s == nil {
-		return
-	}
 	s.runner = runner
 }
 
 func (s *Service) Create(ctx context.Context, input CreateInput) (*domain.ScheduledTask, error) {
-	if s == nil || s.store == nil {
-		return nil, fmt.Errorf("schedule service is not initialized")
-	}
 	name := strings.TrimSpace(input.Name)
 	prompt := strings.TrimSpace(input.Prompt)
 	sessionID := strings.TrimSpace(input.SessionID)
@@ -341,7 +336,7 @@ func (s *Service) DueTasks(ctx context.Context) ([]domain.ScheduledTask, error) 
 	}
 	due := make([]domain.ScheduledTask, 0, len(candidates))
 	for _, task := range candidates {
-		if task.NextRunAt == nil {
+		if task.NextRunAt == nil || task.NextRunAt.After(now) {
 			continue
 		}
 		spec := specFromTask(task)
@@ -361,9 +356,6 @@ func (s *Service) DueTasks(ctx context.Context) ([]domain.ScheduledTask, error) 
 }
 
 func (s *Service) RestoreRunningTasks(ctx context.Context) error {
-	if s == nil || s.store == nil {
-		return fmt.Errorf("schedule service is not initialized")
-	}
 	if err := s.store.InterruptScheduledTaskRuns(ctx, s.now()); err != nil {
 		return err
 	}
@@ -509,6 +501,9 @@ func (s *Service) RunDue(ctx context.Context) error {
 		return err
 	}
 	for _, task := range due {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		if err := s.PreAdvanceRecurring(ctx, task); err != nil {
 			return err
 		}
@@ -538,8 +533,12 @@ func (s *Service) RunDue(ctx context.Context) error {
 
 func normalizeSpec(spec ScheduleSpec, now time.Time) (ScheduleSpec, error) {
 	spec.Kind = ScheduleKind(strings.TrimSpace(string(spec.Kind)))
+	spec.Timezone = strings.TrimSpace(spec.Timezone)
 	if spec.Timezone == "" {
 		spec.Timezone = "Local"
+	}
+	if _, err := time.LoadLocation(spec.Timezone); err != nil {
+		return spec, fmt.Errorf("invalid schedule timezone %q: %w", spec.Timezone, err)
 	}
 	switch spec.Kind {
 	case ScheduleKindOnce:
@@ -589,14 +588,20 @@ func computeNextRun(spec ScheduleSpec, now time.Time, lastRunAt *time.Time) (*ti
 		return &next, nil
 	case ScheduleKindCron:
 		base := now
-		if lastRunAt != nil && !lastRunAt.IsZero() {
+		if lastRunAt != nil && lastRunAt.After(base) {
 			base = *lastRunAt
 		}
-		next, err := nextCronRun(spec.CronExpr, base, now)
+		location, err := time.LoadLocation(spec.Timezone)
+		if err != nil || spec.Timezone == "" {
+			// Older versions accepted invalid timezones and matched in server-local time.
+			location = time.Local
+		}
+		next, err := nextCronRun(spec.CronExpr, base.In(location))
 		if err != nil {
 			return nil, err
 		}
-		return &next, nil
+		nextUTC := next.UTC()
+		return &nextUTC, nil
 	default:
 		return nil, fmt.Errorf("unknown schedule kind: %s", spec.Kind)
 	}
@@ -759,18 +764,15 @@ func parseCronField(raw string, minValue, maxValue int) (cronField, error) {
 	return result, nil
 }
 
-func nextCronRun(expr string, base time.Time, now time.Time) (time.Time, error) {
+func nextCronRun(expr string, base time.Time) (time.Time, error) {
 	parsed, err := parseCronExpr(expr)
 	if err != nil {
 		return time.Time{}, err
 	}
 	candidate := base.Truncate(time.Minute).Add(time.Minute)
 	limit := candidate.AddDate(5, 0, 0)
+	// Advance real minutes so spring-forward gaps are skipped and repeated fall-back minutes are visited twice.
 	for !candidate.After(limit) {
-		if candidate.Before(now) || candidate.Equal(now) {
-			candidate = candidate.Add(time.Minute)
-			continue
-		}
 		if parsed.matches(candidate) {
 			return candidate, nil
 		}

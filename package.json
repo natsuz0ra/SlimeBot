@@ -9,6 +9,7 @@
     "start": "go run ./cmd/server/main.go server",
     "build:cli": "npm --prefix cli run build",
     "cli": "npm --prefix cli run build && go run ./cmd/server cli",
+    "verify": "go vet ./... && go test ./... && npm --prefix frontend test && npm --prefix cli test",
     "package": "scripts/package-release.sh"
   },
   "devDependencies": {

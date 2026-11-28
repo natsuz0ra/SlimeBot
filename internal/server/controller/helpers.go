@@ -13,9 +13,7 @@ func jsonError(c WebContext, status int, message string) {
 }
 
 func jsonInternalError(c WebContext, err error) {
-	if err != nil {
-		c.Error(err)
-	}
+	c.Error(err)
 	if errors.Is(err, apperrors.ErrInvalidInput) {
 		jsonError(c, http.StatusBadRequest, "invalid input")
 		return
@@ -37,9 +35,6 @@ func bindJSONOrBadRequest(c WebContext, req any, message string) bool {
 
 func trimSpaceFields(fields ...*string) {
 	for _, field := range fields {
-		if field == nil {
-			continue
-		}
 		*field = strings.TrimSpace(*field)
 	}
 }

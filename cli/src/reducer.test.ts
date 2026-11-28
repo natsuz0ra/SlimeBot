@@ -33,6 +33,45 @@ test("createInitialState initializes empty input value", () => {
 	assert.equal(state.sessionName, "");
 });
 
+test("socket disconnect settles active chat, thinking, tools, and approval UI", () => {
+  let state = reduce(initState(), { type: "STREAM_START" });
+  state = reduce(state, { type: "THINKING_START" });
+  state = reduce(state, { type: "THINKING_CHUNK", chunk: "still thinking" });
+  state = reduce(state, {
+    type: "UPSERT_TOOL_ENTRY",
+    entry: { kind: "tool", toolCallId: "call-1", status: "executing", content: "" },
+  });
+  state = reduce(state, { type: "THINKING_START", parentToolCallId: "call-1", subagentRunId: "worker" });
+  state = reduce(state, { type: "STREAM_CHUNK", chunk: "partial answer" });
+  state = reduce(state, {
+    type: "ADD_PENDING_APPROVAL",
+    item: { toolCallId: "approval", toolName: "exec", command: "run", params: {} },
+  });
+  state = reduce(state, { type: "SET_QA", toolCallId: "question", questions: [] });
+
+  state = reduce(state, { type: "SOCKET_DISCONNECTED" });
+  assert.equal(state.streaming, false);
+  assert.equal(state.assistantWaiting, false);
+  assert.equal(state.liveAssistant, "");
+  assert.equal(state.turnStartedAt, undefined);
+  assert.equal(state.view, "chat");
+  assert.deepEqual(state.pendingApprovals, []);
+  assert.equal(state.qaToolCallId, "");
+  assert.equal(state.timeline[0].thinkingDone, true);
+  assert.equal(state.timeline[1].subagentThinking?.thinkingDone, true);
+  assert.equal(state.timeline[1].status, "error");
+  assert.deepEqual(state.timeline[2], { kind: "assistant", content: "partial answer" });
+  assert.match(state.timeline[3].content, /connection interrupted/i);
+
+  state = reduce(state, {
+    type: "LOAD_HISTORY",
+    afterReconnect: true,
+    entries: [{ kind: "tool", toolCallId: "call-1", status: "executing", content: "" }],
+  });
+  assert.equal(state.timeline[0].status, "error");
+  assert.match(state.timeline[1].content, /reconnected/i);
+});
+
 test("Team reducer accepts member events before team_start and updates terminal state", () => {
 	let state = reduce(initState(), {
 		type: "UPSERT_TEAM_MEMBER",

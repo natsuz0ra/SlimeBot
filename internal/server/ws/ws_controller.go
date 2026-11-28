@@ -390,7 +390,7 @@ func (w *Controller) startReadLoop(
 					_ = enqueue(map[string]any{"type": "stopping", "sessionId": incoming.SessionID})
 				}
 			case "plan_approve":
-				if w.planService != nil && incoming.PlanID != "" {
+				if incoming.PlanID != "" {
 					plan, planErr := w.planService.UpdatePlanStatus(incoming.PlanID, constants.PlanStatusApproved)
 					if planErr != nil {
 						_ = enqueue(map[string]any{"type": "error", "error": "Plan not found."})
@@ -413,12 +413,12 @@ func (w *Controller) startReadLoop(
 					}
 				}
 			case "plan_reject":
-				if w.planService != nil && incoming.PlanID != "" {
+				if incoming.PlanID != "" {
 					_, _ = w.planService.UpdatePlanStatus(incoming.PlanID, constants.PlanStatusRejected)
 					_ = enqueue(map[string]any{"type": "plan_status", "planId": incoming.PlanID, "status": constants.PlanStatusRejected})
 				}
 			case "plan_modify":
-				if w.planService != nil && incoming.PlanID != "" {
+				if incoming.PlanID != "" {
 					_, _ = w.planService.UpdatePlanStatus(incoming.PlanID, constants.PlanStatusRejected)
 					_ = enqueue(map[string]any{"type": "plan_status", "planId": incoming.PlanID, "status": constants.PlanStatusRejected})
 				}
@@ -616,7 +616,7 @@ func (w *Controller) handleChatIncoming(
 			"error":     err.Error(),
 		})
 	}
-	if streamResult != nil && streamResult.PushFailed {
+	if streamResult.PushFailed {
 		if !enqueue(map[string]any{
 			"type":      "error",
 			"sessionId": session.ID,
@@ -627,10 +627,8 @@ func (w *Controller) handleChatIncoming(
 	}
 	doneSentAt := time.Now()
 	donePayload := buildChatDonePayload(session.ID, streamResult, receivedAt, doneSentAt)
-	if streamResult != nil {
-		if streamResult.PlanID != "" {
-			donePayload["narration"] = streamResult.Narration
-		}
+	if streamResult.PlanID != "" {
+		donePayload["narration"] = streamResult.Narration
 	}
 	if !enqueue(donePayload) {
 		return false
@@ -684,9 +682,6 @@ func buildMessageEditedPayload(sessionID, messageID, content string, createdAt t
 
 func buildChatDonePayload(sessionID string, streamResult *chatsvc.ChatStreamResult, receivedAt time.Time, doneSentAt time.Time) map[string]any {
 	durationMs := doneSentAt.Sub(receivedAt).Milliseconds()
-	if durationMs < 0 {
-		durationMs = 0
-	}
 	payload := map[string]any{
 		"type":       "done",
 		"sessionId":  sessionID,
@@ -844,7 +839,7 @@ func (w *Controller) buildCallbacks(
 			return nil
 		},
 		OnChunk: func(chunk string) error {
-			if firstChunkSentAt != nil && firstChunkSentAt.IsZero() && chunk != "" {
+			if firstChunkSentAt.IsZero() && chunk != "" {
 				*firstChunkSentAt = time.Now()
 			}
 			if !enqueueWSChunk(enqueue, sessionID, chunk) {
@@ -1125,10 +1120,7 @@ func writePayload(conn *websocket.Conn, payload any) error {
 		buf.Reset()
 		enc := json.NewEncoder(buf)
 		enc.SetEscapeHTML(false)
-		if err := enc.Encode(v); err != nil {
-			wsChunkBufPool.Put(buf)
-			return err
-		}
+		_ = enc.Encode(v)
 		b := buf.Bytes()
 		if len(b) > 0 && b[len(b)-1] == '\n' {
 			b = b[:len(b)-1]

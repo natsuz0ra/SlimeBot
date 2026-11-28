@@ -147,11 +147,7 @@ export function useHomeTransitions(options: {
           titlePhase.value = 'done'
           return
         }
-        const char = title[currentIndex]
-        if (typeof char !== 'string') {
-          titlePhase.value = 'done'
-          return
-        }
+        const char = title[currentIndex]!
         displayedWelcomeTitle.value += char
         currentIndex += 1
         scheduleWelcomeTimeout(typeNext, getTypingDelay(char))

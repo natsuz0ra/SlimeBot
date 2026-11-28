@@ -15,11 +15,6 @@ type loginRequest struct {
 
 // Login validates credentials and issues a JWT for the web client.
 func (h *HTTPController) Login(c WebContext) {
-	if h.tokenManager == nil {
-		jsonError(c, http.StatusInternalServerError, "Authentication service is not initialized.")
-		return
-	}
-
 	var req loginRequest
 	if !bindJSONOrBadRequest(c, &req, "Invalid request payload format.") {
 		return

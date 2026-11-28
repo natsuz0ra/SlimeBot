@@ -142,20 +142,10 @@ func (r *Repository) ListSessionThinkingRecordsByAssistantMessageIDs(ctx context
 	if len(messageIDs) == 0 {
 		return []domain.ThinkingRecord{}, nil
 	}
-	filtered := make([]string, 0, len(messageIDs))
-	for _, id := range messageIDs {
-		trimmed := strings.TrimSpace(id)
-		if trimmed != "" {
-			filtered = append(filtered, trimmed)
-		}
-	}
-	if len(filtered) == 0 {
-		return []domain.ThinkingRecord{}, nil
-	}
 	var records []domain.ThinkingRecord
 	err := r.dbWithContext(ctx).
 		Where("session_id = ?", sessionID).
-		Where("assistant_message_id IN ?", filtered).
+		Where("assistant_message_id IN ?", messageIDs).
 		Order("started_at asc").
 		Order("created_at asc").
 		Find(&records).

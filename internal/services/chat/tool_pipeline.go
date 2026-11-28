@@ -293,7 +293,7 @@ func (a *AgentService) executeInvocation(
 
 // buildToolResultStatus maps execution outcome to the standard status string.
 func buildToolResultStatus(execResult *tools.ExecuteResult) string {
-	if execResult != nil && strings.TrimSpace(execResult.Error) != "" {
+	if strings.TrimSpace(execResult.Error) != "" {
 		return constants.ToolCallStatusError
 	}
 	return constants.ToolCallStatusCompleted
@@ -301,9 +301,6 @@ func buildToolResultStatus(execResult *tools.ExecuteResult) string {
 
 // buildToolResultContent builds the tool message body written back into the model context.
 func buildToolResultContent(execResult *tools.ExecuteResult) string {
-	if execResult == nil {
-		return "Execution result:\n"
-	}
 	if execResult.Error != "" {
 		return fmt.Sprintf("Execution result:\n%s\nError: %s", execResult.Output, execResult.Error)
 	}

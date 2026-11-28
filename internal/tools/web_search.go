@@ -97,15 +97,9 @@ func (w *webSearchTool) search(ctx context.Context, params map[string]any) (*Exe
 		return nil, fmt.Errorf("WEB_SEARCH_API_KEY is not configured; web_search is unavailable.")
 	}
 
-	reqBody, err := json.Marshal(tavilySearchRequest{Query: query})
-	if err != nil {
-		return nil, fmt.Errorf("failed to build request body: %w", err)
-	}
+	reqBody, _ := json.Marshal(tavilySearchRequest{Query: query})
 
 	endpoint := w.baseURL + "/search"
-	if ctx == nil {
-		ctx = context.Background()
-	}
 	req, err := http.NewRequest(http.MethodPost, endpoint, bytes.NewReader(reqBody))
 	if err != nil {
 		return nil, fmt.Errorf("failed to build request: %w", err)

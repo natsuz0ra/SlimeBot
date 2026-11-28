@@ -178,10 +178,6 @@ func (s *ChatService) maybeGenerateTitleAsync(
 	titlePrefix string,
 	onTitleGenerated func(sessionID, title string),
 ) {
-	if session == nil {
-		logging.Info("title_generation_skipped", "reason", "nil_session")
-		return
-	}
 	if session.IsTitleLocked {
 		logging.Info("title_generation_skipped", "session", session.ID, "reason", "title_locked")
 		return

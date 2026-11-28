@@ -52,7 +52,7 @@ export function upsertAgentTeamRun(
     next.push({ kind: "team", content: "", teamRun: { ...incoming, members: sortMembers(incoming.members || []) } });
     return next;
   }
-  const previous = next[index]?.teamRun || placeholderRun(incoming.id);
+  const previous = next[index].teamRun!;
   let members = previous.members;
   if (incoming.members) {
     for (const member of incoming.members) {
@@ -85,7 +85,7 @@ export function upsertAgentTeamMember(entries: TimelineEntry[], incoming: AgentT
     next = upsertAgentTeamRun(next, placeholderRun(incoming.teamRunId, incoming));
     index = teamEntryIndex(next, incoming.teamRunId);
   }
-  const run = next[index]?.teamRun || placeholderRun(incoming.teamRunId, incoming);
+  const run = next[index].teamRun!;
   const memberIndex = run.members.findIndex((member) => member.id === incoming.id);
   const members = [...run.members];
   if (memberIndex < 0) {

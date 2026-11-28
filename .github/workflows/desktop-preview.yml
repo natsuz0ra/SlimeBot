@@ -3,7 +3,7 @@ name: Desktop preview
 on:
   push:
     branches:
-      - dev/1.34.0
+      - 'dev/**'
     paths:
       - desktop/**
       - frontend/**

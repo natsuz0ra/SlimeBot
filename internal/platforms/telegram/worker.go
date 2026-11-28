@@ -144,7 +144,7 @@ func (w *Worker) processUpdates(ctx context.Context, adapter *Adapter, updates [
 				}
 			}
 		}
-		if strings.TrimSpace(inbound.Text) == "" && len(inbound.AttachmentIDs) == 0 {
+		if inbound.Text == "" && len(inbound.AttachmentIDs) == 0 {
 			continue
 		}
 		w.dispatchInboundAsync(ctx, platforms.InboundMessage{
@@ -164,9 +164,6 @@ func (w *Worker) dispatchInboundAsync(ctx context.Context, inbound platforms.Inb
 		return
 	}
 	chatID := strings.TrimSpace(inbound.ChatID)
-	if strings.TrimSpace(inbound.Text) == "" && len(inbound.AttachmentIDs) == 0 {
-		return
-	}
 	select {
 	case w.dispatchSlots <- struct{}{}:
 	default:
@@ -191,9 +188,6 @@ func (w *Worker) dispatchInboundAsync(ctx context.Context, inbound platforms.Inb
 }
 
 func (w *Worker) buildInboundAttachments(ctx context.Context, adapter *Adapter, candidates []mediaCandidate) ([]string, []platforms.InboundAttachment, error) {
-	if w == nil || w.uploads == nil || adapter == nil || len(candidates) == 0 {
-		return nil, nil, nil
-	}
 	if len(candidates) > workerMaxAttachmentsPerMsg {
 		candidates = candidates[:workerMaxAttachmentsPerMsg]
 	}
@@ -318,9 +312,6 @@ func selectAttachmentName(preferred string, fallback string, source string, mime
 
 // handleApprovalCallback handles approval button taps and answers the callback query.
 func (w *Worker) handleApprovalCallback(query *callbackQuery, adapter *Adapter) {
-	if w == nil || query == nil || adapter == nil {
-		return
-	}
 	if query.Message == nil {
 		logging.Warn("telegram_worker_callback_missing_message", "callback_id", strings.TrimSpace(query.ID))
 		if err := adapter.AnswerCallbackQuery(query.ID, "Approval message context is missing."); err != nil {

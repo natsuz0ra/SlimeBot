@@ -155,9 +155,6 @@ func applyACPInput(value *domain.ACPConfig, input ACPConfigInput) error {
 		len(args) > 128 || len(env) > 128 {
 		return fmt.Errorf("%w: invalid ACP configuration fields", apperrors.ErrInvalidInput)
 	}
-	if args == nil {
-		args = []string{}
-	}
 	for _, arg := range args {
 		if len(arg) > 8192 || strings.ContainsRune(arg, 0) {
 			return fmt.Errorf("%w: invalid ACP argument", apperrors.ErrInvalidInput)

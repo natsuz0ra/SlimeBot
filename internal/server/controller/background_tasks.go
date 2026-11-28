@@ -23,10 +23,6 @@ func (h *HTTPController) SetBackgroundTaskService(service backgroundTaskService)
 }
 
 func (h *HTTPController) ListBackgroundTasks(c WebContext) {
-	if h.backgroundTasks == nil {
-		jsonError(c, http.StatusServiceUnavailable, "Background task service is unavailable.")
-		return
-	}
 	limit := 100
 	if raw := strings.TrimSpace(c.Query("limit")); raw != "" {
 		value, err := strconv.Atoi(raw)
@@ -45,10 +41,6 @@ func (h *HTTPController) ListBackgroundTasks(c WebContext) {
 }
 
 func (h *HTTPController) ActOnBackgroundTask(c WebContext) {
-	if h.backgroundTasks == nil {
-		jsonError(c, http.StatusServiceUnavailable, "Background task service is unavailable.")
-		return
-	}
 	var input struct {
 		Action string `json:"action"`
 	}

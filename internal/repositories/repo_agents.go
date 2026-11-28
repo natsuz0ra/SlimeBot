@@ -317,9 +317,6 @@ func (r *Repository) UpdateAgentRoot(ctx context.Context, id, status string) err
 	})
 }
 func (r *Repository) ReserveAgentBudget(ctx context.Context, id string, n int) error {
-	if n < 0 {
-		return domain.ErrAgentBudget
-	}
 	result := r.dbWithContext(ctx).Model(&domain.AgentRootRequest{}).Where("id = ? AND status IN ? AND consumed + reserved + ? <= budget", id, []string{"running", "waiting"}, n).Update("reserved", gorm.Expr("reserved + ?", n))
 	if result.Error != nil {
 		return result.Error
@@ -330,9 +327,6 @@ func (r *Repository) ReserveAgentBudget(ctx context.Context, id string, n int) e
 	return nil
 }
 func (r *Repository) SettleAgentBudget(ctx context.Context, id string, reserved, used int) error {
-	if reserved < 0 || used < 0 {
-		return domain.ErrAgentBudget
-	}
 	result := r.dbWithContext(ctx).Model(&domain.AgentRootRequest{}).Where("id = ? AND reserved >= ?", id, reserved).Updates(map[string]any{"reserved": gorm.Expr("reserved - ?", reserved), "consumed": gorm.Expr("consumed + ?", used)})
 	if result.Error != nil {
 		return result.Error

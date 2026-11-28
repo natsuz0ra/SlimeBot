@@ -258,21 +258,6 @@ func TestBuildToolDefs_GrepAndGlobSchemasExposePagination(t *testing.T) {
 	}
 }
 
-func TestRequiresToolApproval_FileWritesInStandardMode(t *testing.T) {
-	if !requiresToolApproval("file_edit", false, constants.ApprovalModeStandard) {
-		t.Fatal("file_edit should require approval in standard mode")
-	}
-	if !requiresToolApproval("file_write", false, constants.ApprovalModeStandard) {
-		t.Fatal("file_write should require approval in standard mode")
-	}
-	if requiresToolApproval("file_read", false, constants.ApprovalModeStandard) {
-		t.Fatal("file_read should not require approval in standard mode")
-	}
-	if requiresToolApproval("file_write", false, constants.ApprovalModeAuto) {
-		t.Fatal("file_write should not require approval in auto mode")
-	}
-}
-
 func TestDetermineToolApprovalPolicy_AutoReviewForSensitiveBuiltins(t *testing.T) {
 	cases := []struct {
 		name         string

@@ -305,10 +305,6 @@ func (h *HTTPController) ListMessages(c WebContext) {
 }
 
 func (h *HTTPController) GetContextUsage(c WebContext) {
-	if h.chatUsage == nil {
-		jsonError(c, http.StatusServiceUnavailable, "Context usage service is unavailable.")
-		return
-	}
 	sessionID := c.Param("id")
 	modelID := strings.TrimSpace(c.Query("modelId"))
 	if modelID == "" {
@@ -324,10 +320,6 @@ func (h *HTTPController) GetContextUsage(c WebContext) {
 }
 
 func (h *HTTPController) CompactContext(c WebContext) {
-	if h.chatUsage == nil {
-		jsonError(c, http.StatusServiceUnavailable, "Context usage service is unavailable.")
-		return
-	}
 	var req struct {
 		ModelID string `json:"modelId"`
 	}

@@ -56,9 +56,6 @@ func NewService(store domain.UsageStore, settings domain.SettingsStore) *Service
 }
 
 func (s *Service) Summary(ctx context.Context, query domain.UsageQuery) ([]domain.UsageSummary, error) {
-	if s == nil || s.store == nil {
-		return nil, errors.New("usage store is not initialized")
-	}
 	return s.store.SummarizeUsage(ctx, query)
 }
 
@@ -73,7 +70,7 @@ func (s *Service) SessionBudgetStatus(ctx context.Context, rootSessionID string)
 		return SessionBudgetStatus{}, err
 	}
 	rootSessionID = strings.TrimSpace(rootSessionID)
-	if s == nil || s.store == nil || rootSessionID == "" {
+	if rootSessionID == "" {
 		return SessionBudgetStatus{BudgetTokens: budget}, nil
 	}
 	used, err := s.store.SessionOutputTokens(ctx, rootSessionID)
@@ -84,9 +81,6 @@ func (s *Service) SessionBudgetStatus(ctx context.Context, rootSessionID string)
 }
 
 func (s *Service) SessionOutputTokenBudget(ctx context.Context) (int64, error) {
-	if s == nil || s.settings == nil {
-		return 0, nil
-	}
 	raw, err := s.settings.GetSetting(ctx, constants.SettingSessionOutputTokenBudget)
 	if err != nil || strings.TrimSpace(raw) == "" {
 		return 0, err
@@ -99,9 +93,6 @@ func (s *Service) SessionOutputTokenBudget(ctx context.Context) (int64, error) {
 }
 
 func (s *Service) ObserveRequest(ctx context.Context, model llm.ModelRuntimeConfig, _ []llm.ChatMessage, _ []llm.ToolDef) (func(*llm.StreamResult, error) error, error) {
-	if s == nil || s.store == nil {
-		return func(*llm.StreamResult, error) error { return nil }, nil
-	}
 	scope := ScopeFromContext(ctx)
 	if scope.RootSessionID == "" {
 		scope.RootSessionID = llm.PrivacyScopeFromContext(ctx).SessionID

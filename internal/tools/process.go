@@ -97,9 +97,6 @@ func (m *ProcessManager) StartWithSpec(command string, spec ProcessSpec, runner 
 }
 
 func (m *ProcessManager) StartWithID(id, command string, spec ProcessSpec, runner func(context.Context) processRunResult) string {
-	if m == nil {
-		m = defaultProcessManager
-	}
 	ctx, cancel := context.WithCancel(context.Background())
 	m.mu.Lock()
 	// Never evict a running process: its cancellation handle and completion must
@@ -229,9 +226,6 @@ func (m *ProcessManager) Forget(id string) {
 }
 
 func (m *ProcessManager) List() []managedProcess {
-	if m == nil {
-		m = defaultProcessManager
-	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	items := make([]managedProcess, 0, len(m.items))
@@ -245,9 +239,6 @@ func (m *ProcessManager) List() []managedProcess {
 }
 
 func (m *ProcessManager) Get(id string) (managedProcess, bool) {
-	if m == nil {
-		m = defaultProcessManager
-	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	item := m.items[strings.TrimSpace(id)]
@@ -258,9 +249,6 @@ func (m *ProcessManager) Get(id string) (managedProcess, bool) {
 }
 
 func (m *ProcessManager) Stop(id string) (managedProcess, bool) {
-	if m == nil {
-		m = defaultProcessManager
-	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	item := m.items[strings.TrimSpace(id)]

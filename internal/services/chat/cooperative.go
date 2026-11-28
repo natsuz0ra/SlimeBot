@@ -740,9 +740,6 @@ func (s *ChatService) waitChatTurns(ctx context.Context, session string) error {
 }
 
 func (s *ChatService) validateCooperativeWorkspace(ctx context.Context, workspace, command string) (string, error) {
-	if strings.TrimSpace(command) == "" || len(command) > 4096 {
-		return "", errors.New("validation command required")
-	}
 	basePolicy, err := s.resolveSandboxPolicy(ctx, workspace)
 	if err != nil {
 		return "", err

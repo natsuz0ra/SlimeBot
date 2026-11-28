@@ -25,12 +25,6 @@ func (r scheduleChatRunner) RunScheduledTask(ctx context.Context, task domain.Sc
 		RequestID: requestID,
 		StartedAt: startedAt,
 	}
-	if r.core == nil || r.core.ChatService == nil || r.core.Repo == nil {
-		result.Success = false
-		result.Error = "schedule runner is not initialized"
-		result.FinishedAt = time.Now()
-		return result
-	}
 	modelID, err := r.resolveModelID(ctx, task.ModelConfigID)
 	if err != nil {
 		result.Success = false

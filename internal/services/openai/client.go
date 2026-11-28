@@ -236,9 +236,6 @@ func isDeepSeekRequest(c llmsvc.ModelRuntimeConfig) bool {
 }
 
 func applyThinkingParams(params *openai.ChatCompletionNewParams, modelConfig llmsvc.ModelRuntimeConfig) {
-	if params == nil {
-		return
-	}
 	if isDeepSeekRequest(modelConfig) {
 		thinking := map[string]any{"type": "disabled"}
 		if effort := llmsvc.DeepSeekReasoningEffort(modelConfig.ThinkingLevel); effort != "" {

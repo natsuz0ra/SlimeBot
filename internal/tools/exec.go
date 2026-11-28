@@ -119,9 +119,6 @@ func (e *execTool) run(ctx context.Context, params map[string]any) (*ExecuteResu
 		return nil, err
 	}
 
-	if ctx == nil {
-		ctx = context.Background()
-	}
 	invocation, err := buildExecInvocation(runtime.GOOS, cfg)
 	if err != nil {
 		return nil, err
@@ -202,15 +199,15 @@ func (e *execTool) run(ctx context.Context, params map[string]any) (*ExecuteResu
 				if result.Error != "" {
 					return nil, fmt.Errorf("%s", result.Error)
 				}
-				output, err := encodeExecOutput(execOutputPayload{Stdout: result.Stdout, Stderr: result.Stderr, ExitCode: result.ExitCode, TimedOut: result.TimedOut, Truncated: result.Truncated, Shell: invocation.shell, WorkingDirectory: invocation.workingDirectory, DurationMs: result.DurationMs, SandboxPermissions: cfg.sandboxPermissions, SandboxMode: sandboxMode})
-				return &ExecuteResult{Output: output}, err
+				output, _ := encodeExecOutput(execOutputPayload{Stdout: result.Stdout, Stderr: result.Stderr, ExitCode: result.ExitCode, TimedOut: result.TimedOut, Truncated: result.Truncated, Shell: invocation.shell, WorkingDirectory: invocation.workingDirectory, DurationMs: result.DurationMs, SandboxPermissions: cfg.sandboxPermissions, SandboxMode: sandboxMode})
+				return &ExecuteResult{Output: output}, nil
 			}
 		}
 		if started != nil {
 			started()
 		}
 		manager.Detach(processID, observer.Completed)
-		out, err := encodeExecOutput(execOutputPayload{
+		out, _ := encodeExecOutput(execOutputPayload{
 			Stdout:             "",
 			Stderr:             "",
 			ExitCode:           0,
@@ -225,9 +222,6 @@ func (e *execTool) run(ctx context.Context, params map[string]any) (*ExecuteResu
 			ProcessID:          processID,
 			WakeOnCompletion:   autoWake && !observer.AutoWakeDisabled,
 		})
-		if err != nil {
-			return nil, err
-		}
 		return &ExecuteResult{Output: out}, nil
 	}
 	result, err := sandboxpolicy.RunCommand(ctx, policy, sandboxpolicy.CommandRequest{
@@ -257,10 +251,7 @@ func (e *execTool) run(ctx context.Context, params map[string]any) (*ExecuteResu
 		return nil, formatExecError(err)
 	}
 
-	out, err := encodeExecOutput(payload)
-	if err != nil {
-		return nil, err
-	}
+	out, _ := encodeExecOutput(payload)
 	_ = cfg.description
 	return &ExecuteResult{Output: out}, nil
 }
@@ -414,9 +405,6 @@ func resolvePosixAutoShell() string {
 
 func validateCommandSafety(command string) error {
 	trimmed := strings.TrimSpace(command)
-	if trimmed == "" {
-		return fmt.Errorf("command is required")
-	}
 	lower := strings.ToLower(trimmed)
 
 	interactivePatterns := []string{

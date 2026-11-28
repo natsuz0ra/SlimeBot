@@ -56,7 +56,6 @@ func (r *Repository) GetLLMConfigByID(ctx context.Context, id string) (*domain.L
 
 func (r *Repository) CreateLLMConfig(ctx context.Context, item domain.LLMConfig) (*domain.LLMConfig, error) {
 	item.ID = uuid.NewString()
-	normalizeLLMConfig(&item)
 	if err := r.dbWithContext(ctx).Create(&item).Error; err != nil {
 		return nil, err
 	}
@@ -64,7 +63,6 @@ func (r *Repository) CreateLLMConfig(ctx context.Context, item domain.LLMConfig)
 }
 
 func (r *Repository) UpdateLLMConfig(ctx context.Context, id string, item domain.LLMConfig) error {
-	normalizeLLMConfig(&item)
 	return r.dbWithContext(ctx).Model(&domain.LLMConfig{}).Where("id = ?", id).Updates(domain.LLMConfig{
 		Name:              item.Name,
 		ProviderID:        item.ProviderID,
@@ -93,9 +91,6 @@ func normalizeLLMConfigs(items []domain.LLMConfig) {
 }
 
 func normalizeLLMConfig(item *domain.LLMConfig) {
-	if item == nil {
-		return
-	}
 	if item.ContextSize <= 0 {
 		item.ContextSize = constants.DefaultContextSize
 	}

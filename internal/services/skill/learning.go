@@ -34,9 +34,6 @@ func NewLearningService(factory *llmsvc.Factory, runtime *SkillRuntimeService) *
 // Learn performs one explicit, single-turn create/update flow. Automatic
 // candidate detection belongs to the caller and is intentionally not done here.
 func (s *LearningService) Learn(ctx context.Context, input LearningInput) (*domain.Skill, error) {
-	if s == nil || s.factory == nil || s.runtime == nil {
-		return nil, fmt.Errorf("skill learning service is unavailable")
-	}
 	transcript, err := s.protectedTranscript(ctx, input)
 	if err != nil {
 		return nil, err

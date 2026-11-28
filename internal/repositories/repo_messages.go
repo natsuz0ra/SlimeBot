@@ -68,9 +68,6 @@ func normalizeMessages(items []domain.Message) {
 }
 
 func (r *Repository) ListSessionMessagesPage(ctx context.Context, sessionID string, limit int, before *time.Time, beforeSeq *int64, after *time.Time, afterSeq *int64) ([]domain.Message, bool, error) {
-	if limit <= 0 {
-		limit = 10
-	}
 	fetchLimit := limit + 1
 
 	base := r.dbWithContext(ctx).Where("session_id = ?", sessionID)
@@ -196,9 +193,6 @@ func (r *Repository) AddMessageWithInput(ctx context.Context, input domain.AddMe
 func (r *Repository) UpdateUserMessageAndPruneAfter(ctx context.Context, sessionID, messageID, content string) (*domain.Message, error) {
 	trimmedSessionID := strings.TrimSpace(sessionID)
 	trimmedMessageID := strings.TrimSpace(messageID)
-	if trimmedSessionID == "" || trimmedMessageID == "" {
-		return nil, fmt.Errorf("message edit: %w", apperrors.ErrInvalidInput)
-	}
 	var updated domain.Message
 	err := r.dbWithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		var target domain.Message

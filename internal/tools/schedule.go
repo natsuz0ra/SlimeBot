@@ -88,13 +88,13 @@ func (s *scheduleTool) Execute(ctx context.Context, command string, params map[s
 	switch strings.TrimSpace(command) {
 	case "create":
 		return scheduleOutput(service.Create(ctx, schedulesvc.CreateInput{
-			Name:          stringParam(params, "name"),
-			Prompt:        stringParam(params, "prompt"),
+			Name:          paramStringTrim(params, "name"),
+			Prompt:        paramStringTrim(params, "prompt"),
 			SessionID:     sessionIDParam(ctx, params),
 			Schedule:      scheduleSpecFromParams(params),
-			ModelConfigID: stringParam(params, "model_config_id"),
-			ThinkingLevel: stringParam(params, "thinking_level"),
-			ApprovalMode:  stringParam(params, "approval_mode"),
+			ModelConfigID: paramStringTrim(params, "model_config_id"),
+			ThinkingLevel: paramStringTrim(params, "thinking_level"),
+			ApprovalMode:  paramStringTrim(params, "approval_mode"),
 			MaxRuns:       intParam(params, "max_runs"),
 		}))
 	case "list":
@@ -104,32 +104,32 @@ func (s *scheduleTool) Execute(ctx context.Context, command string, params map[s
 		}
 		return jsonOutput(items)
 	case "pause":
-		if err := service.Pause(ctx, stringParam(params, "task_id")); err != nil {
+		if err := service.Pause(ctx, paramStringTrim(params, "task_id")); err != nil {
 			return &ExecuteResult{Error: err.Error()}, nil
 		}
 		return jsonOutput(map[string]any{"success": true})
 	case "resume":
-		return scheduleOutput(service.Resume(ctx, stringParam(params, "task_id")))
+		return scheduleOutput(service.Resume(ctx, paramStringTrim(params, "task_id")))
 	case "delete":
-		if err := service.Delete(ctx, stringParam(params, "task_id")); err != nil {
+		if err := service.Delete(ctx, paramStringTrim(params, "task_id")); err != nil {
 			return &ExecuteResult{Error: err.Error()}, nil
 		}
 		return jsonOutput(map[string]any{"success": true})
 	case "trigger":
-		return scheduleOutput(service.Trigger(ctx, stringParam(params, "task_id")))
+		return scheduleOutput(service.Trigger(ctx, paramStringTrim(params, "task_id")))
 	case "update":
-		taskID := stringParam(params, "task_id")
+		taskID := paramStringTrim(params, "task_id")
 		input := schedulesvc.UpdateInput{}
 		if hasParam(params, "name") {
-			value := stringParam(params, "name")
+			value := paramStringTrim(params, "name")
 			input.Name = &value
 		}
 		if hasParam(params, "prompt") {
-			value := stringParam(params, "prompt")
+			value := paramStringTrim(params, "prompt")
 			input.Prompt = &value
 		}
 		if hasParam(params, "session_id") {
-			value := stringParam(params, "session_id")
+			value := paramStringTrim(params, "session_id")
 			input.SessionID = &value
 		}
 		spec, specErr := scheduleSpecForUpdate(ctx, service, taskID, params)
@@ -140,15 +140,15 @@ func (s *scheduleTool) Execute(ctx context.Context, command string, params map[s
 			input.Schedule = spec
 		}
 		if hasParam(params, "model_config_id") {
-			value := stringParam(params, "model_config_id")
+			value := paramStringTrim(params, "model_config_id")
 			input.ModelConfigID = &value
 		}
 		if hasParam(params, "thinking_level") {
-			value := stringParam(params, "thinking_level")
+			value := paramStringTrim(params, "thinking_level")
 			input.ThinkingLevel = &value
 		}
 		if hasParam(params, "approval_mode") {
-			value := stringParam(params, "approval_mode")
+			value := paramStringTrim(params, "approval_mode")
 			input.ApprovalMode = &value
 		}
 		if hasParam(params, "max_runs") {
@@ -178,11 +178,11 @@ func jsonOutput(value any) (*ExecuteResult, error) {
 
 func scheduleSpecFromParams(params map[string]any) schedulesvc.ScheduleSpec {
 	spec := schedulesvc.ScheduleSpec{
-		Kind:            schedulesvc.ScheduleKind(stringParam(params, "schedule_kind")),
+		Kind:            schedulesvc.ScheduleKind(paramStringTrim(params, "schedule_kind")),
 		IntervalMinutes: intParam(params, "interval_minutes"),
-		CronExpr:        stringParam(params, "cron_expr"),
+		CronExpr:        paramStringTrim(params, "cron_expr"),
 	}
-	if raw := stringParam(params, "run_at"); raw != "" {
+	if raw := paramStringTrim(params, "run_at"); raw != "" {
 		if parsed, err := time.Parse(time.RFC3339, raw); err == nil {
 			spec.RunAt = parsed
 		}
@@ -200,10 +200,10 @@ func scheduleSpecForUpdate(ctx context.Context, service *schedulesvc.Service, ta
 	}
 	spec := scheduleSpecFromTask(*task)
 	if hasParam(params, "schedule_kind") {
-		spec.Kind = schedulesvc.ScheduleKind(stringParam(params, "schedule_kind"))
+		spec.Kind = schedulesvc.ScheduleKind(paramStringTrim(params, "schedule_kind"))
 	}
 	if hasParam(params, "run_at") {
-		parsed, err := time.Parse(time.RFC3339, stringParam(params, "run_at"))
+		parsed, err := time.Parse(time.RFC3339, paramStringTrim(params, "run_at"))
 		if err != nil {
 			return nil, fmt.Errorf("run_at must be an RFC3339 timestamp")
 		}
@@ -213,7 +213,7 @@ func scheduleSpecForUpdate(ctx context.Context, service *schedulesvc.Service, ta
 		spec.IntervalMinutes = intParam(params, "interval_minutes")
 	}
 	if hasParam(params, "cron_expr") {
-		spec.CronExpr = stringParam(params, "cron_expr")
+		spec.CronExpr = paramStringTrim(params, "cron_expr")
 	}
 	if hasParam(params, "schedule_kind") && string(spec.Kind) != task.ScheduleKind {
 		if err := requireScheduleFieldsForKind(spec.Kind, params); err != nil {
@@ -255,7 +255,7 @@ func requireScheduleFieldsForKind(kind schedulesvc.ScheduleKind, params map[stri
 }
 
 func sessionIDParam(ctx context.Context, params map[string]any) string {
-	if sessionID := stringParam(params, "session_id"); sessionID != "" {
+	if sessionID := paramStringTrim(params, "session_id"); sessionID != "" {
 		return sessionID
 	}
 	return currentSessionIDFromContext(ctx)

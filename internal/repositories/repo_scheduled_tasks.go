@@ -39,9 +39,10 @@ func (r *Repository) ListScheduledTasks(ctx context.Context, includeInactive boo
 
 func (r *Repository) ListDueScheduledTasks(ctx context.Context, now any) ([]domain.ScheduledTask, error) {
 	var tasks []domain.ScheduledTask
+	// Compare actual instants regardless of the offsets stored by older schedules.
 	err := r.dbWithContext(ctx).
-		Where("status = ? AND next_run_at IS NOT NULL AND next_run_at <= ?", domain.ScheduledTaskStatusScheduled, now).
-		Order("next_run_at asc").
+		Where("status = ? AND next_run_at IS NOT NULL AND julianday(next_run_at) <= julianday(?)", domain.ScheduledTaskStatusScheduled, now).
+		Order("julianday(next_run_at) asc").
 		Find(&tasks).Error
 	return tasks, err
 }

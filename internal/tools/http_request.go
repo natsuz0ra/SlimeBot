@@ -73,9 +73,6 @@ func (h *httpRequestTool) request(ctx context.Context, params map[string]any) (*
 		bodyReader = strings.NewReader(body)
 	}
 
-	if ctx == nil {
-		ctx = context.Background()
-	}
 	req, err := http.NewRequest(method, rawURL, bodyReader)
 	if err != nil {
 		return nil, fmt.Errorf("failed to build request: %w", err)

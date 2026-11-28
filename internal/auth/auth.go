@@ -62,10 +62,10 @@ func (m *TokenManager) Parse(tokenString string) (*Claims, error) {
 	if err != nil {
 		return nil, err
 	}
-	claims, ok := token.Claims.(*Claims)
-	if !ok || !token.Valid {
+	if !token.Valid {
 		return nil, errors.New("invalid token")
 	}
+	claims := token.Claims.(*Claims)
 	return claims, nil
 }
 

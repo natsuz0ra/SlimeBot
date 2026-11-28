@@ -86,17 +86,11 @@ func (s *SkillPackageService) InstallFromZip(filename string, data []byte) (*dom
 	}
 
 	srcSkillDir := filepath.Join(tmpDir, meta.Name)
-	if !isWithinRoot(tmpDir, srcSkillDir) {
-		return nil, fmt.Errorf("invalid skill directory path")
-	}
 	if st, statErr := os.Stat(srcSkillDir); statErr != nil || !st.IsDir() {
 		return nil, fmt.Errorf("extracted skill directory does not exist")
 	}
 
 	destSkillDir := filepath.Join(s.skillsRootAbs, meta.Name)
-	if !isWithinRoot(s.skillsRootAbs, destSkillDir) {
-		return nil, fmt.Errorf("invalid target path")
-	}
 	if _, statErr := os.Stat(destSkillDir); statErr == nil {
 		return nil, fmt.Errorf("skill %s already exists, delete it before retrying", meta.Name)
 	}

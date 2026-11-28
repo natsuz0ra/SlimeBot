@@ -19,7 +19,8 @@ export type BackgroundTaskData = { taskId: string; processId: string; status: st
 export interface WSHandlers {
   onBackgroundError?: (error: string, sessionId?: string) => void;
   acceptSession?: (sessionId: string) => boolean;
-  onOpen?: () => void;
+  onOpen?: (reconnected: boolean) => void;
+  onClose?: () => void;
   onBackgroundTasks?: (tasks: BackgroundTaskData[], sessionId?: string) => void;
   onBackgroundTask?: (task: BackgroundTaskData, sessionId?: string) => void;
   onSession: (sessionId: string) => void;
@@ -202,40 +203,54 @@ export class CLISocket {
   activeTurnId = "";
   backgroundTasks = new Map<string, BackgroundTaskData>();
   private ws: WebSocket | null = null;
-  private handlers: WSHandlers | null = null;
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
+  private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private watchedSessionId: string | null = null;
 
   connect(apiURL: string, cliToken: string, handlers: WSHandlers): void {
-    this.handlers = handlers;
+    this.close();
 
     // Build WS URL: http → ws, https → wss
     const wsBase = apiURL.replace(/^http/, "ws");
     const url = `${wsBase}/ws/chat`;
 
-    // Pass auth via X-CLI-Token header (matches server middleware)
-    this.ws = new WebSocket(url, {
-      headers: {
-        "X-CLI-Token": cliToken,
-      },
-    });
-
-    this.ws.on("open", () => {
-      this.startHeartbeat();
-      this.handlers?.onOpen?.();
-    });
-
-    this.ws.on("message", (data: WebSocket.Data) => {
-      dispatchWSMessage(data.toString(), this.handlers);
-    });
-
-    this.ws.on("error", () => {
-      this.handlers?.onError("WebSocket connection error");
-    });
-
-    this.ws.on("close", () => {
-      this.activeTurnId = "";
-      this.clearHeartbeat();
-    });
+    const initialDelay = 250;
+    let reconnectDelay = initialDelay;
+    const openSocket = () => {
+      const socket = new WebSocket(url, {
+        headers: { "X-CLI-Token": cliToken },
+        handshakeTimeout: 5_000,
+      });
+      this.ws = socket;
+      socket.on("open", () => {
+        if (this.ws !== socket) return;
+        const reconnected = reconnectDelay > initialDelay;
+        reconnectDelay = initialDelay;
+        this.startHeartbeat();
+        if (this.watchedSessionId !== null) this.watchSession(this.watchedSessionId);
+        handlers.onOpen?.(reconnected);
+      });
+      socket.on("message", (data: WebSocket.Data) => {
+        if (this.ws === socket) dispatchWSMessage(data.toString(), handlers);
+      });
+      // The transport emits close after an error, including handshake failures.
+      socket.on("error", () => {});
+      socket.on("close", () => {
+        if (this.ws !== socket) return;
+        this.ws = null;
+        this.activeTurnId = "";
+        this.backgroundTasks.clear();
+        this.clearHeartbeat();
+        const firstDisconnect = reconnectDelay === initialDelay;
+        this.reconnectTimer = setTimeout(() => {
+          this.reconnectTimer = null;
+          openSocket();
+        }, reconnectDelay);
+        reconnectDelay = Math.min(reconnectDelay * 2, 5_000);
+        if (firstDisconnect) handlers.onClose?.();
+      });
+    };
+    openSocket();
   }
 
   send(content: string, sessionId: string, modelId: string, thinkingLevel: string = "off", planMode: boolean = false, subagentModelId: string = ""): boolean {
@@ -262,6 +277,11 @@ export class CLISocket {
   }
 
   watchSession(sessionId: string): boolean {
+    if (sessionId !== this.watchedSessionId) {
+      this.activeTurnId = "";
+      this.backgroundTasks.clear();
+    }
+    this.watchedSessionId = sessionId;
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return false;
     this.ws.send(JSON.stringify({ type: "watch_session", sessionId }));
     return true;
@@ -313,10 +333,16 @@ export class CLISocket {
 
   close(): void {
     this.clearHeartbeat();
-    if (this.ws) {
-      this.ws.close();
-      this.ws = null;
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
     }
+    const socket = this.ws;
+    this.ws = null;
+    this.watchedSessionId = null;
+    this.activeTurnId = "";
+    this.backgroundTasks.clear();
+    socket?.close();
   }
 
   private startHeartbeat(): void {

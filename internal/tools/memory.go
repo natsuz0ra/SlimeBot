@@ -95,7 +95,7 @@ func (m *memoryTool) add(ctx context.Context, service *memorysvc.Service, params
 	if err != nil {
 		return &ExecuteResult{Error: err.Error()}, nil
 	}
-	content := stringParam(params, "content")
+	content := paramStringTrim(params, "content")
 	if content == "" {
 		return &ExecuteResult{Error: "content is required"}, nil
 	}
@@ -111,8 +111,8 @@ func (m *memoryTool) replace(ctx context.Context, service *memorysvc.Service, pa
 	if err != nil {
 		return &ExecuteResult{Error: err.Error()}, nil
 	}
-	oldText := stringParam(params, "old_text")
-	content := stringParam(params, "content")
+	oldText := paramStringTrim(params, "old_text")
+	content := paramStringTrim(params, "content")
 	if oldText == "" {
 		return &ExecuteResult{Error: "old_text is required"}, nil
 	}
@@ -131,7 +131,7 @@ func (m *memoryTool) remove(ctx context.Context, service *memorysvc.Service, par
 	if err != nil {
 		return &ExecuteResult{Error: err.Error()}, nil
 	}
-	oldText := stringParam(params, "old_text")
+	oldText := paramStringTrim(params, "old_text")
 	if oldText == "" {
 		return &ExecuteResult{Error: "old_text is required"}, nil
 	}
@@ -143,7 +143,7 @@ func (m *memoryTool) remove(ctx context.Context, service *memorysvc.Service, par
 }
 
 func (m *memoryTool) read(ctx context.Context, service *memorysvc.Service, params map[string]any) (*ExecuteResult, error) {
-	targetText := stringParam(params, "target")
+	targetText := paramStringTrim(params, "target")
 	if targetText != "" {
 		target, err := memorysvc.NormalizeTarget(targetText)
 		if err != nil {
@@ -170,22 +170,11 @@ func (m *memoryTool) read(ctx context.Context, service *memorysvc.Service, param
 }
 
 func targetFromParams(params map[string]any) (memorysvc.Target, error) {
-	target, err := memorysvc.NormalizeTarget(stringParam(params, "target"))
+	target, err := memorysvc.NormalizeTarget(paramStringTrim(params, "target"))
 	if err != nil {
 		return "", fmt.Errorf("target must be memory or user")
 	}
 	return target, nil
-}
-
-func stringParam(params map[string]any, key string) string {
-	if params == nil {
-		return ""
-	}
-	value, ok := params[key]
-	if !ok || value == nil {
-		return ""
-	}
-	return strings.TrimSpace(fmt.Sprintf("%v", value))
 }
 
 func memoryToolOutput(state memorysvc.TargetState) (*ExecuteResult, error) {

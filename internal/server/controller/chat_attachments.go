@@ -22,10 +22,6 @@ type attachmentUploadItem struct {
 // UploadSessionAttachments stages chat files and returns temporary attachment IDs for the session.
 // This endpoint only stores refs; model inference consumes them via chat requests.
 func (h *HTTPController) UploadSessionAttachments(c WebContext) {
-	if h.chatUploads == nil {
-		jsonError(c, http.StatusInternalServerError, "Chat upload service is not initialized.")
-		return
-	}
 	sessionID := strings.TrimSpace(c.Param("id"))
 	if sessionID == "" {
 		jsonError(c, http.StatusBadRequest, "session id is required.")

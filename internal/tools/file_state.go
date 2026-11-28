@@ -29,9 +29,6 @@ func NewReadFileState() *ReadFileState {
 
 // WithReadFileState attaches a file state cache to a tool execution context.
 func WithReadFileState(ctx context.Context, state *ReadFileState) context.Context {
-	if ctx == nil {
-		ctx = context.Background()
-	}
 	if state == nil {
 		return ctx
 	}

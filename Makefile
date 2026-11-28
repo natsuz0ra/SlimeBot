@@ -1,4 +1,4 @@
-.PHONY: deps build clean test cli package docker-build docker-run compose-up compose-down
+.PHONY: deps build clean test verify cli package docker-build docker-run compose-up compose-down
 
 IMAGE ?= slimebot:latest
 SLIMEBOT_HOME ?= $(HOME)/.slimebot
@@ -30,6 +30,9 @@ clean:
 
 test:
 	go test ./...
+
+verify:
+	npm run verify
 
 docker-build:
 	docker build -t $(IMAGE) .

@@ -8,9 +8,6 @@ import (
 )
 
 func (h *HTTPController) DestroySessionPrivacyMappings(c WebContext) {
-	if !h.privacyReady(c) {
-		return
-	}
 	ctx := c.Request().Context()
 	id := c.Param("id")
 	if h.checkpoints != nil {

@@ -2,8 +2,6 @@ package chat
 
 import (
 	"sync"
-
-	llmsvc "slimebot/internal/services/llm"
 )
 
 type contextUsageTracker struct {
@@ -17,13 +15,6 @@ func newContextUsageTracker(initial ContextUsage, onUsage func(ContextUsage) err
 		usage:   initial,
 		onUsage: onUsage,
 	}
-}
-
-func (t *contextUsageTracker) calibrateProviderUsage(usage llmsvc.TokenUsage) error {
-	if usage.IsZero() {
-		return nil
-	}
-	return t.setUsedTokens(usage.InputContextTokens(llmsvc.ProviderOpenAI))
 }
 
 func (t *contextUsageTracker) setUsedTokens(usedTokens int) error {
@@ -40,7 +31,7 @@ func (t *contextUsageTracker) setUsedTokens(usedTokens int) error {
 }
 
 func (t *contextUsageTracker) emit(usage ContextUsage) error {
-	if t == nil || t.onUsage == nil {
+	if t.onUsage == nil {
 		return nil
 	}
 	return t.onUsage(usage)

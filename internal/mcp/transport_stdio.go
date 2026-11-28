@@ -139,10 +139,7 @@ func (c *stdioClient) notify(method string, params map[string]any) error {
 }
 
 func readRPCMessage(ctx context.Context, r io.Reader) ([]byte, error) {
-	reader, ok := r.(*bufio.Reader)
-	if !ok {
-		reader = bufio.NewReader(r)
-	}
+	reader := r.(*bufio.Reader)
 	type rpcResult struct {
 		data []byte
 		err  error

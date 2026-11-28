@@ -93,12 +93,6 @@ func (a *AgentService) getSessionReadFileState(sessionID string) *tools.ReadFile
 	}
 	a.readFilesMu.Lock()
 	defer a.readFilesMu.Unlock()
-	if a.readFilesBySess == nil {
-		a.readFilesBySess = make(map[string]*tools.ReadFileState)
-	}
-	if a.readFilesAt == nil {
-		a.readFilesAt = make(map[string]time.Time)
-	}
 	state := a.readFilesBySess[key]
 	if state == nil {
 		state = tools.NewReadFileState()
@@ -136,12 +130,6 @@ func (a *AgentService) getSessionTodoState(sessionID string) *tools.TodoState {
 	}
 	a.readFilesMu.Lock()
 	defer a.readFilesMu.Unlock()
-	if a.todosBySess == nil {
-		a.todosBySess = make(map[string]*tools.TodoState)
-	}
-	if a.todosAt == nil {
-		a.todosAt = make(map[string]time.Time)
-	}
 	state := a.todosBySess[key]
 	if state == nil {
 		state = tools.NewTodoState()
@@ -176,12 +164,6 @@ func (a *AgentService) getSessionProcessManager(sessionID string) *tools.Process
 	}
 	a.readFilesMu.Lock()
 	defer a.readFilesMu.Unlock()
-	if a.processesBySess == nil {
-		a.processesBySess = make(map[string]*tools.ProcessManager)
-	}
-	if a.processesAt == nil {
-		a.processesAt = make(map[string]time.Time)
-	}
 	manager := a.processesBySess[key]
 	if manager == nil {
 		manager = tools.NewProcessManager()
@@ -632,7 +614,7 @@ func (a *AgentService) RunAgentLoop(
 		if result.TokenUsage != nil {
 			contextRun.Calibrate(*result.TokenUsage, modelConfig.Provider, contextsvc.Estimate(messages, toolDefs))
 		}
-		if result != nil && result.TokenUsage != nil && !result.TokenUsage.IsZero() {
+		if result.TokenUsage != nil && !result.TokenUsage.IsZero() {
 			if opts.LatestUsage != nil {
 				*opts.LatestUsage = *result.TokenUsage
 			}
@@ -1256,12 +1238,6 @@ func executeToolCall(ctx context.Context, toolName, command string, params map[s
 		return &tools.ExecuteResult{Error: err.Error()}
 	}
 	return result
-}
-
-// requiresToolApproval defines which tools need approval or automatic review.
-// When approvalMode is "auto", all tools skip approval except ask_questions (which always needs user interaction).
-func requiresToolApproval(toolName string, isMCP bool, approvalMode string) bool {
-	return determineToolApprovalPolicy(toolName, isMCP, approvalMode) != toolApprovalPolicyNone
 }
 
 func determineToolApprovalPolicy(toolName string, isMCP bool, approvalMode string) toolApprovalPolicy {

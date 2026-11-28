@@ -38,12 +38,6 @@ func (s *ChatService) noteMemoryReviewTurn(sessionID string, interval int) bool 
 	}
 	s.memoryReviewMu.Lock()
 	defer s.memoryReviewMu.Unlock()
-	if s.memoryReviewTurns == nil {
-		s.memoryReviewTurns = make(map[string]int)
-	}
-	if s.memoryReviewTouched == nil {
-		s.memoryReviewTouched = make(map[string]time.Time)
-	}
 	s.memoryReviewTurns[key]++
 	s.memoryReviewTouched[key] = time.Now()
 	trigger := s.memoryReviewTurns[key] >= interval

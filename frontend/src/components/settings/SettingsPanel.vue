@@ -1,10 +1,9 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, useId, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { mdiClose } from '@mdi/js'
+import { ChartNoAxesColumn, CircleArrowDown, FileText, Info, MessageSquareText, Notebook, Plug, Puzzle, Server, Shield, SlidersHorizontal, Terminal, X, type LucideIcon } from 'lucide-vue-next'
 import CodeMirror from 'vue-codemirror6'
 
-import MdiIcon from '@/components/ui/MdiIcon.vue'
 import AppDialog from '@/components/ui/AppDialog.vue'
 import AppTextInput from '@/components/ui/AppTextInput.vue'
 import AppPasswordInput from '@/components/ui/AppPasswordInput.vue'
@@ -66,19 +65,19 @@ const chatStore = useChatStore()
 const router = useRouter()
 const { language, languageSelectOptions, savingLanguage, loadLanguage, changeLanguage } = useLanguagePreference()
 
-const settingsTabs: { key: SettingsTabKey; labelKey: string }[] = [
-  { key: 'basic', labelKey: 'basicSettings' },
-  { key: 'llm', labelKey: 'llmSettings' },
-  { key: 'mcp', labelKey: 'mcpSettings' },
-  { key: 'acp', labelKey: 'acpSettings' },
-  { key: 'skills', labelKey: 'skillsSettings' },
-  { key: 'agents', labelKey: 'agentsSettings' },
-  { key: 'memory', labelKey: 'memorySettings' },
-  { key: 'privacy', labelKey: 'privacySettings' },
-  { key: 'usage', labelKey: 'usageSettings' },
-  { key: 'platform', labelKey: 'messagePlatformSettings' },
-  { key: 'update', labelKey: 'updateSettings' },
-  { key: 'about', labelKey: 'aboutSettings' },
+const settingsTabs: { key: SettingsTabKey; labelKey: string; icon: LucideIcon }[] = [
+  { key: 'basic', labelKey: 'basicSettings', icon: SlidersHorizontal },
+  { key: 'llm', labelKey: 'llmSettings', icon: Server },
+  { key: 'mcp', labelKey: 'mcpSettings', icon: Plug },
+  { key: 'acp', labelKey: 'acpSettings', icon: Terminal },
+  { key: 'skills', labelKey: 'skillsSettings', icon: Puzzle },
+  { key: 'agents', labelKey: 'agentsSettings', icon: FileText },
+  { key: 'memory', labelKey: 'memorySettings', icon: Notebook },
+  { key: 'privacy', labelKey: 'privacySettings', icon: Shield },
+  { key: 'usage', labelKey: 'usageSettings', icon: ChartNoAxesColumn },
+  { key: 'platform', labelKey: 'messagePlatformSettings', icon: MessageSquareText },
+  { key: 'update', labelKey: 'updateSettings', icon: CircleArrowDown },
+  { key: 'about', labelKey: 'aboutSettings', icon: Info },
 ]
 
 const tab = ref<SettingsTabKey>(props.initialTab || 'basic')
@@ -520,19 +519,16 @@ watch(tab, (nextTab) => {
   <div class="h-full flex flex-col overflow-hidden settings-root">
     <div class="flex items-center justify-between px-5 h-13 flex-shrink-0 settings-header">
       <div class="flex items-center gap-2.5">
-        <div class="w-6 h-6 rounded-md flex items-center justify-center" style="background: var(--bg-subtle); border: 1px solid var(--border-default); color: var(--text-secondary)">
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none">
-            <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
-          </svg>
-        </div>
+        <SlidersHorizontal :size="19" :stroke-width="1.75" class="sb-text-secondary shrink-0" aria-hidden="true" />
         <span class="settings-title">{{ t('settings') }}</span>
       </div>
       <button
         type="button"
         class="w-8 h-8 flex items-center justify-center rounded-xl transition-all duration-150 cursor-pointer settings-close-btn"
+        :aria-label="t('close')"
         @click="emit('close')"
       >
-        <MdiIcon :path="mdiClose" :size="15" />
+        <X :size="16" :stroke-width="1.75" aria-hidden="true" />
       </button>
     </div>
 
@@ -551,6 +547,7 @@ watch(tab, (nextTab) => {
             class="absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-5 rounded-r-full"
             style="background: var(--sb-brand)"
           />
+          <component :is="item.icon" :size="16" :stroke-width="1.75" class="shrink-0" aria-hidden="true" />
           <span class="settings-tab-label">{{ t(item.labelKey) }}</span>
           <span v-if="item.key === 'update' && hasUpdateNotice" class="update-notice-dot" aria-hidden="true" />
         </button>

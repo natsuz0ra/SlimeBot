@@ -1,8 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, useAttrs } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { mdiEyeOffOutline, mdiEyeOutline } from '@mdi/js'
-import MdiIcon from '@/components/ui/MdiIcon.vue'
+import { Eye, EyeOff } from 'lucide-vue-next'
 
 const { t } = useI18n()
 
@@ -41,7 +40,7 @@ const hideLabelResolved = computed(() => props.hideLabel ?? t('hidePassword'))
 
 const inputType = computed(() => (showPassword.value ? 'text' : 'password'))
 const toggleLabel = computed(() => (showPassword.value ? hideLabelResolved.value : showLabelResolved.value))
-const toggleIcon = computed(() => (showPassword.value ? mdiEyeOffOutline : mdiEyeOutline))
+const toggleIcon = computed(() => (showPassword.value ? EyeOff : Eye))
 const inputAttrs = computed(() => {
   const { class: _class, ...rest } = attrs
   return rest
@@ -78,7 +77,7 @@ function togglePasswordVisibility() {
       :title="toggleLabel"
       @click="togglePasswordVisibility"
     >
-      <MdiIcon :path="toggleIcon" :size="18" />
+      <component :is="toggleIcon" :size="18" :stroke-width="1.75" aria-hidden="true" />
     </button>
   </div>
 </template>

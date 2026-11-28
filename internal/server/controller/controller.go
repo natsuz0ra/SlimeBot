@@ -114,7 +114,6 @@ type HTTPController struct {
 	acpClient        *acpclient.Manager
 	resetACP         func(context.Context, string) error
 	sessionWorkbench sessionWorkbenchService
-	promptTemplates  promptTemplateService
 	terminal         *terminal.Manager
 	terminalSettings terminalSettings
 	skillPackage     skillPackageService

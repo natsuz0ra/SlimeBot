@@ -1,8 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { mdiClose } from '@mdi/js'
-import MdiIcon from '@/components/ui/MdiIcon.vue'
+import { X } from 'lucide-vue-next'
 import LoadingSpinner from '@/components/ui/LoadingSpinner.vue'
 import { ownsModalKeyboard, modalFocusableElements } from '@/utils/dialogFocus'
 import { isMaskSelfEvent, shouldCloseOnMaskInteraction } from '@/utils/dialogMask'
@@ -175,7 +174,7 @@ onUnmounted(() => {
               class="w-7 h-7 flex items-center justify-center rounded-lg transition-all duration-150 cursor-pointer dialog-close-btn"
               @click="close"
             >
-              <MdiIcon :path="mdiClose" :size="15" />
+              <X :size="15" :stroke-width="1.75" aria-hidden="true" />
             </button>
           </div>
 

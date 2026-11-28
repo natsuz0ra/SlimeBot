@@ -108,8 +108,6 @@ func New(cfg config.Config, tokenManager *auth.TokenManager, httpController *con
 			api.Post("/privacy/model/cancel", adapt(httpController.CancelPrivacyModel))
 			api.Delete("/privacy/model", adapt(httpController.RemovePrivacyModel))
 			api.Put("/settings", adapt(httpController.UpdateSettings))
-			api.Get("/prompt-templates", adapt(httpController.GetPromptTemplates))
-			api.Put("/prompt-templates", adapt(httpController.PutPromptTemplates))
 			api.Get("/terminal/status", adapt(httpController.GetTerminalStatus))
 			api.Put("/terminal/settings", adapt(httpController.UpdateTerminalSettings))
 			api.Post("/terminal/sessions", adapt(httpController.CreateTerminal))

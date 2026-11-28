@@ -3,7 +3,6 @@ package router
 import (
 	"context"
 	"encoding/json"
-	"io"
 	"mime"
 	"net/http"
 	"net/http/httptest"
@@ -17,7 +16,6 @@ import (
 	"slimebot/internal/server/controller"
 	"slimebot/internal/server/ws"
 	sessionsvc "slimebot/internal/services/session"
-	settingssvc "slimebot/internal/services/settings"
 )
 
 func TestSessionWorkbenchRoutes(t *testing.T) {
@@ -26,7 +24,6 @@ func TestSessionWorkbenchRoutes(t *testing.T) {
 	repo := repositories.New(db)
 	t.Cleanup(func() { _ = repo.Close() })
 	sessions := sessionsvc.NewSessionService(repo)
-	settings := settingssvc.NewSettingsService(repo)
 	old, err := sessions.Create(ctx, "审查 / Branch")
 	if err != nil {
 		t.Fatal(err)
@@ -63,7 +60,6 @@ func TestSessionWorkbenchRoutes(t *testing.T) {
 	}
 	h := &controller.HTTPController{}
 	h.SetSessionWorkbenchService(sessions)
-	h.SetPromptTemplateService(settings)
 	handler := New(config.Config{}, tokens, h, ws.NewController(nil, nil), nil, RouterConfig{Headless: true})
 	request := func(method, path, body string, status int) *httptest.ResponseRecorder {
 		t.Helper()
@@ -103,13 +99,4 @@ func TestSessionWorkbenchRoutes(t *testing.T) {
 		t.Fatalf("filename header: %v, %v", params, err)
 	}
 	request(http.MethodGet, path+"/export?format=xml", "", http.StatusBadRequest)
-	request(http.MethodGet, "/prompt-templates", "", http.StatusOK)
-	request(http.MethodPut, "/prompt-templates", `[{"slash":"terminal","title":"No","content":"Test"}]`, http.StatusBadRequest)
-	request(http.MethodPut, "/prompt-templates", `[] []`, http.StatusBadRequest)
-	request(http.MethodPut, "/prompt-templates", `[]`, http.StatusOK)
-	res = request(http.MethodGet, "/prompt-templates", "", http.StatusOK)
-	body, _ := io.ReadAll(res.Body)
-	if strings.TrimSpace(string(body)) != "[]" {
-		t.Fatalf("explicitly empty templates reverted to defaults: %q", body)
-	}
 }

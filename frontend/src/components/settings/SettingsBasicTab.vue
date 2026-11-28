@@ -5,16 +5,14 @@ import LanguageSwitcher from '@/components/ui/LanguageSwitcher.vue'
 import AppSelect from '@/components/ui/AppSelect.vue'
 import ToggleSwitch from '@/components/ui/ToggleSwitch.vue'
 import AppTextInput from '@/components/ui/AppTextInput.vue'
-import MdiIcon from '@/components/ui/MdiIcon.vue'
 import LoadingSpinner from '@/components/ui/LoadingSpinner.vue'
-import { mdiAlertCircleOutline, mdiCheckCircleOutline, mdiLanConnect } from '@mdi/js'
+import { CircleAlert, CircleCheck, Network } from 'lucide-vue-next'
 import type { SelectOption } from '@/components/ui/AppSelect.vue'
 import type { LanguageCode } from '@/composables/useLanguagePreference'
 import type { ProxyTestResult, SandboxMode } from '@/types/settings'
 import { getTerminalStatus, updateTerminalSettings, type TerminalStatus } from '@/api/terminal'
 import { useTerminalStore } from '@/stores/terminal'
 import { useToast } from '@/composables/useToast'
-import SettingsPromptTemplates from '@/components/settings/SettingsPromptTemplates.vue'
 
 const props = defineProps<{
   language: LanguageCode
@@ -75,7 +73,6 @@ onMounted(() => { void loadTerminal().catch(() => toast.error(t('terminalError')
 
 <template>
   <div>
-    <SettingsPromptTemplates />
     <section v-if="terminalSettings" class="settings-card px-4 py-3.5 rounded-xl mb-2">
       <div class="flex items-center justify-between gap-3">
         <label id="settings-terminal-enabled" class="settings-field-label">{{ t('terminalEnable') }}</label>
@@ -116,7 +113,7 @@ onMounted(() => { void loadTerminal().catch(() => toast.error(t('terminalError')
     <div class="settings-card px-4 py-4 rounded-xl mt-2">
       <div class="flex items-start justify-between gap-3">
         <div class="flex items-start gap-3 min-w-0">
-          <span class="proxy-icon flex-shrink-0 flex items-center justify-center rounded-lg"><MdiIcon :path="mdiLanConnect" :size="18" /></span>
+          <span class="settings-icon-tile size-[34px]"><Network :size="18" :stroke-width="1.75" aria-hidden="true" /></span>
           <div>
             <div class="settings-field-label">{{ t('proxySetting') }}</div>
             <p class="proxy-help settings-item-sub mt-0.5">{{ t('proxyDescription') }}</p>
@@ -159,7 +156,7 @@ onMounted(() => { void loadTerminal().catch(() => toast.error(t('terminalError')
         <div role="status" aria-live="polite" aria-atomic="true">
           <div v-if="proxyTestResult || proxyTestError" class="proxy-result rounded-lg px-3 py-3 mt-3" :class="{ 'proxy-result-error': proxyTestError || !proxyTestResult?.success }">
             <div class="flex items-start gap-2.5">
-              <MdiIcon :path="proxyTestResult?.success ? mdiCheckCircleOutline : mdiAlertCircleOutline" :size="18" class="proxy-result-icon flex-shrink-0 mt-0.5" aria-hidden="true" />
+              <component :is="proxyTestResult?.success ? CircleCheck : CircleAlert" :size="18" :stroke-width="1.75" class="proxy-result-icon flex-shrink-0 mt-0.5" aria-hidden="true" />
               <div class="min-w-0 flex-1">
                 <div class="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
                   <span class="settings-field-label">{{ t(proxyTestResult?.success ? 'proxyTestSuccess' : 'proxyTestFailure') }}</span>
@@ -210,7 +207,6 @@ onMounted(() => { void loadTerminal().catch(() => toast.error(t('terminalError')
 </template>
 
 <style scoped>
-.proxy-icon { width: 34px; height: 34px; color: var(--sb-brand); background: var(--primary-alpha-12); }
 .proxy-status { padding: 4px 9px; border-radius: 999px; color: var(--text-secondary); background: var(--primary-alpha-07); font-size: 11px; font-weight: 600; }
 .proxy-status-on { color: var(--sb-brand); background: var(--primary-alpha-12); }
 .proxy-help { color: var(--text-secondary); }

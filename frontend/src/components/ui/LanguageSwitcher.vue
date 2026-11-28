@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { ChevronDown, Globe } from 'lucide-vue-next'
 
 interface LanguageOption {
   value: string
@@ -153,25 +154,14 @@ onBeforeUnmount(() => {
       @click="toggleMenu"
       @keydown="handleTriggerKeydown"
     >
-      <svg class="language-switcher-globe" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-        <circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="1.8" />
-        <path
-          d="M3 12h18M12 3c2.5 2.4 3.9 5.6 3.9 9s-1.4 6.6-3.9 9M12 3c-2.5 2.4-3.9 5.6-3.9 9s1.4 6.6 3.9 9"
-          stroke="currentColor"
-          stroke-width="1.8"
-          stroke-linecap="round"
-        />
-      </svg>
+      <Globe class="language-switcher-globe" :stroke-width="1.75" aria-hidden="true" />
       <span>{{ selectedLabel }}</span>
-      <svg
+      <ChevronDown
         class="language-switcher-caret"
         :class="{ 'language-switcher-caret-open': menuOpen }"
-        viewBox="0 0 20 20"
-        fill="none"
+        :stroke-width="1.75"
         aria-hidden="true"
-      >
-        <path d="M5 7.5L10 12.5L15 7.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
-      </svg>
+      />
     </button>
 
     <Transition name="language-switcher-menu-pop">

@@ -3,23 +3,10 @@ import { computed, nextTick, onMounted, onUnmounted, ref, toRef, watch } from 'v
 import { useRoute, useRouter } from 'vue-router'
 import { isAxiosError } from 'axios'
 import { apiClient } from '@/api/client'
-import {
-  mdiDeleteOutline,
-  mdiConsoleLine,
-  mdiDownloadOutline,
-  mdiPinOutline,
-  mdiPinOffOutline,
-  mdiSourceBranch,
-  mdiFolderOutline,
-  mdiMenu,
-  mdiCalendarClockOutline,
-  mdiPencilOutline,
-  mdiPaperclip,
-} from '@mdi/js'
+import { CalendarClock, Download, Folder, GitBranch, Menu, Paperclip, Pencil, Pin, PinOff, Terminal, Trash2 } from 'lucide-vue-next'
 
 import QuestionAnswerDrawer from '@/components/chat/QuestionAnswerDrawer.vue'
 import TodoPanel from '@/components/chat/TodoPanel.vue'
-import MdiIcon from '@/components/ui/MdiIcon.vue'
 import ChatComposer from '@/components/chat/ChatComposer.vue'
 import TerminalDrawer from '@/components/chat/TerminalDrawer.vue'
 import SessionExportDialog from '@/components/chat/SessionExportDialog.vue'
@@ -44,12 +31,11 @@ import { useToast } from '@/composables/useToast'
 import { useAuthStore } from '@/stores/auth'
 import { useTerminalStore } from '@/stores/terminal'
 import { extractTerminalCommand, canStageTerminalCommand } from '@/utils/terminalLink'
-import { promptTemplatesAPI } from '@/api/promptTemplates'
 import { acpAPI } from '@/api/acp'
 import { skillsAPI } from '@/api/skills'
 import type { SessionItem } from '@/api/chat'
 import type { SkillItem } from '@/types/settings'
-import { getSlashCommands, type PromptTemplate, type WorkspaceCommand } from '@/utils/slashCommands'
+import { getSlashCommands, type WorkspaceCommand } from '@/utils/slashCommands'
 import { workspaceAPI, type WorkspaceGitStatus } from '@/api/workspace'
 import type { SettingsTabKey } from '@/types/settings'
 
@@ -91,10 +77,9 @@ const announcePrivacyMappingCleared = ref(false)
 const toast = useToast()
 const exportSession = ref<SessionItem>()
 const pinning = new Set<string>()
-const templates = ref<PromptTemplate[]>([])
 const skills = ref<SkillItem[]>([])
 const slashCommands = computed(() => getSlashCommands(
-  templates.value, skills.value, command => t(`slashCommand.${command}`), name => t('slashSkillPrompt', { name }),
+  skills.value, command => t(`slashCommand.${command}`), name => t('slashSkillPrompt', { name }),
 ))
 const floatingSession = computed(() => store.sessions.find(session => session.id === sessions.activeSessionMenu?.id))
 const acpAgentName = computed(() => {
@@ -195,14 +180,15 @@ async function quoteWorkspacePath(path: string) {
   await appendToComposer(t('workspaceQuote', { path: `${fence} ${text} ${fence}` }))
 }
 
-async function refreshSlashCommands() {
-  await Promise.allSettled([
-    promptTemplatesAPI.list().then(items => { templates.value = items }),
-    skillsAPI.list().then(items => { skills.value = items }),
-  ])
+async function refreshSlashSkills() {
+  try {
+    skills.value = await skillsAPI.list()
+  } catch {
+    // Keep the last loaded skills if the request fails.
+  }
 }
 
-watch(() => ui.settingsVisible, visible => { if (!visible) void refreshSlashCommands() })
+watch(() => ui.settingsVisible, visible => { if (!visible) void refreshSlashSkills() })
 
 async function toggleSessionPin(session: SessionItem) {
   sessions.activeSessionMenu = null
@@ -518,7 +504,7 @@ const { isMac, isDesktop } = useHomeShortcuts({
 
 onMounted(() => {
   drawerMedia.addEventListener('change', updateWorkspaceMedia)
-  void refreshSlashCommands()
+  void refreshSlashSkills()
   void terminal.refresh().catch(() => {})
   void checkForUpdate()
   window.addEventListener('dragover', onWindowDragOver)
@@ -614,8 +600,8 @@ onUnmounted(() => {
       <main class="relative z-0 flex-1 flex flex-col min-w-0" :inert="workspaceOverlay">
 
         <header v-if="isTasksWorkspace" class="header-bar flex items-center gap-2.5 h-12 shrink-0 px-3">
-          <button type="button" class="sb-text-muted w-8 h-8 flex items-center justify-center rounded-lg cursor-pointer" :aria-label="t('scheduleToggleSidebar')" @click="ui.toggleSidebar"><MdiIcon :path="mdiMenu" :size="18" /></button>
-          <MdiIcon :path="mdiCalendarClockOutline" :size="17" class="sb-text-muted" />
+          <button type="button" class="sb-text-muted w-8 h-8 flex items-center justify-center rounded-lg cursor-pointer" :aria-label="t('scheduleToggleSidebar')" @click="ui.toggleSidebar"><Menu :size="18" :stroke-width="1.75" aria-hidden="true" /></button>
+          <CalendarClock :size="17" :stroke-width="1.75" class="sb-text-muted" aria-hidden="true" />
           <span class="sb-text-primary text-sm font-semibold">{{ t('scheduleSettings') }}</span>
         </header>
         <div v-if="isTasksWorkspace" class="sb-scrollbar flex-1 min-h-0 overflow-y-auto">
@@ -645,12 +631,12 @@ onUnmounted(() => {
               :aria-pressed="workspaceOpen" :aria-label="t('workspaceDrawer')" :title="workspaceDirectory"
               @click="openWorkspace(true)"
             >
-              <MdiIcon :path="gitStatus?.isRepo ? mdiSourceBranch : mdiFolderOutline" :size="15" />
+              <component :is="gitStatus?.isRepo ? GitBranch : Folder" :size="15" :stroke-width="1.75" aria-hidden="true" />
               <code>{{ gitStatus?.isRepo ? gitStatus.branch : workspaceName }}</code>
               <span v-if="gitStatus?.changes.length" class="workspace-header-count">{{ gitStatus.changes.length }}{{ gitStatus.truncated ? '+' : '' }}</span>
             </button>
             <button type="button" class="terminal-header-button" :aria-pressed="terminal.isOpen" :title="t('terminalTitle') + (isMac ? ' (⌘`)' : ' (Ctrl+`)')" :aria-label="t('terminalTitle')" @click="toggleTerminal">
-              <MdiIcon :path="mdiConsoleLine" :size="17" />
+              <Terminal :size="17" :stroke-width="1.75" aria-hidden="true" />
               <span v-if="terminal.hasRunning && !terminal.isOpen" class="terminal-header-dot" />
             </button>
             <CooperativePanel
@@ -679,7 +665,7 @@ onUnmounted(() => {
           <Transition name="overlay-fade">
             <div v-if="isDragOver" class="chat-drop-overlay pointer-events-none">
               <div class="chat-drop-card">
-                <MdiIcon :path="mdiPaperclip" :size="24" />
+                <Paperclip :size="24" :stroke-width="1.75" aria-hidden="true" />
                 <div class="chat-drop-title">{{ store.waiting ? t('uploadDropBlockedStreaming') : t('uploadDropTitle') }}</div>
                 <div v-if="!store.waiting" class="chat-drop-hint">{{ t('uploadTipLine2') }}</div>
               </div>
@@ -865,7 +851,7 @@ onUnmounted(() => {
           type="button" class="w-full flex items-center gap-2.5 px-3 h-9 text-sm cursor-pointer menu-item"
           @click="toggleSessionPin(floatingSession)"
         >
-          <MdiIcon :path="floatingSession.isPinned ? mdiPinOffOutline : mdiPinOutline" :size="14" />
+          <component :is="floatingSession.isPinned ? PinOff : Pin" :size="14" :stroke-width="1.75" aria-hidden="true" />
           {{ t(floatingSession.isPinned ? 'sessionUnpin' : 'sessionPin') }}
         </button>
         <button
@@ -873,14 +859,14 @@ onUnmounted(() => {
           class="w-full flex items-center gap-2.5 px-3 h-9 text-sm transition-colors duration-150 cursor-pointer menu-item"
           @click="sessions.renameFromFloatingMenu"
         >
-          <MdiIcon :path="mdiPencilOutline" :size="14" />
+          <Pencil :size="14" :stroke-width="1.75" aria-hidden="true" />
           <span>{{ t('rename') }}</span>
         </button>
         <button
           type="button" class="w-full flex items-center gap-2.5 px-3 h-9 text-sm cursor-pointer menu-item"
           @click="showSessionExport(floatingSession)"
         >
-          <MdiIcon :path="mdiDownloadOutline" :size="14" />
+          <Download :size="14" :stroke-width="1.75" aria-hidden="true" />
           {{ t('sessionExport') }}
         </button>
         <button
@@ -888,7 +874,7 @@ onUnmounted(() => {
           class="w-full flex items-center gap-2.5 px-3 h-9 text-sm border-t border-[var(--border-subtle)] transition-colors duration-150 cursor-pointer menu-item-danger"
           @click="sessions.deleteFromFloatingMenu"
         >
-          <MdiIcon :path="mdiDeleteOutline" :size="14" />
+          <Trash2 :size="14" :stroke-width="1.75" aria-hidden="true" />
           <span>{{ t('delete') }}</span>
         </button>
       </div>

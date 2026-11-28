@@ -1,8 +1,7 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { mdiChevronDown, mdiChevronUp, mdiCodeJson, mdiDeleteOutline, mdiPencilOutline, mdiPlus, mdiRefresh, mdiTools } from '@mdi/js'
-import MdiIcon from '@/components/ui/MdiIcon.vue'
+import { Braces, ChevronDown, ChevronUp, Pencil, Plus, RefreshCw, Trash2, Wrench } from 'lucide-vue-next'
 import LoadingSpinner from '@/components/ui/LoadingSpinner.vue'
 import ToggleSwitch from '@/components/ui/ToggleSwitch.vue'
 import type { MCPConfig, MCPToolItem, MCPToolListResponse } from '@/types/settings'
@@ -53,7 +52,7 @@ function schemaText(tool: MCPToolItem) {
   <div>
     <div class="flex justify-end mb-4">
       <button type="button" class="btn-primary action-btn flex items-center gap-1.5 px-3 py-1.5 rounded-xl cursor-pointer settings-action-text" @click="emit('add')">
-        <MdiIcon :path="mdiPlus" :size="13" />
+        <Plus :size="13" :stroke-width="1.75" aria-hidden="true" />
         {{ t('add') }}
       </button>
     </div>
@@ -92,7 +91,7 @@ function schemaText(tool: MCPToolItem) {
               :title="'查看 tools'"
               @click="toggleMcpTools(item)"
             >
-              <MdiIcon :path="mdiTools" :size="14" />
+              <Wrench :size="14" :stroke-width="1.75" aria-hidden="true" />
             </button>
             <button
               v-if="expandedMcpToolsId === item.id && item.isEnabled"
@@ -103,13 +102,13 @@ function schemaText(tool: MCPToolItem) {
               @click="loadMcpTools(item, true)"
             >
               <LoadingSpinner v-if="mcpToolLoading[item.id]" size-class="w-3 h-3" />
-              <MdiIcon v-else :path="mdiRefresh" :size="14" />
+              <RefreshCw v-else :size="14" :stroke-width="1.75" aria-hidden="true" />
             </button>
             <button type="button" class="w-7 h-7 flex items-center justify-center rounded-lg transition-all duration-150 cursor-pointer edit-btn" @click="emit('edit', item)">
-              <MdiIcon :path="mdiPencilOutline" :size="14" />
+              <Pencil :size="14" :stroke-width="1.75" aria-hidden="true" />
             </button>
             <button type="button" class="w-7 h-7 flex items-center justify-center rounded-lg transition-all duration-150 cursor-pointer delete-btn" @click="emit('delete', item.id)">
-              <MdiIcon :path="mdiDeleteOutline" :size="15" />
+              <Trash2 :size="15" :stroke-width="1.75" aria-hidden="true" />
             </button>
           </div>
         </div>
@@ -142,8 +141,8 @@ function schemaText(tool: MCPToolItem) {
                   <div class="mcp-tool-meta">{{ formatMCPToolParameters(tool) }}</div>
                 </div>
                 <button type="button" class="mcp-schema-btn" @click="toggleSchema(item.id, tool.name)">
-                  <MdiIcon :path="mdiCodeJson" :size="13" />
-                  <MdiIcon :path="schemaExpanded[schemaKey(item.id, tool.name)] ? mdiChevronUp : mdiChevronDown" :size="13" />
+                  <Braces :size="13" :stroke-width="1.75" aria-hidden="true" />
+                  <component :is="schemaExpanded[schemaKey(item.id, tool.name)] ? ChevronUp : ChevronDown" :size="13" :stroke-width="1.75" aria-hidden="true" />
                 </button>
                 <pre v-if="schemaExpanded[schemaKey(item.id, tool.name)]" class="mcp-schema-block">{{ schemaText(tool) }}</pre>
               </div>

@@ -5,6 +5,7 @@ import { mdiAccountGroupOutline, mdiChevronRight, mdiClose, mdiStopCircleOutline
 import AppTextInput from '@/components/ui/AppTextInput.vue'
 import { ownsModalKeyboard, modalFocusableElements } from '@/utils/dialogFocus'
 import MdiIcon from '@/components/ui/MdiIcon.vue'
+import { Users } from 'lucide-vue-next'
 import { cooperativeAPI, type CooperativeSnapshot } from '@/api/cooperative'
 import { cooperativeStatus, cooperativeReport, cooperativeError, latestAgentTurns, orderedAgentTree } from '@/utils/cooperative'
 import { settingAPI } from '@/api/settings'
@@ -165,7 +166,7 @@ function approvalLabel(payload: string) { try { const p = JSON.parse(payload); r
       :aria-label="text('协作', 'Collaboration')"
       @click="open"
     >
-      <MdiIcon :path="mdiAccountGroupOutline" :size="16" />
+      <Users :size="16" :stroke-width="1.75" aria-hidden="true" />
       <span>{{ text('协作', 'Collaboration') }}</span>
       <span v-if="snapshot.agents.length" class="coop-count">{{ snapshot.agents.length }}</span>
       <span v-if="active" class="coop-running"><i class="coop-dot" />{{ active }} {{ text('运行中', 'running') }}</span>

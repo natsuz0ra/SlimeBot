@@ -1,9 +1,8 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { mdiAlertCircleOutline, mdiCheckCircleOutline, mdiDownload, mdiOpenInNew, mdiRefresh } from '@mdi/js'
+import { CircleAlert, CircleCheck, Download, ExternalLink, RefreshCw } from 'lucide-vue-next'
 
-import MdiIcon from '@/components/ui/MdiIcon.vue'
 import { updateAPI } from '@/api/update'
 import type { UpdateCheckResult, UpdateJobStatus } from '@/types/update'
 import { isUpdateJobActive, normalizeUpdateJob, updateJobProgressPercent, updateJobStatusLabelKey, updatePhaseTone } from '@/utils/updateStatus'
@@ -39,9 +38,9 @@ const statusTone = computed(() => {
   return updatePhaseTone(job.value.phase)
 })
 const statusIcon = computed(() => {
-  if (statusTone.value === 'success') return mdiCheckCircleOutline
-  if (statusTone.value === 'danger') return mdiAlertCircleOutline
-  return mdiRefresh
+  if (statusTone.value === 'success') return CircleCheck
+  if (statusTone.value === 'danger') return CircleAlert
+  return RefreshCw
 })
 const statusText = computed(() => {
   if (errorMessage.value) return errorMessage.value
@@ -95,7 +94,7 @@ const primaryActionLabel = computed(() => {
   if (hasUpdate.value) return applying.value ? t('updateApplying') : job.value.phase === 'ready' ? t('updateInstallRestart') : t('downloadUpdate')
   return checking.value ? t('updateChecking') : t('checkUpdate')
 })
-const primaryActionIcon = computed(() => hasUpdate.value ? mdiDownload : mdiRefresh)
+const primaryActionIcon = computed(() => hasUpdate.value ? Download : RefreshCw)
 const showManualCommand = computed(() => Boolean(manualHint.value || (checkResult.value && hasUpdate.value && !checkResult.value.canApply)))
 const releaseSummaryVisible = computed(() => Boolean(releaseNotes.value))
 
@@ -189,7 +188,7 @@ onUnmounted(stopPolling)
           </div>
 
           <span class="update-status-pill" :data-tone="statusTone">
-            <MdiIcon :path="statusIcon" :size="15" />
+            <component :is="statusIcon" :size="15" :stroke-width="1.75" aria-hidden="true" />
             <span>{{ statusText }}</span>
           </span>
         </div>
@@ -208,7 +207,7 @@ onUnmounted(stopPolling)
             :disabled="hasUpdate ? !canApplyUpdate : checking || applying"
             @click="runPrimaryUpdateAction"
           >
-            <MdiIcon :path="primaryActionIcon" :size="15" />
+            <component :is="primaryActionIcon" :size="15" :stroke-width="1.75" aria-hidden="true" />
             <span>{{ primaryActionLabel }}</span>
           </button>
         </div>
@@ -232,7 +231,7 @@ onUnmounted(stopPolling)
         >
           <span>{{ t('updateReleasePage') }}</span>
           <strong>
-            <MdiIcon :path="mdiOpenInNew" :size="15" />
+            <ExternalLink :size="15" :stroke-width="1.75" aria-hidden="true" />
             {{ t('open') }}
           </strong>
         </a>

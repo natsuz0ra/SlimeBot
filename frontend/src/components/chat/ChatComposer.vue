@@ -16,7 +16,7 @@ import type { ApprovalMode } from '@/types/settings'
 import WorkspacePicker from '@/components/chat/WorkspacePicker.vue'
 import ContextUsagePopover from '@/components/chat/ContextUsagePopover.vue'
 import SlashCommandMenu from '@/components/chat/SlashCommandMenu.vue'
-import { expandSlashTemplate, filterSlashCommands, slashQuery, type SlashCommand, type WorkspaceCommand } from '@/utils/slashCommands'
+import { filterSlashCommands, slashQuery, type SlashCommand, type WorkspaceCommand } from '@/utils/slashCommands'
 import { getApprovalModeLabelKey, getApprovalModeOptions, getApprovalModeTone } from '@/utils/approvalMode'
 import { isACPEngine } from '@/utils/acp'
 
@@ -103,13 +103,12 @@ async function selectSlashCommand(command: SlashCommand) {
     emit('slashAction', command.slash)
     return
   }
-  const choice = expandSlashTemplate(command.content)
-  emit('update:modelValue', choice.text)
+  emit('update:modelValue', command.content)
   await nextTick()
   const field = textareaRef.value
   if (!field) return
   field.focus()
-  field.setSelectionRange(choice.caret, choice.caret)
+  field.setSelectionRange(command.content.length, command.content.length)
   resizeTextarea(field)
   syncCaret()
 }

@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { useI18n } from 'vue-i18n'
-import { mdiDeleteOutline, mdiPlus } from '@mdi/js'
-import MdiIcon from '@/components/ui/MdiIcon.vue'
+import { Plus, Trash2 } from 'lucide-vue-next'
 import LoadingSpinner from '@/components/ui/LoadingSpinner.vue'
 import { canDeleteSkill } from '@/utils/skills'
 import type { SkillItem } from '@/types/settings'
@@ -39,7 +38,7 @@ function readChecked(event: Event) {
         @click="emit('openPicker')"
       >
         <LoadingSpinner v-if="skillsUploading" size-class="w-3 h-3" />
-        <MdiIcon v-else :path="mdiPlus" :size="13" />
+        <Plus v-else :size="13" :stroke-width="1.75" aria-hidden="true" />
         {{ t('skillsUploadButton') }}
       </button>
     </div>
@@ -81,7 +80,7 @@ function readChecked(event: Event) {
           <span class="skill-switch-track" />
         </label>
         <button v-if="canDeleteSkill(item)" type="button" class="flex-shrink-0 w-7 h-7 flex items-center justify-center rounded-lg transition-all duration-150 cursor-pointer delete-btn" @click="emit('delete', item.id)">
-          <MdiIcon :path="mdiDeleteOutline" :size="15" />
+          <Trash2 :size="15" :stroke-width="1.75" aria-hidden="true" />
         </button>
       </div>
     </div>

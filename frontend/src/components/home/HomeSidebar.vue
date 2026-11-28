@@ -1,24 +1,13 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import {
-  mdiChevronDown,
-  mdiCalendarClockOutline,
-  mdiCogOutline,
-  mdiMagnify,
-  mdiFolderOutline,
-  mdiMessageTextOutline,
-  mdiSlack,
-  mdiWechat,
-  mdiPlus,
-  mdiPinOutline,
-  mdiWeatherNight,
-  mdiWeatherSunny,
-} from '@mdi/js'
+import { mdiSlack, mdiWechat } from '@mdi/js'
+import { CalendarClock, ChevronDown, Folder, MessageSquareText, Moon, Pin, Plus, Search, SlidersHorizontal, Sun } from 'lucide-vue-next'
 import type { SessionItem } from '@/api/chat'
 import MdiIcon from '@/components/ui/MdiIcon.vue'
 import AppLogo from '@/components/ui/AppLogo.vue'
 import AppSelect from '@/components/ui/AppSelect.vue'
+import LoadingSpinner from '@/components/ui/LoadingSpinner.vue'
 import SidebarSessionRow from '@/components/home/SidebarSessionRow.vue'
 import TruncationTooltip from '@/components/ui/TruncationTooltip.vue'
 import { useChatStore } from '@/stores/chat'
@@ -75,11 +64,11 @@ watch(directoryOptions, options => {
   if (!options.some(option => option.value === directoryFilter.value)) directoryFilter.value = 'all'
 })
 const platformSessions = computed(() => listPlatformSessions(props.sessions))
-function platformIcon(id: string) {
+function platformBrandIcon(id: string) {
   switch (platformFromSessionId(id)) {
     case 'slack': return mdiSlack
     case 'wechat': return mdiWechat
-    default: return mdiMessageTextOutline
+    default: return ''
   }
 }
 
@@ -131,7 +120,7 @@ function toggleGroup(path: string) {
           :title="`${t('newChat')} (${newChatShortcut})`"
           @click="emit('createSession')"
         >
-          <MdiIcon :path="mdiPlus" :size="20" class="group-hover:scale-110 transition-transform duration-150" />
+          <Plus :size="20" :stroke-width="1.75" class="group-hover:scale-110 transition-transform duration-150" aria-hidden="true" />
         </button>
         <button
           type="button"
@@ -140,14 +129,14 @@ function toggleGroup(path: string) {
           :title="`${t('chatSearch')} (${searchShortcut})`"
           @click="emit('openSearch')"
         >
-          <MdiIcon :path="mdiMagnify" :size="20" class="group-hover:scale-110 transition-transform duration-150" />
+          <Search :size="20" :stroke-width="1.75" class="group-hover:scale-110 transition-transform duration-150" aria-hidden="true" />
         </button>
       </div>
     </div>
 
     <nav class="sidebar-primary-nav" :aria-label="t('scheduleNavigation')">
       <button type="button" class="sidebar-task-link" :class="{ active: tasksActive }" :aria-current="tasksActive ? 'page' : undefined" @click="emit('openTasks')">
-        <MdiIcon :path="mdiCalendarClockOutline" :size="19" />
+        <CalendarClock :size="19" :stroke-width="1.75" aria-hidden="true" />
         <span>{{ t('scheduleSettings') }}</span>
       </button>
     </nav>
@@ -160,8 +149,8 @@ function toggleGroup(path: string) {
           type="button" class="workspace-group flex h-9 w-full items-center gap-1.5 rounded-lg px-2 text-left text-sm font-semibold cursor-pointer"
           :aria-expanded="!pinnedCollapsed" @click="pinnedCollapsed = !pinnedCollapsed"
         >
-          <MdiIcon :path="mdiChevronDown" :size="13" :class="pinnedCollapsed ? '-rotate-90' : ''" />
-          <MdiIcon :path="mdiPinOutline" :size="14" />
+          <ChevronDown :size="13" :stroke-width="1.75" :class="pinnedCollapsed ? '-rotate-90' : ''" aria-hidden="true" />
+          <Pin :size="14" :stroke-width="1.75" aria-hidden="true" />
           {{ t('sessionPinned') }} <span class="sb-text-muted ml-1 text-xs">{{ sidebarGroups.pinnedSessions.length }}</span>
         </button>
         <div v-if="!pinnedCollapsed" class="workspace-session-list ml-7 mt-0.5 space-y-0.5 border-l pl-2">
@@ -178,8 +167,8 @@ function toggleGroup(path: string) {
           :aria-expanded="!platformCollapsed"
           @click="platformCollapsed = !platformCollapsed"
         >
-          <MdiIcon :path="mdiChevronDown" :size="13" class="flex-shrink-0 transition-transform duration-150" :class="platformCollapsed ? '-rotate-90' : ''" />
-          <MdiIcon :path="mdiMessageTextOutline" :size="18" class="flex-shrink-0" />
+          <ChevronDown :size="13" :stroke-width="1.75" class="flex-shrink-0 transition-transform duration-150" :class="platformCollapsed ? '-rotate-90' : ''" aria-hidden="true" />
+          <MessageSquareText :size="18" :stroke-width="1.75" class="flex-shrink-0" aria-hidden="true" />
           <TruncationTooltip inherit-group :text="t('messagePlatformSession')" wrapper-class="min-w-0 flex-1" content-class="text-sm font-semibold" />
           <span class="platform-badge rounded-md px-1.5 py-0.5 text-[10px] font-medium leading-none">IM</span>
         </button>
@@ -198,7 +187,8 @@ function toggleGroup(path: string) {
             >
               <span v-if="item.id === currentSessionId" class="session-active-indicator absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-4 rounded-r-full" />
               <img v-if="platformFromSessionId(item.id) === 'telegram'" src="/im_icon/telegram.svg" alt="" class="mr-2 h-4 w-4 flex-shrink-0" />
-              <MdiIcon v-else :path="platformIcon(item.id)" :size="16" class="mr-2 flex-shrink-0" />
+              <MdiIcon v-else-if="platformBrandIcon(item.id)" :path="platformBrandIcon(item.id)" :size="16" class="mr-2 flex-shrink-0" />
+              <MessageSquareText v-else :size="16" :stroke-width="1.75" class="mr-2 flex-shrink-0" aria-hidden="true" />
               <TruncationTooltip inherit-group :text="platformSessionName(item.id, t('telegram'))" wrapper-class="min-w-0 flex-1" content-class="text-sm" />
             </button>
           </div>
@@ -214,8 +204,8 @@ function toggleGroup(path: string) {
             :aria-expanded="isGroupExpanded(group.path)"
             @click="toggleGroup(group.path)"
           >
-            <MdiIcon :path="mdiChevronDown" :size="13" class="flex-shrink-0 transition-transform duration-150" :class="!isGroupExpanded(group.path) ? '-rotate-90' : ''" />
-            <MdiIcon :path="mdiFolderOutline" :size="18" class="flex-shrink-0" />
+            <ChevronDown :size="13" :stroke-width="1.75" class="flex-shrink-0 transition-transform duration-150" :class="!isGroupExpanded(group.path) ? '-rotate-90' : ''" aria-hidden="true" />
+            <Folder :size="18" :stroke-width="1.75" class="flex-shrink-0" aria-hidden="true" />
             <span class="min-w-0 truncate">{{ group.name }}</span>
           </button>
           <button
@@ -225,24 +215,24 @@ function toggleGroup(path: string) {
             :title="t('workspaceNewChat')"
             :aria-label="t('workspaceNewChat')"
             @click="emit('createSession', group.path)"
-          ><MdiIcon :path="mdiPlus" :size="15" /></button>
+          ><Plus :size="15" :stroke-width="1.75" aria-hidden="true" /></button>
         </div>
         <div v-if="isGroupExpanded(group.path)" class="workspace-session-list ml-7 mt-0.5 space-y-0.5 border-l pl-2">
           <SidebarSessionRow
             v-for="item in visibleSessions(group)" :key="item.id" :item="item" :active="item.id === currentSessionId"
             @pick="emit('pickSession', item.id)" @menu="emit('toggleSessionMenu', item.id, $event)"
           />
-          <div v-if="group.sessions.length > INITIAL_GROUP_SESSION_COUNT" class="workspace-session-actions flex items-center gap-1">
+          <div v-if="group.sessions.length > INITIAL_GROUP_SESSION_COUNT" class="workspace-session-actions w-full">
             <button
               v-if="visibleSessions(group).length < group.sessions.length"
               type="button"
-              class="workspace-session-more rounded-md px-3 py-1 text-xs cursor-pointer"
+              class="workspace-session-more flex h-8 w-full items-center rounded-lg px-2 text-left text-xs cursor-pointer"
               @click="showMoreSessions(group)"
             >{{ t('workspaceShowMore') }}</button>
             <button
               v-else-if="sessionLimit(group.path) > INITIAL_GROUP_SESSION_COUNT"
               type="button"
-              class="workspace-session-more rounded-md px-3 py-1 text-xs cursor-pointer"
+              class="workspace-session-more flex h-8 w-full items-center rounded-lg px-2 text-left text-xs cursor-pointer"
               @click="showFewerSessions(group.path)"
             >{{ t('workspaceShowLess') }}</button>
           </div>
@@ -256,10 +246,7 @@ function toggleGroup(path: string) {
         :disabled="store.loadingMoreSessions"
         @click="store.loadMoreSessions()"
       >
-        <svg v-if="store.loadingMoreSessions" class="loading-spinner-accent animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24">
-          <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" />
-          <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
-        </svg>
+        <LoadingSpinner v-if="store.loadingMoreSessions" size-class="size-4" />
         {{ t('workspaceLoadMoreSessions') }}
       </button>
     </div>
@@ -269,9 +256,10 @@ function toggleGroup(path: string) {
         <button
           type="button"
           class="sb-text-muted w-9 h-9 flex items-center justify-center rounded-xl transition-all duration-150 cursor-pointer flex-shrink-0"
+          :aria-label="t('toggleTheme')"
           @click="emit('toggleTheme')"
         >
-          <MdiIcon :path="isDark ? mdiWeatherSunny : mdiWeatherNight" :size="20" />
+          <component :is="isDark ? Sun : Moon" :size="20" :stroke-width="1.75" aria-hidden="true" />
         </button>
         <button
           type="button"
@@ -279,7 +267,7 @@ function toggleGroup(path: string) {
           :title="`${t('settings')} (${settingsShortcut})`"
           @click="emit('openSettings')"
         >
-          <MdiIcon :path="mdiCogOutline" :size="19" />
+          <SlidersHorizontal :size="19" :stroke-width="1.75" aria-hidden="true" />
           <span class="font-medium">{{ t('settings') }}</span>
           <span v-if="hasUpdateNotice" class="update-notice-dot" aria-hidden="true" />
         </button>

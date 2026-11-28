@@ -13,7 +13,7 @@ const version = `v${__APP_VERSION__}`
   <div>
     <div class="settings-card about-card rounded-xl px-5 py-6">
       <div class="about-hero">
-        <div class="about-logo-wrap">
+        <div class="settings-icon-tile about-logo-wrap">
           <img src="/slime-icon.svg" alt="SlimeBot" class="about-logo" />
         </div>
         <h3 class="about-title">SlimeBot</h3>
@@ -60,12 +60,7 @@ const version = `v${__APP_VERSION__}`
 .about-logo-wrap {
   width: 88px;
   height: 88px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
   border-radius: 22px;
-  background: var(--primary-alpha-08);
-  border: 1px solid var(--primary-alpha-15);
 }
 
 .about-logo {

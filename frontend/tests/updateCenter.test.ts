@@ -174,7 +174,7 @@ test('home and settings surfaces render unread update notice dots', () => {
   assert.match(settingsSource, /hasUpdateNotice:\s*boolean/)
   assert.match(settingsSource, /markUpdateNoticeRead:\s*\(\) => void/)
   assert.match(settingsSource, /SettingsUpdateTab/)
-  assert.match(settingsSource, /\{\s*key:\s*'update',\s*labelKey:\s*'updateSettings'\s*\}[\s\S]*\{\s*key:\s*'about',\s*labelKey:\s*'aboutSettings'\s*\}/)
+  assert.match(settingsSource, /\{\s*key:\s*'update',\s*labelKey:\s*'updateSettings'[^}]*\}[\s\S]*\{\s*key:\s*'about',\s*labelKey:\s*'aboutSettings'[^}]*\}/)
   assert.match(settingsSource, /<span[^>]*settings-tab-label[^>]*>\{\{ t\(item\.labelKey\) \}\}<\/span>[\s\S]*item\.key === 'update' && hasUpdateNotice[\s\S]*update-notice-dot/)
   assert.match(settingsSource, /watch\(tab[\s\S]*nextTab === 'update'[\s\S]*markUpdateNoticeRead\(\)/)
 })

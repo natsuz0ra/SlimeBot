@@ -1,8 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { mdiDeleteOutline } from '@mdi/js'
-import MdiIcon from '@/components/ui/MdiIcon.vue'
+import { Trash2 } from 'lucide-vue-next'
 import AppTextInput from '@/components/ui/AppTextInput.vue'
 import ToggleSwitch from '@/components/ui/ToggleSwitch.vue'
 import type { MemorySnapshot, MemoryTarget, MemoryTargetState } from '@/types/settings'
@@ -396,7 +395,7 @@ onUnmounted(() => {
                 :aria-label="`${t('delete')} ${targetTitle(state.target)} ${index + 1}`"
                 @click="emit('deleteEntry', state.target, index)"
               >
-                <MdiIcon :path="mdiDeleteOutline" :size="15" />
+                <Trash2 :size="15" :stroke-width="1.75" aria-hidden="true" />
               </button>
             </div>
           </div>

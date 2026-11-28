@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { expandSlashTemplate, filterSlashCommands, getSlashCommands, slashQuery, validTemplateSlash } from '../src/utils/slashCommands'
+import { builtInCommands, filterSlashCommands, getSlashCommands, slashQuery } from '../src/utils/slashCommands'
 
 test('slash search activates only for a standalone slash prefix at the caret', () => {
   assert.equal(slashQuery('/', 1), '')
@@ -13,22 +13,17 @@ test('slash search activates only for a standalone slash prefix at the caret', (
 
 test('builtins reserve names and enabled skills get stable, independent commands', () => {
   const commands = getSlashCommands(
-    [{ id: 'review', title: 'Review code', slash: 'review', content: 'Look at {{cursor}} now' }],
     [
       { id: 'a', name: 'Review', description: 'Skill review', enabled: true },
       { id: 'b', name: 'Plan', description: '', enabled: true },
       { id: 'c', name: 'Off', description: '', enabled: false },
+      { id: 'd', name: 'review', description: '', enabled: true },
     ],
     name => name, name => `Use the ${name} skill`,
   )
-  assert.equal(validTemplateSlash('plan'), false)
-  assert.equal(validTemplateSlash('a_b-2'), true)
-  assert.equal(validTemplateSlash('UPPER'), false)
+  assert.deepEqual(commands.filter(item => item.kind === 'workbench').map(item => item.slash), [...builtInCommands])
   assert.deepEqual(filterSlashCommands(commands, 'review').map(item => item.slash), ['review', 'review-2'])
-  assert.deepEqual(commands.filter(item => item.kind === 'skill').map(item => item.slash), ['review-2', 'plan-2'])
-})
-
-test('cursor marker uses the textarea UTF-16 index', () => {
-  assert.deepEqual(expandSlashTemplate('🔎 {{cursor}} here'), { text: '🔎  here', caret: 3 })
-  assert.deepEqual(expandSlashTemplate('plain'), { text: 'plain', caret: 5 })
+  const skills = commands.filter(item => item.kind === 'skill')
+  assert.deepEqual(skills.map(item => item.slash), ['review', 'plan-2', 'review-2'])
+  assert.equal(skills[0]?.content, 'Use the Review skill')
 })

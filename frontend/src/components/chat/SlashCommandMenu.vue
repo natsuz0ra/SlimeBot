@@ -7,7 +7,7 @@ const props = defineProps<{ id: string; commands: SlashCommand[]; active: number
 const emit = defineEmits<{ select: [command: SlashCommand]; highlight: [index: number] }>()
 const { t } = useI18n()
 const panel = ref<HTMLElement>()
-const groups = computed(() => (['workbench', 'template', 'skill'] as const).map(kind => ({
+const groups = computed(() => (['workbench', 'skill'] as const).map(kind => ({
   kind, commands: props.commands.map((command, index) => ({ command, index })).filter(item => item.command.kind === kind),
 })).filter(group => group.commands.length))
 

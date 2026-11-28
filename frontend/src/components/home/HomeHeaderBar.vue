@@ -1,9 +1,8 @@
 <script setup lang="ts">
 import { ref } from 'vue'
-import { mdiChevronDown, mdiDeleteOutline, mdiDownloadOutline, mdiFolderClockOutline, mdiMenu, mdiPencilOutline, mdiPinOffOutline, mdiPinOutline, mdiRestart, mdiShieldOffOutline } from '@mdi/js'
+import { ChevronDown, Download, History, Menu, Pencil, Pin, PinOff, RotateCcw, ShieldOff, Trash2 } from 'lucide-vue-next'
 import { useI18n } from 'vue-i18n'
 import type { SessionItem } from '@/api/chat'
-import MdiIcon from '@/components/ui/MdiIcon.vue'
 import TruncationTooltip from '@/components/ui/TruncationTooltip.vue'
 
 const props = defineProps<{
@@ -64,7 +63,7 @@ function onClearPrivacyClick() {
       :aria-label="t('scheduleToggleSidebar')"
       @click.stop="emit('toggleSidebar')"
     >
-      <MdiIcon :path="mdiMenu" :size="19" />
+      <Menu :size="19" :stroke-width="1.75" aria-hidden="true" />
     </button>
 
     <div class="min-w-0 flex flex-1 items-center">
@@ -82,11 +81,12 @@ function onClearPrivacyClick() {
         wrapper-class="min-w-0 flex-1 text-left"
         content-class="sb-text-primary text-sm font-semibold"
       />
-      <MdiIcon
-        :path="mdiChevronDown"
+      <ChevronDown
         :size="14"
+        :stroke-width="1.75"
         class="sb-text-muted flex-shrink-0 transition-transform duration-200"
         :class="topMenuVisible ? 'rotate-180' : ''"
+        aria-hidden="true"
       />
     </button>
     <div
@@ -127,7 +127,7 @@ function onClearPrivacyClick() {
           class="w-full flex items-center gap-2.5 px-3 h-9 text-sm cursor-pointer menu-item"
           @click="dismissTopMenu(); emit('pinCurrent')"
         >
-          <MdiIcon :path="currentSession.isPinned ? mdiPinOffOutline : mdiPinOutline" :size="14" />
+          <component :is="currentSession.isPinned ? PinOff : Pin" :size="14" :stroke-width="1.75" aria-hidden="true" />
           {{ t(currentSession.isPinned ? 'sessionUnpin' : 'sessionPin') }}
         </button>
         <button
@@ -136,7 +136,7 @@ function onClearPrivacyClick() {
           class="w-full flex items-center gap-2.5 px-3 h-9 text-sm transition-colors duration-150 cursor-pointer menu-item"
           @click="onRenameClick"
         >
-          <MdiIcon :path="mdiPencilOutline" :size="14" />
+          <Pencil :size="14" :stroke-width="1.75" aria-hidden="true" />
           <span>{{ t('rename') }}</span>
         </button>
         <button
@@ -144,7 +144,7 @@ function onClearPrivacyClick() {
           class="w-full flex items-center gap-2.5 px-3 h-9 text-sm cursor-pointer menu-item"
           @click="dismissTopMenu(); emit('exportCurrent')"
         >
-          <MdiIcon :path="mdiDownloadOutline" :size="14" />
+          <Download :size="14" :stroke-width="1.75" aria-hidden="true" />
           {{ t('sessionExport') }}
         </button>
         <button
@@ -153,7 +153,7 @@ function onClearPrivacyClick() {
           class="w-full flex items-center gap-2.5 px-3 h-9 text-sm transition-colors duration-150 cursor-pointer menu-item"
           @click="dismissTopMenu(); emit('resetACPSession')"
         >
-          <MdiIcon :path="mdiRestart" :size="14" />
+          <RotateCcw :size="14" :stroke-width="1.75" aria-hidden="true" />
           <span>{{ t('acpRestartSession') }}</span>
         </button>
         <button
@@ -162,7 +162,7 @@ function onClearPrivacyClick() {
           class="w-full flex items-center gap-2.5 px-3 h-9 text-sm transition-colors duration-150 cursor-pointer menu-item"
           @click="onCheckpointsClick"
         >
-          <MdiIcon :path="mdiFolderClockOutline" :size="14" />
+          <History :size="14" :stroke-width="1.75" aria-hidden="true" />
           <span>{{ t('checkpoints.title') }}</span>
         </button>
         <button
@@ -171,7 +171,7 @@ function onClearPrivacyClick() {
           class="w-full flex items-center gap-2.5 px-3 h-9 text-sm text-left transition-colors duration-150 cursor-pointer menu-item"
           @click="onClearPrivacyClick"
         >
-          <MdiIcon :path="mdiShieldOffOutline" :size="14" class="shrink-0" />
+          <ShieldOff :size="14" :stroke-width="1.75" class="shrink-0" aria-hidden="true" />
           <span>{{ t('sessionPrivacyDestroyTitle') }}</span>
         </button>
         <button
@@ -180,7 +180,7 @@ function onClearPrivacyClick() {
           class="w-full flex items-center gap-2.5 px-3 h-9 text-sm border-t border-[var(--border-subtle)] transition-colors duration-150 cursor-pointer menu-item-danger"
           @click="emit('removeCurrent')"
         >
-          <MdiIcon :path="mdiDeleteOutline" :size="14" />
+          <Trash2 :size="14" :stroke-width="1.75" aria-hidden="true" />
           <span>{{ t('delete') }}</span>
         </button>
       </div>

@@ -1,11 +1,10 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { mdiContentCopy, mdiPlus } from '@mdi/js'
+import { Copy, Plus } from 'lucide-vue-next'
 import { acpAPI, type ACPConfig, type ACPConfigInput, type ACPConnectionTest } from '@/api/acp'
 import AppDialog from '@/components/ui/AppDialog.vue'
 import AppTextInput from '@/components/ui/AppTextInput.vue'
-import MdiIcon from '@/components/ui/MdiIcon.vue'
 import ToggleSwitch from '@/components/ui/ToggleSwitch.vue'
 import LoadingSpinner from '@/components/ui/LoadingSpinner.vue'
 import { useToast } from '@/composables/useToast'
@@ -154,17 +153,17 @@ function capabilities(result?: ACPConnectionTest) {
     <section class="settings-card p-4 rounded-xl">
       <h3 class="settings-field-label">{{ t('acpLocalAgent') }}</h3>
       <p class="settings-item-sub mt-1">{{ t('acpLocalDescription') }}</p>
-      <div class="acp-code-bar mt-3"><code>{{ launchCommand }}</code><button type="button" :aria-label="t('acpCopyCommand')" :title="t('acpCopyCommand')" @click="copy(launchCommand)"><MdiIcon :path="mdiContentCopy" :size="16" /></button></div>
+      <div class="acp-code-bar mt-3"><code>{{ launchCommand }}</code><button type="button" :aria-label="t('acpCopyCommand')" :title="t('acpCopyCommand')" @click="copy(launchCommand)"><Copy :size="16" :stroke-width="1.75" aria-hidden="true" /></button></div>
       <details class="mt-3 text-sm sb-text-secondary">
         <summary class="cursor-pointer">{{ t('acpClientExample') }}</summary>
-        <div class="acp-code-bar mt-2"><pre>{{ example }}</pre><button type="button" :aria-label="t('acpCopyExample')" :title="t('acpCopyExample')" @click="copy(example)"><MdiIcon :path="mdiContentCopy" :size="16" /></button></div>
+        <div class="acp-code-bar mt-2"><pre>{{ example }}</pre><button type="button" :aria-label="t('acpCopyExample')" :title="t('acpCopyExample')" @click="copy(example)"><Copy :size="16" :stroke-width="1.75" aria-hidden="true" /></button></div>
       </details>
     </section>
 
     <section class="settings-card p-4 rounded-xl">
       <div class="flex flex-wrap items-center justify-between gap-2">
         <h3 class="settings-field-label">{{ t('acpExternalAgents') }}</h3>
-        <button type="button" class="acp-primary inline-flex items-center gap-1.5" :disabled="loading || listError" @click="edit()"><MdiIcon :path="mdiPlus" :size="15" />{{ t('acpAdd') }}</button>
+        <button type="button" class="acp-primary inline-flex items-center gap-1.5" :disabled="loading || listError" @click="edit()"><Plus :size="15" :stroke-width="1.75" aria-hidden="true" />{{ t('acpAdd') }}</button>
       </div>
       <p v-if="loading" class="settings-item-sub mt-3">{{ t('loading') }}</p>
       <p v-else-if="listError" class="settings-item-sub mt-3" role="alert">{{ t('acpLoadFailed') }} <button type="button" class="acp-action" @click="load">{{ t('templateRetry') }}</button></p>

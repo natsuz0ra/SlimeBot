@@ -86,6 +86,17 @@
   border: 1px solid var(--card-border);
 }
 
+.settings-icon-tile {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  border-radius: 8px;
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-subtle);
+  color: var(--text-secondary);
+}
+
 .settings-field-label {
   color: var(--text-primary);
   font-size: 14px;

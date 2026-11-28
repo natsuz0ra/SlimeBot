@@ -1,8 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { mdiChevronLeft, mdiChevronRight, mdiClose, mdiDeleteOutline, mdiMagnify, mdiPencilOutline, mdiPlus, mdiRefresh, mdiServerOutline } from '@mdi/js'
-import MdiIcon from '@/components/ui/MdiIcon.vue'
+import { ChevronLeft, ChevronRight, Pencil, Plus, RefreshCw, Search, Server, Trash2, X } from 'lucide-vue-next'
 import LoadingSpinner from '@/components/ui/LoadingSpinner.vue'
 import { formatContextSize } from '@/utils/contextSize'
 import type { DiscoveredModel, LLMConfig, LLMProvider } from '@/types/settings'
@@ -74,34 +73,34 @@ function backToProviders() {
           <p class="llm-description">{{ t('modelProvidersHint') }}</p>
         </div>
         <button type="button" class="btn-primary action-btn llm-main-action flex items-center gap-1.5 px-3 py-2 rounded-xl cursor-pointer settings-action-text" @click="emit('addProvider')">
-          <MdiIcon :path="mdiPlus" :size="14" />{{ t('addProvider') }}
+          <Plus :size="14" :stroke-width="1.75" aria-hidden="true" />{{ t('addProvider') }}
         </button>
       </div>
 
       <div v-if="providers.length === 0" class="settings-card llm-empty rounded-xl text-center px-4 py-10">
-        <div class="llm-empty-icon"><MdiIcon :path="mdiServerOutline" :size="24" /></div>
+        <div class="settings-icon-tile m-auto size-[42px]"><Server :size="24" :stroke-width="1.75" aria-hidden="true" /></div>
         <p class="settings-item-name mt-3">{{ t('noProviders') }}</p>
         <p class="llm-description mt-1">{{ t('noProvidersHint') }}</p>
       </div>
 
       <div class="flex flex-col gap-2.5">
         <button v-for="provider in providers" :key="provider.id" type="button" class="settings-card llm-provider-entry w-full rounded-xl px-4 py-3.5" @click="selectedProviderId = provider.id">
-          <span class="llm-provider-icon flex-shrink-0"><MdiIcon :path="mdiServerOutline" :size="19" /></span>
+          <span class="settings-icon-tile size-[38px]"><Server :size="19" :stroke-width="1.75" aria-hidden="true" /></span>
           <span class="flex-1 min-w-0 text-left">
             <span class="flex flex-wrap items-center gap-2"><span class="settings-item-name llm-provider-name">{{ provider.name }}</span><span class="llm-protocol-badge">{{ protocolLabel(provider.protocol) }}</span></span>
             <span class="settings-item-sub llm-provider-url truncate block mt-1" :title="provider.baseUrl">{{ provider.baseUrl }}</span>
           </span>
           <span class="llm-provider-count">{{ t('providerModelCount', { count: modelsFor(provider.id).length }) }}</span>
-          <MdiIcon :path="mdiChevronRight" :size="17" class="llm-entry-chevron flex-shrink-0" />
+          <ChevronRight :size="17" :stroke-width="1.75" class="llm-entry-chevron flex-shrink-0" aria-hidden="true" />
         </button>
       </div>
     </template>
 
     <template v-else>
-      <button type="button" class="llm-back-button mb-3" @click="backToProviders"><MdiIcon :path="mdiChevronLeft" :size="16" />{{ t('modelProviders') }}</button>
+      <button type="button" class="llm-back-button mb-3" @click="backToProviders"><ChevronLeft :size="16" :stroke-width="1.75" aria-hidden="true" />{{ t('modelProviders') }}</button>
       <section class="settings-card llm-provider-card rounded-xl overflow-hidden">
         <div class="llm-provider-header flex items-start gap-3 px-4 py-4">
-          <div class="llm-provider-icon flex-shrink-0"><MdiIcon :path="mdiServerOutline" :size="19" /></div>
+          <div class="settings-icon-tile size-[38px]"><Server :size="19" :stroke-width="1.75" aria-hidden="true" /></div>
           <div class="flex-1 min-w-0">
             <div class="flex flex-wrap items-center gap-2">
               <h3 class="settings-item-name llm-provider-name">{{ selectedProvider.name }}</h3>
@@ -110,8 +109,8 @@ function backToProviders() {
             <p class="settings-item-sub llm-provider-url truncate mt-1" :title="selectedProvider.baseUrl">{{ selectedProvider.baseUrl }}</p>
           </div>
           <div class="flex items-center gap-1 flex-shrink-0">
-            <button type="button" class="llm-icon-button" :title="t('editProvider')" :aria-label="t('editProvider')" @click="emit('editProvider', selectedProvider)"><MdiIcon :path="mdiPencilOutline" :size="16" /></button>
-            <button type="button" class="llm-icon-button llm-danger-button" :title="t('deleteProvider')" :aria-label="t('deleteProvider')" @click="emit('deleteProvider', selectedProvider.id)"><MdiIcon :path="mdiDeleteOutline" :size="16" /></button>
+            <button type="button" class="llm-icon-button" :title="t('editProvider')" :aria-label="t('editProvider')" @click="emit('editProvider', selectedProvider)"><Pencil :size="16" :stroke-width="1.75" aria-hidden="true" /></button>
+            <button type="button" class="llm-icon-button llm-danger-button" :title="t('deleteProvider')" :aria-label="t('deleteProvider')" @click="emit('deleteProvider', selectedProvider.id)"><Trash2 :size="16" :stroke-width="1.75" aria-hidden="true" /></button>
           </div>
         </div>
 
@@ -123,8 +122,8 @@ function backToProviders() {
               <div class="settings-item-name truncate">{{ model.name }}</div>
               <div class="settings-item-sub truncate mt-0.5">{{ model.model }} · {{ t('contextSize') }} {{ formatContextSize(model.contextSize || 1_000_000) }} <span class="llm-context-source">{{ t(model.contextSizeSource === 'detected' ? 'contextSizeDetected' : model.contextSizeSource === 'fallback' ? 'contextSizeEstimated' : 'contextSizeCustom') }}</span></div>
             </div>
-            <button type="button" class="llm-icon-button" :title="t('editModel')" :aria-label="t('editModel')" @click="emit('editModel', model)"><MdiIcon :path="mdiPencilOutline" :size="15" /></button>
-            <button type="button" class="llm-icon-button llm-danger-button" :title="t('delete')" :aria-label="t('delete')" @click="emit('deleteModel', model.id)"><MdiIcon :path="mdiDeleteOutline" :size="15" /></button>
+            <button type="button" class="llm-icon-button" :title="t('editModel')" :aria-label="t('editModel')" @click="emit('editModel', model)"><Pencil :size="15" :stroke-width="1.75" aria-hidden="true" /></button>
+            <button type="button" class="llm-icon-button llm-danger-button" :title="t('delete')" :aria-label="t('delete')" @click="emit('deleteModel', model.id)"><Trash2 :size="15" :stroke-width="1.75" aria-hidden="true" /></button>
           </div>
           <p v-if="modelsFor(selectedProvider.id).length === 0" class="llm-no-models px-4 py-5">{{ t('noModelsInProvider') }}</p>
         </div>
@@ -132,9 +131,9 @@ function backToProviders() {
         <div class="llm-card-actions flex flex-wrap gap-2 px-4 py-3">
           <button type="button" class="llm-secondary-button" :disabled="discovering && discoveryProviderId === selectedProvider.id" @click="emit('discover', selectedProvider.id)">
             <LoadingSpinner v-if="discovering && discoveryProviderId === selectedProvider.id" size-class="w-3.5 h-3.5" />
-            <MdiIcon v-else :path="mdiRefresh" :size="15" />{{ t('discoverModels') }}
+            <RefreshCw v-else :size="15" :stroke-width="1.75" aria-hidden="true" />{{ t('discoverModels') }}
           </button>
-          <button type="button" class="llm-secondary-button" @click="emit('addModel', selectedProvider.id)"><MdiIcon :path="mdiPlus" :size="15" />{{ t('addModelManually') }}</button>
+          <button type="button" class="llm-secondary-button" @click="emit('addModel', selectedProvider.id)"><Plus :size="15" :stroke-width="1.75" aria-hidden="true" />{{ t('addModelManually') }}</button>
         </div>
 
         <div v-if="discoveryProviderId === selectedProvider.id" class="llm-discovery px-4 py-4">
@@ -143,10 +142,10 @@ function backToProviders() {
               <p class="settings-item-name">{{ t('discoveredModels') }}</p>
               <p class="llm-description mt-0.5">{{ t('discoveredModelsHint') }}</p>
             </div>
-            <button type="button" class="llm-icon-button" :title="t('close')" :aria-label="t('close')" @click="emit('closeDiscovery')"><MdiIcon :path="mdiClose" :size="17" /></button>
+            <button type="button" class="llm-icon-button" :title="t('close')" :aria-label="t('close')" @click="emit('closeDiscovery')"><X :size="17" :stroke-width="1.75" aria-hidden="true" /></button>
           </div>
           <div v-if="!discovering" class="llm-discovery-search">
-            <MdiIcon :path="mdiMagnify" :size="17" />
+            <Search :size="17" :stroke-width="1.75" aria-hidden="true" />
             <input :value="discoveryQuery" type="search" :placeholder="t('searchModels')" :aria-label="t('searchModels')" @input="emit('updateQuery', ($event.target as HTMLInputElement).value)" />
           </div>
           <div v-if="discovering" class="llm-discovery-status"><LoadingSpinner size-class="w-4 h-4" />{{ t('discoveringModels') }}</div>
@@ -176,9 +175,6 @@ function backToProviders() {
 <style scoped>
 .llm-description { color: var(--text-secondary); font-size: 12px; line-height: 1.5; }
 .llm-main-action { white-space: nowrap; flex-shrink: 0; }
-.llm-empty-icon, .llm-provider-icon { display: inline-flex; align-items: center; justify-content: center; color: var(--sb-brand); background: var(--primary-alpha-10); border-radius: 10px; }
-.llm-empty-icon { width: 42px; height: 42px; margin: auto; }
-.llm-provider-icon { width: 38px; height: 38px; }
 .llm-provider-entry { display: flex; align-items: center; gap: 12px; text-align: left; cursor: pointer; transition: border-color .18s, background .18s; }
 .llm-provider-entry:hover { border-color: var(--sb-brand); background: var(--primary-alpha-05); }
 .llm-provider-entry:focus-visible, .llm-back-button:focus-visible { outline: 2px solid var(--sb-brand); outline-offset: 2px; }
@@ -193,7 +189,7 @@ function backToProviders() {
 .llm-context-source { color: var(--text-muted); margin-left: 3px; }
 .llm-discovery-context { flex-shrink: 0; color: var(--sb-brand); background: var(--primary-alpha-10); border-radius: 6px; padding: 2px 6px; font-size: 11px; font-weight: 600; }
 .llm-icon-button { width: 30px; height: 30px; display: inline-flex; align-items: center; justify-content: center; border-radius: 8px; color: var(--text-muted); cursor: pointer; transition: background .15s, color .15s; }
-.llm-icon-button:hover { background: var(--primary-alpha-10); color: var(--sb-brand); }
+.llm-icon-button:hover { background: var(--bg-hover); color: var(--text-primary); }
 .llm-danger-button:hover { background: var(--danger-alpha-10); color: var(--color-danger); }
 .llm-icon-button:focus-visible, .llm-secondary-button:focus-visible, .llm-link-button:focus-visible { outline: 2px solid var(--sb-brand); outline-offset: 2px; }
 .llm-model-list { border-top: 1px solid var(--card-border); }

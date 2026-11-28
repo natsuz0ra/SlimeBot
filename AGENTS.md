@@ -144,7 +144,7 @@ Quick index (feature -> first place to inspect):
 - Active-turn steering: `internal/services/chat/steering.go`, `internal/services/chat/agent.go`, `AGENT-FLOW.md`
 - Web conversation history navigation: `frontend/src/components/chat/ChatHistoryNav.vue`, `frontend/src/composables/home/useHomeScroll.ts`
 - Conversation pinning and export: `internal/repositories/repo_sessions.go`, `internal/services/session/export.go`, `internal/server/controller/session_export.go`, `frontend/src/components/chat/SessionExportDialog.vue`
-- Web slash commands and prompt templates: `internal/services/settings/prompt_templates.go`, `frontend/src/components/chat/SlashCommandMenu.vue`, `frontend/src/components/settings/SettingsPromptTemplates.vue`
+- Web slash commands for workbench actions and enabled skills: `frontend/src/components/chat/SlashCommandMenu.vue`, `frontend/src/utils/slashCommands.ts`
 - Background command completion, persistence and manual recovery: `internal/tools/process.go`, `internal/tools/exec.go`, `internal/services/chat/background_tasks.go`, `internal/services/chat/background_recovery.go`, `AGENT-FLOW.md`
 - Context compaction: `internal/services/context/`, `internal/repositories/repo_context.go`, `internal/services/chat/context_bridge.go` (raw model steps are separate from UI messages; usage reads never call models; `SLIMEBOT_CONTEXT_COMPACTION=off` bypasses checkpoints while keeping pruning/budget guards)
 - Sensitive data masking, encrypted mapping retention and local model lifecycle: `internal/services/privacy/`, `internal/server/controller/privacy.go`, `internal/server/controller/session_privacy.go`

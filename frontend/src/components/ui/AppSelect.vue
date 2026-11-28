@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { nextTick, ref, onMounted, onUnmounted, useId } from 'vue'
-import { mdiChevronDown } from '@mdi/js'
-import MdiIcon from '@/components/ui/MdiIcon.vue'
+import { ChevronDown } from 'lucide-vue-next'
 
 export interface SelectOption {
   value: string
@@ -161,11 +160,12 @@ onUnmounted(() => {
       @keydown.up.prevent="openDropdown(Math.max(0, options.length - 1))"
     >
       <span>{{ selectedLabel() }}</span>
-      <MdiIcon
-        :path="mdiChevronDown"
+      <ChevronDown
         :size="size === 'xs' ? 12 : 14"
+        :stroke-width="1.75"
         class="sb-text-muted flex-shrink-0 transition-transform duration-200"
         :class="open ? 'rotate-180' : ''"
+        aria-hidden="true"
       />
     </button>
 

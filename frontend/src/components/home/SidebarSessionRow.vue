@@ -1,9 +1,8 @@
 <script setup lang="ts">
-import { mdiDotsHorizontal, mdiPinOutline } from '@mdi/js'
+import { Ellipsis, Pin } from 'lucide-vue-next'
 import { useI18n } from 'vue-i18n'
 import type { SessionItem } from '@/api/chat'
 import LoadingSpinner from '@/components/ui/LoadingSpinner.vue'
-import MdiIcon from '@/components/ui/MdiIcon.vue'
 import TruncationTooltip from '@/components/ui/TruncationTooltip.vue'
 import { useChatStore } from '@/stores/chat'
 
@@ -37,12 +36,12 @@ const store = useChatStore()
       <LoadingSpinner v-if="store.runningSessionIds.has(item.id)" size-class="w-3.5 h-3.5" class="session-running-spinner" aria-hidden="true" />
       <span v-else class="session-unread-dot h-1.5 w-1.5 rounded-full" />
     </span>
-    <MdiIcon v-else-if="item.isPinned" :path="mdiPinOutline" :size="12" class="absolute right-3 top-1/2 -translate-y-1/2 sb-text-muted group-hover:opacity-0 pointer-events-none" />
+    <Pin v-else-if="item.isPinned" :size="12" :stroke-width="1.75" class="absolute right-3 top-1/2 -translate-y-1/2 sb-text-muted group-hover:opacity-0 pointer-events-none" aria-hidden="true" />
     <button
       type="button"
       class="workspace-session-menu absolute right-1 top-1/2 -translate-y-1/2 w-7 h-7 flex items-center justify-center rounded-md transition-colors duration-150 cursor-pointer flex-shrink-0"
       :aria-label="t('sessionMenu')"
       @click.stop="emit('menu', $event)"
-    ><MdiIcon :path="mdiDotsHorizontal" :size="15" /></button>
+    ><Ellipsis :size="15" :stroke-width="1.75" aria-hidden="true" /></button>
   </div>
 </template>

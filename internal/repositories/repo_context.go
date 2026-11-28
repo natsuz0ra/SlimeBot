@@ -8,7 +8,6 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 	"slimebot/internal/domain"
-	llm "slimebot/internal/services/llm"
 	"time"
 )
 
@@ -109,7 +108,7 @@ func (r *Repository) SyncContextSeeds(ctx context.Context, scope string, seeds [
 	})
 }
 
-func (r *Repository) AppendContextEntries(ctx context.Context, scope, request, routeHash string, messageSeq, expected int64, messages []llm.ChatMessage) ([]domain.ContextEntry, int64, error) {
+func (r *Repository) AppendContextEntries(ctx context.Context, scope, request, routeHash string, messageSeq, expected int64, messages []domain.ChatMessage) ([]domain.ContextEntry, int64, error) {
 	var entries []domain.ContextEntry
 	err := r.dbWithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		update := tx.Model(&domain.ContextHead{}).Where("scope_id = ? AND history_revision = ?", scope, expected).Updates(map[string]any{"history_revision": expected + 1, "updated_at": time.Now()})
@@ -236,7 +235,7 @@ func (r *Repository) VerifyContextRevision(ctx context.Context, scope string, hi
 	return nil
 }
 
-func contextSourceKind(m llm.ChatMessage, direct bool) string {
+func contextSourceKind(m domain.ChatMessage, direct bool) string {
 	if m.SourceKind != "" {
 		return m.SourceKind
 	}
@@ -250,7 +249,7 @@ func contextSourceKind(m llm.ChatMessage, direct bool) string {
 }
 
 // Request metadata is written only on actual preparation, never by usage reads.
-func (r *Repository) RecordContextRequest(ctx context.Context, scope string, history, projection int64, c llm.ModelRuntimeConfig, tools []llm.ToolDef) error {
+func (r *Repository) RecordContextRequest(ctx context.Context, scope string, history, projection int64, c domain.ModelRuntimeConfig, tools []domain.ToolDef) error {
 	b, err := json.Marshal(tools)
 	if err != nil {
 		return err

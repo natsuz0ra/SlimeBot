@@ -5,7 +5,6 @@ import (
 	"errors"
 	"slimebot/internal/apperrors"
 	"slimebot/internal/domain"
-	llmsvc "slimebot/internal/services/llm"
 	"testing"
 	"time"
 )
@@ -65,7 +64,7 @@ func TestAddMessageWithInput_PersistsTokenUsage(t *testing.T) {
 		SessionID: session.ID,
 		Role:      "assistant",
 		Content:   "answer",
-		TokenUsage: &llmsvc.TokenUsage{
+		TokenUsage: &domain.TokenUsage{
 			InputTokens:              100,
 			OutputTokens:             20,
 			CacheCreationInputTokens: 3,

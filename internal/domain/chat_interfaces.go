@@ -1,10 +1,6 @@
 package domain
 
-import (
-	"context"
-
-	llmsvc "slimebot/internal/services/llm"
-)
+import "context"
 
 type CompleteChatTurnInput struct {
 	SessionID        string
@@ -12,7 +8,7 @@ type CompleteChatTurnInput struct {
 	ContextRequestID string
 	Content          string
 	Interrupted      bool
-	TokenUsage       *llmsvc.TokenUsage
+	TokenUsage       *TokenUsage
 }
 
 type CompleteChatTurnResult struct {

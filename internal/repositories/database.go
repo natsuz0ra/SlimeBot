@@ -3,7 +3,6 @@ package repositories
 import (
 	"fmt"
 	"path/filepath"
-	"slimebot/internal/domain"
 	"time"
 
 	"github.com/glebarez/sqlite"
@@ -29,42 +28,13 @@ func NewSQLite(dbPath string) (*gorm.DB, error) {
 	}
 	pool.SetMaxOpenConns(1)
 
-	if err := db.AutoMigrate(
-		&domain.Session{},
-		&domain.Message{},
-		&domain.ToolCallRecord{},
-		&domain.ThinkingRecord{},
-		&domain.TeamRun{},
-		&domain.TeamMemberRun{},
-		&domain.AgentDescriptor{}, &domain.AgentTurn{}, &domain.AgentInbox{}, &domain.AgentRootRequest{},
-		&domain.AgentEvent{}, &domain.AgentTask{}, &domain.AgentArtifact{},
-		&domain.AgentApproval{},
-		&domain.AppSetting{},
-		&domain.LLMProvider{},
-		&domain.LLMConfig{},
-		&domain.SessionContextSummary{},
-		&domain.ContextEntry{},
-		&domain.ContextHead{},
-		&domain.ContextCheckpoint{},
-		&domain.ContextCalibration{},
-		&domain.MCPConfig{},
-		&domain.ACPConfig{},
-		&domain.MessagePlatformConfig{},
-		&domain.ScheduledTask{},
-		&domain.ScheduledTaskRun{},
-		&domain.BackgroundTask{},
-		&domain.UsageRecord{},
-	); err != nil {
-		return nil, fmt.Errorf("auto migration failed: %w", err)
-	}
-	if err := db.Model(&domain.ContextCheckpoint{}).Where("status = ?", "pending").Update("status", "interrupted").Error; err != nil {
+	if err := RunMigrations(db); err != nil {
 		return nil, err
 	}
-	if err := migrateScheduledRunContexts(db); err != nil {
-		return nil, fmt.Errorf("scheduled execution migration failed: %w", err)
-	}
-	if err := migrateLegacyLLMProviders(db); err != nil {
-		return nil, fmt.Errorf("LLM provider migration failed: %w", err)
+	// Pending checkpoints are crash-recovery state, so this runs on every
+	// startup rather than being gated by the schema migration ledger.
+	if err := recoverPendingContextCheckpoints(db); err != nil {
+		return nil, fmt.Errorf("checkpoint recovery failed: %w", err)
 	}
 
 	return db, nil

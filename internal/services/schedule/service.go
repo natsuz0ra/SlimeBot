@@ -52,6 +52,8 @@ type Store interface {
 	UpdateScheduledTask(ctx context.Context, id string, updates map[string]any) error
 	DeleteScheduledTask(ctx context.Context, id string) error
 	CreateScheduledTaskRun(ctx context.Context, run *domain.ScheduledTaskRun) error
+	ClaimScheduledTaskRun(ctx context.Context, taskID string, claimedAt time.Time, nextRunAt *time.Time, run *domain.ScheduledTaskRun) (bool, error)
+	CompleteScheduledTaskRun(ctx context.Context, taskID, runID string, run *domain.ScheduledTaskRun, taskUpdates map[string]any) (bool, error)
 	ListScheduledTaskRuns(ctx context.Context, taskID, status string, limit, offset int) ([]domain.ScheduledTaskRun, error)
 	GetScheduledTaskRun(ctx context.Context, id string) (*domain.ScheduledTaskRun, error)
 	UpdateScheduledTaskRun(ctx context.Context, id string, updates map[string]any) error
@@ -406,13 +408,8 @@ func (s *Service) markRunComplete(ctx context.Context, taskID, runID string, res
 		StartedAt:  startedAt,
 		FinishedAt: &finishedAt,
 	}
-	if runID == "" {
-		err = s.store.CreateScheduledTaskRun(ctx, run)
-	} else {
-		err = s.store.UpdateScheduledTaskRun(ctx, runID, map[string]any{"session_id": run.SessionID, "request_id": run.RequestID, "status": run.Status, "answer": run.Answer, "error": run.Error, "finished_at": run.FinishedAt})
-	}
-	if err != nil {
-		return err
+	if runID != "" {
+		run.ID = runID
 	}
 	completedRuns := task.CompletedRuns + 1
 	updates := map[string]any{
@@ -449,7 +446,8 @@ func (s *Service) markRunComplete(ctx context.Context, taskID, runID string, res
 	} else {
 		updates["next_run_at"] = nextRun
 	}
-	return s.store.UpdateScheduledTask(ctx, task.ID, updates)
+	_, err = s.store.CompleteScheduledTaskRun(ctx, task.ID, runID, run, updates)
+	return err
 }
 
 func (s *Service) PreAdvanceRecurring(ctx context.Context, task domain.ScheduledTask) error {
@@ -477,22 +475,26 @@ func (s *Service) RunDue(ctx context.Context) error {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		if err := s.PreAdvanceRecurring(ctx, task); err != nil {
-			return err
-		}
-		if !isRecurring(ScheduleKind(task.ScheduleKind)) {
-			if err := s.store.UpdateScheduledTask(ctx, task.ID, map[string]any{"status": domain.ScheduledTaskStatusRunning}); err != nil {
+		claimedAt := s.now()
+		nextRun := task.NextRunAt
+		if isRecurring(ScheduleKind(task.ScheduleKind)) {
+			nextRun, err = computeNextRun(specFromTask(task), claimedAt, &claimedAt)
+			if err != nil {
 				return err
 			}
 		}
-		run := &domain.ScheduledTaskRun{ID: uuid.NewString(), TaskID: task.ID, Status: domain.ScheduledTaskRunStatusRunning, StartedAt: s.now()}
-		if err := s.store.CreateScheduledTaskRun(ctx, run); err != nil {
+		run := &domain.ScheduledTaskRun{ID: uuid.NewString(), TaskID: task.ID, Status: domain.ScheduledTaskRunStatusRunning, StartedAt: claimedAt}
+		claimed, err := s.store.ClaimScheduledTaskRun(ctx, task.ID, claimedAt, nextRun, run)
+		if err != nil {
 			return err
+		}
+		if !claimed {
+			continue
 		}
 		result := s.runner.RunScheduledTask(ctx, task)
 		// Persist the outcome even when shutdown cancels the execution context.
 		saveCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
-		err := s.markRunComplete(saveCtx, task.ID, run.ID, result)
+		err = s.markRunComplete(saveCtx, task.ID, run.ID, result)
 		cancel()
 		if err != nil {
 			return err
@@ -850,6 +852,67 @@ func (m *MemoryStore) CreateScheduledTaskRun(_ context.Context, run *domain.Sche
 	}
 	m.runs = append(m.runs, *run)
 	return nil
+}
+
+func (m *MemoryStore) ClaimScheduledTaskRun(_ context.Context, taskID string, claimedAt time.Time, nextRunAt *time.Time, run *domain.ScheduledTaskRun) (bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	task, ok := m.tasks[taskID]
+	if !ok || task.Status != domain.ScheduledTaskStatusScheduled || task.NextRunAt == nil || task.NextRunAt.After(claimedAt) {
+		return false, nil
+	}
+	task.Status = domain.ScheduledTaskStatusRunning
+	task.NextRunAt = nextRunAt
+	task.UpdatedAt = time.Now()
+	m.tasks[taskID] = task
+	if run.ID == "" {
+		run.ID = uuid.NewString()
+	}
+	run.TaskID = taskID
+	run.Status = domain.ScheduledTaskRunStatusRunning
+	m.runs = append(m.runs, *run)
+	return true, nil
+}
+
+func (m *MemoryStore) CompleteScheduledTaskRun(_ context.Context, taskID, runID string, run *domain.ScheduledTaskRun, taskUpdates map[string]any) (bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	task, ok := m.tasks[taskID]
+	if !ok {
+		return false, fmt.Errorf("scheduled task %s not found", taskID)
+	}
+	if runID == "" {
+		if run.ID == "" {
+			run.ID = uuid.NewString()
+		}
+		run.TaskID = taskID
+		m.runs = append(m.runs, *run)
+	} else {
+		found := false
+		for i := range m.runs {
+			if m.runs[i].ID != runID || m.runs[i].TaskID != taskID {
+				continue
+			}
+			if m.runs[i].Status != domain.ScheduledTaskRunStatusRunning {
+				return false, nil
+			}
+			m.runs[i].SessionID = run.SessionID
+			m.runs[i].RequestID = run.RequestID
+			m.runs[i].Status = run.Status
+			m.runs[i].Answer = run.Answer
+			m.runs[i].Error = run.Error
+			m.runs[i].StartedAt = run.StartedAt
+			m.runs[i].FinishedAt = run.FinishedAt
+			found = true
+			break
+		}
+		if !found {
+			return false, apperrors.ErrNotFound
+		}
+	}
+	patchTask(&task, taskUpdates)
+	m.tasks[taskID] = task
+	return true, nil
 }
 
 func patchTask(task *domain.ScheduledTask, updates map[string]any) {

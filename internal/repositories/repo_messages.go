@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"slimebot/internal/apperrors"
-	llmsvc "slimebot/internal/services/llm"
 	"strings"
 	"time"
 
@@ -38,7 +37,7 @@ func decodeMessageAttachments(raw string) []domain.MessageAttachment {
 	return items
 }
 
-func encodeTokenUsage(usage *llmsvc.TokenUsage) string {
+func encodeTokenUsage(usage *domain.TokenUsage) string {
 	if usage == nil || usage.IsZero() {
 		return ""
 	}
@@ -49,11 +48,11 @@ func encodeTokenUsage(usage *llmsvc.TokenUsage) string {
 	return string(data)
 }
 
-func decodeTokenUsage(raw string) *llmsvc.TokenUsage {
+func decodeTokenUsage(raw string) *domain.TokenUsage {
 	if raw == "" {
 		return nil
 	}
-	var usage llmsvc.TokenUsage
+	var usage domain.TokenUsage
 	if err := json.Unmarshal([]byte(raw), &usage); err != nil || usage.IsZero() {
 		return nil
 	}

@@ -2,7 +2,6 @@ package domain
 
 import (
 	"regexp"
-	llmsvc "slimebot/internal/services/llm"
 	"time"
 )
 
@@ -60,9 +59,9 @@ type Message struct {
 	// Attachments is the runtime slice exposed to the frontend for attachment cards.
 	Attachments []MessageAttachment `gorm:"-" json:"attachments"`
 	// TokenUsage is provider-reported usage decoded from TokenUsageJSON.
-	TokenUsage *llmsvc.TokenUsage `gorm:"-" json:"-"`
-	CreatedAt  time.Time          `gorm:"index;index:idx_messages_session_created,priority:2" json:"createdAt"`
-	Seq        int64              `gorm:"not null;default:0;index:idx_messages_session_created,priority:3" json:"seq"`
+	TokenUsage *TokenUsage `gorm:"-" json:"-"`
+	CreatedAt  time.Time   `gorm:"index;index:idx_messages_session_created,priority:2" json:"createdAt"`
+	Seq        int64       `gorm:"not null;default:0;index:idx_messages_session_created,priority:3" json:"seq"`
 }
 
 // MessageAttachment is attachment metadata for a message (no raw file bytes).

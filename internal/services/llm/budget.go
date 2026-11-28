@@ -24,14 +24,6 @@ func ResolveRequestConfig(c ModelRuntimeConfig) (ModelRuntimeConfig, error) {
 	return c, nil
 }
 
-// InputContextTokens excludes output and counts provider caches exactly once.
-func (u TokenUsage) InputContextTokens(provider string) int {
-	if provider == ProviderAnthropic {
-		return u.InputTokens + u.CacheCreationInputTokens + u.CacheReadInputTokens
-	}
-	return u.InputTokens
-}
-
 type ContextWindowError struct{ Err error }
 
 func (e *ContextWindowError) Error() string  { return e.Err.Error() }

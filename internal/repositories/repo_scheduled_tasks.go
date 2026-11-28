@@ -67,7 +67,77 @@ func (r *Repository) CreateScheduledTaskRun(ctx context.Context, run *domain.Sch
 	return r.dbWithContext(ctx).Create(run).Error
 }
 
-// ListScheduledTaskRuns keeps large answers out of the history list; details load on demand.
+// ClaimScheduledTaskRun atomically changes a due task to running and creates
+// its execution record. A competing claim or a stale due snapshot is a no-op.
+func (r *Repository) ClaimScheduledTaskRun(ctx context.Context, taskID string, claimedAt time.Time, nextRunAt *time.Time, run *domain.ScheduledTaskRun) (bool, error) {
+	claimed := false
+	err := r.dbWithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		result := tx.Model(&domain.ScheduledTask{}).
+			Where("id = ? AND status = ? AND next_run_at IS NOT NULL AND julianday(next_run_at) <= julianday(?)", taskID, domain.ScheduledTaskStatusScheduled, claimedAt).
+			Updates(map[string]any{"status": domain.ScheduledTaskStatusRunning, "next_run_at": nextRunAt})
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected != 1 {
+			return nil
+		}
+		if run.ID == "" {
+			run.ID = uuid.NewString()
+		}
+		run.TaskID = taskID
+		run.Status = domain.ScheduledTaskRunStatusRunning
+		if err := tx.Create(run).Error; err != nil {
+			return err
+		}
+		claimed = true
+		return nil
+	})
+	return claimed, err
+}
+
+// CompleteScheduledTaskRun persists a terminal run and its task counters in
+// one transaction. Completing an already terminal run is idempotent.
+func (r *Repository) CompleteScheduledTaskRun(ctx context.Context, taskID, runID string, run *domain.ScheduledTaskRun, taskUpdates map[string]any) (bool, error) {
+	completed := false
+	err := r.dbWithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if runID == "" {
+			if run.ID == "" {
+				run.ID = uuid.NewString()
+			}
+			run.TaskID = taskID
+			if err := tx.Create(run).Error; err != nil {
+				return err
+			}
+		} else {
+			result := tx.Model(&domain.ScheduledTaskRun{}).
+				Where("id = ? AND task_id = ? AND status = ?", runID, taskID, domain.ScheduledTaskRunStatusRunning).
+				Updates(map[string]any{
+					"session_id": run.SessionID, "request_id": run.RequestID,
+					"status": run.Status, "answer": run.Answer, "error": run.Error,
+					"started_at": run.StartedAt, "finished_at": run.FinishedAt,
+				})
+			if result.Error != nil {
+				return result.Error
+			}
+			if result.RowsAffected != 1 {
+				var existing domain.ScheduledTaskRun
+				if err := tx.Select("id").Where("id = ? AND task_id = ?", runID, taskID).Take(&existing).Error; err != nil {
+					return err
+				}
+				return nil
+			}
+		}
+		if result := tx.Model(&domain.ScheduledTask{}).Where("id = ?", taskID).Updates(taskUpdates); result.Error != nil {
+			return result.Error
+		} else if result.RowsAffected != 1 {
+			return fmt.Errorf("scheduled task %s: %w", taskID, apperrors.ErrNotFound)
+		}
+		completed = true
+		return nil
+	})
+	return completed, err
+}
+
 func (r *Repository) ListScheduledTaskRuns(ctx context.Context, taskID, status string, limit, offset int) ([]domain.ScheduledTaskRun, error) {
 	runs := []domain.ScheduledTaskRun{}
 	q := r.dbWithContext(ctx).Model(&domain.ScheduledTaskRun{}).

@@ -4,7 +4,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	llm "slimebot/internal/services/llm"
 	"time"
 )
 
@@ -23,8 +22,8 @@ type ContextEntry struct {
 	CreatedAt       time.Time
 }
 
-func (e ContextEntry) Message() (llm.ChatMessage, error) {
-	var m llm.ChatMessage
+func (e ContextEntry) Message() (ChatMessage, error) {
+	var m ChatMessage
 	err := json.Unmarshal([]byte(e.Payload), &m)
 	return m, err
 }
@@ -87,7 +86,7 @@ type ContextSeed struct {
 	Seq        int64
 	SourceHash string
 	Fidelity   string
-	Messages   []llm.ChatMessage
+	Messages   []ChatMessage
 }
 
 func ContextMessageHash(m Message) string {

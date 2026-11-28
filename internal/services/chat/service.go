@@ -98,14 +98,49 @@ type ChatStreamResult struct {
 	SkillLearning     *SkillLearningNotice
 }
 
-// NewChatService constructs ChatService with per-session skill activation maps.
-func NewChatService(store domain.ChatStore, settingsStore domain.SettingsStore, providerFactory *llmsvc.Factory, mcpManager *mcp.Manager, skillRuntime *skillsvc.SkillRuntimeService) *ChatService {
+// ChatServiceDeps declares the complete chat composition. Store and
+// ProviderFactory are the core dependencies; integrations are optional so
+// focused tests and embedding surfaces can select only the capabilities they use.
+type ChatServiceDeps struct {
+	Store                domain.ChatStore
+	SettingsStore        domain.SettingsStore
+	ContextStore         contextsvc.Store
+	AgentStore           domain.AgentStore
+	ProviderFactory      *llmsvc.Factory
+	MCPManager           *mcp.Manager
+	SkillRuntime         *skillsvc.SkillRuntimeService
+	SkillLearning        *skillsvc.LearningService
+	Memory               *memorysvc.Service
+	Schedule             *schedulesvc.Service
+	Usage                *usagesvc.Service
+	TeamService          *teamsvc.Service
+	PlanService          *plansvc.PlanService
+	FileCheckpoints      *workspace.CheckpointManager
+	Uploads              *ChatUploadService
+	AgentsInstructions   agentsInstructionsReader
+	ACPClient            acpTurnClient
+	ContextHistoryRounds int
+}
+
+// NewChatServiceWithDeps constructs a fully wired ChatService without runtime
+// capability detection or order-dependent setters.
+func NewChatServiceWithDeps(deps ChatServiceDeps) *ChatService {
 	s := &ChatService{
-		store:                store,
-		settingsStore:        settingsStore,
-		providerFactory:      providerFactory,
-		skillRuntime:         skillRuntime,
-		titleGen:             newTitleGenerator(providerFactory, store),
+		store:                deps.Store,
+		settingsStore:        deps.SettingsStore,
+		providerFactory:      deps.ProviderFactory,
+		skillRuntime:         deps.SkillRuntime,
+		skillLearning:        deps.SkillLearning,
+		memory:               deps.Memory,
+		schedule:             deps.Schedule,
+		usage:                deps.Usage,
+		teamService:          deps.TeamService,
+		planService:          deps.PlanService,
+		checkpoints:          deps.FileCheckpoints,
+		uploads:              deps.Uploads,
+		acp:                  deps.ACPClient,
+		agents:               deps.AgentsInstructions,
+		titleGen:             newTitleGenerator(deps.ProviderFactory, deps.Store),
 		skillsBySess:         make(map[string]map[string]struct{}),
 		turns:                make(map[string]bool),
 		skillTouchedAt:       make(map[string]time.Time),
@@ -113,16 +148,40 @@ func NewChatService(store domain.ChatStore, settingsStore domain.SettingsStore, 
 		memoryReviewTouched:  make(map[string]time.Time),
 		contextHistoryRounds: constants.DefaultContextHistoryRounds,
 	}
-	if store, ok := store.(contextsvc.Store); ok {
-		s.contexts = contextsvc.New(store, providerFactory)
+	if deps.ContextStore != nil {
+		s.contexts = contextsvc.New(deps.ContextStore, deps.ProviderFactory)
 	}
-	s.agent = NewAgentService(providerFactory, mcpManager, skillRuntime)
+	s.agent = NewAgentService(deps.ProviderFactory, deps.MCPManager, deps.SkillRuntime)
 	s.agent.SetSubagentHost(s)
-	if store, ok := store.(domain.AgentStore); ok {
-		s.cooperative = subagentsvc.New(store, agentruntime.New(store, s.runCooperativeTurn))
+	s.agent.SetMemoryService(deps.Memory)
+	s.agent.SetScheduleService(deps.Schedule)
+	if deps.Usage != nil && deps.ProviderFactory != nil {
+		deps.ProviderFactory.SetRequestObserver(deps.Usage.ObserveRequest)
+	}
+	if deps.AgentStore != nil {
+		s.cooperative = subagentsvc.New(deps.AgentStore, agentruntime.New(deps.AgentStore, s.runCooperativeTurn))
 		s.configureCooperative()
 	}
+	if deps.ContextHistoryRounds > 0 {
+		s.SetContextHistoryRounds(deps.ContextHistoryRounds)
+	}
 	return s
+}
+
+// NewChatService is the legacy test-compatible constructor. New production
+// composition should use NewChatServiceWithDeps and explicit capability stores.
+func NewChatService(store domain.ChatStore, settingsStore domain.SettingsStore, providerFactory *llmsvc.Factory, mcpManager *mcp.Manager, skillRuntime *skillsvc.SkillRuntimeService) *ChatService {
+	deps := ChatServiceDeps{
+		Store: store, SettingsStore: settingsStore, ProviderFactory: providerFactory,
+		MCPManager: mcpManager, SkillRuntime: skillRuntime,
+	}
+	if contextStore, ok := store.(contextsvc.Store); ok {
+		deps.ContextStore = contextStore
+	}
+	if agentStore, ok := store.(domain.AgentStore); ok {
+		deps.AgentStore = agentStore
+	}
+	return NewChatServiceWithDeps(deps)
 }
 
 func (s *ChatService) SetSkillLearningService(service *skillsvc.LearningService) {

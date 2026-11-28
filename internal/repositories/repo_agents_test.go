@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"slimebot/internal/domain"
-	llm "slimebot/internal/services/llm"
 )
 
 func TestAgentForkIncludesOnlyClosedHistoryAndReclassifiesHumanSources(t *testing.T) {
@@ -22,12 +21,12 @@ func TestAgentForkIncludesOnlyClosedHistoryAndReclassifiesHumanSources(t *testin
 			t.Fatal(err)
 		}
 	}
-	messages := []llm.ChatMessage{
+	messages := []domain.ChatMessage{
 		{Role: "user", SourceKind: "direct_user", Content: "original task"},
-		{Role: "assistant", ToolCalls: []llm.ToolCallInfo{{ID: "closed", Name: "file_read"}}},
+		{Role: "assistant", ToolCalls: []domain.ToolCallInfo{{ID: "closed", Name: "file_read"}}},
 		{Role: "tool", ToolCallID: "closed", Content: "result"},
 		{Role: "assistant", Content: "complete report"},
-		{Role: "assistant", ToolCalls: []llm.ToolCallInfo{{ID: "inflight", Name: "file_read"}}},
+		{Role: "assistant", ToolCalls: []domain.ToolCallInfo{{ID: "inflight", Name: "file_read"}}},
 	}
 	for _, m := range messages {
 		payload, _ := json.Marshal(m)
@@ -132,16 +131,16 @@ func TestRelayReceiptAndModelInputCommitTogether(t *testing.T) {
 	if err != nil || len(claimed) != 1 || claimed[0].Status != "claimed" {
 		t.Fatalf("claim: %+v %v", claimed, err)
 	}
-	message := llm.ChatMessage{Role: "user", SourceInboxID: inbox.ID, SourceKind: "human_input", Content: inbox.Content}
+	message := domain.ChatMessage{Role: "user", SourceInboxID: inbox.ID, SourceKind: "human_input", Content: inbox.Content}
 	// A failed context CAS must not acknowledge the accepted inbox message.
-	if _, _, err := repo.AppendContextEntries(ctx, "parent", "request", "", 0, 99, []llm.ChatMessage{message}); err == nil {
+	if _, _, err := repo.AppendContextEntries(ctx, "parent", "request", "", 0, 99, []domain.ChatMessage{message}); err == nil {
 		t.Fatal("stale context accepted")
 	}
 	pending, _ := repo.ListAgentInbox(ctx, "parent", "claimed")
 	if len(pending) != 1 {
 		t.Fatal("failed context append consumed the message")
 	}
-	if _, _, err := repo.AppendContextEntries(ctx, "parent", "request", "", 0, 0, []llm.ChatMessage{message}); err != nil {
+	if _, _, err := repo.AppendContextEntries(ctx, "parent", "request", "", 0, 0, []domain.ChatMessage{message}); err != nil {
 		t.Fatal(err)
 	}
 	completed, _ := repo.ListAgentInbox(ctx, "parent", "completed")
@@ -155,7 +154,7 @@ func TestRelayReceiptAndModelInputCommitTogether(t *testing.T) {
 	if err := db.Create(&domain.ContextHead{ScopeID: "other"}).Error; err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := repo.AppendContextEntries(ctx, "other", "request", "", 0, 0, []llm.ChatMessage{message}); err == nil {
+	if _, _, err := repo.AppendContextEntries(ctx, "other", "request", "", 0, 0, []domain.ChatMessage{message}); err == nil {
 		t.Fatal("cross-scope relay acknowledgement accepted")
 	}
 }

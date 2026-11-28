@@ -42,12 +42,12 @@ internal/
 ├─ auth/                     # Auth primitives
 ├─ config/                   # Runtime configuration
 ├─ constants/                # Shared constants
-├─ domain/                   # Domain models and shared service/tool DTOs
+├─ domain/                   # Domain models, provider-neutral LLM value types, and shared service/tool DTOs
 ├─ logging/                  # Logger setup and helpers
 ├─ mcp/                      # MCP protocol integration
 ├─ platforms/
 │  └─ telegram/              # Telegram platform adapter
-├─ repositories/             # Persistence/data access
+├─ repositories/             # Persistence/data access, versioned schema migrations, and atomic scheduled-run transactions
 ├─ runtime/                  # Host state, lifecycle, and managed agent execution
 │  ├─ agent/                 # Durable activations, inbox scheduling, root budgets, and database ownership
 │  └─ workspace/             # Isolated worktrees, integration journals, and main-session file checkpoints
@@ -143,7 +143,7 @@ Quick index (feature -> first place to inspect):
 - External ACP agents: `internal/acp/client/`, `internal/services/chat/acp.go`, `internal/services/config/acp_config.go`, `internal/repositories/repo_acp_configs.go`, `internal/server/controller/acp_configs.go`, `internal/command/command.go`
 - Web ACP settings and external engine picker: `frontend/src/components/settings/SettingsACPTab.vue`, `frontend/src/api/acp.ts`, `frontend/src/utils/acp.ts`, `frontend/src/composables/home/useHomeModelSelector.ts`
 - Sandbox policy and command isolation: `internal/sandbox/`
-- LLM abstraction/provider wiring: `internal/services/llm/`, `internal/services/openai/`, `internal/services/anthropic/`
+- LLM abstraction/provider wiring: `internal/services/llm/` (compatibility aliases), `internal/domain/llm_types.go` (provider-neutral values), `internal/services/openai/`, `internal/services/anthropic/`
 - Turn tool execution: `internal/services/chat/tool_dispatcher.go`, `internal/services/chat/special_tool_handlers.go`, `internal/tools/runtime_context.go` (per-turn dependencies, tool batches, approvals, and special handlers)
 - Nested subagent execution: `internal/services/chat/agent_run_subagent.go` (shared executor contract and team lifecycle for cooperative and direct execution)
 - Active-turn steering: `internal/services/chat/steering.go`, `internal/services/chat/agent.go`, `AGENT-FLOW.md`
@@ -156,7 +156,7 @@ Quick index (feature -> first place to inspect):
 - Main-session file checkpoints and rollback: `internal/runtime/workspace/checkpoints.go`, `internal/services/chat/file_checkpoints.go`, `internal/server/controller/file_checkpoints.go`, `frontend/src/components/chat/ChatCheckpointDialog.vue`
 - Pure Go privacy inference and tokenizer reference tests: `internal/services/privacy/inference/`
 - Long-term memory store/service: `internal/services/memory/`, `internal/tools/memory.go`
-- Scheduled tasks and execution history: `internal/services/schedule/`, `internal/tools/schedule.go`, `internal/app/schedule_runner.go`, `internal/server/controller/scheduled_tasks.go`
+- Scheduled tasks and execution history: `internal/services/schedule/`, `internal/tools/schedule.go`, `internal/app/schedule_runner.go`, `internal/server/controller/scheduled_tasks.go` (claim/completion use atomic store transactions)
 - Home scheduled task workspace: `frontend/src/components/home/ScheduledTasksWorkspace.vue`, `frontend/src/components/home/TaskRunTimeline.vue`, `frontend/src/api/schedule.ts` (sidebar entry and `/tasks` route; execution contexts are excluded from ordinary chats)
 - Unified task center: `internal/app/task_center.go`, `internal/server/controller/task_center.go`, `frontend/src/api/taskCenter.ts` (background commands, subagents and scheduled runs in the `/tasks` overview)
 - Token usage summaries and output budgets: `internal/services/usage/`, `internal/services/llm/request_observer.go`, `internal/repositories/repo_usage.go`, `frontend/src/components/settings/SettingsUsageTab.vue`

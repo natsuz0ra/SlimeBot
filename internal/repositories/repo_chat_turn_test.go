@@ -11,7 +11,6 @@ import (
 
 	"slimebot/internal/constants"
 	"slimebot/internal/domain"
-	llmsvc "slimebot/internal/services/llm"
 
 	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
@@ -24,7 +23,7 @@ func TestCompleteChatTurnRollsBackAllWrites(t *testing.T) {
 	t.Cleanup(func() { _ = repo.Close() })
 	input := domain.CompleteChatTurnInput{
 		SessionID: "session", RequestID: "turn", ContextRequestID: "context",
-		Interrupted: true, TokenUsage: &llmsvc.TokenUsage{OutputTokens: 12},
+		Interrupted: true, TokenUsage: &domain.TokenUsage{OutputTokens: 12},
 	}
 	now := time.Now()
 	if err := repo.UpsertToolCallStart(ctx, domain.ToolCallStartRecordInput{
@@ -96,7 +95,7 @@ func TestCompleteChatTurnDeduplicatesAssistantBySessionAndRequest(t *testing.T) 
 	t.Cleanup(func() { _ = repo.Close() })
 	input := domain.CompleteChatTurnInput{
 		SessionID: "session", RequestID: "request", Content: "original answer",
-		TokenUsage: &llmsvc.TokenUsage{InputTokens: 4, OutputTokens: 2},
+		TokenUsage: &domain.TokenUsage{InputTokens: 4, OutputTokens: 2},
 	}
 	if _, err := repo.AddMessageWithInput(ctx, domain.AddMessageInput{
 		SessionID: input.SessionID, Role: "user", RequestID: input.RequestID, Content: "question",

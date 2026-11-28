@@ -2,7 +2,6 @@ package repositories
 
 import (
 	"fmt"
-	"slimebot/internal/domain"
 	"testing"
 	"time"
 
@@ -23,33 +22,8 @@ func NewSQLiteDBTest(t testing.TB, namespace string) *gorm.DB {
 		t.Fatal(err)
 	}
 	pool.SetMaxOpenConns(1)
-	if err := db.AutoMigrate(
-		&domain.Session{},
-		&domain.Message{},
-		&domain.ToolCallRecord{},
-		&domain.ThinkingRecord{},
-		&domain.TeamRun{},
-		&domain.TeamMemberRun{},
-		&domain.AgentDescriptor{}, &domain.AgentTurn{}, &domain.AgentInbox{}, &domain.AgentRootRequest{},
-		&domain.AgentEvent{}, &domain.AgentTask{}, &domain.AgentArtifact{},
-		&domain.AgentApproval{},
-		&domain.AppSetting{},
-		&domain.LLMProvider{},
-		&domain.LLMConfig{},
-		&domain.SessionContextSummary{},
-		&domain.ContextEntry{},
-		&domain.ContextHead{},
-		&domain.ContextCheckpoint{},
-		&domain.ContextCalibration{},
-		&domain.MCPConfig{},
-		&domain.ACPConfig{},
-		&domain.MessagePlatformConfig{},
-		&domain.ScheduledTask{},
-		&domain.ScheduledTaskRun{},
-		&domain.BackgroundTask{},
-		&domain.UsageRecord{},
-	); err != nil {
-		t.Fatalf("auto migrate failed: %v", err)
+	if err := RunMigrations(db); err != nil {
+		t.Fatalf("run migrations failed: %v", err)
 	}
 	return db
 }

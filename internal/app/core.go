@@ -149,34 +149,42 @@ func newCore(cfg config.Config, desktop bool) (*Core, error) {
 	chatUpload := chatsvc.NewChatUploadService(cfg.ChatUploadRoot)
 	memoryService := memorysvc.NewServiceFromSettings(repo)
 	scheduleService := schedulesvc.NewService(repo, nil, schedulesvc.Options{})
-	chatService := chatsvc.NewChatService(repo, repo, providerFactory, mcpManager, skillRuntime)
 	skillLearning := skillsvc.NewLearningService(providerFactory, skillRuntime)
-	chatService.SetSkillLearningService(skillLearning)
-	chatService.SetFileCheckpoints(workspace.NewCheckpoints(filepath.Join(filepath.Dir(cfg.DBPath), "file-checkpoints")))
 	usageService := usagesvc.NewService(repo, repo)
-	chatService.SetUsageService(usageService)
-	chatService.SetTeamService(teamService)
-	chatService.SetMemoryService(memoryService)
-	chatService.SetScheduleService(scheduleService)
-	chatService.SetAgentsInstructions(agentsService)
+	planService, err := plansvc.NewPlanService()
+	if err != nil {
+		return nil, err
+	}
+	acpManager := acpclient.NewManager(repo)
+	chatService := chatsvc.NewChatServiceWithDeps(chatsvc.ChatServiceDeps{
+		Store:                repo,
+		SettingsStore:        repo,
+		ContextStore:         repo,
+		AgentStore:           repo,
+		ProviderFactory:      providerFactory,
+		MCPManager:           mcpManager,
+		SkillRuntime:         skillRuntime,
+		SkillLearning:        skillLearning,
+		Memory:               memoryService,
+		Schedule:             scheduleService,
+		Usage:                usageService,
+		TeamService:          teamService,
+		PlanService:          planService,
+		FileCheckpoints:      workspace.NewCheckpoints(filepath.Join(filepath.Dir(cfg.DBPath), "file-checkpoints")),
+		Uploads:              chatUpload,
+		AgentsInstructions:   agentsService,
+		ACPClient:            acpManager,
+		ContextHistoryRounds: cfg.ContextHistoryRounds,
+	})
 	if err := chatService.RecoverBackgroundTasks(context.Background()); err != nil {
 		return nil, fmt.Errorf("recover background tasks: %w", err)
 	}
 	if err := chatService.RecoverCooperativeWorkspaces(context.Background()); err != nil {
 		logging.Warn("agent_workspace_recovery", "err", err)
 	}
-	chatService.SetUploadService(chatUpload)
-	chatService.SetContextHistoryRounds(cfg.ContextHistoryRounds)
 
-	planService, err := plansvc.NewPlanService()
-	if err != nil {
-		return nil, err
-	}
-	chatService.SetPlanService(planService)
 	info := buildversion.Info()
 	updateService := updater.NewService(updater.ServiceOptions{CurrentVersion: info.Version})
-	acpManager := acpclient.NewManager(repo)
-	chatService.SetACPClient(acpManager)
 
 	privacyService.StartMappingCleanup(context.Background())
 	owned = true

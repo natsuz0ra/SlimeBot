@@ -37,6 +37,7 @@ func StripContentMarkers(input string) string {
 
 // chatTurnState holds intermediate state while preparing a chat turn.
 type chatTurnState struct {
+	acpAgentID        string
 	userMessageID     string
 	modelUser         llmsvc.ChatMessage
 	contextRequestID  string
@@ -134,13 +135,15 @@ func (s *ChatService) HandleEditedChatStream(
 			return nil, err
 		}
 	}
-	ctx.Value(turnInboxKey{}).(*turnInbox).open()
+	if state.acpAgentID == "" {
+		ctx.Value(turnInboxKey{}).(*turnInbox).open()
+	}
 	if callbacks.OnTurnStarted != nil {
 		if err := callbacks.OnTurnStarted(requestID); err != nil {
 			return nil, err
 		}
 	}
-	if callbacks.OnContextUsage != nil {
+	if state.acpAgentID == "" && callbacks.OnContextUsage != nil {
 		if err := callbacks.OnContextUsage(state.contextUsage); err != nil {
 			return nil, err
 		}
@@ -150,7 +153,7 @@ func (s *ChatService) HandleEditedChatStream(
 			return nil, err
 		}
 	}
-	if planMode {
+	if planMode && state.acpAgentID == "" {
 		state.contextMessages = append(state.contextMessages, llmsvc.ChatMessage{
 			Role:    "system",
 			Content: planModeSystemMessage,
@@ -161,7 +164,9 @@ func (s *ChatService) HandleEditedChatStream(
 	var interrupted bool
 	failed := true
 	defer func() {
-		s.finishChatRoot(ctx, sessionID, requestID, interrupted, failed)
+		if state.acpAgentID == "" {
+			s.finishChatRoot(ctx, sessionID, requestID, interrupted, failed)
+		}
 	}()
 	result, err := s.executeChatTurn(ctx, sessionID, requestID, state, callbacks, planMode, subagentModelID, approvalModeOverride)
 	if result != nil {
@@ -179,7 +184,7 @@ func (s *ChatService) HandleEditedChatStream(
 	if result.interrupted {
 		finalizeCtx = context.Background()
 	}
-	stream, finalErr := s.finalizeChatTurn(finalizeCtx, sessionID, requestID, state, result, planMode, callbacks)
+	stream, finalErr := s.finalizeChatTurn(finalizeCtx, sessionID, requestID, state, result, planMode && state.acpAgentID == "", callbacks)
 	failed = finalErr != nil || result.failed
 	return stream, finalErr
 }
@@ -215,13 +220,15 @@ func (s *ChatService) handleChatStreamWithReceivedAt(
 		return nil, err
 	}
 	defer s.cleanupTurnAttachments(state.attachments)
-	ctx.Value(turnInboxKey{}).(*turnInbox).open()
+	if state.acpAgentID == "" {
+		ctx.Value(turnInboxKey{}).(*turnInbox).open()
+	}
 	if callbacks.OnTurnStarted != nil {
 		if err := callbacks.OnTurnStarted(requestID); err != nil {
 			return nil, err
 		}
 	}
-	if callbacks.OnContextUsage != nil {
+	if state.acpAgentID == "" && callbacks.OnContextUsage != nil {
 		if err := callbacks.OnContextUsage(state.contextUsage); err != nil {
 			return nil, err
 		}
@@ -231,9 +238,11 @@ func (s *ChatService) handleChatStreamWithReceivedAt(
 			return nil, err
 		}
 	}
-	s.maybeGenerateTitleAsync(state.session, state.modelConfig, state.userContent, callbacks.TitlePrefix, callbacks.OnTitleGenerated)
+	if state.acpAgentID == "" {
+		s.maybeGenerateTitleAsync(state.session, state.modelConfig, state.userContent, callbacks.TitlePrefix, callbacks.OnTitleGenerated)
+	}
 
-	if planMode {
+	if planMode && state.acpAgentID == "" {
 		state.contextMessages = append(state.contextMessages, llmsvc.ChatMessage{
 			Role:    "system",
 			Content: planModeSystemMessage,
@@ -245,7 +254,9 @@ func (s *ChatService) handleChatStreamWithReceivedAt(
 	var interrupted bool
 	failed := true
 	defer func() {
-		s.finishChatRoot(ctx, sessionID, requestID, interrupted, failed)
+		if state.acpAgentID == "" {
+			s.finishChatRoot(ctx, sessionID, requestID, interrupted, failed)
+		}
 	}()
 	result, err := s.executeChatTurn(ctx, sessionID, requestID, state, callbacks, planMode, subagentModelID, approvalModeOverride)
 	if result != nil {
@@ -265,7 +276,7 @@ func (s *ChatService) handleChatStreamWithReceivedAt(
 	if result.interrupted {
 		finalizeCtx = context.Background()
 	}
-	stream, finalErr := s.finalizeChatTurn(finalizeCtx, sessionID, requestID, state, result, planMode, callbacks)
+	stream, finalErr := s.finalizeChatTurn(finalizeCtx, sessionID, requestID, state, result, planMode && state.acpAgentID == "", callbacks)
 	failed = finalErr != nil || result.failed
 	return stream, finalErr
 }
@@ -298,6 +309,29 @@ func (s *ChatService) prepareChatTurn(
 	attachmentIDs []string,
 	thinkingLevel string,
 ) (*chatTurnState, error) {
+	session, err := s.store.GetSessionByID(ctx, sessionID)
+	if errors.Is(err, apperrors.ErrNotFound) {
+		return nil, fmt.Errorf("Session not found: %s.", sessionID)
+	}
+	if err != nil {
+		return nil, err
+	}
+	agentID, err := s.acpRoute(session, modelID)
+	if err != nil {
+		return nil, err
+	}
+	if agentID != "" {
+		attachments, err := s.resolveTurnAttachments(sessionID, attachmentIDs)
+		if err != nil {
+			return nil, err
+		}
+		user, err := s.persistUserMessage(ctx, sessionID, content, displayContent, receivedAt, attachments)
+		if err != nil {
+			s.cleanupTurnAttachments(attachments)
+			return nil, err
+		}
+		return &chatTurnState{acpAgentID: agentID, session: session, userMessageID: user.ID, userContent: content, userCreatedAt: receivedAt, attachments: attachments}, nil
+	}
 	llmConfig, err := s.ResolveLLMConfig(ctx, modelID)
 	if err != nil {
 		return nil, err
@@ -313,11 +347,7 @@ func (s *ChatService) prepareChatTurn(
 		ThinkingLevel: thinkingLevel,
 	}
 
-	session, err := s.store.GetSessionByID(ctx, sessionID)
-	if err != nil {
-		if errors.Is(err, apperrors.ErrNotFound) {
-			return nil, fmt.Errorf("Session not found: %s.", sessionID)
-		}
+	if err := s.unbindACPForLocalTurn(ctx, session); err != nil {
 		return nil, err
 	}
 
@@ -327,10 +357,6 @@ func (s *ChatService) prepareChatTurn(
 	}
 
 	userContentForLLM := content
-	userContentForDisplay := content
-	if strings.TrimSpace(displayContent) != "" {
-		userContentForDisplay = displayContent
-	}
 	userMessageParts := make([]llmsvc.ChatMessageContentPart, 0)
 	var attachmentFallback []string
 	if len(attachments) > 0 {
@@ -340,18 +366,9 @@ func (s *ChatService) prepareChatTurn(
 		}
 	}
 
-	userMessageAttachments := make([]domain.MessageAttachment, 0, len(attachments))
-	for _, item := range attachments {
-		userMessageAttachments = append(userMessageAttachments, item.ToMessageAttachment())
-	}
-	userMessage, addErr := s.store.AddMessageWithInput(ctx, domain.AddMessageInput{
-		SessionID:   sessionID,
-		Role:        "user",
-		Content:     userContentForDisplay,
-		Attachments: userMessageAttachments,
-		CreatedAt:   receivedAt,
-	})
+	userMessage, addErr := s.persistUserMessage(ctx, sessionID, content, displayContent, receivedAt, attachments)
 	if addErr != nil {
+		s.cleanupTurnAttachments(attachments)
 		return nil, addErr
 	}
 
@@ -374,9 +391,11 @@ func (s *ChatService) prepareChatTurn(
 	}()
 	prepareWG.Wait()
 	if contextErr != nil {
+		s.cleanupTurnAttachments(attachments)
 		return nil, contextErr
 	}
 	if mcpErr != nil {
+		s.cleanupTurnAttachments(attachments)
 		return nil, mcpErr
 	}
 
@@ -411,6 +430,28 @@ func (s *ChatService) prepareEditedChatTurn(
 	modelID string,
 	thinkingLevel string,
 ) (*chatTurnState, error) {
+	session, err := s.store.GetSessionByID(ctx, sessionID)
+	if errors.Is(err, apperrors.ErrNotFound) {
+		return nil, fmt.Errorf("Session not found: %s.", sessionID)
+	}
+	if err != nil {
+		return nil, err
+	}
+	agentID, err := s.acpRoute(session, modelID)
+	if err != nil {
+		return nil, err
+	}
+	if agentID != "" {
+		user, err := s.store.UpdateUserMessageAndPruneAfter(ctx, sessionID, messageID, content)
+		if err != nil {
+			return nil, err
+		}
+		if err := s.acp.ClearBinding(ctx, sessionID, session.ACPAgentID); err != nil {
+			return nil, err
+		}
+		session.ACPRemoteSessionID = ""
+		return &chatTurnState{acpAgentID: agentID, session: session, userMessageID: user.ID, userContent: content, userCreatedAt: user.CreatedAt}, nil
+	}
 	llmConfig, err := s.ResolveLLMConfig(ctx, modelID)
 	if err != nil {
 		return nil, err
@@ -426,11 +467,7 @@ func (s *ChatService) prepareEditedChatTurn(
 		ThinkingLevel: thinkingLevel,
 	}
 
-	session, err := s.store.GetSessionByID(ctx, sessionID)
-	if err != nil {
-		if errors.Is(err, apperrors.ErrNotFound) {
-			return nil, fmt.Errorf("Session not found: %s.", sessionID)
-		}
+	if err := s.unbindACPForLocalTurn(ctx, session); err != nil {
 		return nil, err
 	}
 	updatedUser, err := s.store.UpdateUserMessageAndPruneAfter(ctx, sessionID, messageID, content)
@@ -486,7 +523,6 @@ func (s *ChatService) executeChatTurn(
 	subagentModelID string,
 	approvalModeOverride string,
 ) (*chatTurnResult, error) {
-	requestTeamRuntime := newTeamRuntime(s.teamService, sessionID, requestID)
 	parser := newTitleStreamParser()
 	accumulator := &chatStreamAccumulator{}
 	usageTracker := newContextUsageTracker(state.contextUsage, callbacks.OnContextUsage)
@@ -564,6 +600,9 @@ func (s *ChatService) executeChatTurn(
 			defer callbackMu.Unlock()
 			if chunk != "" && firstTokenAt.IsZero() {
 				firstTokenAt = time.Now()
+			}
+			if state.acpAgentID != "" {
+				return pushBodyLocked(chunk)
 			}
 			body := parser.Feed(chunk)
 			if err := pushBodyLocked(body); err != nil {
@@ -728,12 +767,6 @@ func (s *ChatService) executeChatTurn(
 		OnPlanChunk: callbacks.OnPlanChunk,
 	}
 
-	activatedSkills := s.getSessionActivatedSkills(sessionID)
-	previouslyActivated := make(map[string]struct{}, len(activatedSkills))
-	for id := range activatedSkills {
-		previouslyActivated[id] = struct{}{}
-	}
-
 	approvalMode := constants.ApprovalModeStandard
 	if strings.TrimSpace(approvalModeOverride) != "" {
 		approvalMode = strings.TrimSpace(approvalModeOverride)
@@ -743,6 +776,37 @@ func (s *ChatService) executeChatTurn(
 		}
 	}
 
+	if state.acpAgentID != "" {
+		// External agents own their own planning and model context.
+		stop, err := s.runACPStream(ctx, state, approvalMode, planMode, agentCallbacks)
+		if finishErr := finishAllActiveThinkings(time.Now()); err == nil {
+			err = finishErr
+		}
+		interrupted := acpInterrupted(stop, err)
+		finalAnswer := strings.TrimSpace(accumulator.answerBuilder.String())
+		if err != nil && !interrupted && finalAnswer == "" {
+			return nil, err
+		}
+		if err != nil && !interrupted && accumulator.pushErr == nil {
+			accumulator.pushErr = err
+		}
+		if !interrupted {
+			if err := s.store.FinishOpenToolCallsForRequest(ctx, sessionID, requestID, "External tool did not report completion."); err != nil {
+				return nil, err
+			}
+		}
+		if finalAnswer == "" && !interrupted {
+			finalAnswer = "The ACP agent returned no content."
+		}
+		return &chatTurnResult{failed: err != nil && !interrupted, answer: finalAnswer, interrupted: interrupted, pushErr: accumulator.pushErr}, nil
+	}
+
+	requestTeamRuntime := newTeamRuntime(s.teamService, sessionID, requestID)
+	activatedSkills := s.getSessionActivatedSkills(sessionID)
+	previouslyActivated := make(map[string]struct{}, len(activatedSkills))
+	for id := range activatedSkills {
+		previouslyActivated[id] = struct{}{}
+	}
 	sandboxPolicy, err := s.resolveSandboxPolicy(ctx, state.session.WorkingDirectory)
 	if err != nil {
 		return nil, err
@@ -1018,6 +1082,9 @@ func (s *ChatService) finalizeChatTurn(
 	if result.pushErr != nil && !result.interrupted {
 		streamResult.PushFailed = true
 		streamResult.PushError = result.pushErr.Error()
+	}
+	if state.acpAgentID != "" {
+		return streamResult, nil
 	}
 	streamResult.SkillLearning = s.maybeLearnSkill(ctx, sessionID, requestID, assistantMessage.ID, state, result, planMode)
 	if !planMode && !result.interrupted && strings.TrimSpace(result.answer) != "" {

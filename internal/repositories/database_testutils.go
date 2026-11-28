@@ -42,6 +42,7 @@ func NewSQLiteDBTest(t testing.TB, namespace string) *gorm.DB {
 		&domain.ContextCheckpoint{},
 		&domain.ContextCalibration{},
 		&domain.MCPConfig{},
+		&domain.ACPConfig{},
 		&domain.MessagePlatformConfig{},
 		&domain.ScheduledTask{},
 		&domain.ScheduledTaskRun{},

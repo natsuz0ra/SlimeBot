@@ -9,6 +9,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	acpclient "slimebot/internal/acp/client"
 	"slimebot/internal/config"
 	"slimebot/internal/logging"
 	"slimebot/internal/mcp"
@@ -51,6 +52,8 @@ type Core struct {
 	AgentsService    *agentssvc.Service
 	LLMConfigService *configsvc.LLMConfigService
 	MCPConfigService *configsvc.MCPConfigService
+	ACPConfigService *configsvc.ACPConfigService
+	ACPClient        *acpclient.Manager
 	PlatformService  *configsvc.MessagePlatformConfigService
 	SkillStore       *skillsvc.FileSystemSkillStore
 	SkillPackage     *skillsvc.SkillPackageService
@@ -172,6 +175,8 @@ func newCore(cfg config.Config, desktop bool) (*Core, error) {
 	chatService.SetPlanService(planService)
 	info := buildversion.Info()
 	updateService := updater.NewService(updater.ServiceOptions{CurrentVersion: info.Version})
+	acpManager := acpclient.NewManager(repo)
+	chatService.SetACPClient(acpManager)
 
 	privacyService.StartMappingCleanup(context.Background())
 	owned = true
@@ -188,6 +193,8 @@ func newCore(cfg config.Config, desktop bool) (*Core, error) {
 		AgentsService:    agentsService,
 		LLMConfigService: llmConfigService,
 		MCPConfigService: mcpConfigService,
+		ACPConfigService: configsvc.NewACPConfigService(repo),
+		ACPClient:        acpManager,
 		PlatformService:  platformService,
 		SkillStore:       skillStore,
 		SkillPackage:     skillPackage,
@@ -249,6 +256,11 @@ func (c *Core) Close(ctx context.Context) {
 	}
 	if c.MCPManager != nil {
 		c.MCPManager.CloseAll()
+	}
+	if c.ACPClient != nil {
+		shutdown, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+		c.ACPClient.Close(shutdown)
+		cancel()
 	}
 	if c.PrivacyService != nil {
 		c.PrivacyService.Close()

@@ -12,6 +12,7 @@ export interface SessionItem {
   workingDirectory?: string
   isPinned?: boolean
   pinnedAt?: string
+  acpAgentId?: string
 }
 
 export interface ChatSearchHit {

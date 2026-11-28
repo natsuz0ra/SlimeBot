@@ -542,21 +542,21 @@ export class ChatSocket {
     this.openSocket()
   }
 
-  send(content: string, sessionId: string, modelId: string, attachmentIds?: string[], thinkingLevel?: string, planMode?: boolean, subagentModelId?: string) {
+  send(content: string, sessionId: string, modelId: string, attachmentIds?: string[], thinkingLevel?: string, planMode?: boolean, subagentModelId?: string, acpAgentId?: string) {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
       this.handlers?.onSocketError?.('socket is not connected')
       return false
     }
-    this.ws.send(JSON.stringify({ type: 'chat', content, sessionId, modelId, attachmentIds: attachmentIds || [], thinkingLevel: thinkingLevel || 'off', planMode: !!planMode, subagentModelId: subagentModelId || '' }))
+    this.ws.send(JSON.stringify({ type: 'chat', content, sessionId, modelId, attachmentIds: attachmentIds || [], thinkingLevel: thinkingLevel || 'off', planMode: !!planMode, subagentModelId: subagentModelId || '', acpAgentId: acpAgentId || '' }))
     return true
   }
 
-  sendEdit(messageId: string, content: string, sessionId: string, modelId: string, thinkingLevel?: string, planMode?: boolean, subagentModelId?: string) {
+  sendEdit(messageId: string, content: string, sessionId: string, modelId: string, thinkingLevel?: string, planMode?: boolean, subagentModelId?: string, acpAgentId?: string) {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
       this.handlers?.onSocketError?.('socket is not connected')
       return false
     }
-    this.ws.send(JSON.stringify({ type: 'chat_edit', messageId, content, sessionId, modelId, thinkingLevel: thinkingLevel || 'off', planMode: !!planMode, subagentModelId: subagentModelId || '' }))
+    this.ws.send(JSON.stringify({ type: 'chat_edit', messageId, content, sessionId, modelId, thinkingLevel: thinkingLevel || 'off', planMode: !!planMode, subagentModelId: subagentModelId || '', acpAgentId: acpAgentId || '' }))
     return true
   }
 

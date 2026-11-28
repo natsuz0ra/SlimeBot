@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref } from 'vue'
-import { mdiChevronDown, mdiDeleteOutline, mdiDownloadOutline, mdiFolderClockOutline, mdiMenu, mdiPencilOutline, mdiPinOffOutline, mdiPinOutline, mdiShieldOffOutline } from '@mdi/js'
+import { mdiChevronDown, mdiDeleteOutline, mdiDownloadOutline, mdiFolderClockOutline, mdiMenu, mdiPencilOutline, mdiPinOffOutline, mdiPinOutline, mdiRestart, mdiShieldOffOutline } from '@mdi/js'
 import { useI18n } from 'vue-i18n'
 import type { SessionItem } from '@/api/chat'
 import MdiIcon from '@/components/ui/MdiIcon.vue'
@@ -12,6 +12,7 @@ const props = defineProps<{
   topMenuVisible: boolean
   networkStatusText: string
   connectionStatus: string
+  acpAgentName?: string
 }>()
 
 const emit = defineEmits<{
@@ -23,6 +24,7 @@ const emit = defineEmits<{
   removeCurrent: []
   openCheckpoints: []
   clearPrivacyMappings: []
+  resetACPSession: []
 }>()
 
 const { t } = useI18n()
@@ -99,6 +101,7 @@ function onClearPrivacyClick() {
       />
       <span class="text-[10px] px-1.5 py-0.5 rounded-md platform-badge">IM</span>
     </div>
+    <span v-if="acpAgentName" class="acp-header-badge" :title="t('acpStatusHint')">ACP · {{ acpAgentName }}</span>
     </div>
 
     <div class="flex shrink-0 items-center gap-1.5">
@@ -145,6 +148,15 @@ function onClearPrivacyClick() {
           {{ t('sessionExport') }}
         </button>
         <button
+          v-if="currentSession && acpAgentName"
+          type="button"
+          class="w-full flex items-center gap-2.5 px-3 h-9 text-sm transition-colors duration-150 cursor-pointer menu-item"
+          @click="dismissTopMenu(); emit('resetACPSession')"
+        >
+          <MdiIcon :path="mdiRestart" :size="14" />
+          <span>{{ t('acpRestartSession') }}</span>
+        </button>
+        <button
           v-if="currentSession?.workingDirectory?.trim()"
           type="button"
           class="w-full flex items-center gap-2.5 px-3 h-9 text-sm transition-colors duration-150 cursor-pointer menu-item"
@@ -177,6 +189,23 @@ function onClearPrivacyClick() {
 </template>
 
 <style scoped>
+.acp-header-badge {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  max-width: 160px;
+  padding: 2px 7px;
+  overflow: hidden;
+  border: 1px solid var(--primary-alpha-22);
+  border-radius: 6px;
+  background: var(--primary-alpha-08);
+  color: var(--sb-brand);
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
 .header-title-btn:focus-visible,
 .top-menu-glass button:focus-visible {
   outline: 2px solid var(--focus-ring);

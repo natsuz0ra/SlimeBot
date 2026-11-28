@@ -40,6 +40,7 @@ type Options struct {
 	RunCLI     func() error
 	RunServer  func() error
 	RunDesktop func() error
+	RunACP     func(args []string) error
 	Update     func(args []string, stdout io.Writer) error
 	Service    ServiceController
 	Version    VersionInfo
@@ -63,6 +64,11 @@ func Execute(opts Options) error {
 		return call("server", opts.RunServer)
 	case "desktop-host":
 		return call("desktop-host", opts.RunDesktop)
+	case "acp":
+		if opts.RunACP == nil {
+			return fmt.Errorf("ACP command is not configured")
+		}
+		return opts.RunACP(args[1:])
 	case "service":
 		return executeService(args[1:], stdout, opts.Service)
 	case "update":
@@ -195,6 +201,7 @@ func HelpText() string {
 	return `Usage:
   slimebot                          Start the CLI TUI
   slimebot server                   Start the web service in the foreground
+  slimebot acp                      Start the ACP agent over stdio
   slimebot service install          Install the web service
   slimebot service start            Start the web service
   slimebot service stop             Stop the web service

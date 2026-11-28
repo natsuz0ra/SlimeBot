@@ -45,6 +45,7 @@ import { useAuthStore } from '@/stores/auth'
 import { useTerminalStore } from '@/stores/terminal'
 import { extractTerminalCommand, canStageTerminalCommand } from '@/utils/terminalLink'
 import { promptTemplatesAPI } from '@/api/promptTemplates'
+import { acpAPI } from '@/api/acp'
 import { skillsAPI } from '@/api/skills'
 import type { SessionItem } from '@/api/chat'
 import type { SkillItem } from '@/types/settings'
@@ -96,6 +97,27 @@ const slashCommands = computed(() => getSlashCommands(
   templates.value, skills.value, command => t(`slashCommand.${command}`), name => t('slashSkillPrompt', { name }),
 ))
 const floatingSession = computed(() => store.sessions.find(session => session.id === sessions.activeSessionMenu?.id))
+const acpAgentName = computed(() => {
+  const agentId = sessions.currentSession?.acpAgentId
+  if (!agentId) return undefined
+  return models.acpAgents.find(agent => agent.id === agentId)?.name || agentId
+})
+const resettingACPSession = ref(false)
+
+async function resetACPSession() {
+  const sessionId = store.currentSessionId
+  if (!sessionId || resettingACPSession.value) return
+  resettingACPSession.value = true
+  try {
+    await acpAPI.reset(sessionId)
+    toast.success(t('acpRestartSuccess'))
+    await store.loadSessions()
+  } catch {
+    toast.error(t('acpRestartFailed'))
+  } finally {
+    resettingACPSession.value = false
+  }
+}
 const workspaceOpen = ref(false)
 const workspaceTab = ref<'git' | 'files'>('git')
 const workspaceSwitch = ref<HTMLButtonElement>()
@@ -606,6 +628,7 @@ onUnmounted(() => {
           :top-menu-visible="ui.topMenuVisible"
           :network-status-text="network.networkStatusText"
           :connection-status="store.connectionStatus"
+          :acp-agent-name="acpAgentName"
           @toggle-sidebar="ui.toggleSidebar"
           @update:top-menu-visible="ui.topMenuVisible = $event"
           @rename-current="sessions.currentSession && sessions.openRename(sessions.currentSession.id, sessions.currentSession.name)"
@@ -614,6 +637,7 @@ onUnmounted(() => {
           @remove-current="sessions.currentSession && sessions.removeSession(sessions.currentSession.id)"
           @open-checkpoints="checkpointSessionId = checkpointSession?.id"
           @clear-privacy-mappings="openPrivacyMappingConfirmation"
+          @reset-acp-session="resetACPSession"
         >
           <template #right>
             <button
@@ -690,30 +714,31 @@ onUnmounted(() => {
                   ref="composerRef"
                   v-model="composer.inputValue"
                   :selected-model-id="models.selectedModelId"
-                  :model-select-options="models.modelSelectOptions"
+                  :model-select-options="models.engineSelectOptions"
                   :selected-thinking-level="models.thinkingLevel"
                   :thinking-select-options="models.thinkingSelectOptions"
                   :selected-subagent-model-id="models.subagentModelId"
                   :subagent-model-select-options="models.subagentModelSelectOptions"
-                  :model-options-count="models.modelOptions.length"
+                  :model-options-count="models.engineCount"
                   :send-disabled="composer.sendDisabled"
                   :stop-disabled="composer.stopDisabled"
                   :is-streaming="store.waiting"
                   :background-task-count="store.backgroundTaskCount"
                   :pending-files="composer.pendingFiles"
-                  :context-usage="store.contextUsage"
-                  :context-compacting="store.contextCompacting"
+                  :context-usage="models.externalEngine ? null : store.contextUsage"
+                :context-compacting="store.contextCompacting"
                   :placeholder="t('inputPlaceholder')"
                   :working-directory="store.currentWorkingDirectory"
                   :workspace-editable="!store.currentSessionId && !store.creatingSession"
                   :plan-mode="composer.planMode"
                   :approval-mode="composer.approvalMode"
                   :plan-confirmation-visible="composer.currentSessionPlanConfirmationVisible"
-                  :slash-commands="slashCommands"
+                    :slash-commands="slashCommands"
+                  :external-engine="models.externalEngine"
                   @slash-action="runSlashAction"
                   @send="composer.sendMessage"
                   @stop="composer.stopMessage"
-                  @stop-background="store.stopBackgroundTasks"
+                @stop-background="store.stopBackgroundTasks"
                   @compact-context="store.compactContext(models.selectedModelId)"
                   @open-usage-settings="openSettings('usage')"
                   @files-change="composer.onSelectFiles"
@@ -759,19 +784,19 @@ onUnmounted(() => {
                 ref="composerRef"
                 v-model="composer.inputValue"
                 :selected-model-id="models.selectedModelId"
-                :model-select-options="models.modelSelectOptions"
+                :model-select-options="models.engineSelectOptions"
                 :selected-thinking-level="models.thinkingLevel"
                 :thinking-select-options="models.thinkingSelectOptions"
                 :selected-subagent-model-id="models.subagentModelId"
                 :subagent-model-select-options="models.subagentModelSelectOptions"
-                :model-options-count="models.modelOptions.length"
+                :model-options-count="models.engineCount"
                 :send-disabled="composer.sendDisabled"
                 :stop-disabled="composer.stopDisabled"
                 :is-streaming="store.waiting"
-                  :background-task-count="store.backgroundTaskCount"
+                :background-task-count="store.backgroundTaskCount"
                 :pending-files="composer.pendingFiles"
-                :context-usage="store.contextUsage"
-                  :context-compacting="store.contextCompacting"
+                :context-usage="models.externalEngine ? null : store.contextUsage"
+                :context-compacting="store.contextCompacting"
                 :placeholder="t('inputPlaceholder')"
                 :working-directory="store.currentWorkingDirectory"
                 :workspace-editable="!store.currentSessionId && !store.creatingSession"
@@ -779,10 +804,11 @@ onUnmounted(() => {
                 :approval-mode="composer.approvalMode"
                 :plan-confirmation-visible="composer.currentSessionPlanConfirmationVisible"
                 :slash-commands="slashCommands"
+                :external-engine="models.externalEngine"
                 @slash-action="runSlashAction"
                 @send="composer.sendMessage"
                 @stop="composer.stopMessage"
-                  @stop-background="store.stopBackgroundTasks"
+                @stop-background="store.stopBackgroundTasks"
                 @compact-context="store.compactContext(models.selectedModelId)"
                 @open-usage-settings="openSettings('usage')"
                 @files-change="composer.onSelectFiles"

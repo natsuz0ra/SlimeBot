@@ -3,6 +3,7 @@ package controller
 import (
 	"context"
 	"mime/multipart"
+	acpclient "slimebot/internal/acp/client"
 	"slimebot/internal/domain"
 	"slimebot/internal/services/terminal"
 	"time"
@@ -109,6 +110,9 @@ type updateService interface {
 
 // HTTPController wires REST handlers and request/response shaping.
 type HTTPController struct {
+	acpConfigs       *configsvc.ACPConfigService
+	acpClient        *acpclient.Manager
+	resetACP         func(context.Context, string) error
 	sessionWorkbench sessionWorkbenchService
 	promptTemplates  promptTemplateService
 	terminal         *terminal.Manager

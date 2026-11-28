@@ -25,6 +25,7 @@ func main() {
 		RunCLI:     runCLI,
 		RunServer:  runServer,
 		RunDesktop: runDesktop,
+		RunACP:     runACP,
 		Update:     runUpdate,
 		Service:    mustServiceController(),
 		Version: command.VersionInfo{
@@ -40,6 +41,17 @@ func main() {
 		_, _ = os.Stderr.WriteString(err.Error() + "\n")
 		os.Exit(1)
 	}
+}
+
+// runACPApp is swappable in tests so stdout isolation can be asserted without
+// booting the full application.
+var runACPApp = app.RunACP
+
+func runACP(args []string) error {
+	protocol := os.Stdout
+	os.Stdout = os.Stderr
+	defer func() { os.Stdout = protocol }()
+	return runACPApp(args, os.Stdin, protocol)
 }
 
 func runUpdate(args []string, stdout io.Writer) error {

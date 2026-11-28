@@ -41,6 +41,10 @@ type sessionExport struct {
 
 var exportNameSeparators = regexp.MustCompile(`[^\pL\pN_-]+`)
 
+func (s *SessionService) ReplaySession(ctx context.Context, id string) (domain.SessionExportSnapshot, error) {
+	return s.store.ReadSessionExport(ctx, id, true, true)
+}
+
 func (s *SessionService) SetPinned(ctx context.Context, id string, pinned bool) (*domain.Session, error) {
 	if constants.IsMessagePlatformSessionID(id) {
 		return nil, apperrors.ErrInvalidInput

@@ -20,22 +20,24 @@ const (
 )
 
 type UploadedAttachment struct {
-	ID        string
-	SessionID string
-	Name      string
-	Ext       string
-	SizeBytes int64
-	MimeType  string
-	Category  string
-	IconType  string
-	Path      string
+	ID          string
+	SessionID   string
+	Name        string
+	Ext         string
+	SizeBytes   int64
+	MimeType    string
+	Category    string
+	IconType    string
+	Path        string
+	inlineImage bool
 }
 
 // LocalAttachmentFile describes attachment bytes supplied in-process (not HTTP multipart).
 type LocalAttachmentFile struct {
-	Name     string
-	MimeType string
-	Data     []byte
+	Name        string
+	MimeType    string
+	Data        []byte
+	InlineImage bool
 }
 
 // ToMessageAttachment converts a runtime upload to persistable attachment metadata.
@@ -72,9 +74,10 @@ func NewChatUploadService(root string) *ChatUploadService {
 
 // saveableFile is the shared input shape for SaveFiles and RegisterLocalFiles.
 type saveableFile struct {
-	Name     string
-	Data     []byte
-	MimeType string // Optional; if empty, detected from file content
+	Name        string
+	Data        []byte
+	MimeType    string // Optional; if empty, detected from file content
+	InlineImage bool
 }
 
 // normalizeAttachmentName normalizes a filename and blocks path injection.
@@ -156,15 +159,16 @@ func (s *ChatUploadService) saveAndRegister(sessionID string, files []saveableFi
 		mimeType := detectStoredFileMime(dstPath, f.MimeType, ext)
 		category := classifyAttachmentCategory(mimeType, ext)
 		saved = append(saved, UploadedAttachment{
-			ID:        attachmentID,
-			SessionID: sessionID,
-			Name:      name,
-			Ext:       strings.ToUpper(ext),
-			SizeBytes: int64(len(f.Data)),
-			MimeType:  mimeType,
-			Category:  category,
-			IconType:  attachmentIconType(ext, mimeType),
-			Path:      dstPath,
+			ID:          attachmentID,
+			SessionID:   sessionID,
+			Name:        name,
+			Ext:         strings.ToUpper(ext),
+			SizeBytes:   int64(len(f.Data)),
+			MimeType:    mimeType,
+			Category:    category,
+			IconType:    attachmentIconType(ext, mimeType),
+			Path:        dstPath,
+			inlineImage: f.InlineImage && category == attachmentCategoryImage,
 		})
 	}
 
@@ -206,9 +210,10 @@ func (s *ChatUploadService) RegisterLocalFiles(sessionID string, files []LocalAt
 	sf := make([]saveableFile, 0, len(files))
 	for _, f := range files {
 		sf = append(sf, saveableFile{
-			Name:     f.Name,
-			Data:     f.Data,
-			MimeType: f.MimeType,
+			Name:        f.Name,
+			Data:        f.Data,
+			MimeType:    f.MimeType,
+			InlineImage: f.InlineImage,
 		})
 	}
 	return s.saveAndRegister(sessionID, sf)

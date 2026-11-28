@@ -33,6 +33,19 @@ func (s *ChatService) cleanupTurnAttachments(items []UploadedAttachment) {
 	s.uploads.Cleanup(items)
 }
 
+func (s *ChatService) persistUserMessage(ctx context.Context, sessionID, content, displayContent string, at time.Time, uploads []UploadedAttachment) (*domain.Message, error) {
+	if strings.TrimSpace(displayContent) == "" {
+		displayContent = content
+	}
+	attachments := make([]domain.MessageAttachment, 0, len(uploads))
+	for _, upload := range uploads {
+		attachments = append(attachments, upload.ToMessageAttachment())
+	}
+	return s.store.AddMessageWithInput(ctx, domain.AddMessageInput{
+		SessionID: sessionID, Role: "user", Content: displayContent, Attachments: attachments, CreatedAt: at,
+	})
+}
+
 // buildUserPromptWithAttachments falls back to text when multimodal parts cannot be built.
 func buildUserPromptWithAttachments(userText string, attachments []UploadedAttachment) string {
 	if len(attachments) == 0 {

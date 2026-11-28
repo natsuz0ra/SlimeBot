@@ -12,6 +12,7 @@ import LoadingSpinner from '@/components/ui/LoadingSpinner.vue'
 import SettingsBasicTab from '@/components/settings/SettingsBasicTab.vue'
 import SettingsLLMTab from '@/components/settings/SettingsLLMTab.vue'
 import SettingsMCPTab from '@/components/settings/SettingsMCPTab.vue'
+import SettingsACPTab from '@/components/settings/SettingsACPTab.vue'
 import SettingsSkillsTab from '@/components/settings/SettingsSkillsTab.vue'
 import SettingsAgentsTab from '@/components/settings/SettingsAgentsTab.vue'
 import SettingsMemoryTab from '@/components/settings/SettingsMemoryTab.vue'
@@ -69,6 +70,7 @@ const settingsTabs: { key: SettingsTabKey; labelKey: string }[] = [
   { key: 'basic', labelKey: 'basicSettings' },
   { key: 'llm', labelKey: 'llmSettings' },
   { key: 'mcp', labelKey: 'mcpSettings' },
+  { key: 'acp', labelKey: 'acpSettings' },
   { key: 'skills', labelKey: 'skillsSettings' },
   { key: 'agents', labelKey: 'agentsSettings' },
   { key: 'memory', labelKey: 'memorySettings' },
@@ -632,6 +634,8 @@ watch(tab, (nextTab) => {
           @edit="openMCPEditDialog"
           @delete="deleteMCP"
         />
+
+        <SettingsACPTab v-if="tab === 'acp'" @changed="emit('llmChanged')" />
 
         <SettingsSkillsTab
           v-if="tab === 'skills'"

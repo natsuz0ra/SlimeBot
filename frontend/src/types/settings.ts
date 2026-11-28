@@ -1,7 +1,7 @@
 export type ApprovalMode = 'standard' | 'auto_review' | 'auto'
 export type ThinkingLevel = 'off' | 'low' | 'medium' | 'high' | 'max'
 export type SandboxMode = 'read-only' | 'workspace-write' | 'danger-full-access'
-export type SettingsTabKey = 'basic' | 'llm' | 'mcp' | 'skills' | 'agents' | 'memory' | 'privacy' | 'usage' | 'platform' | 'update' | 'about'
+export type SettingsTabKey = 'basic' | 'llm' | 'mcp' | 'acp' | 'skills' | 'agents' | 'memory' | 'privacy' | 'usage' | 'platform' | 'update' | 'about'
 export type MemoryTarget = 'memory' | 'user'
 
 export interface ProxyTestResult {

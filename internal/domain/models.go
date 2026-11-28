@@ -13,17 +13,34 @@ const (
 )
 
 type Session struct {
-	ID               string     `gorm:"primaryKey;size:36" json:"id"`
-	Kind             string     `gorm:"size:16;not null;default:chat;index" json:"kind"`
-	Name             string     `gorm:"size:128;not null" json:"name"`
-	WorkingDirectory string     `gorm:"size:2048" json:"workingDirectory"`
-	IsTitleLocked    bool       `gorm:"default:false;not null" json:"isTitleLocked"`
-	IsPinned         bool       `gorm:"default:false;not null;index" json:"isPinned"`
-	PinnedAt         *time.Time `json:"pinnedAt,omitempty"`
-	ModelConfigID    *string    `gorm:"size:36" json:"modelConfigId,omitempty"`
-	CreatedAt        time.Time  `json:"createdAt"`
-	UpdatedAt        time.Time  `gorm:"index" json:"updatedAt"`
-	DeletedAt        *time.Time `gorm:"index" json:"-"`
+	ID                 string     `gorm:"primaryKey;size:36" json:"id"`
+	Kind               string     `gorm:"size:16;not null;default:chat;index" json:"kind"`
+	Name               string     `gorm:"size:128;not null" json:"name"`
+	WorkingDirectory   string     `gorm:"size:2048" json:"workingDirectory"`
+	IsTitleLocked      bool       `gorm:"default:false;not null" json:"isTitleLocked"`
+	IsPinned           bool       `gorm:"default:false;not null;index" json:"isPinned"`
+	PinnedAt           *time.Time `json:"pinnedAt,omitempty"`
+	ACPAgentID         *string    `gorm:"size:36;index" json:"acpAgentId,omitempty"`
+	ACPRemoteSessionID string     `gorm:"size:128;not null;default:''" json:"-"`
+	ModelConfigID      *string    `gorm:"size:36" json:"modelConfigId,omitempty"`
+	CreatedAt          time.Time  `json:"createdAt"`
+	UpdatedAt          time.Time  `gorm:"index" json:"updatedAt"`
+	DeletedAt          *time.Time `gorm:"index" json:"-"`
+}
+
+type ACPConfig struct {
+	ID         string    `gorm:"primaryKey;size:36" json:"id"`
+	Name       string    `gorm:"size:128;not null" json:"name"`
+	Command    string    `gorm:"size:512;not null" json:"command"`
+	ArgsJSON   string    `gorm:"type:text;not null;default:'[]'" json:"-"`
+	Args       []string  `gorm:"-" json:"args"`
+	EnvJSON    string    `gorm:"type:text;not null;default:'{}'" json:"-"`
+	EnvKeys    []string  `gorm:"-" json:"envKeys,omitempty"`
+	DefaultCwd string    `gorm:"size:2048;not null;default:''" json:"defaultCwd,omitempty"`
+	TimeoutSec int       `gorm:"not null;default:300" json:"timeoutSec"`
+	IsEnabled  bool      `gorm:"not null" json:"isEnabled"`
+	CreatedAt  time.Time `json:"createdAt"`
+	UpdatedAt  time.Time `json:"updatedAt"`
 }
 
 type Message struct {

@@ -166,6 +166,44 @@ func TestExecuteRoutesUpdateCommand(t *testing.T) {
 	}
 }
 
+func TestExecuteRoutesACPCommand(t *testing.T) {
+	var calledArgs []string
+	err := Execute(Options{
+		Args:      []string{"acp", "--model", "model-1", "--approval-mode", "auto"},
+		RunCLI:    func() error { return errors.New("cli should not run") },
+		RunServer: func() error { return errors.New("server should not run") },
+		RunACP: func(args []string) error {
+			calledArgs = append(calledArgs, args...)
+			return nil
+		},
+		Service: &fakeServiceController{},
+	})
+	if err != nil {
+		t.Fatalf("Execute failed: %v", err)
+	}
+	if got := strings.Join(calledArgs, ","); got != "--model,model-1,--approval-mode,auto" {
+		t.Fatalf("ACP args = %q", got)
+	}
+}
+
+func TestExecuteACPRequiresConfiguredHandler(t *testing.T) {
+	err := Execute(Options{
+		Args:      []string{"acp"},
+		RunCLI:    func() error { return errors.New("cli should not run") },
+		RunServer: func() error { return errors.New("server should not run") },
+		Service:   &fakeServiceController{},
+	})
+	if err == nil || !strings.Contains(err.Error(), "ACP command is not configured") {
+		t.Fatalf("expected missing ACP handler error, got %v", err)
+	}
+}
+
+func TestHelpListsACPCommand(t *testing.T) {
+	if !strings.Contains(HelpText(), "slimebot acp") {
+		t.Fatalf("help should list the ACP command:\n%s", HelpText())
+	}
+}
+
 func TestExecuteServiceStartPrintsLocalURLAfterHealthReady(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/health" {

@@ -88,7 +88,7 @@ func buildAttachmentContentPart(file UploadedAttachment) (llmsvc.ChatMessageCont
 	if strings.TrimSpace(file.Path) == "" {
 		return llmsvc.ChatMessageContentPart{}, fmt.Errorf("empty file path")
 	}
-	if file.SizeBytes > maxInlineAttachmentBytes {
+	if file.SizeBytes > maxInlineAttachmentBytes && !file.inlineImage {
 		return llmsvc.ChatMessageContentPart{}, fmt.Errorf("attachment too large for inline content")
 	}
 	raw, err := os.ReadFile(file.Path)

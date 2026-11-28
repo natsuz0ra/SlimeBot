@@ -104,6 +104,12 @@ export function useHomeChatPage() {
   })
 
   watch(
+    () => sessionActions.currentSession.value?.acpAgentId,
+    (agentId) => modelState.applySessionAgent(agentId),
+    { immediate: true },
+  )
+
+  watch(
     () => store.currentSessionId,
     (id) => {
       if (sessionActions.route.name === 'tasks') return
@@ -129,8 +135,13 @@ export function useHomeChatPage() {
 
   const models = reactive({
     modelOptions: modelState.modelOptions,
+    acpAgents: modelState.acpAgents,
+    selectedACPConfig: modelState.selectedACPConfig,
+    externalEngine: modelState.externalEngine,
+    engineCount: modelState.engineCount,
     selectedModelId: modelState.selectedModelId,
     modelSelectOptions: modelState.modelSelectOptions,
+    engineSelectOptions: modelState.engineSelectOptions,
     thinkingLevel: modelState.thinkingLevel,
     thinkingSelectOptions: modelState.thinkingSelectOptions,
     subagentModelId: modelState.subagentModelId,
@@ -139,6 +150,7 @@ export function useHomeChatPage() {
     onModelChange: modelState.onModelChange,
     onThinkingLevelChange: modelState.onThinkingLevelChange,
     onSubagentModelChange: modelState.onSubagentModelChange,
+    applySessionAgent: modelState.applySessionAgent,
   })
 
   const sessions = reactive({

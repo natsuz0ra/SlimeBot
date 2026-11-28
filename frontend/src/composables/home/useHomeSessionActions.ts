@@ -2,6 +2,7 @@ import { computed, nextTick, onMounted, onUnmounted, ref, watch, type Ref } from
 import { useRoute, useRouter } from 'vue-router'
 import { sessionAPI, type ChatSearchHit } from '@/api/chat'
 import { isMessagePlatformSessionId, platformSessionName } from '@/utils/messagePlatformSessions'
+import { isACPEngine } from '@/utils/acp'
 import { useToast } from '@/composables/useToast'
 import { useChatStore } from '@/stores/chat'
 
@@ -269,6 +270,10 @@ export function useHomeSessionActions(options: {
     [() => store.currentSessionId, () => modelState.selectedModelId.value],
     ([sessionId, modelId]) => {
       if (!sessionId || !modelId || isMessagePlatformSessionId(sessionId)) return
+      if (isACPEngine(modelId)) {
+        store.clearContextUsage()
+        return
+      }
       void store.refreshContextUsage(modelId)
     },
     { immediate: true },

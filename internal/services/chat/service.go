@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	acpclient "slimebot/internal/acp/client"
 	"slimebot/internal/constants"
 	"slimebot/internal/domain"
 	"slimebot/internal/mcp"
@@ -30,6 +31,7 @@ type agentsInstructionsReader interface {
 
 // ChatService orchestrates the chat flow: context, agent, uploads, and per-session skills.
 type ChatService struct {
+	acp                *acpclient.Manager
 	backgroundOnce     sync.Once
 	background         *backgroundRuntime
 	turnInboxes        sync.Map // session ID -> active turn inbox

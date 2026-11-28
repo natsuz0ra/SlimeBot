@@ -5,6 +5,7 @@ import { isMessagePlatformSessionId } from '@/utils/messagePlatformSessions'
 import { i18n } from '@/i18n'
 import { createClientId } from '@/utils/uuid'
 import { markToolApprovalDecision } from '@/utils/toolApprovals'
+import { acpAgentIdFromEngine } from '@/utils/acp'
 import { createChatSessionRuntime } from './chatSessionRuntime'
 
 const HISTORY_PAGE_SIZE = 10
@@ -291,7 +292,11 @@ export const useChatStore = defineStore('chat', () => {
         throw new Error('Search result no longer exists')
       }
       releaseIdleSocket()
-      if (selected) sessionMetadata.set(id, selected)
+      if (selected) {
+        sessionMetadata.set(id, selected)
+        const listItem = sessions.value.find((session) => session.id === id)
+        if (listItem) listItem.acpAgentId = selected.acpAgentId
+      }
       currentSessionId.value = id
       // Search may load an older page while the live reply continues. Keep its runtime intact.
       if (preserveRuntime() && cached) {
@@ -392,6 +397,13 @@ export const useChatStore = defineStore('chat', () => {
     return createSession()
   }
 
+  function setSessionACPBinding(sessionId: string, agentId?: string) {
+    const item = sessions.value.find((session) => session.id === sessionId)
+    if (item) item.acpAgentId = agentId || undefined
+    const metadata = sessionMetadata.get(sessionId)
+    if (metadata) metadata.acpAgentId = agentId || undefined
+  }
+
   function toMessageAttachments(items: UploadedAttachmentItem[]): MessageAttachmentItem[] {
     return items.map((item) => ({
       id: item.id,
@@ -435,7 +447,8 @@ export const useChatStore = defineStore('chat', () => {
     unreadSessionIds.value.delete(sessionId)
     try {
       const uploaded = files.length > 0 ? (await sessionAPI.uploadAttachments(sessionId, files)).items || [] : []
-      const sent = runtime.ws.send(trimmed, sessionId, modelId, uploaded.map((item) => item.id), thinkingLevel, usePlanMode, subagentModelId)
+      const acpAgentId = acpAgentIdFromEngine(modelId)
+      const sent = runtime.ws.send(trimmed, sessionId, modelId, uploaded.map((item) => item.id), thinkingLevel, usePlanMode, subagentModelId, acpAgentId)
       if (!sent) {
         runtime.waiting.value = false
         runtime.connectionError.value = 'socket is not connected'
@@ -446,6 +459,7 @@ export const useChatStore = defineStore('chat', () => {
         id: createClientId(), sessionId, role: 'user', content: trimmed,
         attachments: toMessageAttachments(uploaded), createdAt: new Date().toISOString(),
       })
+      setSessionACPBinding(sessionId, acpAgentId)
       return true
     } catch (error) {
       runtime.waiting.value = false
@@ -467,11 +481,13 @@ export const useChatStore = defineStore('chat', () => {
       connectionError.value = 'socket is not connected'
       return false
     }
-    const sent = activeRuntime.value.ws.sendEdit(messageId, trimmed, sessionId, modelId, thinkingLevel, planMode.value, subagentModelId)
+    const acpAgentId = acpAgentIdFromEngine(modelId)
+    const sent = activeRuntime.value.ws.sendEdit(messageId, trimmed, sessionId, modelId, thinkingLevel, planMode.value, subagentModelId, acpAgentId)
     if (!sent) {
       connectionError.value = 'socket is not connected'
       return false
     }
+    setSessionACPBinding(sessionId, acpAgentId)
     pendingEditMessageId.value = messageId
     waiting.value = true
     streamingStarted.value = false
@@ -666,6 +682,7 @@ export const useChatStore = defineStore('chat', () => {
     contextUsage,
     contextCompacting,
     refreshContextUsage,
+    clearContextUsage,
     compactContext,
     applyRuntimeTodoUpdate,
     clearRuntimeTodos,

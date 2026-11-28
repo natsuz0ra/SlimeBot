@@ -18,6 +18,7 @@ import ContextUsagePopover from '@/components/chat/ContextUsagePopover.vue'
 import SlashCommandMenu from '@/components/chat/SlashCommandMenu.vue'
 import { expandSlashTemplate, filterSlashCommands, slashQuery, type SlashCommand, type WorkspaceCommand } from '@/utils/slashCommands'
 import { getApprovalModeLabelKey, getApprovalModeOptions, getApprovalModeTone } from '@/utils/approvalMode'
+import { isACPEngine } from '@/utils/acp'
 
 const props = defineProps<{
   modelValue: string
@@ -42,6 +43,7 @@ const props = defineProps<{
   contextUsage?: ContextUsageData | null
   contextCompacting?: boolean
   slashCommands?: SlashCommand[]
+  externalEngine?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -555,7 +557,8 @@ onUnmounted(() => {
                   class="w-1.5 h-1.5 rounded-full flex-shrink-0"
                   :class="opt.value === selectedModelId ? 'composer-option-dot--active' : 'bg-transparent'"
                 />
-                {{ opt.label }}
+                <span class="composer-option-label">{{ opt.label }}</span>
+                <span v-if="isACPEngine(opt.value)" class="composer-acp-pill">{{ t('acpEnginePill') }}</span>
               </button>
             </template>
           </div>
@@ -659,23 +662,28 @@ onUnmounted(() => {
           >
             <div>
               <div class="composer-menu-item-label">{{ t('model') }}</div>
-              <div class="composer-menu-item-value">{{ currentModelLabel }}</div>
+              <div class="composer-menu-item-value flex items-center gap-1.5">
+                {{ currentModelLabel }}
+                <span v-if="externalEngine" class="composer-acp-pill">{{ t('acpEnginePill') }}</span>
+              </div>
             </div>
             <MdiIcon :path="mdiChevronRight" :size="14" class="sb-text-muted" />
           </button>
-          <div class="composer-menu-divider" />
-          <button
-            type="button"
-            class="composer-menu-item"
-            :disabled="modelOptionsCount === 0"
-            @click="submenuKey = 'subagent'"
-          >
-            <div>
-              <div class="composer-menu-item-label">{{ t('subagentModelLabel') }}</div>
-              <div class="composer-menu-item-value">{{ currentSubagentModelLabel }}</div>
-            </div>
-            <MdiIcon :path="mdiChevronRight" :size="14" class="sb-text-muted" />
-          </button>
+          <template v-if="!externalEngine">
+            <div class="composer-menu-divider" />
+            <button
+              type="button"
+              class="composer-menu-item"
+              :disabled="modelOptionsCount === 0"
+              @click="submenuKey = 'subagent'"
+            >
+              <div>
+                <div class="composer-menu-item-label">{{ t('subagentModelLabel') }}</div>
+                <div class="composer-menu-item-value">{{ currentSubagentModelLabel }}</div>
+              </div>
+              <MdiIcon :path="mdiChevronRight" :size="14" class="sb-text-muted" />
+            </button>
+          </template>
           <div class="composer-menu-divider" />
           <button type="button" class="composer-menu-item" @click="submenuKey = 'thinking'">
             <div>
@@ -1035,6 +1043,26 @@ onUnmounted(() => {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.composer-option-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.composer-acp-pill {
+  flex-shrink: 0;
+  margin-left: auto;
+  padding: 1px 5px;
+  border: 1px solid var(--primary-alpha-22);
+  border-radius: 6px;
+  background: var(--primary-alpha-08);
+  color: var(--sb-brand);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: .04em;
 }
 
 .composer-submenu-option {

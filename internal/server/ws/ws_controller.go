@@ -39,12 +39,13 @@ type chatIncoming struct {
 	dequeued        func()   `json:"-"`
 	TurnID          string   `json:"turnId"`
 	SubmissionID    string   `json:"submissionId"`
-	Type            string   `json:"type"`            // Message type: chat, ping, tool_approve, etc.
-	SessionID       string   `json:"sessionId"`       // Session ID
-	MessageID       string   `json:"messageId"`       // Existing user message ID for edit-and-resend
-	Content         string   `json:"content"`         // User input text
-	DisplayContent  string   `json:"displayContent"`  // Optional user-visible text when content is an internal prompt
-	ModelID         string   `json:"modelId"`         // LLM config ID
+	Type            string   `json:"type"`           // Message type: chat, ping, tool_approve, etc.
+	SessionID       string   `json:"sessionId"`      // Session ID
+	MessageID       string   `json:"messageId"`      // Existing user message ID for edit-and-resend
+	Content         string   `json:"content"`        // User input text
+	DisplayContent  string   `json:"displayContent"` // Optional user-visible text when content is an internal prompt
+	ModelID         string   `json:"modelId"`        // LLM config ID
+	ACPAgentID      string   `json:"acpAgentId"`
 	AttachmentIDs   []string `json:"attachmentIds"`   // Attachment IDs
 	ToolCallID      string   `json:"toolCallId"`      // Tool call ID (for approval flow)
 	Approved        *bool    `json:"approved"`        // Approval outcome
@@ -554,6 +555,9 @@ func (w *Controller) handleChatIncoming(
 	}
 
 	var streamResult *chatsvc.ChatStreamResult
+	if agentID := strings.TrimSpace(incoming.ACPAgentID); agentID != "" {
+		incoming.ModelID = "acp:" + agentID
+	}
 	if incoming.Type == "chat_edit" {
 		startEnqueued := false
 		callbacks.OnMessageEdited = func(messageID, content string, createdAt time.Time) error {

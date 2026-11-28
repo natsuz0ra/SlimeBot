@@ -13,16 +13,16 @@ func TestChatTimingPayloadsUseServerReceivedAndDoneTimes(t *testing.T) {
 	receivedAt := time.Date(2026, 4, 29, 1, 2, 3, 0, time.UTC)
 	doneSentAt := receivedAt.Add(2750 * time.Millisecond)
 
-	startPayload := buildChatStartPayload(sessionID, receivedAt)
+	startPayload := buildChatStartPayload(sessionID, "turn-1", receivedAt)
 	donePayload := buildChatDonePayload(sessionID, nil, receivedAt, doneSentAt)
 
-	if startPayload["startedAt"] != receivedAt.Format(time.RFC3339Nano) {
+	if startPayload.StartedAt != receivedAt.Format(time.RFC3339Nano) {
 		t.Fatalf("unexpected start payload: %+v", startPayload)
 	}
-	if donePayload["finishedAt"] != doneSentAt.Format(time.RFC3339Nano) {
+	if donePayload.FinishedAt != doneSentAt.Format(time.RFC3339Nano) {
 		t.Fatalf("unexpected done finishedAt: %+v", donePayload)
 	}
-	if donePayload["durationMs"] != int64(2750) {
+	if donePayload.DurationMs != int64(2750) {
 		t.Fatalf("unexpected done durationMs: %+v", donePayload)
 	}
 }
@@ -31,13 +31,13 @@ func TestBuildMessageEditedPayload(t *testing.T) {
 	editedAt := time.Date(2026, 4, 29, 1, 2, 3, 0, time.UTC)
 	payload := buildMessageEditedPayload("session-1", "message-1", "edited text", editedAt)
 
-	if payload["type"] != "message_edited" {
+	if payload.Type != "message_edited" {
 		t.Fatalf("unexpected type: %+v", payload)
 	}
-	if payload["sessionId"] != "session-1" || payload["messageId"] != "message-1" || payload["content"] != "edited text" {
+	if payload.SessionID != "session-1" || payload.MessageID != "message-1" || payload.Content != "edited text" {
 		t.Fatalf("unexpected edit payload: %+v", payload)
 	}
-	if payload["createdAt"] != editedAt.Format(time.RFC3339Nano) {
+	if payload.CreatedAt != editedAt.Format(time.RFC3339Nano) {
 		t.Fatalf("unexpected edit createdAt: %+v", payload)
 	}
 }
@@ -74,21 +74,21 @@ func TestBuildTodoUpdatePayloadIncludesSessionScopedItems(t *testing.T) {
 		}},
 	}, updatedAt)
 
-	if payload["type"] != "todo_update" {
+	if payload.Type != "todo_update" {
 		t.Fatalf("unexpected type: %+v", payload)
 	}
-	if payload["sessionId"] != "session-1" {
+	if payload.SessionID != "session-1" {
 		t.Fatalf("unexpected session id: %+v", payload)
 	}
-	if payload["note"] != "working" {
+	if payload.Note != "working" {
 		t.Fatalf("unexpected note: %+v", payload)
 	}
-	if payload["updatedAt"] != updatedAt.Format(time.RFC3339Nano) {
+	if payload.UpdatedAt != updatedAt.Format(time.RFC3339Nano) {
 		t.Fatalf("unexpected updatedAt: %+v", payload)
 	}
-	items, ok := payload["items"].([]chatsvc.TodoItem)
-	if !ok || len(items) != 1 || items[0].Status != "in_progress" {
-		t.Fatalf("unexpected items: %+v", payload["items"])
+	items := payload.Items
+	if len(items) != 1 || items[0].Status != "in_progress" {
+		t.Fatalf("unexpected items: %+v", payload.Items)
 	}
 }
 
@@ -100,25 +100,25 @@ func TestBuildSubagentStartPayloadIncludesTitleAndTask(t *testing.T) {
 		MemberRunID:      "member-1",
 	}, "Inspect UI cards", "Inspect UI cards and report exact files")
 
-	if payload["type"] != "subagent_start" {
+	if payload.Type != "subagent_start" {
 		t.Fatalf("unexpected type: %+v", payload)
 	}
-	if payload["sessionId"] != "session-1" {
+	if payload.SessionID != "session-1" {
 		t.Fatalf("unexpected session id: %+v", payload)
 	}
-	if payload["parentToolCallId"] != "parent-call" {
+	if payload.ParentToolCallID != "parent-call" {
 		t.Fatalf("unexpected parent id: %+v", payload)
 	}
-	if payload["subagentRunId"] != "run-1" {
+	if payload.SubagentRunID != "run-1" {
 		t.Fatalf("unexpected run id: %+v", payload)
 	}
-	if payload["teamRunId"] != "team-1" || payload["memberRunId"] != "member-1" {
+	if payload.TeamRunID != "team-1" || payload.MemberRunID != "member-1" {
 		t.Fatalf("unexpected team identity: %+v", payload)
 	}
-	if payload["title"] != "Inspect UI cards" {
+	if payload.Title != "Inspect UI cards" {
 		t.Fatalf("unexpected title: %+v", payload)
 	}
-	if payload["task"] != "Inspect UI cards and report exact files" {
+	if payload.Task != "Inspect UI cards and report exact files" {
 		t.Fatalf("unexpected task: %+v", payload)
 	}
 }
@@ -131,10 +131,10 @@ func TestBuildTeamPayloadsIncludeLifecycleFields(t *testing.T) {
 	}
 	start := buildTeamStartPayload(run)
 	done := buildTeamDonePayload(run)
-	if start["type"] != "team_start" || start["teamRunId"] != "team-1" || start["requestId"] != "request-1" {
+	if start.Type != "team_start" || start.TeamRunID != "team-1" || start.RequestID != "request-1" {
 		t.Fatalf("team start = %+v", start)
 	}
-	if done["type"] != "team_done" || done["status"] != domain.TeamRunStatusSucceeded || done["finishedAt"] == nil {
+	if done.Type != "team_done" || done.Status != domain.TeamRunStatusSucceeded || done.FinishedAt == "" {
 		t.Fatalf("team done = %+v", done)
 	}
 }
@@ -146,13 +146,13 @@ func TestBuildTeamMemberQueuedPayloadIncludesMemberFields(t *testing.T) {
 		Task: "Inspect runtime", ModelConfigID: "model-1", Status: domain.TeamMemberRunStatusQueued, CreatedAt: createdAt,
 	}
 	payload := buildTeamMemberQueuedPayload("session-1", member)
-	if payload["type"] != "team_member_queued" || payload["sessionId"] != "session-1" {
+	if payload.Type != "team_member_queued" || payload.SessionID != "session-1" {
 		t.Fatalf("queued member payload = %+v", payload)
 	}
-	if payload["teamRunId"] != "team-1" || payload["memberRunId"] != "member-1" || payload["toolCallId"] != "tool-1" {
+	if payload.TeamRunID != "team-1" || payload.MemberRunID != "member-1" || payload.ToolCallID != "tool-1" {
 		t.Fatalf("queued member identity = %+v", payload)
 	}
-	if payload["status"] != domain.TeamMemberRunStatusQueued || payload["createdAt"] == nil {
+	if payload.Status != domain.TeamMemberRunStatusQueued || payload.CreatedAt == "" {
 		t.Fatalf("queued member lifecycle = %+v", payload)
 	}
 }
@@ -171,22 +171,22 @@ func TestBuildContextUsagePayloadIncludesPercentages(t *testing.T) {
 		OutputBudgetUsed:   16_500,
 	})
 
-	if payload["type"] != "context_usage" {
+	if payload.Type != "context_usage" {
 		t.Fatalf("unexpected type: %+v", payload)
 	}
-	if payload["sessionId"] != "session-1" || payload["modelConfigId"] != "model-1" {
+	if payload.SessionID != "session-1" || payload.ModelConfigID != "model-1" {
 		t.Fatalf("unexpected identity: %+v", payload)
 	}
-	if payload["usedTokens"] != 420_000 || payload["totalTokens"] != 1_000_000 {
+	if payload.UsedTokens != 420_000 || payload.TotalTokens != 1_000_000 {
 		t.Fatalf("unexpected token counts: %+v", payload)
 	}
-	if payload["usedPercent"] != 42 || payload["availablePercent"] != 58 {
+	if payload.UsedPercent != 42 || payload.AvailablePercent != 58 {
 		t.Fatalf("unexpected percentages: %+v", payload)
 	}
-	if payload["isCompacted"] != true || payload["compactedAt"] != "2026-05-03T01:02:03Z" {
+	if payload.IsCompacted != true || payload.CompactedAt != "2026-05-03T01:02:03Z" {
 		t.Fatalf("unexpected compact state: %+v", payload)
 	}
-	if payload["outputBudgetTokens"] != int64(20_000) || payload["outputBudgetUsed"] != int64(16_500) {
+	if payload.OutputBudgetTokens != int64(20_000) || payload.OutputBudgetUsed != int64(16_500) {
 		t.Fatalf("unexpected output budget fields: %+v", payload)
 	}
 }
@@ -202,13 +202,10 @@ func TestBuildContextCompactedPayloadIncludesUsage(t *testing.T) {
 		IsCompacted:      true,
 	})
 
-	if payload["type"] != "context_compacted" {
+	if payload.Type != "context_compacted" {
 		t.Fatalf("unexpected type: %+v", payload)
 	}
-	usage, ok := payload["usage"].(chatsvc.ContextUsage)
-	if !ok {
-		t.Fatalf("expected typed usage payload, got %+v", payload["usage"])
-	}
+	usage := payload.Usage
 	if usage.UsedPercent != 24 || !usage.IsCompacted {
 		t.Fatalf("unexpected usage: %+v", usage)
 	}
@@ -229,7 +226,7 @@ func TestBuildPostDoneContextUsagePayloadsAlwaysIncludesFinalUsage(t *testing.T)
 	if len(payloads) != 1 {
 		t.Fatalf("expected only final usage payload, got %+v", payloads)
 	}
-	if payloads[0]["type"] != "context_usage" || payloads[0]["usedPercent"] != 43 {
+	if usageEvent, ok := payloads[0].(wsContextUsage); !ok || usageEvent.UsedPercent != 43 {
 		t.Fatalf("unexpected final usage payload: %+v", payloads[0])
 	}
 }
@@ -250,10 +247,10 @@ func TestBuildPostDoneContextUsagePayloadsIncludesCompactedEventWhenSummaryUpdat
 	if len(payloads) != 2 {
 		t.Fatalf("expected final usage and compacted payloads, got %+v", payloads)
 	}
-	if payloads[0]["type"] != "context_usage" {
+	if _, ok := payloads[0].(wsContextUsage); !ok {
 		t.Fatalf("expected context_usage first, got %+v", payloads[0])
 	}
-	if payloads[1]["type"] != "context_compacted" {
+	if _, ok := payloads[1].(wsContextCompacted); !ok {
 		t.Fatalf("expected context_compacted second, got %+v", payloads[1])
 	}
 }

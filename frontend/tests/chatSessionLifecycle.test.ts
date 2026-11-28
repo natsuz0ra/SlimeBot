@@ -31,7 +31,8 @@ class MockWebSocket {
         { id: `assistant-db-${sessionId}`, sessionId, role: 'assistant', content: String(data.answer || ''), seq: 2, createdAt: '' },
       ], toolCallsByAssistantMessageId: {}, hasMore: false,
     })
-    this.onmessage?.({ data: JSON.stringify({ type, sessionId, ...data }) })
+    const timing = type === 'start' ? { turnId: 'turn-' + sessionId, startedAt: '2026-04-29T01:02:03Z' } : {}
+    this.onmessage?.({ data: JSON.stringify({ type, sessionId, ...timing, ...data }) })
   }
 }
 

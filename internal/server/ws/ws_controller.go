@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"net/http"
 	"net/url"
 	"slimebot/internal/constants"
@@ -54,12 +53,6 @@ type chatIncoming struct {
 	PlanMode        bool     `json:"planMode"`        // Plan mode: LLM generates plan instead of executing
 	PlanID          string   `json:"planId"`          // Plan ID (for approve/reject)
 	SubagentModelID string   `json:"subagentModelId"` // User-selected subagent model override (empty = inherit)
-}
-
-type wsOutChunk struct {
-	Type      string `json:"type"`
-	SessionID string `json:"sessionId"`
-	Content   string `json:"content"`
 }
 
 var wsChunkBufPool = sync.Pool{New: func() any { return new(bytes.Buffer) }}
@@ -129,21 +122,22 @@ func NewController(chatService *chatsvc.ChatService, planService *plansvc.PlanSe
 			broker := newApprovalBroker()
 			var first time.Time
 			send := func(payload any) bool {
-				if data, ok := payload.(map[string]any); ok {
-					kind, _ := data["type"].(string)
-					id, _ := data["toolCallId"].(string)
-					required, _ := data["requiresApproval"].(bool)
-					if (kind == "tool_call_start" || kind == "tool_call_approval_required") && required {
-						w.wakeBrokers.Store(sessionID, broker)
-						broker.Register(id)
-					}
-					if kind == "tool_call_result" {
-						broker.Remove(id)
-					}
+				var approval wsToolApproval
+				switch event := payload.(type) {
+				case wsToolCallStart:
+					approval = event.wsToolApproval
+				case wsToolApprovalRequired:
+					approval = event.wsToolApproval
+				case wsToolCallResult:
+					broker.Remove(event.ToolCallID)
+				}
+				if approval.RequiresApproval {
+					w.wakeBrokers.Store(sessionID, broker)
+					broker.Register(approval.ToolCallID)
 				}
 				return publish(payload)
 			}
-			return w.buildCallbacks(send, broker, sessionID, &first)
+			return w.buildCallbacks(send, broker, sessionID, &first, time.Now)
 		})
 	}
 
@@ -337,7 +331,7 @@ func (w *Controller) startReadLoop(
 
 			var incoming chatIncoming
 			if err := json.Unmarshal(payload, &incoming); err != nil {
-				if !enqueue(map[string]any{"type": "error", "error": "Invalid message format."}) {
+				if !enqueue(wsError{Type: "error", Error: "Invalid message format."}) {
 					cancelSession()
 					return
 				}
@@ -355,7 +349,7 @@ func (w *Controller) startReadLoop(
 				continue
 
 			case "ping":
-				if !enqueue(map[string]any{"type": "pong"}) {
+				if !enqueue(wsPong{Type: "pong"}) {
 					cancelSession()
 					return
 				}
@@ -379,24 +373,24 @@ func (w *Controller) startReadLoop(
 			case "steer":
 				accepted, err := w.chatService.Steer(sessionCtx, strings.TrimSpace(incoming.SessionID), incoming.TurnID, incoming.SubmissionID, incoming.Content)
 				if err != nil {
-					_ = enqueue(map[string]any{"type": "steer_rejected", "sessionId": incoming.SessionID, "submissionId": incoming.SubmissionID, "content": incoming.Content, "error": err.Error()})
+					_ = enqueue(wsSteerRejected{wsSessionEvent: wsSessionEvent{"steer_rejected", incoming.SessionID}, SubmissionID: incoming.SubmissionID, Content: incoming.Content, Error: err.Error()})
 					continue
 				}
-				_ = enqueue(map[string]any{"type": "steer_accepted", "sessionId": incoming.SessionID, "change": accepted})
+				_ = enqueue(wsSteerAccepted{wsSessionEvent: wsSessionEvent{"steer_accepted", incoming.SessionID}, Change: accepted})
 			case "stop":
 				w.chatService.CancelBackground(strings.TrimSpace(incoming.SessionID))
 				// User stopped this stream: cancel chatCtx only, keep WebSocket open.
 				if activeCancel.Cancel() {
-					_ = enqueue(map[string]any{"type": "stopping", "sessionId": incoming.SessionID})
+					_ = enqueue(wsStopping{wsSessionEvent{"stopping", incoming.SessionID}})
 				}
 			case "plan_approve":
 				if incoming.PlanID != "" {
 					plan, planErr := w.planService.UpdatePlanStatus(incoming.PlanID, constants.PlanStatusApproved)
 					if planErr != nil {
-						_ = enqueue(map[string]any{"type": "error", "error": "Plan not found."})
+						_ = enqueue(wsError{Type: "error", Error: "Plan not found."})
 						continue
 					}
-					_ = enqueue(map[string]any{"type": "plan_status", "planId": plan.ID, "status": plan.Status})
+					_ = enqueue(wsPlanStatus{Type: "plan_status", PlanID: plan.ID, Status: plan.Status})
 					execContent := "Execute the following approved plan:\n\n" + plan.Content
 					execIncoming := chatIncoming{
 						Type:           "chat",
@@ -415,12 +409,12 @@ func (w *Controller) startReadLoop(
 			case "plan_reject":
 				if incoming.PlanID != "" {
 					_, _ = w.planService.UpdatePlanStatus(incoming.PlanID, constants.PlanStatusRejected)
-					_ = enqueue(map[string]any{"type": "plan_status", "planId": incoming.PlanID, "status": constants.PlanStatusRejected})
+					_ = enqueue(wsPlanStatus{Type: "plan_status", PlanID: incoming.PlanID, Status: constants.PlanStatusRejected})
 				}
 			case "plan_modify":
 				if incoming.PlanID != "" {
 					_, _ = w.planService.UpdatePlanStatus(incoming.PlanID, constants.PlanStatusRejected)
-					_ = enqueue(map[string]any{"type": "plan_status", "planId": incoming.PlanID, "status": constants.PlanStatusRejected})
+					_ = enqueue(wsPlanStatus{Type: "plan_status", PlanID: incoming.PlanID, Status: constants.PlanStatusRejected})
 				}
 				modifyIncoming := chatIncoming{
 					Type:          "chat",
@@ -456,7 +450,7 @@ func (w *Controller) startReadLoop(
 				case chatCh <- incoming:
 				}
 			default:
-				if !enqueue(map[string]any{"type": "error", "error": "Unsupported message type."}) {
+				if !enqueue(wsError{Type: "error", Error: "Unsupported message type."}) {
 					cancelSession()
 					return
 				}
@@ -499,22 +493,14 @@ func (w *Controller) handleChatIncoming(
 	receivedAt := time.Now()
 	sessionID := strings.TrimSpace(incoming.SessionID)
 	if sessionID == "" {
-		return enqueue(map[string]any{
-			"type":      "error",
-			"sessionId": "",
-			"error":     errors.New("sessionId is required").Error(),
-		})
+		return enqueue(wsError{Type: "error", SessionID: new(""), Error: "sessionId is required"})
 	}
 
 	session, err := w.chatService.EnsureSession(sessionCtx, sessionID)
 	if err != nil {
-		return enqueue(map[string]any{
-			"type":      "error",
-			"sessionId": sessionID,
-			"error":     err.Error(),
-		})
+		return enqueue(wsError{Type: "error", SessionID: new(sessionID), Error: err.Error()})
 	}
-	if !enqueue(map[string]any{"type": "session", "sessionId": session.ID}) {
+	if !enqueue(wsSession{wsSessionEvent{"session", session.ID}}) {
 		return false
 	}
 
@@ -536,11 +522,9 @@ func (w *Controller) handleChatIncoming(
 		ok := enqueue(payload)
 		return ok || sessionCtx.Err() != nil
 	}
-	callbacks := w.buildCallbacks(taskEnqueue, broker, session.ID, &firstChunkSentAt)
-	startPayload := func(at time.Time) map[string]any {
-		payload := buildChatStartPayload(session.ID, at)
-		payload["turnId"] = requestID
-		return payload
+	callbacks := w.buildCallbacks(taskEnqueue, broker, session.ID, &firstChunkSentAt, time.Now)
+	startPayload := func(at time.Time) wsStart {
+		return buildChatStartPayload(session.ID, requestID, at)
 	}
 	if incoming.Type != "chat_edit" {
 		callbacks.OnTurnStarted = func(string) error {
@@ -582,11 +566,7 @@ func (w *Controller) handleChatIncoming(
 	cancel()
 
 	if err != nil {
-		return enqueue(map[string]any{
-			"type":      "error",
-			"sessionId": session.ID,
-			"error":     err.Error(),
-		})
+		return enqueue(wsError{Type: "error", SessionID: new(session.ID), Error: err.Error()})
 	}
 	if incoming.Type == "chat_edit" && !startEnqueued {
 		startSentAt = time.Now()
@@ -595,19 +575,12 @@ func (w *Controller) handleChatIncoming(
 		}
 	}
 	if streamResult.PushFailed || streamResult.ExecutionError != "" {
-		if !enqueue(map[string]any{
-			"type":      "error",
-			"sessionId": session.ID,
-			"error":     "Streaming interrupted, but the message has been saved.",
-		}) {
+		if !enqueue(wsError{Type: "error", SessionID: new(session.ID), Error: "Streaming interrupted, but the message has been saved."}) {
 			return false
 		}
 	}
 	doneSentAt := time.Now()
 	donePayload := buildChatDonePayload(session.ID, streamResult, receivedAt, doneSentAt)
-	if streamResult.PlanID != "" {
-		donePayload["narration"] = streamResult.Narration
-	}
 	if !enqueue(donePayload) {
 		return false
 	}
@@ -640,327 +613,77 @@ func (w *Controller) handleChatIncoming(
 	return true
 }
 
-func buildChatStartPayload(sessionID string, startedAt time.Time) map[string]any {
-	return map[string]any{
-		"type":      "start",
-		"sessionId": sessionID,
-		"startedAt": startedAt.Format(time.RFC3339Nano),
-	}
-}
-
-func buildMessageEditedPayload(sessionID, messageID, content string, createdAt time.Time) map[string]any {
-	return map[string]any{
-		"type":      "message_edited",
-		"sessionId": sessionID,
-		"messageId": messageID,
-		"content":   content,
-		"createdAt": createdAt.Format(time.RFC3339Nano),
-	}
-}
-
-func buildChatDonePayload(sessionID string, streamResult *chatsvc.ChatStreamResult, receivedAt time.Time, doneSentAt time.Time) map[string]any {
-	durationMs := doneSentAt.Sub(receivedAt).Milliseconds()
-	payload := map[string]any{
-		"type":       "done",
-		"sessionId":  sessionID,
-		"finishedAt": doneSentAt.Format(time.RFC3339Nano),
-		"durationMs": durationMs,
-	}
-	if streamResult == nil {
-		return payload
-	}
-	payload["answer"] = streamResult.Answer
-	payload["isInterrupted"] = streamResult.IsInterrupted
-	payload["isStopPlaceholder"] = streamResult.IsStopPlaceholder
-	if streamResult.PlanID != "" {
-		payload["planId"] = streamResult.PlanID
-		payload["planBody"] = streamResult.PlanBody
-	}
-	if streamResult.SkillLearning != nil {
-		payload["skillLearning"] = streamResult.SkillLearning
-	}
-	return payload
-}
-
-func buildTodoUpdatePayload(sessionID string, update chatsvc.TodoUpdate, updatedAt time.Time) map[string]any {
-	payload := map[string]any{
-		"type":      "todo_update",
-		"sessionId": sessionID,
-		"items":     update.Items,
-		"updatedAt": updatedAt.Format(time.RFC3339Nano),
-	}
-	if strings.TrimSpace(update.Note) != "" {
-		payload["note"] = update.Note
-	}
-	return payload
-}
-
-func buildContextUsagePayload(sessionID string, usage chatsvc.ContextUsage) map[string]any {
-	return map[string]any{
-		"state": usage.State, "source": usage.Source, "inputBudget": usage.InputBudget, "outputReserve": usage.OutputReserve,
-		"compactionBeforeTokens": usage.CompactionBeforeTokens, "compactionAfterTokens": usage.CompactionAfterTokens, "compactionReason": usage.CompactionReason,
-		"compactionDurationMs": usage.CompactionDurationMs, "compactionFailure": usage.CompactionFailure, "layers": usage.Layers,
-		"outputBudgetTokens": usage.OutputBudgetTokens, "outputBudgetUsed": usage.OutputBudgetUsed,
-		"type":             "context_usage",
-		"sessionId":        sessionID,
-		"modelConfigId":    usage.ModelConfigID,
-		"usedTokens":       usage.UsedTokens,
-		"totalTokens":      usage.TotalTokens,
-		"usedPercent":      usage.UsedPercent,
-		"availablePercent": usage.AvailablePercent,
-		"isCompacted":      usage.IsCompacted,
-		"compactedAt":      usage.CompactedAt,
-	}
-}
-
-func buildContextCompactedPayload(sessionID string, usage chatsvc.ContextUsage) map[string]any {
-	return map[string]any{
-		"type":      "context_compacted",
-		"sessionId": sessionID,
-		"usage":     usage,
-	}
-}
-
-func buildPostDoneContextUsagePayloads(sessionID string, usage chatsvc.ContextUsage, compactedNow bool) []map[string]any {
-	payloads := []map[string]any{buildContextUsagePayload(sessionID, usage)}
-	if compactedNow {
-		payloads = append(payloads, buildContextCompactedPayload(sessionID, usage))
-	}
-	return payloads
-}
-
-func truncateWSString(value string, maxRunes int) string {
-	trimmed := strings.TrimSpace(value)
-	runes := []rune(trimmed)
-	if maxRunes <= 0 || len(runes) <= maxRunes {
-		return trimmed
-	}
-	if maxRunes <= 3 {
-		return string(runes[:maxRunes])
-	}
-	return string(runes[:maxRunes-3]) + "..."
-}
-
-func addTeamIdentity(payload map[string]any, teamRunID, memberRunID string) {
-	if teamRunID != "" {
-		payload["teamRunId"] = teamRunID
-	}
-	if memberRunID != "" {
-		payload["memberRunId"] = memberRunID
-	}
-}
-
-func buildSubagentStartPayload(sessionID string, meta chatsvc.AgentEventMeta, title, task string) map[string]any {
-	payload := map[string]any{
-		"type":             "subagent_start",
-		"sessionId":        sessionID,
-		"parentToolCallId": meta.ParentToolCallID,
-		"subagentRunId":    meta.SubagentRunID,
-		"title":            truncateWSString(title, 80),
-		"task":             truncateWSString(task, 512),
-	}
-	addTeamIdentity(payload, meta.TeamRunID, meta.MemberRunID)
-	return payload
-}
-
-func buildTeamStartPayload(run domain.TeamRun) map[string]any {
-	return map[string]any{
-		"type":        "team_start",
-		"sessionId":   run.SessionID,
-		"requestId":   run.RequestID,
-		"teamRunId":   run.ID,
-		"status":      run.Status,
-		"maxMembers":  run.MaxMembers,
-		"maxParallel": run.MaxParallel,
-		"startedAt":   run.StartedAt.Format(time.RFC3339Nano),
-	}
-}
-
-func buildTeamDonePayload(run domain.TeamRun) map[string]any {
-	payload := buildTeamStartPayload(run)
-	payload["type"] = "team_done"
-	payload["lastError"] = run.LastError
-	if run.FinishedAt != nil {
-		payload["finishedAt"] = run.FinishedAt.Format(time.RFC3339Nano)
-	}
-	return payload
-}
-
-func buildTeamMemberQueuedPayload(sessionID string, member domain.TeamMemberRun) map[string]any {
-	return map[string]any{
-		"type":          "team_member_queued",
-		"sessionId":     sessionID,
-		"teamRunId":     member.TeamRunID,
-		"memberRunId":   member.ID,
-		"toolCallId":    member.ToolCallID,
-		"title":         truncateWSString(member.Title, 80),
-		"task":          truncateWSString(member.Task, 512),
-		"modelConfigId": member.ModelConfigID,
-		"status":        member.Status,
-		"createdAt":     member.CreatedAt.Format(time.RFC3339Nano),
-		"updatedAt":     member.UpdatedAt.Format(time.RFC3339Nano),
-	}
-}
-
-// buildCallbacks builds ChatService callbacks and maps them to WebSocket events.
+// buildCallbacks maps chat service callbacks to the WebSocket wire contract.
 func (w *Controller) buildCallbacks(
 	enqueue func(any) bool,
 	broker *approvalBroker,
 	sessionID string,
 	firstChunkSentAt *time.Time,
+	now func() time.Time,
 ) chatsvc.AgentCallbacks {
+	emit := func(payload any) error {
+		if !enqueue(payload) {
+			return context.Canceled
+		}
+		return nil
+	}
+	stamp := func() string { return now().Format(time.RFC3339Nano) }
 	return chatsvc.AgentCallbacks{
 		OnPrivacy: func(summary llmsvc.PrivacySummary) error {
-			if !enqueue(map[string]any{"type": "privacy", "sessionId": sessionID, "masked": summary.Masked, "warned": summary.Warned, "blocked": summary.Blocked}) {
-				return context.Canceled
-			}
-			return nil
+			return emit(wsPrivacy{wsSessionEvent{"privacy", sessionID}, summary})
 		},
 		OnChunk: func(chunk string) error {
 			if firstChunkSentAt.IsZero() && chunk != "" {
-				*firstChunkSentAt = time.Now()
+				*firstChunkSentAt = now()
 			}
-			if !enqueueWSChunk(enqueue, sessionID, chunk) {
-				return context.Canceled
-			}
-			return nil
+			return emit(&wsOutChunk{wsSessionEvent{"chunk", sessionID}, chunk})
 		},
 		OnContextUsage: func(usage chatsvc.ContextUsage) error {
-			if !enqueue(buildContextUsagePayload(sessionID, usage)) {
-				return context.Canceled
-			}
-			return nil
+			return emit(buildContextUsagePayload(sessionID, usage))
 		},
 		OnContextCompacted: func(usage chatsvc.ContextUsage) error {
-			if !enqueue(buildContextCompactedPayload(sessionID, usage)) {
-				return context.Canceled
-			}
-			return nil
+			return emit(buildContextCompactedPayload(sessionID, usage))
 		},
 		OnThinkingStart: func(meta chatsvc.ThinkingEventMeta) error {
-			payload := map[string]any{"type": "thinking_start", "sessionId": sessionID, "startedAt": time.Now().Format(time.RFC3339Nano)}
-			if meta.ParentToolCallID != "" {
-				payload["parentToolCallId"] = meta.ParentToolCallID
-			}
-			if meta.SubagentRunID != "" {
-				payload["subagentRunId"] = meta.SubagentRunID
-			}
-			addTeamIdentity(payload, meta.TeamRunID, meta.MemberRunID)
-			if !enqueue(payload) {
-				return context.Canceled
-			}
-			return nil
+			return emit(wsThinkingStart{wsSessionEvent{"thinking_start", sessionID}, chatsvc.AgentEventMeta(meta), stamp()})
 		},
 		OnThinkingChunk: func(chunk string, meta chatsvc.ThinkingEventMeta) error {
-			payload := map[string]any{"type": "thinking_chunk", "sessionId": sessionID, "content": chunk, "startedAt": time.Now().Format(time.RFC3339Nano)}
-			if meta.ParentToolCallID != "" {
-				payload["parentToolCallId"] = meta.ParentToolCallID
-			}
-			if meta.SubagentRunID != "" {
-				payload["subagentRunId"] = meta.SubagentRunID
-			}
-			addTeamIdentity(payload, meta.TeamRunID, meta.MemberRunID)
-			if !enqueue(payload) {
-				return context.Canceled
-			}
-			return nil
+			return emit(wsThinkingChunk{wsSessionEvent{"thinking_chunk", sessionID}, chatsvc.AgentEventMeta(meta), chunk, stamp()})
 		},
 		OnThinkingDone: func(meta chatsvc.ThinkingEventMeta) error {
-			payload := map[string]any{"type": "thinking_done", "sessionId": sessionID, "finishedAt": time.Now().Format(time.RFC3339Nano)}
-			if meta.ParentToolCallID != "" {
-				payload["parentToolCallId"] = meta.ParentToolCallID
-			}
-			if meta.SubagentRunID != "" {
-				payload["subagentRunId"] = meta.SubagentRunID
-			}
-			addTeamIdentity(payload, meta.TeamRunID, meta.MemberRunID)
-			if !enqueue(payload) {
-				return context.Canceled
-			}
-			return nil
+			return emit(wsThinkingDone{wsSessionEvent{"thinking_done", sessionID}, chatsvc.AgentEventMeta(meta), stamp()})
 		},
 		OnTodoUpdate: func(update chatsvc.TodoUpdate) error {
-			if !enqueue(buildTodoUpdatePayload(sessionID, update, time.Now())) {
-				return context.Canceled
-			}
-			return nil
+			return emit(buildTodoUpdatePayload(sessionID, update, now()))
 		},
 		OnToolCallStart: func(req chatsvc.ApprovalRequest) error {
-			payload := map[string]any{
-				"type":             "tool_call_start",
-				"sessionId":        sessionID,
-				"toolCallId":       req.ToolCallID,
-				"toolName":         req.ToolName,
-				"command":          req.Command,
-				"params":           req.Params,
-				"requiresApproval": req.RequiresApproval,
-				"reviewStatus":     req.ReviewStatus,
-				"reviewRisk":       req.ReviewRisk,
-				"reviewReason":     req.ReviewReason,
-				"preamble":         req.Preamble,
-				"startedAt":        time.Now().Format(time.RFC3339Nano),
-			}
-			if req.ParentToolCallID != "" {
-				payload["parentToolCallId"] = req.ParentToolCallID
-			}
-			if req.SubagentRunID != "" {
-				payload["subagentRunId"] = req.SubagentRunID
-			}
-			addTeamIdentity(payload, req.TeamRunID, req.MemberRunID)
-			if !enqueue(payload) {
-				return context.Canceled
-			}
-			return nil
+			return emit(wsToolCallStart{
+				wsSessionEvent: wsSessionEvent{"tool_call_start", sessionID},
+				wsToolApproval: toolApproval(req),
+				Preamble:       req.Preamble, StartedAt: stamp(),
+			})
 		},
 		OnToolApprovalReview: func(event chatsvc.ApprovalReviewEvent) error {
-			payload := map[string]any{
-				"type":         "tool_call_review",
-				"sessionId":    sessionID,
-				"toolCallId":   event.ToolCallID,
-				"toolName":     event.ToolName,
-				"command":      event.Command,
-				"reviewStatus": event.ReviewStatus,
-				"reviewRisk":   event.ReviewRisk,
-				"reviewReason": event.ReviewReason,
-				"reviewedAt":   time.Now().Format(time.RFC3339Nano),
-			}
-			if event.ParentToolCallID != "" {
-				payload["parentToolCallId"] = event.ParentToolCallID
-			}
-			if event.SubagentRunID != "" {
-				payload["subagentRunId"] = event.SubagentRunID
-			}
-			addTeamIdentity(payload, event.TeamRunID, event.MemberRunID)
-			if !enqueue(payload) {
-				return context.Canceled
-			}
-			return nil
+			return emit(wsToolCallReview{
+				wsSessionEvent: wsSessionEvent{"tool_call_review", sessionID},
+				wsToolReview: wsToolReview{
+					wsToolIdentity: wsToolIdentity{
+						ToolCallID: event.ToolCallID, ToolName: event.ToolName, Command: event.Command,
+						AgentEventMeta: chatsvc.AgentEventMeta{
+							ParentToolCallID: event.ParentToolCallID, SubagentRunID: event.SubagentRunID,
+							TeamRunID: event.TeamRunID, MemberRunID: event.MemberRunID,
+						},
+					},
+					ReviewStatus: event.ReviewStatus, ReviewRisk: event.ReviewRisk, ReviewReason: event.ReviewReason,
+				},
+				ReviewedAt: stamp(),
+			})
 		},
 		OnToolApprovalRequired: func(req chatsvc.ApprovalRequest) error {
-			payload := map[string]any{
-				"type":             "tool_call_approval_required",
-				"sessionId":        sessionID,
-				"toolCallId":       req.ToolCallID,
-				"toolName":         req.ToolName,
-				"command":          req.Command,
-				"params":           req.Params,
-				"requiresApproval": req.RequiresApproval,
-				"reviewStatus":     req.ReviewStatus,
-				"reviewRisk":       req.ReviewRisk,
-				"reviewReason":     req.ReviewReason,
-				"requiredAt":       time.Now().Format(time.RFC3339Nano),
-			}
-			if req.ParentToolCallID != "" {
-				payload["parentToolCallId"] = req.ParentToolCallID
-			}
-			if req.SubagentRunID != "" {
-				payload["subagentRunId"] = req.SubagentRunID
-			}
-			addTeamIdentity(payload, req.TeamRunID, req.MemberRunID)
-			if !enqueue(payload) {
-				return context.Canceled
-			}
-			return nil
+			return emit(wsToolApprovalRequired{
+				wsSessionEvent: wsSessionEvent{"tool_call_approval_required", sessionID},
+				wsToolApproval: toolApproval(req), RequiredAt: stamp(),
+			})
 		},
 		WaitApproval: func(ctx context.Context, toolCallID string) (*chatsvc.ApprovalResponse, error) {
 			ch := broker.Register(toolCallID)
@@ -973,120 +696,48 @@ func (w *Controller) buildCallbacks(
 			}
 		},
 		OnToolCallResult: func(result chatsvc.ToolCallResult) error {
-			payload := map[string]any{
-				"type":             "tool_call_result",
-				"sessionId":        sessionID,
-				"toolCallId":       result.ToolCallID,
-				"toolName":         result.ToolName,
-				"command":          result.Command,
-				"requiresApproval": result.RequiresApproval,
-				"status":           result.Status,
-				"output":           result.Output,
-				"error":            result.Error,
-				"metadata":         result.Metadata,
-				"finishedAt":       time.Now().Format(time.RFC3339Nano),
-			}
-			if result.ParentToolCallID != "" {
-				payload["parentToolCallId"] = result.ParentToolCallID
-			}
-			if result.SubagentRunID != "" {
-				payload["subagentRunId"] = result.SubagentRunID
-			}
-			addTeamIdentity(payload, result.TeamRunID, result.MemberRunID)
-			if !enqueue(payload) {
-				return context.Canceled
-			}
-			return nil
+			return emit(wsToolCallResult{
+				wsSessionEvent: wsSessionEvent{"tool_call_result", sessionID},
+				wsToolIdentity: wsToolIdentity{
+					ToolCallID: result.ToolCallID, ToolName: result.ToolName, Command: result.Command,
+					AgentEventMeta: chatsvc.AgentEventMeta{
+						ParentToolCallID: result.ParentToolCallID, SubagentRunID: result.SubagentRunID,
+						TeamRunID: result.TeamRunID, MemberRunID: result.MemberRunID,
+					},
+				},
+				RequiresApproval: result.RequiresApproval, Status: result.Status, Output: result.Output,
+				Error: result.Error, Metadata: result.Metadata, FinishedAt: stamp(),
+			})
 		},
-		OnTeamStart: func(run domain.TeamRun) error {
-			if !enqueue(buildTeamStartPayload(run)) {
-				return context.Canceled
-			}
-			return nil
-		},
+		OnTeamStart: func(run domain.TeamRun) error { return emit(buildTeamStartPayload(run)) },
 		OnTeamMemberQueued: func(member domain.TeamMemberRun) error {
-			if !enqueue(buildTeamMemberQueuedPayload(sessionID, member)) {
-				return context.Canceled
-			}
-			return nil
+			return emit(buildTeamMemberQueuedPayload(sessionID, member))
 		},
-		OnTeamDone: func(run domain.TeamRun) error {
-			if !enqueue(buildTeamDonePayload(run)) {
-				return context.Canceled
-			}
-			return nil
-		},
+		OnTeamDone: func(run domain.TeamRun) error { return emit(buildTeamDonePayload(run)) },
 		OnSubagentStart: func(meta chatsvc.AgentEventMeta, title, task string) error {
-			if !enqueue(buildSubagentStartPayload(sessionID, meta, title, task)) {
-				return context.Canceled
-			}
-			return nil
+			return emit(buildSubagentStartPayload(sessionID, meta, title, task))
 		},
 		OnSubagentChunk: func(meta chatsvc.AgentEventMeta, chunk string) error {
-			payload := map[string]any{
-				"type":             "subagent_chunk",
-				"sessionId":        sessionID,
-				"parentToolCallId": meta.ParentToolCallID,
-				"subagentRunId":    meta.SubagentRunID,
-				"content":          chunk,
-			}
-			addTeamIdentity(payload, meta.TeamRunID, meta.MemberRunID)
-			if !enqueue(payload) {
-				return context.Canceled
-			}
-			return nil
+			return emit(wsSubagentChunk{wsSessionEvent{"subagent_chunk", sessionID}, subagentIdentity(meta), chunk})
 		},
 		OnSubagentDone: func(meta chatsvc.AgentEventMeta, runErr error) error {
-			payload := map[string]any{
-				"type":             "subagent_done",
-				"sessionId":        sessionID,
-				"parentToolCallId": meta.ParentToolCallID,
-				"subagentRunId":    meta.SubagentRunID,
-			}
-			addTeamIdentity(payload, meta.TeamRunID, meta.MemberRunID)
+			event := wsSubagentDone{wsSessionEvent: wsSessionEvent{"subagent_done", sessionID}, wsSubagentIdentity: subagentIdentity(meta)}
 			if runErr != nil {
-				payload["error"] = runErr.Error()
+				event.Error = new(runErr.Error())
 			}
-			if !enqueue(payload) {
-				return context.Canceled
-			}
-			return nil
+			return emit(event)
 		},
 		OnPlanStart: func() error {
-			if !enqueue(map[string]any{
-				"type":      "plan_start",
-				"sessionId": sessionID,
-			}) {
-				return context.Canceled
-			}
-			return nil
+			return emit(wsPlanStart{wsSessionEvent{"plan_start", sessionID}})
 		},
 		OnPlanChunk: func(chunk string) error {
-			if !enqueue(map[string]any{
-				"type":      "plan_chunk",
-				"sessionId": sessionID,
-				"content":   chunk,
-			}) {
-				return context.Canceled
-			}
-			return nil
+			return emit(wsPlanChunk{wsSessionEvent{"plan_chunk", sessionID}, chunk})
 		},
 		OnPlanBody: func(planBody string) error {
-			if !enqueue(map[string]any{
-				"type":      "plan_body",
-				"sessionId": sessionID,
-				"content":   planBody,
-			}) {
-				return context.Canceled
-			}
-			return nil
+			return emit(wsPlanBody{wsSessionEvent{"plan_body", sessionID}, planBody})
 		},
 		OnTitleGenerated: func(titleSessionID, title string) {
-			enqueue(map[string]any{
-				"type":      "session_title",
-				"sessionId": titleSessionID,
-				"title":     title,
-			})
+			enqueue(wsSessionTitle{wsSessionEvent{"session_title", titleSessionID}, title})
 		},
 	}
 }
@@ -1109,8 +760,4 @@ func writePayload(conn *websocket.Conn, payload any) error {
 	default:
 		return conn.WriteJSON(payload)
 	}
-}
-
-func enqueueWSChunk(enqueue func(any) bool, sessionID, chunk string) bool {
-	return enqueue(&wsOutChunk{Type: "chunk", SessionID: sessionID, Content: chunk})
 }

@@ -1,8 +1,9 @@
 import type { SessionHistoryPayload, SessionHistoryReplyTimingItem, SessionHistoryThinkingItem, SessionHistoryToolCallItem, ToolCallItem } from '@/api/chat'
-import type { ToolCallStatus } from '@/types/chat'
-import { hasContentMarkers, parseContentMarkers } from './contentMarkers'
+import { isOpenToolStatus, parseChatTimestamp as parseTimestamp, projectChatHistory } from '../../../shared/chat-protocol/timeline.js'
 import { createClientId } from './uuid'
 import { buildAgentTeamsFromHistory, type AgentTeamRun } from './agentTeam'
+
+export { normalizeToolStatus } from '../../../shared/chat-protocol/timeline.js'
 
 export type AssistantReplyTimelineItem =
   | {
@@ -44,12 +45,6 @@ export interface AssistantReplyBatch {
   startedAt?: number
   finishedAt?: number
   durationMs?: number
-}
-
-function parseTimestamp(value?: string) {
-  if (!value) return undefined
-  const parsed = Date.parse(value)
-  return Number.isFinite(parsed) ? parsed : undefined
 }
 
 function finishFromDuration(startedAt: number | undefined, durationMs: number | undefined) {
@@ -126,59 +121,28 @@ export function hasCollapsibleReplyContent(timeline: AssistantReplyTimelineItem[
   return collapsed.some((entry, index) => entry.id !== timeline[index]?.id)
 }
 
-export function normalizeToolStatus(status?: string, fallbackError?: string): ToolCallStatus {
-  if (status === 'pending' || status === 'reviewing' || status === 'rejected' || status === 'executing' || status === 'completed' || status === 'error') {
-    return status
-  }
-  return fallbackError ? 'error' : 'completed'
-}
-
-function normalizeHistoryToolStatus(item: SessionHistoryToolCallItem, interrupted: boolean): ToolCallStatus {
-  const status = normalizeToolStatus(item.status, item.error)
-  if (interrupted && (status === 'pending' || status === 'reviewing' || status === 'executing')) {
-    return 'error'
-  }
-  return status
-}
-
-function normalizeHistoryToolError(item: SessionHistoryToolCallItem, interrupted: boolean) {
-  const status = normalizeToolStatus(item.status, item.error)
-  if (interrupted && (status === 'pending' || status === 'reviewing' || status === 'executing')) {
-    return item.error || 'Execution cancelled.'
-  }
-  return item.error
-}
-
-function normalizeHistoryThinkingStatus(item: SessionHistoryThinkingItem, interrupted: boolean) {
-  if (interrupted && item.status === 'streaming') {
-    return 'completed'
-  }
-  return item.status
-}
-
-export function buildLegacyTimeline(toolCalls: ToolCallItem[], content: string, thinkingRecords: SessionHistoryThinkingItem[] = []): AssistantReplyTimelineItem[] {
-  const timeline: AssistantReplyTimelineItem[] = []
-  for (const item of thinkingRecords) {
-    if (item.parentToolCallId || item.subagentRunId) continue
-    timeline.push({
-      id: createClientId(),
-      kind: 'thinking',
-      content: item.content || '',
-      done: item.status !== 'streaming',
-      durationMs: item.durationMs,
-    })
-  }
-  for (const item of toolCalls) {
-    if (item.parentToolCallId) continue
-    timeline.push({ id: createClientId(), kind: 'tool_start', toolCallId: item.toolCallId })
-    if (item.status !== 'pending' && item.status !== 'executing') {
-      timeline.push({ id: createClientId(), kind: 'tool_result', toolCallId: item.toolCallId })
+function adaptTimeline<T extends { toolCallId: string }>(
+  timeline: ReturnType<typeof projectChatHistory<T>>['timeline'],
+  batchId: string,
+): AssistantReplyTimelineItem[] {
+  return timeline.flatMap((entry): AssistantReplyTimelineItem[] => {
+    const id = batchId + ':' + entry.id
+    switch (entry.kind) {
+      case 'thinking':
+        return [{
+          id, kind: 'thinking', content: entry.thinking.content, done: entry.thinking.done,
+          durationMs: entry.thinking.durationMs, startedAt: entry.thinking.startedAt,
+        }]
+      case 'tool': {
+        const { toolCallId, status } = entry.tool.record
+        const start: AssistantReplyTimelineItem = { id: id + ':start', kind: 'tool_start', toolCallId }
+        if (isOpenToolStatus(status)) return [start]
+        return [start, { id: id + ':result', kind: 'tool_result', toolCallId }]
+      }
+      default:
+        return [{ id, kind: entry.kind, content: entry.content }]
     }
-  }
-  if (content.trim() !== '') {
-    timeline.push({ id: createClientId(), kind: 'text', content })
-  }
-  return timeline
+  })
 }
 
 export function buildInterleavedTimeline(
@@ -186,86 +150,7 @@ export function buildInterleavedTimeline(
   content: string,
   thinkingRecords: SessionHistoryThinkingItem[] = [],
 ): AssistantReplyTimelineItem[] {
-  const toolCallMap = new Map(toolCalls.map(tc => [tc.toolCallId, tc]))
-  const thinkingMap = new Map(thinkingRecords.filter(item => !item.parentToolCallId && !item.subagentRunId).map(item => [item.thinkingId, item]))
-  const segments = parseContentMarkers(content)
-  const timeline: AssistantReplyTimelineItem[] = []
-  const planParts: string[] = []
-  let inPlan = false
-
-  const pushPlan = () => {
-    const planContent = planParts.join('')
-    if (planContent.trim() !== '') {
-      timeline.push({ id: createClientId(), kind: 'plan', content: planContent })
-    }
-    planParts.length = 0
-  }
-
-  for (const seg of segments) {
-    if (seg.type === 'plan_start') {
-      if (inPlan) pushPlan()
-      inPlan = true
-      continue
-    }
-    if (seg.type === 'plan_end') {
-      if (inPlan) pushPlan()
-      inPlan = false
-      continue
-    }
-    if (inPlan) {
-      if (seg.type === 'text') planParts.push(seg.content)
-      continue
-    }
-    if (seg.type === 'text') {
-      timeline.push({ id: createClientId(), kind: 'text', content: seg.content })
-    } else if (seg.type === 'tool_call_marker' && seg.toolCallId) {
-      const tc = toolCallMap.get(seg.toolCallId)
-      if (tc && !tc.parentToolCallId) {
-        timeline.push({ id: createClientId(), kind: 'tool_start', toolCallId: tc.toolCallId })
-        if (tc.status !== 'pending' && tc.status !== 'executing') {
-          timeline.push({ id: createClientId(), kind: 'tool_result', toolCallId: tc.toolCallId })
-        }
-      }
-    } else if (seg.type === 'thinking_marker' && seg.thinkingId) {
-      const thinking = thinkingMap.get(seg.thinkingId)
-      if (thinking) {
-        timeline.push({
-          id: createClientId(),
-          kind: 'thinking',
-          content: thinking.content || '',
-          done: thinking.status !== 'streaming',
-          durationMs: thinking.durationMs,
-        })
-      }
-    }
-  }
-  if (inPlan) pushPlan()
-
-  // Fallback: append tool calls whose markers are missing
-  const markerIds = new Set(segments.filter(s => s.toolCallId).map(s => s.toolCallId))
-  for (const tc of toolCalls) {
-    if (!tc.parentToolCallId && !markerIds.has(tc.toolCallId)) {
-      timeline.push({ id: createClientId(), kind: 'tool_start', toolCallId: tc.toolCallId })
-      if (tc.status !== 'pending' && tc.status !== 'executing') {
-        timeline.push({ id: createClientId(), kind: 'tool_result', toolCallId: tc.toolCallId })
-      }
-    }
-  }
-  const thinkingMarkerIds = new Set(segments.filter(s => s.thinkingId).map(s => s.thinkingId))
-  for (const thinking of thinkingRecords) {
-    if (thinking.parentToolCallId || thinking.subagentRunId) continue
-    if (!thinkingMarkerIds.has(thinking.thinkingId)) {
-      timeline.unshift({
-        id: createClientId(),
-        kind: 'thinking',
-        content: thinking.content || '',
-        done: thinking.status !== 'streaming',
-        durationMs: thinking.durationMs,
-      })
-    }
-  }
-
-  return timeline
+  return adaptTimeline(projectChatHistory(content, toolCalls, thinkingRecords).timeline, createClientId())
 }
 
 export function buildReplyBatchesFromHistory(sessionId: string, history: SessionHistoryPayload): AssistantReplyBatch[] {
@@ -274,69 +159,31 @@ export function buildReplyBatchesFromHistory(sessionId: string, history: Session
     if (message.role !== 'assistant') continue
     const historyToolCalls = history.toolCallsByAssistantMessageId[message.id] || []
     const historyThinking = history.thinkingByAssistantMessageId?.[message.id] || []
-    const interrupted = !!message.isInterrupted
-    const normalizedHistoryThinking = interrupted
-      ? historyThinking.map((thinking) => ({
-          ...thinking,
-          status: normalizeHistoryThinkingStatus(thinking, true),
-        }))
-      : historyThinking
-
-    const sortedCalls = [...historyToolCalls].sort((left, right) => {
-      const leftAt = new Date(left.startedAt || 0).getTime()
-      const rightAt = new Date(right.startedAt || 0).getTime()
-      return leftAt - rightAt
-    })
-
-    const toolCalls: ToolCallItem[] = sortedCalls.map((item: SessionHistoryToolCallItem) => ({
+    const projection = projectChatHistory(message.content, historyToolCalls, historyThinking, !!message.isInterrupted)
+    const toolCalls: ToolCallItem[] = projection.toolCalls.map(({ record: item, subagentThinkings }) => ({
       toolCallId: item.toolCallId,
       toolName: item.toolName,
       command: item.command,
       params: item.params || {},
       requiresApproval: !!item.requiresApproval,
-      status: normalizeHistoryToolStatus(item, interrupted),
+      status: item.status,
       output: item.output,
-      error: normalizeHistoryToolError(item, interrupted),
+      error: item.error,
       metadata: item.metadata,
       startedAt: parseTimestamp(item.startedAt),
       finishedAt: parseTimestamp(item.finishedAt),
       parentToolCallId: item.parentToolCallId,
-      subagentRunId: item.subagentRunId,
+      subagentRunId: item.subagentRunId ?? subagentThinkings.find(thinking => thinking.subagentRunId)?.subagentRunId,
       teamRunId: item.teamRunId,
       memberRunId: item.memberRunId,
       subagentTitle: item.toolName === 'run_subagent' ? String(item.params?.title ?? '').trim() || undefined : undefined,
       subagentTask: item.toolName === 'run_subagent' ? String(item.params?.task ?? '').trim() || undefined : undefined,
+      ...(subagentThinkings.length > 0 ? {
+        subagentThinkings,
+        subagentThinking: subagentThinkings[subagentThinkings.length - 1],
+      } : {}),
     }))
-
-    const subagentThinkingRecords = normalizedHistoryThinking
-      .filter((thinking) => thinking.parentToolCallId || thinking.subagentRunId)
-      .sort((left, right) => {
-        const leftAt = new Date(left.startedAt || 0).getTime()
-        const rightAt = new Date(right.startedAt || 0).getTime()
-        return leftAt - rightAt
-      })
-
-    for (const thinking of subagentThinkingRecords) {
-      if (!thinking.parentToolCallId && !thinking.subagentRunId) continue
-      const parent = toolCalls.find((item) => item.toolCallId === thinking.parentToolCallId)
-      if (!parent) continue
-      const entry = {
-        content: thinking.content || '',
-        done: normalizeHistoryThinkingStatus(thinking, interrupted) !== 'streaming',
-        durationMs: thinking.durationMs,
-        startedAt: parseTimestamp(thinking.startedAt),
-        finishedAt: parseTimestamp(thinking.finishedAt),
-      }
-      parent.subagentThinkings = [...(parent.subagentThinkings ?? (parent.subagentThinking ? [parent.subagentThinking] : [])), entry]
-      parent.subagentThinking = entry
-      if (thinking.subagentRunId && !parent.subagentRunId) {
-        parent.subagentRunId = thinking.subagentRunId
-      }
-    }
-
-    const timeline = hasContentMarkers(message.content)
-      ? buildInterleavedTimeline(toolCalls, message.content, normalizedHistoryThinking)
-      : buildLegacyTimeline(toolCalls, message.content, normalizedHistoryThinking)
+    const timeline = adaptTimeline(projection.timeline, message.id)
 
     nextBatches.push({
       id: createClientId(),
@@ -346,7 +193,7 @@ export function buildReplyBatchesFromHistory(sessionId: string, history: Session
       teamRuns: buildAgentTeamsFromHistory(history.teamRuns, history.teamMemberRuns, message.id),
       timeline,
       collapsed: true,
-      ...deriveReplyTiming(message.createdAt, historyToolCalls, normalizedHistoryThinking, history.replyTimingByAssistantMessageId?.[message.id]),
+      ...deriveReplyTiming(message.createdAt, historyToolCalls, historyThinking, history.replyTimingByAssistantMessageId?.[message.id]),
     })
   }
   return nextBatches

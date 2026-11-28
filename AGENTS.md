@@ -17,6 +17,8 @@ Top-level navigation:
 ├─ frontend/                 # Vue 3 web app
 ├─ cli/                      # React + Ink terminal app
 ├─ desktop/                  # Electron window, tray, updater, and installers
+├─ shared/
+│  └─ chat-protocol/         # WebSocket contracts, golden fixtures, and history projection
 ├─ prompts/                  # Embedded prompts and templates
 ├─ scripts/                  # Release packaging and install scripts
 ├─ third_party/              # Third-party runtime binaries copied into release packages
@@ -134,6 +136,7 @@ Quick index (feature -> first place to inspect):
 - HTTP route definitions: `internal/server/router/`
 - HTTP controller behavior: `internal/server/controller/`
 - WebSocket server flow: `internal/server/ws/`
+- Shared chat wire contract and history timeline: `internal/server/ws/events.go`, `shared/chat-protocol/` (Vue and CLI decoding, projection, and cross-surface golden fixtures)
 - Integrated terminal: `internal/services/terminal/`, `internal/server/controller/terminal.go`, `internal/server/ws/terminal.go`, `frontend/src/components/chat/TerminalDrawer.vue`
 - Read-only workspace browser: `internal/services/workspace/`, `internal/server/controller/workspace.go`, `frontend/src/components/chat/WorkspaceDrawer.vue`
 - ACP agent mode (`slimebot acp`): `internal/acp/agent/`, `internal/app/acp.go`, stdout reserved for JSON-RPC (logs redirected to stderr in `cmd/server/main.go`)

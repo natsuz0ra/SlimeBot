@@ -58,8 +58,50 @@ func newBackgroundTask(task domain.BackgroundTask) backgroundTask {
 	return backgroundTask{task}
 }
 
+// Background events are emitted by the continuation runtime itself. Their
+// wire shapes predate foreground timing and plan metadata.
+type BackgroundTasksEvent struct {
+	Type      string                  `json:"type"`
+	SessionID string                  `json:"sessionId"`
+	Tasks     []domain.BackgroundTask `json:"tasks"`
+}
+
+type BackgroundTaskEvent struct {
+	Type      string `json:"type"`
+	SessionID string `json:"sessionId"`
+	TaskID    string `json:"taskId"`
+	ProcessID string `json:"processId"`
+	Status    string `json:"status"`
+}
+
+type BackgroundStartEvent struct {
+	Type       string `json:"type"`
+	SessionID  string `json:"sessionId"`
+	TurnID     string `json:"turnId"`
+	StartedAt  string `json:"startedAt"`
+	Background bool   `json:"background"`
+}
+
+type BackgroundDoneEvent struct {
+	Type              string `json:"type"`
+	SessionID         string `json:"sessionId"`
+	Answer            string `json:"answer"`
+	IsInterrupted     bool   `json:"isInterrupted"`
+	IsStopPlaceholder bool   `json:"isStopPlaceholder"`
+	FinishedAt        string `json:"finishedAt"`
+	DurationMs        int64  `json:"durationMs"`
+	PlanID            string `json:"planId"`
+	PlanBody          string `json:"planBody"`
+}
+
+type BackgroundErrorEvent struct {
+	Type      string `json:"type"`
+	SessionID string `json:"sessionId"`
+	Error     string `json:"error"`
+}
+
 type backgroundReplay struct {
-	events []any
+	events []json.RawMessage
 	bytes  int
 }
 type backgroundRuntime struct {
@@ -158,9 +200,9 @@ func (s *ChatService) SubscribeSessionEvents(sessionID string) (<-chan any, func
 		b.subscribers[sessionID] = map[chan any]struct{}{}
 	}
 	b.subscribers[sessionID][ch] = struct{}{}
-	items := make([]backgroundTask, 0)
+	items := make([]domain.BackgroundTask, 0)
 	for _, task := range b.tasks[sessionID] {
-		items = append(items, task)
+		items = append(items, task.BackgroundTask)
 	}
 	if store, ok := b.service.store.(domain.BackgroundTaskStore); ok {
 		persisted, err := store.ListBackgroundTasks(context.Background(), sessionID, 100)
@@ -174,12 +216,12 @@ func (s *ChatService) SubscribeSessionEvents(sessionID string) (<-chan any, func
 					}
 				}
 				if !found {
-					items = append(items, newBackgroundTask(item))
+					items = append(items, newBackgroundTask(item).BackgroundTask)
 				}
 			}
 		}
 	}
-	ch <- map[string]any{"type": "background_tasks", "sessionId": sessionID, "tasks": items}
+	ch <- BackgroundTasksEvent{Type: "background_tasks", SessionID: sessionID, Tasks: items}
 	if current := b.replay[sessionID]; current != nil {
 		for _, event := range current.events {
 			ch <- event
@@ -204,31 +246,29 @@ func (b *backgroundRuntime) publish(sessionID string, payload any) bool {
 	if err != nil {
 		return false
 	}
-	var owned map[string]any
-	if json.Unmarshal(encoded, &owned) != nil {
-		return false
-	}
-	payload = owned // Own typed chunk payloads and metadata before retaining a replay.
+	// Store a serialized snapshot so replay owns chunk payloads and metadata.
+	owned := json.RawMessage(encoded)
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	if data, ok := payload.(map[string]any); ok {
-		switch data["type"] {
-		case "start":
-			b.replay[sessionID] = &backgroundReplay{events: []any{payload}}
-		case "done", "error":
+	switch event := payload.(type) {
+	case BackgroundStartEvent:
+		b.replay[sessionID] = &backgroundReplay{events: []json.RawMessage{owned}}
+	case BackgroundDoneEvent:
+		delete(b.replay, sessionID)
+	default:
+		failure, failed := event.(BackgroundErrorEvent)
+		if failed && failure.Type == "error" {
 			delete(b.replay, sessionID)
-		default:
-			if current := b.replay[sessionID]; current != nil {
-				if len(current.events) < 400 && current.bytes+len(encoded) < 4<<20 {
-					current.events = append(current.events, payload)
-					current.bytes += len(encoded)
-				}
+		} else if current := b.replay[sessionID]; current != nil {
+			if len(current.events) < 400 && current.bytes+len(encoded) < 4<<20 {
+				current.events = append(current.events, owned)
+				current.bytes += len(encoded)
 			}
 		}
 	}
 	for ch := range b.subscribers[sessionID] {
 		select {
-		case ch <- payload:
+		case ch <- owned:
 		default:
 			delete(b.subscribers[sessionID], ch)
 			close(ch)
@@ -269,7 +309,7 @@ func (b *backgroundRuntime) task(sessionID string, task backgroundTask) {
 			logging.Warn("background_task_persist_failed", "task", item.ID, "err", err)
 		}
 	}
-	b.publish(sessionID, map[string]any{"type": "background_task", "sessionId": sessionID, "taskId": task.TaskID, "processId": task.ProcessID, "status": task.Status})
+	b.publish(sessionID, BackgroundTaskEvent{Type: "background_task", SessionID: sessionID, TaskID: task.TaskID, ProcessID: task.ProcessID, Status: task.Status})
 }
 
 func mergeBackgroundTask(target *domain.BackgroundTask, update domain.BackgroundTask) {
@@ -500,7 +540,7 @@ func (b *backgroundRuntime) work(sessionID string) {
 			callbacks.OnTurnStarted = func(turnID string) error {
 				startedRun = true
 				b.task(sessionID, backgroundTask{domain.BackgroundTask{ID: wake.taskID, ProcessID: wake.event.ID, SessionID: sessionID, Status: domain.BackgroundStatusWaking}})
-				b.publish(sessionID, map[string]any{"type": "start", "sessionId": sessionID, "turnId": turnID, "startedAt": started.Format(time.RFC3339Nano), "background": true})
+				b.publish(sessionID, BackgroundStartEvent{Type: "start", SessionID: sessionID, TurnID: turnID, StartedAt: started.Format(time.RFC3339Nano), Background: true})
 				return nil
 			}
 			result, err := b.service.resumeBackground(wakeCtx, wake, callbacks)
@@ -520,11 +560,16 @@ func (b *backgroundRuntime) work(sessionID string) {
 				if startedRun {
 					kind = "error"
 				}
-				b.publish(sessionID, map[string]any{"type": kind, "sessionId": sessionID, "error": "后台任务已结束，但自动继续失败。请检查模型配置、权限或任务状态。"})
+				b.publish(sessionID, BackgroundErrorEvent{Type: kind, SessionID: sessionID, Error: "后台任务已结束，但自动继续失败。请检查模型配置、权限或任务状态。"})
 				logging.Warn("background_resume_failed", "session", sessionID)
 				b.task(sessionID, backgroundTask{domain.BackgroundTask{ID: wake.taskID, ProcessID: wake.event.ID, SessionID: sessionID, Status: domain.BackgroundStatusFailed, Error: "自动继续失败，请检查模型配置、权限或手动重试。"}})
 			} else {
-				b.publish(sessionID, map[string]any{"type": "done", "sessionId": sessionID, "answer": result.Answer, "isInterrupted": result.IsInterrupted, "isStopPlaceholder": result.IsStopPlaceholder, "finishedAt": time.Now().Format(time.RFC3339Nano), "durationMs": time.Since(started).Milliseconds(), "planId": result.PlanID, "planBody": result.PlanBody})
+				b.publish(sessionID, BackgroundDoneEvent{
+					Type: "done", SessionID: sessionID, Answer: result.Answer,
+					IsInterrupted: result.IsInterrupted, IsStopPlaceholder: result.IsStopPlaceholder,
+					FinishedAt: time.Now().Format(time.RFC3339Nano), DurationMs: time.Since(started).Milliseconds(),
+					PlanID: result.PlanID, PlanBody: result.PlanBody,
+				})
 				b.task(sessionID, backgroundTask{domain.BackgroundTask{ID: wake.taskID, ProcessID: wake.event.ID, SessionID: sessionID, Status: domain.BackgroundStatusCompleted}})
 			}
 			break

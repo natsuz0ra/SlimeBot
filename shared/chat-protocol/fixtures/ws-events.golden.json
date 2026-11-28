@@ -1,0 +1,433 @@
+{
+  "pong": {
+    "type": "pong"
+  },
+  "session": {
+    "type": "session",
+    "sessionId": "session-1"
+  },
+  "start": {
+    "type": "start",
+    "sessionId": "session-1",
+    "turnId": "turn-1",
+    "startedAt": "2026-04-29T01:02:03.123456789Z"
+  },
+  "background_start": {
+    "type": "start",
+    "sessionId": "session-1",
+    "turnId": "wake-1",
+    "startedAt": "2026-04-29T01:02:03.123456789Z",
+    "background": true
+  },
+  "stopping": {
+    "type": "stopping",
+    "sessionId": "session-1"
+  },
+  "chunk": {
+    "type": "chunk",
+    "sessionId": "session-1",
+    "content": "hello <world>"
+  },
+  "done": {
+    "type": "done",
+    "sessionId": "session-1",
+    "answer": "result",
+    "isInterrupted": false,
+    "isStopPlaceholder": false,
+    "finishedAt": "2026-04-29T01:02:05.873456789Z",
+    "durationMs": 2750,
+    "planId": "plan-1",
+    "planBody": "# Plan",
+    "narration": "",
+    "skillLearning": {
+      "skillId": "inspect",
+      "status": "completed",
+      "message": "Saved"
+    }
+  },
+  "done_without_plan": {
+    "type": "done",
+    "sessionId": "session-1",
+    "answer": "",
+    "isInterrupted": true,
+    "isStopPlaceholder": true,
+    "finishedAt": "2026-04-29T01:02:05.873456789Z",
+    "durationMs": 2750
+  },
+  "background_done": {
+    "type": "done",
+    "sessionId": "session-1",
+    "answer": "resumed",
+    "isInterrupted": false,
+    "isStopPlaceholder": false,
+    "finishedAt": "2026-04-29T01:02:05.873456789Z",
+    "durationMs": 2750,
+    "planId": "",
+    "planBody": ""
+  },
+  "error": {
+    "type": "error",
+    "error": "Invalid message format."
+  },
+  "error_with_empty_session": {
+    "type": "error",
+    "sessionId": "",
+    "error": "sessionId is required"
+  },
+  "message_edited": {
+    "type": "message_edited",
+    "sessionId": "session-1",
+    "messageId": "message-1",
+    "content": "edited",
+    "createdAt": "2026-04-29T01:02:03.123456789Z"
+  },
+  "session_title": {
+    "type": "session_title",
+    "sessionId": "session-1",
+    "title": "Review"
+  },
+  "thinking_start": {
+    "type": "thinking_start",
+    "sessionId": "session-1",
+    "startedAt": "2026-04-29T01:02:03.123456789Z"
+  },
+  "thinking_chunk": {
+    "type": "thinking_chunk",
+    "sessionId": "session-1",
+    "content": "reasoning",
+    "startedAt": "2026-04-29T01:02:03.123456789Z",
+    "parentToolCallId": "parent-1",
+    "subagentRunId": "run-1",
+    "teamRunId": "team-1",
+    "memberRunId": "member-1"
+  },
+  "thinking_done": {
+    "type": "thinking_done",
+    "sessionId": "session-1",
+    "finishedAt": "2026-04-29T01:02:05.873456789Z",
+    "parentToolCallId": "parent-1",
+    "subagentRunId": "run-1",
+    "teamRunId": "team-1",
+    "memberRunId": "member-1"
+  },
+  "tool_call_start": {
+    "type": "tool_call_start",
+    "sessionId": "session-1",
+    "parentToolCallId": "parent-1",
+    "subagentRunId": "run-1",
+    "teamRunId": "team-1",
+    "memberRunId": "member-1",
+    "toolCallId": "tool-1",
+    "toolName": "exec",
+    "command": "run",
+    "reviewStatus": "needs_user",
+    "reviewRisk": "medium",
+    "reviewReason": "Confirm parameters",
+    "params": {
+      "path": "main.go"
+    },
+    "requiresApproval": true,
+    "preamble": "",
+    "startedAt": "2026-04-29T01:02:03.123456789Z"
+  },
+  "tool_call_review": {
+    "type": "tool_call_review",
+    "sessionId": "session-1",
+    "parentToolCallId": "parent-1",
+    "subagentRunId": "run-1",
+    "teamRunId": "team-1",
+    "memberRunId": "member-1",
+    "toolCallId": "tool-1",
+    "toolName": "exec",
+    "command": "run",
+    "reviewStatus": "needs_user",
+    "reviewRisk": "medium",
+    "reviewReason": "Confirm parameters",
+    "reviewedAt": "2026-04-29T01:02:03.123456789Z"
+  },
+  "tool_call_approval_required": {
+    "type": "tool_call_approval_required",
+    "sessionId": "session-1",
+    "parentToolCallId": "parent-1",
+    "subagentRunId": "run-1",
+    "teamRunId": "team-1",
+    "memberRunId": "member-1",
+    "toolCallId": "tool-1",
+    "toolName": "exec",
+    "command": "run",
+    "reviewStatus": "needs_user",
+    "reviewRisk": "medium",
+    "reviewReason": "Confirm parameters",
+    "params": null,
+    "requiresApproval": true,
+    "requiredAt": "2026-04-29T01:02:03.123456789Z"
+  },
+  "tool_call_result": {
+    "type": "tool_call_result",
+    "sessionId": "session-1",
+    "parentToolCallId": "parent-1",
+    "subagentRunId": "run-1",
+    "teamRunId": "team-1",
+    "memberRunId": "member-1",
+    "toolCallId": "tool-1",
+    "toolName": "exec",
+    "command": "run",
+    "requiresApproval": true,
+    "status": "completed",
+    "output": "ok",
+    "error": "",
+    "metadata": null,
+    "finishedAt": "2026-04-29T01:02:05.873456789Z"
+  },
+  "team_start": {
+    "type": "team_start",
+    "sessionId": "session-1",
+    "requestId": "turn-1",
+    "teamRunId": "team-1",
+    "maxMembers": 8,
+    "maxParallel": 4,
+    "startedAt": "2026-04-29T01:02:03.123456789Z",
+    "status": "running"
+  },
+  "team_member_queued": {
+    "type": "team_member_queued",
+    "sessionId": "session-1",
+    "teamRunId": "team-1",
+    "memberRunId": "member-1",
+    "toolCallId": "parent-1",
+    "title": "Research",
+    "task": "Inspect sources",
+    "modelConfigId": "model-1",
+    "status": "queued",
+    "createdAt": "2026-04-29T01:02:03.123456789Z",
+    "updatedAt": "2026-04-29T01:02:03.123456789Z"
+  },
+  "team_done": {
+    "type": "team_done",
+    "sessionId": "session-1",
+    "requestId": "turn-1",
+    "teamRunId": "team-1",
+    "maxMembers": 8,
+    "maxParallel": 4,
+    "startedAt": "2026-04-29T01:02:03.123456789Z",
+    "status": "succeeded",
+    "lastError": "",
+    "finishedAt": "2026-04-29T01:02:05.873456789Z"
+  },
+  "subagent_start": {
+    "type": "subagent_start",
+    "sessionId": "session-1",
+    "parentToolCallId": "parent-1",
+    "subagentRunId": "run-1",
+    "teamRunId": "team-1",
+    "memberRunId": "member-1",
+    "title": "Research",
+    "task": "Inspect sources"
+  },
+  "subagent_chunk": {
+    "type": "subagent_chunk",
+    "sessionId": "session-1",
+    "parentToolCallId": "parent-1",
+    "subagentRunId": "run-1",
+    "teamRunId": "team-1",
+    "memberRunId": "member-1",
+    "content": "child output"
+  },
+  "subagent_done": {
+    "type": "subagent_done",
+    "sessionId": "session-1",
+    "parentToolCallId": "parent-1",
+    "subagentRunId": "run-1",
+    "teamRunId": "team-1",
+    "memberRunId": "member-1"
+  },
+  "subagent_done_failed": {
+    "type": "subagent_done",
+    "sessionId": "session-1",
+    "parentToolCallId": "parent-1",
+    "subagentRunId": "run-1",
+    "teamRunId": "team-1",
+    "memberRunId": "member-1",
+    "error": "cancelled"
+  },
+  "plan_start": {
+    "type": "plan_start",
+    "sessionId": "session-1"
+  },
+  "plan_chunk": {
+    "type": "plan_chunk",
+    "sessionId": "session-1",
+    "content": "# "
+  },
+  "plan_body": {
+    "type": "plan_body",
+    "sessionId": "session-1",
+    "content": "# Plan"
+  },
+  "plan_status": {
+    "type": "plan_status",
+    "planId": "plan-1",
+    "status": "approved"
+  },
+  "todo_update": {
+    "type": "todo_update",
+    "sessionId": "session-1",
+    "items": [
+      {
+        "id": "inspect",
+        "content": "Inspect flow",
+        "status": "in_progress"
+      }
+    ],
+    "note": "working",
+    "updatedAt": "2026-04-29T01:02:03.123456789Z"
+  },
+  "todo_update_no_items": {
+    "type": "todo_update",
+    "sessionId": "session-1",
+    "items": null,
+    "updatedAt": "2026-04-29T01:02:03.123456789Z"
+  },
+  "context_usage": {
+    "type": "context_usage",
+    "sessionId": "session-1",
+    "modelConfigId": "model-1",
+    "usedTokens": 42,
+    "totalTokens": 100,
+    "usedPercent": 42,
+    "availablePercent": 58,
+    "isCompacted": true,
+    "compactedAt": "2026-04-29T01:02:03.123456789Z",
+    "inputBudget": 80,
+    "outputReserve": 20,
+    "compactionBeforeTokens": 90,
+    "compactionAfterTokens": 42,
+    "compactionReason": "budget",
+    "compactionDurationMs": 20,
+    "compactionFailure": "",
+    "layers": [
+      {
+        "layer": "recent",
+        "tokens": 42
+      }
+    ],
+    "source": "provider-reported",
+    "state": "ready",
+    "outputBudgetTokens": 20,
+    "outputBudgetUsed": 12
+  },
+  "context_usage_zero_fields": {
+    "type": "context_usage",
+    "sessionId": "session-1",
+    "modelConfigId": "model-1",
+    "usedTokens": 0,
+    "totalTokens": 100,
+    "usedPercent": 0,
+    "availablePercent": 100,
+    "isCompacted": false,
+    "compactedAt": "",
+    "inputBudget": 0,
+    "outputReserve": 0,
+    "compactionBeforeTokens": 0,
+    "compactionAfterTokens": 0,
+    "compactionReason": "",
+    "compactionDurationMs": 0,
+    "compactionFailure": "",
+    "layers": null,
+    "source": "",
+    "state": "",
+    "outputBudgetTokens": 0,
+    "outputBudgetUsed": 0
+  },
+  "context_compacted": {
+    "type": "context_compacted",
+    "sessionId": "session-1",
+    "usage": {
+      "modelConfigId": "model-1",
+      "usedTokens": 42,
+      "totalTokens": 100,
+      "usedPercent": 42,
+      "availablePercent": 58,
+      "isCompacted": true,
+      "compactedAt": "2026-04-29T01:02:03.123456789Z",
+      "inputBudget": 80,
+      "outputReserve": 20,
+      "compactionBeforeTokens": 90,
+      "compactionAfterTokens": 42,
+      "compactionReason": "budget",
+      "compactionDurationMs": 20,
+      "layers": [
+        {
+          "layer": "recent",
+          "tokens": 42
+        }
+      ],
+      "source": "provider-reported",
+      "state": "ready",
+      "outputBudgetTokens": 20,
+      "outputBudgetUsed": 12,
+      "sessionId": "session-1"
+    }
+  },
+  "background_tasks": {
+    "type": "background_tasks",
+    "sessionId": "session-1",
+    "tasks": [
+      {
+        "taskId": "task-1",
+        "processId": "process-1",
+        "status": "queued",
+        "id": "task-1",
+        "sessionId": "session-1",
+        "command": "build",
+        "shell": "sh",
+        "workingDirectory": "",
+        "sandboxMode": "",
+        "timeoutMs": 1000,
+        "planMode": false,
+        "autoWake": true,
+        "exitCode": 0,
+        "startedAt": "2026-04-29T01:02:03Z",
+        "createdAt": "2026-04-29T01:02:03Z",
+        "updatedAt": "2026-04-29T01:02:03Z"
+      }
+    ]
+  },
+  "background_task": {
+    "type": "background_task",
+    "sessionId": "session-1",
+    "taskId": "task-1",
+    "processId": "process-1",
+    "status": "queued"
+  },
+  "background_error": {
+    "type": "background_error",
+    "sessionId": "session-1",
+    "error": "Continuation failed."
+  },
+  "steer_accepted": {
+    "type": "steer_accepted",
+    "sessionId": "session-1",
+    "change": {
+      "submissionId": "submission-1",
+      "messageId": "message-1",
+      "turnId": "turn-1",
+      "content": "adjust",
+      "createdAt": "2026-04-29T01:02:03.123456789Z"
+    }
+  },
+  "steer_rejected": {
+    "type": "steer_rejected",
+    "sessionId": "session-1",
+    "submissionId": "submission-2",
+    "content": "",
+    "error": "stale turn"
+  },
+  "privacy": {
+    "type": "privacy",
+    "sessionId": "session-1",
+    "masked": 3,
+    "warned": 1,
+    "blocked": false
+  }
+}

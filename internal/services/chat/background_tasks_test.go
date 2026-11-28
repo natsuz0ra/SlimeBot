@@ -2,6 +2,7 @@ package chat
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"runtime"
 	"strings"
@@ -280,25 +281,38 @@ func TestBackgroundApprovalNeverUpgrades(t *testing.T) {
 	}
 }
 
+func readBackgroundTestEvent(t *testing.T, payload any) BackgroundDoneEvent {
+	t.Helper()
+	data, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var event BackgroundDoneEvent
+	if err := json.Unmarshal(data, &event); err != nil {
+		t.Fatal(err)
+	}
+	return event
+}
+
 func TestBackgroundReplayAndSubscriberLifecycle(t *testing.T) {
 	p := &backgroundCaptureProvider{}
 	s, sid, _, _, _, _ := backgroundFixture(t, p)
 	b := s.backgrounds()
-	b.publish(sid, map[string]any{"type": "start", "sessionId": sid, "turnId": "wake", "background": true})
-	b.publish(sid, map[string]any{"type": "chunk", "sessionId": sid, "content": "partial"})
+	b.publish(sid, BackgroundStartEvent{Type: "start", SessionID: sid, TurnID: "wake", Background: true})
+	b.publish(sid, json.RawMessage(`{"type":"chunk","content":"partial"}`))
 	events, unsubscribe := s.SubscribeSessionEvents(sid)
 	defer unsubscribe()
 	for _, kind := range []string{"background_tasks", "start", "chunk"} {
 		select {
 		case event := <-events:
-			if event.(map[string]any)["type"] != kind {
+			if readBackgroundTestEvent(t, event).Type != kind {
 				t.Fatal(event)
 			}
 		case <-time.After(time.Second):
 			t.Fatal("missing replay")
 		}
 	}
-	b.publish(sid, map[string]any{"type": "done", "sessionId": sid})
+	b.publish(sid, BackgroundDoneEvent{Type: "done", SessionID: sid})
 	other, stop := s.SubscribeSessionEvents(sid)
 	defer stop()
 	<-other
@@ -368,16 +382,15 @@ func TestBackgroundExecFlowsThroughAgentAndPersistsContinuation(t *testing.T) {
 	for {
 		select {
 		case event := <-events:
-			if data, ok := event.(map[string]any); ok {
-				if data["type"] == "error" {
-					t.Fatal(data)
+			data := readBackgroundTestEvent(t, event)
+			switch data.Type {
+			case "error":
+				t.Fatal(event)
+			case "done":
+				if !strings.Contains(data.Answer, "background completed") {
+					t.Fatal(event)
 				}
-				if data["type"] == "done" {
-					if !strings.Contains(data["answer"].(string), "background completed") {
-						t.Fatal(data)
-					}
-					return
-				}
+				return
 			}
 		case <-deadline:
 			t.Fatal("command finished without waking the agent")
@@ -402,13 +415,11 @@ func TestBackgroundPreparationFailureDoesNotFailPreviousReply(t *testing.T) {
 	for {
 		select {
 		case value := <-events:
-			if data, ok := value.(map[string]any); ok {
-				if data["type"] == "error" || data["type"] == "start" {
-					t.Fatal("preparation failure affected a completed reply")
-				}
-				if data["type"] == "background_error" {
-					found = true
-				}
+			switch readBackgroundTestEvent(t, value).Type {
+			case "error", "start":
+				t.Fatal("preparation failure affected a completed reply")
+			case "background_error":
+				found = true
 			}
 		default:
 			if !found {

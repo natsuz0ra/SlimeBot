@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import test from 'node:test'
 import type { ToolCallItem } from '../src/api/chat'
+import { dispatchChatSocketMessage } from '../src/api/chatSocket'
 import { hasPendingNestedApproval, shouldAutoExpandToolCall } from '../src/utils/toolApprovalExpansion'
 
 test('HomePage no longer mounts the standalone approval drawer', () => {
@@ -167,44 +168,71 @@ test('approval prompts wait for expansion before forcing scroll to bottom', () =
   )
 })
 
-test('chat socket done event forwards plan metadata while plan_body stays separate', () => {
-  const chatSocketSource = readFileSync(resolve(import.meta.dirname, '../src/api/chatSocket.ts'), 'utf8')
+const wire = JSON.parse(readFileSync(new URL('../../shared/chat-protocol/fixtures/ws-events.golden.json', import.meta.url), 'utf8'))
 
-  assert.match(chatSocketSource, /if \(data\.type === 'done'\) \{[\s\S]*planId: data\.planId,[\s\S]*planBody: data\.planBody,/s)
-  assert.match(chatSocketSource, /if \(data\.type === 'plan_body'\) handlers\?\.onPlanBody\?\.\(data\.content \|\| '', data\.sessionId\)/)
+test('chat socket done event forwards plan metadata while plan_body stays separate', () => {
+  const events: unknown[] = []
+  const handlers = {
+    onPlanBody: (content: string) => events.push(content),
+    onDone: (_sessionId?: string, _answer?: string, meta?: { planId?: string; planBody?: string }) => {
+      events.push([meta?.planId, meta?.planBody])
+    },
+  }
+  dispatchChatSocketMessage(wire.plan_body, handlers)
+  assert.deepEqual(events, [wire.plan_body.content])
+  dispatchChatSocketMessage(wire.done, handlers)
+  assert.deepEqual(events, [wire.plan_body.content, [wire.done.planId, wire.done.planBody]])
 })
 
 test('chat socket and store forward subagent title from start event', () => {
-  const chatSocketSource = readFileSync(resolve(import.meta.dirname, '../src/api/chatSocket.ts'), 'utf8')
-  const chatStoreSource = readFileSync(resolve(import.meta.dirname, '../src/stores/chat.ts'), 'utf8') + readFileSync(resolve(import.meta.dirname, '../src/stores/chatSessionRuntime.ts'), 'utf8')
+  const received: string[] = []
+  dispatchChatSocketMessage(wire.subagent_start, { onSubagentStart: data => received.push(data.title) })
+  assert.deepEqual(received, [wire.subagent_start.title])
 
-  assert.match(chatSocketSource, /interface SubagentStartData[\s\S]*title: string/s)
-  assert.match(chatSocketSource, /title: data\.title \|\| ''/)
+  const chatStoreSource = readFileSync(resolve(import.meta.dirname, '../src/stores/chatSessionRuntime.ts'), 'utf8')
   assert.match(chatStoreSource, /parent\.subagentTitle = data\.title/)
 })
 
 test('chat socket forwards backend event timestamps for tool and thinking ordering', () => {
-  const chatSocketSource = readFileSync(resolve(import.meta.dirname, '../src/api/chatSocket.ts'), 'utf8')
-  const chatStoreSource = readFileSync(resolve(import.meta.dirname, '../src/stores/chat.ts'), 'utf8') + readFileSync(resolve(import.meta.dirname, '../src/stores/chatSessionRuntime.ts'), 'utf8')
+  const timestamps: Array<string | undefined> = []
+  const handlers = {
+    onToolCallStart: (data: { startedAt?: string }) => timestamps.push(data.startedAt),
+    onToolCallResult: (data: { finishedAt?: string }) => timestamps.push(data.finishedAt),
+    onThinkingStart: (data: { startedAt?: string }) => timestamps.push(data.startedAt),
+    onThinkingDone: (data: { finishedAt?: string }) => timestamps.push(data.finishedAt),
+  }
+  for (const key of ['tool_call_start', 'tool_call_result', 'thinking_start', 'thinking_done']) {
+    dispatchChatSocketMessage(wire[key], handlers)
+  }
+  assert.deepEqual(timestamps, [
+    wire.tool_call_start.startedAt, wire.tool_call_result.finishedAt,
+    wire.thinking_start.startedAt, wire.thinking_done.finishedAt,
+  ])
 
-  assert.match(chatSocketSource, /startedAt\?: string/)
-  assert.match(chatSocketSource, /finishedAt\?: string/)
-  assert.match(chatSocketSource, /startedAt: data\.startedAt/)
-  assert.match(chatSocketSource, /finishedAt: data\.finishedAt/)
-  assert.match(chatStoreSource, /function parseSocketTimestamp/)
+  const chatStoreSource = readFileSync(resolve(import.meta.dirname, '../src/stores/chatSessionRuntime.ts'), 'utf8')
   assert.match(chatStoreSource, /startedAt: parseSocketTimestamp\(data\.startedAt\)/)
   assert.match(chatStoreSource, /startSubagentThinking\(batch, data\.parentToolCallId, parseSocketTimestamp\(data\.startedAt\)\)/)
   assert.match(chatStoreSource, /finishSubagentThinking\(batch, data\.parentToolCallId, parseSocketTimestamp\(data\.finishedAt\)\)/)
 })
 
 test('chat socket and store forward backend reply timing for live batches', () => {
-  const chatSocketSource = readFileSync(resolve(import.meta.dirname, '../src/api/chatSocket.ts'), 'utf8')
-  const chatStoreSource = readFileSync(resolve(import.meta.dirname, '../src/stores/chat.ts'), 'utf8') + readFileSync(resolve(import.meta.dirname, '../src/stores/chatSessionRuntime.ts'), 'utf8')
+  const timing: unknown[] = []
+  const handlers = {
+    onStart: (_sessionId?: string, meta?: { startedAt?: string; turnId?: string; background?: boolean }) => {
+      timing.push([meta?.startedAt, meta?.turnId, meta?.background])
+    },
+    onDone: (_sessionId?: string, _answer?: string, meta?: { finishedAt?: string; durationMs?: number }) => {
+      timing.push([meta?.finishedAt, meta?.durationMs])
+    },
+  }
+  dispatchChatSocketMessage(wire.background_start, handlers)
+  dispatchChatSocketMessage(wire.done, handlers)
+  assert.deepEqual(timing, [
+    [wire.background_start.startedAt, wire.background_start.turnId, true],
+    [wire.done.finishedAt, wire.done.durationMs],
+  ])
 
-  assert.match(chatSocketSource, /onStart: \(sessionId\?: string, meta\?: \{ startedAt\?: string; turnId\?: string; background\?: boolean \}\) => void/)
-  assert.match(chatSocketSource, /durationMs\?: number/)
-  assert.match(chatSocketSource, /handlers\?\.onStart\(data\.sessionId, \{ startedAt: data\.startedAt, turnId: data\.turnId, background: data\.background \}\)/)
-  assert.match(chatSocketSource, /durationMs: data\.durationMs/)
+  const chatStoreSource = readFileSync(resolve(import.meta.dirname, '../src/stores/chatSessionRuntime.ts'), 'utf8')
   assert.match(chatStoreSource, /onStart: \(sessionId, meta\) => \{[\s\S]*startedAt: parseSocketTimestamp\(meta\?\.startedAt\),/s)
   assert.match(chatStoreSource, /finalizeReplyBatchTiming\(batch, parseSocketTimestamp\(meta\?\.finishedAt\), meta\?\.durationMs\)/)
 })

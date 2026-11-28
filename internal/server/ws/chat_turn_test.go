@@ -2,6 +2,7 @@ package ws
 
 import (
 	"context"
+	"encoding/json"
 	"slices"
 	"testing"
 	"time"
@@ -49,13 +50,19 @@ func TestWSAdaptsChatAndEditToRecordedTurns(t *testing.T) {
 		var order []string
 		events := make(map[string]map[string]any)
 		if !controller.handleChatIncoming(ctx, func(payload any) bool {
-			if event, ok := payload.(map[string]any); ok {
-				kind, _ := event["type"].(string)
-				switch kind {
-				case "session", "start", "message_edited", "done", "error":
-					order = append(order, kind)
-					events[kind] = event
-				}
+			data, err := json.Marshal(payload)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var event map[string]any
+			if err := json.Unmarshal(data, &event); err != nil {
+				t.Fatal(err)
+			}
+			kind, _ := event["type"].(string)
+			switch kind {
+			case "session", "start", "message_edited", "done", "error":
+				order = append(order, kind)
+				events[kind] = event
 			}
 			return true
 		}, broker, active, incoming) {

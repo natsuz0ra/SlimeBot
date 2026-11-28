@@ -3,6 +3,8 @@ import type React from "react";
 import type { SessionSelection } from "../controllers/sessionRequests.js";
 import type { AppAction, ToolCallResultData, ToolCallStartData } from "../types.js";
 import { CLISocket } from "../ws/socket.js";
+import { describeChatWSDiagnostic } from "../../../shared/chat-protocol/events.js";
+import { parseChatTimestamp } from "../../../shared/chat-protocol/timeline.js";
 
 interface UseCliSocketProps {
   apiURL: string;
@@ -53,6 +55,9 @@ export function useCliSocket({
         onBackgroundCountChange?.(0);
         dispatch({ type: "SOCKET_DISCONNECTED" });
       },
+      onProtocolError: (diagnostic) => {
+        dispatch({ type: "APPEND_ENTRY", entry: { kind: "system", content: describeChatWSDiagnostic(diagnostic) } });
+      },
       onBackgroundError: (error) => {dispatch({ type: "APPEND_ENTRY", entry: { kind: "system", content: error } });},
       onBackgroundTasks: (tasks) => {
         socket.backgroundTasks = new Map(tasks.map(task => [task.taskId, task]));
@@ -70,9 +75,9 @@ export function useCliSocket({
         if (sessionId !== sessionRef.current.id) return;
         void refreshSessionName(sessionId);
       },
-      onStart: (_sid, turnId) => {
+      onStart: (_sid, meta) => {
         invalidateSessionRequests();
-        socket.activeTurnId = turnId || "";
+        socket.activeTurnId = meta?.turnId || "";
         planStartedRef.current = false;
         preambleShownRef.current = "";
         dispatch({ type: "STREAM_START" });
@@ -92,7 +97,7 @@ export function useCliSocket({
         dispatch({ type: "APPLY_SESSION_TITLE", sessionId, title: trimmed });
         applyTerminalTitle(trimmed);
       },
-      onDone: (_sid, meta) => {
+      onDone: (_sid, _answer, meta) => {
         socket.activeTurnId = "";
         dispatch({
           type: "STREAM_DONE",
@@ -318,6 +323,7 @@ export function useCliSocket({
       onThinkingStart: (data) => {
         dispatch({
           type: "THINKING_START",
+          startedAt: parseChatTimestamp(data.startedAt) ?? Date.now(),
           parentToolCallId: data.parentToolCallId,
           subagentRunId: data.subagentRunId,
         });
@@ -326,6 +332,7 @@ export function useCliSocket({
         dispatch({
           type: "THINKING_CHUNK",
           chunk: data.content || "",
+          startedAt: parseChatTimestamp(data.startedAt),
           parentToolCallId: data.parentToolCallId,
           subagentRunId: data.subagentRunId,
         });
@@ -333,7 +340,7 @@ export function useCliSocket({
       onThinkingDone: (data) => {
         dispatch({
           type: "THINKING_DONE",
-          finishedAt: Date.now(),
+          finishedAt: parseChatTimestamp(data.finishedAt) ?? Date.now(),
           parentToolCallId: data.parentToolCallId,
           subagentRunId: data.subagentRunId,
         });

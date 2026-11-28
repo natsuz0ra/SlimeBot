@@ -6,6 +6,7 @@
 import type {
   AppState,
   AppAction,
+  SubagentThinking,
   TimelineEntry,
   MenuKind,
   ViewMode,
@@ -20,6 +21,7 @@ import {
   upsertAgentTeamMember,
   upsertAgentTeamRun,
 } from "./utils/agentTeam.js";
+import { getSubagentThinkings, withSubagentThinkings } from "./utils/subagentThinking.js";
 
 const SOCKET_INTERRUPTION = "WebSocket connection interrupted.";
 
@@ -73,7 +75,7 @@ function entryTokenText(entry: TimelineEntry): string {
     entry.output,
     entry.error,
     entry.subagentStream,
-    entry.subagentThinking?.content,
+    ...getSubagentThinkings(entry).map(thinking => thinking.content),
     entry.toolName,
     entry.command,
     entry.teamRun?.lastError,
@@ -125,20 +127,25 @@ function finishThinkingEntry(entry: TimelineEntry, finishedAt: number): Timeline
         : entry.thinkingDurationMs,
     };
   }
-  if (entry.kind === "tool" && entry.subagentThinking && !entry.subagentThinking.thinkingDone) {
-    const startedAt = entry.subagentThinking.thinkingStartedAt;
-    return {
-      ...entry,
-      subagentThinking: {
-        ...entry.subagentThinking,
-        thinkingDone: true,
-        thinkingDurationMs: startedAt !== undefined
-          ? Math.max(0, finishedAt - startedAt)
-          : entry.subagentThinking.thinkingDurationMs,
-      },
-    };
+  if (entry.kind === "tool") {
+    const segments = getSubagentThinkings(entry);
+    if (segments.some(thinking => !thinking.thinkingDone)) {
+      return withSubagentThinkings(entry, segments.map(thinking => finishSubagentSegment(thinking, finishedAt)));
+    }
   }
   return entry;
+}
+
+function finishSubagentSegment(thinking: SubagentThinking, finishedAt: number): SubagentThinking {
+  if (thinking.thinkingDone) return thinking;
+  const startedAt = thinking.thinkingStartedAt;
+  return {
+    ...thinking,
+    thinkingDone: true,
+    thinkingDurationMs: startedAt !== undefined
+      ? Math.max(0, finishedAt - startedAt)
+      : thinking.thinkingDurationMs,
+  };
 }
 
 function finalizeOpenRuntimeEntries(entries: TimelineEntry[], error = "Execution cancelled.", finishedAt = Date.now()): TimelineEntry[] {
@@ -444,6 +451,7 @@ export function reducer(state: AppState, action: AppAction): AppState {
           ...prev,
           ...nextEntry,
           subagentStream: nextEntry.subagentStream ?? prev.subagentStream,
+          subagentThinkings: nextEntry.subagentThinkings ?? prev.subagentThinkings,
           subagentThinking: nextEntry.subagentThinking ?? prev.subagentThinking,
         };
       }
@@ -903,14 +911,11 @@ export function reducer(state: AppState, action: AppAction): AppState {
           );
           if (idx === -1) return state;
           const prev = entries[idx];
-          entries[idx] = {
-            ...prev,
-            subagentThinking: {
-              content: prev.subagentThinking?.content || "",
-              thinkingDone: false,
-              thinkingStartedAt: action.startedAt ?? Date.now(),
-            },
-          };
+          entries[idx] = withSubagentThinkings(prev, [...getSubagentThinkings(prev), {
+            content: "",
+            thinkingDone: false,
+            thinkingStartedAt: action.startedAt ?? Date.now(),
+          }]);
           return {
             ...state,
             timeline: entries,
@@ -925,7 +930,7 @@ export function reducer(state: AppState, action: AppAction): AppState {
           kind: "thinking",
           content: "",
           thinkingDone: false,
-          thinkingStartedAt: Date.now(),
+          thinkingStartedAt: action.startedAt ?? Date.now(),
         });
         return {
           ...state,
@@ -943,15 +948,17 @@ export function reducer(state: AppState, action: AppAction): AppState {
         );
         if (idx === -1) return state;
         const prev = entries[idx];
-        const thinking = prev.subagentThinking ?? { content: "", thinkingDone: false, thinkingStartedAt: Date.now() };
-        entries[idx] = {
-          ...prev,
-          subagentThinking: {
-            ...thinking,
-            content: thinking.content + action.chunk,
-            thinkingDone: false,
-          },
-        };
+        const segments = getSubagentThinkings(prev);
+        const latest = segments.at(-1);
+        if (latest && !latest.thinkingDone) {
+          entries[idx] = withSubagentThinkings(prev, [
+            ...segments.slice(0, -1), { ...latest, content: latest.content + action.chunk },
+          ]);
+        } else {
+          entries[idx] = withSubagentThinkings(prev, [...segments, {
+            content: action.chunk, thinkingDone: false, thinkingStartedAt: action.startedAt ?? Date.now(),
+          }]);
+        }
         return {
           ...state,
           timeline: entries,
@@ -979,21 +986,13 @@ export function reducer(state: AppState, action: AppAction): AppState {
           (entry) => entry.kind === "tool" && entry.toolCallId === action.parentToolCallId,
         );
         if (idx === -1) return state;
-        const thinking = entries[idx].subagentThinking;
-        if (!thinking) return state;
         const prev = entries[idx];
-        const startedAt = thinking.thinkingStartedAt;
-        entries[idx] = {
-          ...prev,
-          subagentThinking: {
-            ...thinking,
-            content: thinking.content,
-            thinkingDone: true,
-            thinkingDurationMs: startedAt !== undefined
-              ? Math.max(0, (action.finishedAt ?? Date.now()) - startedAt)
-              : thinking.thinkingDurationMs,
-          },
-        };
+        const segments = getSubagentThinkings(prev);
+        const thinking = segments.at(-1);
+        if (!thinking || thinking.thinkingDone) return state;
+        entries[idx] = withSubagentThinkings(prev, [
+          ...segments.slice(0, -1), finishSubagentSegment(thinking, action.finishedAt ?? Date.now()),
+        ]);
         return {
           ...state,
           timeline: entries,

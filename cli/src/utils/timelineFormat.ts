@@ -26,6 +26,7 @@ import {
   type FileDiffLine,
   isFileToolEntry as isFileToolTimelineEntry,
 } from "./fileToolDisplay.js";
+import { getSubagentThinkings } from "./subagentThinking.js";
 
 export const PLAN_GOLD = CLI_THEME.plan;
 export const WAITING_STATS_COLOR = CLI_THEME.hint;
@@ -314,19 +315,20 @@ export function formatThinkingLabel(entry: TimelineEntry): string {
 }
 
 export function formatSubagentThinkingLines(entry: TimelineEntry, maxWidth: number, expanded = false): string[] {
-  if (!entry.subagentThinking) return [];
-  const thinking = entry.subagentThinking;
-  const done = thinking.thinkingDone;
-  const duration = done && thinking.thinkingDurationMs !== undefined
-    ? (thinking.thinkingDurationMs / 1000).toFixed(1) + "s"
-    : "";
-  const label = done ? `Sub-agent thought for ${duration}` : "Sub-agent thinking...";
-  const lines = [`   ${label}`];
-  if (thinking.content.trim() !== "") {
-    const { lines: rawLines } = formatCollapsedLines(thinking.content, TOOL_OUTPUT_PREVIEW_LINES, expanded);
-    for (const raw of rawLines) {
-      const wrapped = wrapText(raw, Math.max(20, maxWidth - 6));
-      lines.push(...wrapped.split("\n").map((line) => `     ${line}`));
+  const lines: string[] = [];
+  for (const thinking of getSubagentThinkings(entry)) {
+    const done = thinking.thinkingDone;
+    const duration = done && thinking.thinkingDurationMs !== undefined
+      ? (thinking.thinkingDurationMs / 1000).toFixed(1) + "s"
+      : "";
+    const label = done ? `Sub-agent thought for ${duration}` : "Sub-agent thinking...";
+    lines.push(`   ${label}`);
+    if (thinking.content.trim()) {
+      const { lines: rawLines } = formatCollapsedLines(thinking.content, TOOL_OUTPUT_PREVIEW_LINES, expanded);
+      for (const raw of rawLines) {
+        const wrapped = wrapText(raw, Math.max(20, maxWidth - 6));
+        lines.push(...wrapped.split("\n").map((line) => `     ${line}`));
+      }
     }
   }
   return lines;
@@ -369,7 +371,7 @@ function formatActiveSubagentToolSummary(child: TimelineEntry): string {
 
 function formatRunSubagentThinkingToolsSummary(entry: TimelineEntry, nestedTools: TimelineEntry[]): string {
   if (entry.status === "pending" || entry.status === "reviewing" || entry.status === "executing") {
-    if (entry.subagentThinking && !entry.subagentThinking.thinkingDone) {
+    if (getSubagentThinkings(entry).some(thinking => !thinking.thinkingDone)) {
       return "Thinking...";
     }
 

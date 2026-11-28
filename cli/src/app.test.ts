@@ -405,6 +405,7 @@ test("mapHistoryMessages restores thinking entries from history markers", () => 
       content: "reasoning text",
       thinkingDone: true,
       thinkingDurationMs: 1000,
+      thinkingStartedAt: Date.parse("2026-01-01T00:00:00Z"),
     },
     { kind: "assistant", content: "Done" },
   ]);

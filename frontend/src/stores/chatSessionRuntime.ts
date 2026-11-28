@@ -7,13 +7,13 @@ import type { MessageItem, SessionHistoryPayload, SessionHistoryThinkingItem } f
 import { i18n } from '@/i18n'
 import {
   buildInterleavedTimeline,
-  buildLegacyTimeline,
   buildReplyBatchesFromHistory,
   normalizeToolStatus,
   type AssistantReplyBatch,
   type AssistantReplyTimelineItem,
 } from '@/utils/replyBatchBuilder'
-import { hasContentMarkers, parseContentMarkers, stripContentMarkers } from '@/utils/contentMarkers'
+import { parseContentMarkers, stripContentMarkers } from '@/utils/contentMarkers'
+import { describeChatWSDiagnostic } from '../../../shared/chat-protocol/events.js'
 import { appendPlanBodyToBatch, appendPlanChunkToBatch, appendSubagentThinkingChunk, appendTextChunkToBatch, finalizeOpenReplyRuntimeState, finalizeReplyBatchTiming, finishOpenThinkingEntries, finishSubagentThinking, markLastThinkingDone, markToolCallError, startSubagentThinking } from '@/utils/liveReplyTimeline'
 import { getBatchApprovalToolCallIds } from '@/utils/toolApprovals'
 import { materializeStoppedMessages } from '@/utils/chatMessages'
@@ -252,17 +252,14 @@ export function createChatSessionRuntime(sessionId: string | undefined, callback
     const thinkingEntries = timeline.filter((entry) => entry.kind === 'thinking')
     if (thinkingEntries.length === 0) return []
     const thinkingIds = parseContentMarkers(content)
-      .filter((segment) => segment.type === 'thinking_marker' && segment.thinkingId)
-      .map((segment) => segment.thinkingId as string)
-    return thinkingIds.map((thinkingId, index) => {
-      const entry = thinkingEntries[index]
-      return {
-        thinkingId,
-        content: entry?.kind === 'thinking' ? entry.content : '',
-        status: entry?.kind === 'thinking' && !entry.done ? 'streaming' : 'completed',
-        durationMs: entry?.kind === 'thinking' ? entry.durationMs : undefined,
-      }
-    })
+      .flatMap((segment) => segment.type === 'thinking_marker' ? [segment.thinkingId] : [])
+    return thinkingEntries.map((entry, index) => ({
+      thinkingId: thinkingIds[index] ?? entry.id,
+      content: entry.content,
+      status: entry.done ? 'completed' : 'streaming',
+      startedAt: entry.startedAt === undefined ? undefined : new Date(entry.startedAt).toISOString(),
+      durationMs: entry.durationMs,
+    }))
   }
 
   function pushFailedUserMessage(content: string) {
@@ -458,9 +455,7 @@ export function createChatSessionRuntime(sessionId: string | undefined, callback
               clearAssistantError(assistant.id)
             }
             const liveThinking = buildLiveThinkingHistory(finalAnswer, batch.timeline)
-            batch.timeline = hasContentMarkers(finalAnswer)
-              ? buildInterleavedTimeline(batch.toolCalls, finalAnswer, liveThinking)
-              : buildLegacyTimeline(batch.toolCalls, stripContentMarkers(finalAnswer))
+            batch.timeline = buildInterleavedTimeline(batch.toolCalls, finalAnswer, liveThinking)
           }
           finalizeReplyBatchTiming(batch, parseSocketTimestamp(meta?.finishedAt), meta?.durationMs)
         }
@@ -757,6 +752,9 @@ export function createChatSessionRuntime(sessionId: string | undefined, callback
         if (!batch) return
         appendPlanBodyToBatch(batch, content)
         planGenerating.value = false
+      },
+      onProtocolError: (diagnostic) => {
+        console.warn(describeChatWSDiagnostic(diagnostic))
       },
       onSocketError: (error) => {
         backgroundTurnBatches.delete(activeTurnId.value)

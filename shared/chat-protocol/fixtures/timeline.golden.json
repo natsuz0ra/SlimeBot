@@ -1,0 +1,334 @@
+[
+  {
+    "name": "plan markers preserve interleaving",
+    "content": "Intro\n<!-- PLAN_START -->\n# Plan\n<!-- THINKING:middle-thought -->\nFirst part\n<!-- TOOL_CALL:middle -->\nLast part\n<!-- PLAN_END -->\nAnswer",
+    "toolCalls": [
+      {
+        "toolCallId": "middle",
+        "toolName": "exec",
+        "command": "run",
+        "params": {},
+        "requiresApproval": false,
+        "status": "completed",
+        "startedAt": "2026-04-29T01:02:03Z"
+      }
+    ],
+    "thinking": [
+      {
+        "thinkingId": "middle-thought",
+        "content": "reasoning",
+        "status": "completed",
+        "durationMs": 250
+      }
+    ],
+    "entries": [
+      {
+        "kind": "text",
+        "content": "Intro"
+      },
+      {
+        "kind": "plan",
+        "content": "# Plan"
+      },
+      {
+        "kind": "thinking",
+        "content": "reasoning",
+        "done": true,
+        "durationMs": 250
+      },
+      {
+        "kind": "plan",
+        "content": "First part"
+      },
+      {
+        "kind": "tool",
+        "toolCallId": "middle",
+        "status": "completed"
+      },
+      {
+        "kind": "plan",
+        "content": "Last part"
+      },
+      {
+        "kind": "text",
+        "content": "Answer"
+      }
+    ]
+  },
+  {
+    "name": "missing markers use stable chronological fallback",
+    "content": "Intro\n<!-- TOOL_CALL:middle -->\n<!-- THINKING:unknown -->\nAnswer",
+    "toolCalls": [
+      {
+        "toolCallId": "fallback",
+        "toolName": "exec",
+        "command": "run",
+        "params": {},
+        "requiresApproval": false,
+        "status": "completed",
+        "startedAt": "2026-04-29T01:02:05Z"
+      },
+      {
+        "toolCallId": "middle",
+        "toolName": "exec",
+        "command": "run",
+        "params": {},
+        "requiresApproval": false,
+        "status": "completed",
+        "startedAt": "2026-04-29T01:02:03Z"
+      }
+    ],
+    "thinking": [
+      {
+        "thinkingId": "later",
+        "content": "second",
+        "status": "completed",
+        "startedAt": "2026-04-29T01:02:05Z"
+      },
+      {
+        "thinkingId": "early",
+        "content": "first",
+        "status": "completed",
+        "startedAt": "2026-04-29T01:02:04Z"
+      }
+    ],
+    "entries": [
+      {
+        "kind": "thinking",
+        "content": "first",
+        "done": true
+      },
+      {
+        "kind": "thinking",
+        "content": "second",
+        "done": true
+      },
+      {
+        "kind": "text",
+        "content": "Intro"
+      },
+      {
+        "kind": "tool",
+        "toolCallId": "middle",
+        "status": "completed"
+      },
+      {
+        "kind": "text",
+        "content": "Answer"
+      },
+      {
+        "kind": "tool",
+        "toolCallId": "fallback",
+        "status": "completed"
+      }
+    ]
+  },
+  {
+    "name": "interrupted child thinking segments remain ordered under the parent",
+    "content": "<!-- THINKING:top -->\n<!-- TOOL_CALL:parent -->\n<!-- TOOL_CALL:nested -->\nPartial answer",
+    "interrupted": true,
+    "toolCalls": [
+      {
+        "toolCallId": "nested",
+        "toolName": "exec",
+        "command": "run",
+        "params": {},
+        "requiresApproval": false,
+        "status": "completed",
+        "startedAt": "2026-04-29T01:02:03Z",
+        "parentToolCallId": "parent",
+        "subagentRunId": "run-1"
+      },
+      {
+        "toolCallId": "parent",
+        "toolName": "run_subagent",
+        "command": "run",
+        "params": {},
+        "requiresApproval": false,
+        "status": "reviewing",
+        "startedAt": "2026-04-29T01:02:03Z"
+      }
+    ],
+    "thinking": [
+      {
+        "thinkingId": "child-2",
+        "content": "second child",
+        "status": "streaming",
+        "startedAt": "2026-04-29T01:02:05Z",
+        "parentToolCallId": "parent",
+        "subagentRunId": "run-1"
+      },
+      {
+        "thinkingId": "top",
+        "content": "top reasoning",
+        "status": "streaming"
+      },
+      {
+        "thinkingId": "child-1",
+        "content": "first child",
+        "status": "completed",
+        "startedAt": "2026-04-29T01:02:04Z",
+        "durationMs": 300,
+        "parentToolCallId": "parent",
+        "subagentRunId": "run-1"
+      }
+    ],
+    "entries": [
+      {
+        "kind": "thinking",
+        "content": "top reasoning",
+        "done": true
+      },
+      {
+        "kind": "tool",
+        "toolCallId": "parent",
+        "status": "error",
+        "error": "Execution cancelled.",
+        "subagentThinkings": [
+          {
+            "content": "first child",
+            "done": true,
+            "durationMs": 300
+          },
+          {
+            "content": "second child",
+            "done": true
+          }
+        ]
+      },
+      {
+        "kind": "text",
+        "content": "Partial answer"
+      }
+    ],
+    "nestedToolIds": [
+      "nested"
+    ]
+  },
+  {
+    "name": "legacy replies preserve tool placement and ordinary headings",
+    "content": "Narration\n\n# Heading",
+    "interrupted": true,
+    "toolCalls": [
+      {
+        "toolCallId": "already-failed",
+        "toolName": "exec",
+        "command": "run",
+        "params": {},
+        "requiresApproval": false,
+        "status": "error",
+        "startedAt": "2026-04-29T01:02:03Z",
+        "error": "existing failure"
+      },
+      {
+        "toolCallId": "open",
+        "toolName": "exec",
+        "command": "run",
+        "params": {},
+        "requiresApproval": false,
+        "status": "executing",
+        "startedAt": "2026-04-29T01:02:03Z",
+        "error": "partial failure"
+      }
+    ],
+    "thinking": [
+      {
+        "thinkingId": "legacy",
+        "content": "unmarked",
+        "status": "completed"
+      }
+    ],
+    "entries": [
+      {
+        "kind": "thinking",
+        "content": "unmarked",
+        "done": true
+      },
+      {
+        "kind": "tool",
+        "toolCallId": "already-failed",
+        "status": "error",
+        "error": "existing failure"
+      },
+      {
+        "kind": "tool",
+        "toolCallId": "open",
+        "status": "error",
+        "error": "partial failure"
+      },
+      {
+        "kind": "text",
+        "content": "Narration\n\n# Heading"
+      }
+    ]
+  },
+  {
+    "name": "unclosed plan and duplicate markers",
+    "content": "<!-- PLAN_START -->\n# Plan\n<!-- TOOL_CALL:missing -->\nSteps\n<!-- TOOL_CALL:middle -->\n<!-- TOOL_CALL:middle -->\nDetails",
+    "toolCalls": [
+      {
+        "toolCallId": "middle",
+        "toolName": "exec",
+        "command": "run",
+        "params": {},
+        "requiresApproval": false,
+        "status": "completed",
+        "startedAt": "2026-04-29T01:02:03Z"
+      }
+    ],
+    "thinking": [],
+    "entries": [
+      {
+        "kind": "plan",
+        "content": "# Plan\nSteps"
+      },
+      {
+        "kind": "tool",
+        "toolCallId": "middle",
+        "status": "completed"
+      },
+      {
+        "kind": "plan",
+        "content": "Details"
+      }
+    ]
+  },
+  {
+    "name": "active history preserves unfinished state",
+    "content": "<!-- THINKING:unfinished -->\n<!-- TOOL_CALL:parent -->\nPending",
+    "toolCalls": [
+      {
+        "toolCallId": "parent",
+        "toolName": "run_subagent",
+        "command": "run",
+        "params": {},
+        "requiresApproval": false,
+        "status": "reviewing",
+        "startedAt": "2026-04-29T01:02:03Z"
+      }
+    ],
+    "thinking": [
+      {
+        "thinkingId": "unfinished",
+        "content": "still thinking",
+        "status": "streaming"
+      }
+    ],
+    "entries": [
+      {
+        "kind": "thinking",
+        "content": "still thinking",
+        "done": false
+      },
+      {
+        "kind": "tool",
+        "toolCallId": "parent",
+        "status": "reviewing"
+      },
+      {
+        "kind": "text",
+        "content": "Pending"
+      }
+    ]
+  }
+]

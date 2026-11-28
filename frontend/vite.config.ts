@@ -3,7 +3,7 @@ import { existsSync, readFileSync } from 'fs'
 import { homedir } from 'os'
 import { dirname, join } from 'path'
 import { fileURLToPath } from 'url'
-import { defineConfig } from 'vite'
+import { defineConfig, searchForWorkspaceRoot } from 'vite'
 import vue from '@vitejs/plugin-vue'
 import tailwindcss from '@tailwindcss/vite'
 
@@ -69,6 +69,9 @@ export default defineConfig({
   server: {
     host: '0.0.0.0',
     allowedHosts: true,
+    fs: {
+      allow: [searchForWorkspaceRoot(__dirname), path.resolve(__dirname, '../shared/chat-protocol')],
+    },
     port: frontendPort,
     proxy: {
       '/api': { target: `http://localhost:${serverPort}`, changeOrigin: true },

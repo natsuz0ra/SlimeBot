@@ -862,6 +862,20 @@ test("tagged subagent thinking updates parent tool instead of global timeline", 
 	assert.equal(state.timeline[0].subagentThinking?.content, "child reasoning");
 	assert.equal(state.timeline[0].subagentThinking?.thinkingDone, true);
 	assert.equal(state.timeline[0].subagentThinking?.thinkingDurationMs, 400);
+
+	state = reduce(state, {
+		type: "THINKING_START", parentToolCallId: "parent-tool", subagentRunId: "sub-run", startedAt: 1_500,
+	});
+	state = reduce(state, {
+		type: "THINKING_CHUNK", parentToolCallId: "parent-tool", subagentRunId: "sub-run", chunk: "follow-up reasoning",
+	});
+	state = reduce(state, {
+		type: "THINKING_DONE", parentToolCallId: "parent-tool", subagentRunId: "sub-run", finishedAt: 1_750,
+	});
+	assert.deepEqual(
+		state.timeline[0].subagentThinkings?.map(({ content, thinkingDurationMs }) => [content, thinkingDurationMs]),
+		[["child reasoning", 400], ["follow-up reasoning", 250]],
+	);
 });
 
 test("SUBAGENT_DONE closes open subagent thinking and marks failed parent tool", () => {

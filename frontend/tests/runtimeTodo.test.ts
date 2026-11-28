@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import test from 'node:test'
+import { dispatchChatSocketMessage, type TodoUpdateData } from '../src/api/chatSocket'
 
 function extractHandler(source: string, handlerName: string, nextHandlerName: string) {
   const pattern = new RegExp(`${handlerName}: (?:async )?\\([\\s\\S]*?\\n\\s*${nextHandlerName}:`)
@@ -11,12 +12,14 @@ function extractHandler(source: string, handlerName: string, nextHandlerName: st
 }
 
 test('chat socket and store wire runtime todo updates outside history', () => {
-  const chatSocketSource = readFileSync(resolve(import.meta.dirname, '../src/api/chatSocket.ts'), 'utf8')
   const chatStoreSource = readFileSync(resolve(import.meta.dirname, '../src/stores/chatSessionRuntime.ts'), 'utf8')
 
-  assert.match(chatSocketSource, /export interface TodoUpdateData/)
-  assert.match(chatSocketSource, /if \(data\.type === 'todo_update'\) handlers\?\.onTodoUpdate\?\.\(/)
-  assert.match(chatSocketSource, /items: Array\.isArray\(data\.items\) \? data\.items : \[\]/)
+  const items: TodoUpdateData['items'] = [{ id: 'todo', content: 'Inspect flow', status: 'in_progress' }]
+  const received: Array<[string | undefined, TodoUpdateData['items']]> = []
+  const handlers = { onTodoUpdate: (data: TodoUpdateData, sessionId?: string) => received.push([sessionId, data.items]) }
+  assert.equal(dispatchChatSocketMessage(JSON.stringify({ type: 'todo_update', sessionId: 'session-1', items }), handlers), true)
+  assert.equal(dispatchChatSocketMessage(JSON.stringify({ type: 'todo_update', sessionId: 'session-1', items: null }), handlers), true)
+  assert.deepEqual(received, [['session-1', items], ['session-1', []]])
 
   assert.match(chatStoreSource, /const runtimeTodos = ref<RuntimeTodoItem\[]>\(\[\]\)/)
   assert.match(chatStoreSource, /function applyRuntimeTodoUpdate\(update: TodoUpdateData, sessionId\?: string\)/)

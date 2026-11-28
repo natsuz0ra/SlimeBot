@@ -5,6 +5,7 @@ COPY frontend/package.json frontend/package-lock.json ./frontend/
 RUN npm ci --prefix frontend
 
 COPY frontend ./frontend
+COPY shared ./shared
 RUN npm run build --prefix frontend
 
 FROM golang:1.26-bookworm AS go-build

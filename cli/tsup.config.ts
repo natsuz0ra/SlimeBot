@@ -6,6 +6,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 
 export default defineConfig({
   entry: ["src/index.tsx"],
+  tsconfig: resolve(__dirname, "tsconfig.json"),
   format: ["esm"],
   target: "node20",
   bundle: true,

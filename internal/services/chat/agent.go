@@ -1035,6 +1035,11 @@ func (a *AgentService) RunAgentLoop(
 			})
 		}
 		flushParallelJobs()
+		if callbacks.turnRecordingError != nil {
+			if err := callbacks.turnRecordingError(); err != nil {
+				return "", err
+			}
+		}
 		if traceErr != nil {
 			return "", fmt.Errorf("记录工具结果失败: %w", traceErr)
 		}

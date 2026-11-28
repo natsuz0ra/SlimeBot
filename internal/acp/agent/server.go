@@ -14,9 +14,7 @@ import (
 
 // ChatRunner drives one SlimeBot chat turn on behalf of the ACP agent.
 type ChatRunner interface {
-	HandleChatStream(ctx context.Context, sessionID, requestID, content, displayContent, modelID string,
-		attachmentIDs []string, thinkingLevel string, planMode bool, subagentModelID, approvalModeOverride string,
-		callbacks chatsvc.AgentCallbacks) (*chatsvc.ChatStreamResult, error)
+	RunTurn(ctx context.Context, req chatsvc.ChatTurnRequest, callbacks chatsvc.AgentCallbacks) (*chatsvc.ChatStreamResult, error)
 }
 
 // SessionStore creates ACP-backed sessions and replays stored history.

@@ -125,29 +125,16 @@ func (c *recordingClient) WaitForTerminalExit(context.Context, sdk.WaitForTermin
 	return sdk.WaitForTerminalExitResponse{}, sdk.NewMethodNotFound("terminal/wait_for_exit")
 }
 
-type chatCall struct {
-	sessionID, requestID, content, displayContent, modelID string
-	attachmentIDs                                          []string
-	thinkingLevel, subagentModelID, approvalMode           string
-	planMode                                               bool
-}
-
 type fakeChat struct {
 	mu      sync.Mutex
-	calls   []chatCall
+	calls   []chatsvc.ChatTurnRequest
 	handler func(context.Context, chatsvc.AgentCallbacks) error
 	result  *chatsvc.ChatStreamResult
 }
 
-func (f *fakeChat) HandleChatStream(ctx context.Context, sessionID, requestID, content, displayContent, modelID string,
-	attachmentIDs []string, thinkingLevel string, planMode bool, subagentModelID, approvalModeOverride string,
-	callbacks chatsvc.AgentCallbacks) (*chatsvc.ChatStreamResult, error) {
+func (f *fakeChat) RunTurn(ctx context.Context, req chatsvc.ChatTurnRequest, callbacks chatsvc.AgentCallbacks) (*chatsvc.ChatStreamResult, error) {
 	f.mu.Lock()
-	f.calls = append(f.calls, chatCall{
-		sessionID: sessionID, requestID: requestID, content: content, displayContent: displayContent,
-		modelID: modelID, attachmentIDs: attachmentIDs, thinkingLevel: thinkingLevel, planMode: planMode,
-		subagentModelID: subagentModelID, approvalMode: approvalModeOverride,
-	})
+	f.calls = append(f.calls, req)
 	handler := f.handler
 	result := f.result
 	f.mu.Unlock()
@@ -162,7 +149,7 @@ func (f *fakeChat) HandleChatStream(ctx context.Context, sessionID, requestID, c
 	return &chatsvc.ChatStreamResult{}, nil
 }
 
-func (f *fakeChat) lastCall(t *testing.T) chatCall {
+func (f *fakeChat) lastCall(t *testing.T) chatsvc.ChatTurnRequest {
 	t.Helper()
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -425,7 +412,8 @@ func TestServePromptStreamsUpdatesAndRequestsPermission(t *testing.T) {
 	}
 
 	call := chat.lastCall(t)
-	if call.content != "run the tests" || call.modelID != "model-1" || call.approvalMode != constants.ApprovalModeStandard {
+	if call.SessionID != string(session.SessionId) || call.RequestID == "" ||
+		call.Content != "run the tests" || call.ModelID != "model-1" || call.ApprovalModeOverride != constants.ApprovalModeStandard {
 		t.Fatalf("chat call = %+v", call)
 	}
 

@@ -110,6 +110,33 @@ func waitBackgroundWorkers(t *testing.T, s *ChatService) {
 	}
 }
 
+func TestBackgroundResumePersistsWhenEventSinkFails(t *testing.T) {
+	service, sessionID, modelID, _, end, delivered := backgroundFixture(t, &backgroundCaptureProvider{})
+	end()
+	close(delivered)
+	ctx := context.Background()
+	wake := backgroundWake{
+		options: backgroundOptions{sessionID: sessionID, modelID: modelID, approval: constants.ApprovalModeStandard},
+		event:   tools.ProcessCompletion{ID: "background-test", Status: "completed", Output: "process output"},
+	}
+	pushErr := fmt.Errorf("background viewer disconnected")
+	result, err := service.resumeBackground(ctx, wake, AgentCallbacks{
+		OnTurnStarted:    func(string) error { return pushErr },
+		OnToolCallResult: func(ToolCallResult) error { return pushErr },
+	})
+	if err != nil || !result.PushFailed || result.PushError != pushErr.Error() || !strings.Contains(result.Answer, "<!-- TOOL_CALL:") {
+		t.Fatalf("background completion = %+v, %v", result, err)
+	}
+	history, err := service.store.ListAllSessionMessages(ctx, sessionID, -1)
+	if err != nil || len(history) != 3 || history[2].RequestID == "" || history[2].Content != result.Answer {
+		t.Fatalf("background history = %+v, %v", history, err)
+	}
+	tools, err := service.store.ListSessionToolCallRecordsByAssistantMessageIDs(ctx, sessionID, []string{history[2].ID})
+	if err != nil || len(tools) != 1 || tools[0].Output != wake.event.Output || tools[0].Status != constants.ToolCallStatusCompleted {
+		t.Fatalf("background tool records = %+v, %v", tools, err)
+	}
+}
+
 func TestBackgroundWaitsForDoneAndContinuesWithoutViewer(t *testing.T) {
 	p := &backgroundCaptureProvider{}
 	s, sid, model, ctx, end, delivered := backgroundFixture(t, p)

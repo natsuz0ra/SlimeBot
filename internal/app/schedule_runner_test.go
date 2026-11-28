@@ -94,8 +94,14 @@ func TestScheduleChatRunnerCreatesIsolatedTaskExecution(t *testing.T) {
 	if runMessages[0].Role != "user" || runMessages[0].Content != task.Prompt {
 		t.Fatalf("stored scheduled user message = (%s, %q), want display content", runMessages[0].Role, runMessages[0].Content)
 	}
+	if !runMessages[0].CreatedAt.Equal(result.StartedAt) {
+		t.Fatalf("stored scheduled user time = %v, want %v", runMessages[0].CreatedAt, result.StartedAt)
+	}
 	if runMessages[1].Role != "assistant" || runMessages[1].Content != "scheduled answer" {
 		t.Fatalf("stored scheduled assistant message = (%s, %q), want scheduled answer", runMessages[1].Role, runMessages[1].Content)
+	}
+	if result.RequestID == "" || runMessages[1].RequestID != result.RequestID {
+		t.Fatalf("scheduled assistant request = %q, run request = %q", runMessages[1].RequestID, result.RequestID)
 	}
 
 	execution, err := repo.GetSessionByID(ctx, result.SessionID)

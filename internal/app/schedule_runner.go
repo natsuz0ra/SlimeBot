@@ -50,20 +50,11 @@ func (r scheduleChatRunner) RunScheduledTask(ctx context.Context, task domain.Sc
 	if approvalMode == "" || approvalMode == constants.ApprovalModeAuto {
 		approvalMode = constants.ApprovalModeScheduledAuto
 	}
-	streamResult, err := r.core.ChatService.HandleChatStream(
-		runCtx,
-		session.ID,
-		requestID,
-		buildScheduledTaskPrompt(task, startedAt),
-		task.Prompt,
-		modelID,
-		nil,
-		task.ThinkingLevel,
-		false,
-		"",
-		approvalMode,
-		chatsvc.AgentCallbacks{},
-	)
+	streamResult, err := r.core.ChatService.RunTurn(runCtx, chatsvc.ChatTurnRequest{
+		SessionID: session.ID, RequestID: requestID, ReceivedAt: startedAt,
+		Content: buildScheduledTaskPrompt(task, startedAt), DisplayContent: task.Prompt, ModelID: modelID,
+		ThinkingLevel: task.ThinkingLevel, ApprovalModeOverride: approvalMode,
+	}, chatsvc.AgentCallbacks{})
 	result.FinishedAt = time.Now()
 	if err != nil {
 		result.Success = false

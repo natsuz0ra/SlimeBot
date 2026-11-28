@@ -7,6 +7,7 @@ import (
 
 type AddMessageInput struct {
 	SessionID         string
+	RequestID         string
 	Role              string
 	Content           string
 	IsInterrupted     bool

@@ -5,7 +5,9 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
+	"time"
 
 	"slimebot/internal/domain"
 	"slimebot/internal/runtime/workspace"
@@ -43,7 +45,20 @@ func TestMainChatCapturesFileCheckpoint(t *testing.T) {
 		t.Fatal(err)
 	}
 	svc := NewChatService(repo, repo, llm.NewFactory(checkpointProvider{file}), nil, nil)
-	svc.SetFileCheckpoints(workspace.NewCheckpoints(t.TempDir()))
+	checkpointDir := t.TempDir()
+	if runtime.GOOS == "windows" {
+		t.Cleanup(func() {
+			// Windows can briefly report a nonempty directory after deleting
+			// the renamed checkpoint files. TempDir reports any final error.
+			for range 20 {
+				if err := os.RemoveAll(checkpointDir); !errors.Is(err, os.ErrExist) {
+					return
+				}
+				time.Sleep(10 * time.Millisecond)
+			}
+		})
+	}
+	svc.SetFileCheckpoints(workspace.NewCheckpoints(checkpointDir))
 	if _, err := svc.HandleChatStream(ctx, session.ID, "checkpoint-turn", "test", "", config.ID, nil, "off", false, "", "", AgentCallbacks{}); err != nil {
 		t.Fatal(err)
 	}

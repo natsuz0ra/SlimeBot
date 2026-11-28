@@ -2,6 +2,7 @@ package chat
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"slimebot/internal/domain"
 	"slimebot/internal/logging"
@@ -88,12 +89,17 @@ func applyParamApprovalPolicy(invocation resolvedToolInvocation, params map[stri
 	return invocation
 }
 
-// notifyToolResult wraps the tool-result callback with consistent logging on failure.
+// notifyToolResult reports best-effort notifications made outside a recorded turn.
+// The turn recorder tracks durable failures for the enclosing engine to return.
 func notifyToolResult(callbacks AgentCallbacks, result ToolCallResult) {
 	if callbacks.OnToolCallResult == nil {
 		return
 	}
 	if err := callbacks.OnToolCallResult(result); err != nil {
+		var persistenceErr *TurnPersistenceError
+		if errors.As(err, &persistenceErr) || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			return
+		}
 		logging.Warn("failed_to_push_tool_result", "err", err)
 	}
 }

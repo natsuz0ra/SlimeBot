@@ -100,32 +100,33 @@ func (r *Repository) FinishThinking(ctx context.Context, input domain.ThinkingFi
 }
 
 func (r *Repository) FinishOpenThinkingForRequest(ctx context.Context, sessionID, requestID string) error {
-	finishedAt := time.Now()
 	return r.dbWithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		var records []domain.ThinkingRecord
-		if err := tx.
-			Where("session_id = ? AND request_id = ? AND status = ?", sessionID, requestID, thinkingStatusStreaming).
-			Find(&records).Error; err != nil {
+		return finishOpenThinking(tx, sessionID, requestID)
+	})
+}
+
+func finishOpenThinking(tx *gorm.DB, sessionID, requestID string) error {
+	finishedAt := time.Now()
+	var records []domain.ThinkingRecord
+	if err := tx.
+		Where("session_id = ? AND request_id = ? AND status = ?", sessionID, requestID, thinkingStatusStreaming).
+		Find(&records).Error; err != nil {
+		return err
+	}
+	for _, record := range records {
+		durationMs := max(0, finishedAt.Sub(record.StartedAt).Milliseconds())
+		if err := tx.Model(&domain.ThinkingRecord{}).
+			Where("id = ?", record.ID).
+			Updates(map[string]any{
+				"status":      thinkingStatusCompleted,
+				"finished_at": finishedAt,
+				"duration_ms": durationMs,
+				"updated_at":  finishedAt,
+			}).Error; err != nil {
 			return err
 		}
-		for _, record := range records {
-			durationMs := finishedAt.Sub(record.StartedAt).Milliseconds()
-			if durationMs < 0 {
-				durationMs = 0
-			}
-			if err := tx.Model(&domain.ThinkingRecord{}).
-				Where("id = ?", record.ID).
-				Updates(map[string]any{
-					"status":      thinkingStatusCompleted,
-					"finished_at": finishedAt,
-					"duration_ms": durationMs,
-					"updated_at":  finishedAt,
-				}).Error; err != nil {
-				return err
-			}
-		}
-		return nil
-	})
+	}
+	return nil
 }
 
 func (r *Repository) BindThinkingRecordsToAssistantMessage(ctx context.Context, sessionID, requestID, assistantMessageID string) error {

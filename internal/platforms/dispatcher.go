@@ -22,7 +22,7 @@ const (
 
 var telegramFinalMarkerRegex = regexp.MustCompile(`\n?<!-- (?:TOOL_CALL:.+?|THINKING:.+?|PLAN_START|PLAN_END) -->\n?`)
 
-// Dispatcher is the inbound entry for message platforms: resolves session/model and calls HandleChatStream.
+// Dispatcher resolves the session and model for inbound platform turns.
 type Dispatcher struct {
 	chat      platformChatService
 	approvals ApprovalBroker
@@ -32,20 +32,7 @@ type platformChatService interface {
 	EnsureMessagePlatformSession(ctx context.Context, platform string) (*domain.Session, error)
 	ResolvePlatformModel(ctx context.Context) (string, error)
 	ResolvePlatformRuntimeSettings(ctx context.Context) (string, string, error)
-	HandleChatStream(
-		ctx context.Context,
-		sessionID string,
-		requestID string,
-		content string,
-		displayContent string,
-		modelID string,
-		attachmentIDs []string,
-		thinkingLevel string,
-		planMode bool,
-		subagentModelID string,
-		approvalModeOverride string,
-		callbacks chatsvc.AgentCallbacks,
-	) (*chatsvc.ChatStreamResult, error)
+	RunTurn(ctx context.Context, req chatsvc.ChatTurnRequest, callbacks chatsvc.AgentCallbacks) (*chatsvc.ChatStreamResult, error)
 }
 
 func NewDispatcher(chat platformChatService, approvals ApprovalBroker) *Dispatcher {
@@ -158,20 +145,10 @@ func (d *Dispatcher) HandleInbound(ctx context.Context, message InboundMessage, 
 		},
 	}
 
-	streamResult, err := d.chat.HandleChatStream(
-		ctx,
-		session.ID,
-		uuid.NewString(),
-		content,
-		"",
-		modelID,
-		attachmentIDs,
-		thinkingLevel,
-		false,
-		"",
-		approvalMode,
-		callbacks,
-	)
+	streamResult, err := d.chat.RunTurn(ctx, chatsvc.ChatTurnRequest{
+		SessionID: session.ID, RequestID: uuid.NewString(), Content: content, ModelID: modelID,
+		AttachmentIDs: attachmentIDs, ThinkingLevel: thinkingLevel, ApprovalModeOverride: approvalMode,
+	}, callbacks)
 	if err != nil {
 		return err
 	}

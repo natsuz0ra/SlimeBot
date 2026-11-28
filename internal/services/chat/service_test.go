@@ -320,19 +320,22 @@ func TestHandleChatStream_PlanModeSavesOnlyPlanBody(t *testing.T) {
 	svc.SetPlanService(planService)
 
 	result, err := svc.HandleChatStream(ctx, session.ID, "request-1", "make a plan", "", model.ID, nil, "high", true, "", "", AgentCallbacks{
-		OnChunk:         func(string) error { return nil },
+		OnChunk:         func(string) error { return fmt.Errorf("narration push failed") },
 		OnThinkingStart: func(ThinkingEventMeta) error { return nil },
 		OnThinkingChunk: func(string, ThinkingEventMeta) error { return nil },
 		OnThinkingDone:  func(ThinkingEventMeta) error { return nil },
 		OnPlanStart:     func() error { return nil },
 		OnPlanChunk:     func(string) error { return nil },
-		OnPlanBody:      func(string) error { return nil },
+		OnPlanBody:      func(string) error { return fmt.Errorf("plan push failed") },
 	})
 	if err != nil {
 		t.Fatalf("HandleChatStream failed: %v", err)
 	}
 	if result.PlanID == "" {
 		t.Fatal("expected plan to be saved")
+	}
+	if !result.PushFailed || result.PushError != "narration push failed" {
+		t.Fatalf("plan push outcome = %+v", result)
 	}
 
 	plans, err := planService.GetPlansBySession(session.ID)

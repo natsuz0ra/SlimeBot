@@ -305,7 +305,10 @@ func (b *bridge) Prompt(ctx context.Context, req sdk.PromptRequest) (sdk.PromptR
 	}()
 	ctx = constants.WithClientSurface(ctx, constants.ClientSurfaceCLI)
 	ctx = sandboxpolicy.WithWorkingDirectory(ctx, state.cwd)
-	result, err := b.Chat.HandleChatStream(ctx, id, uuid.NewString(), text, "", state.model, attachmentIDs, state.thinking, state.mode == "plan", "", state.approval, b.callbacks(ctx, req.SessionId))
+	result, err := b.Chat.RunTurn(ctx, chatsvc.ChatTurnRequest{
+		SessionID: id, RequestID: uuid.NewString(), Content: text, ModelID: state.model, AttachmentIDs: attachmentIDs,
+		ThinkingLevel: state.thinking, PlanMode: state.mode == "plan", ApprovalModeOverride: state.approval,
+	}, b.callbacks(ctx, req.SessionId))
 	if ctx.Err() != nil || (result != nil && result.IsInterrupted) {
 		return sdk.PromptResponse{StopReason: sdk.StopReasonCancelled}, nil
 	}

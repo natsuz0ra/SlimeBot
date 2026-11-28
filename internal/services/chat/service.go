@@ -6,7 +6,6 @@ import (
 	"sync"
 	"time"
 
-	acpclient "slimebot/internal/acp/client"
 	"slimebot/internal/constants"
 	"slimebot/internal/domain"
 	"slimebot/internal/mcp"
@@ -31,7 +30,7 @@ type agentsInstructionsReader interface {
 
 // ChatService orchestrates the chat flow: context, agent, uploads, and per-session skills.
 type ChatService struct {
-	acp                *acpclient.Manager
+	acp                acpTurnClient
 	backgroundOnce     sync.Once
 	background         *backgroundRuntime
 	turnInboxes        sync.Map // session ID -> active turn inbox
@@ -76,13 +75,12 @@ type ChatService struct {
 	skillLearningTurns  map[string]time.Time
 }
 
-// chatStreamAccumulator collects streamed text and the first push error, if any.
+// chatStreamAccumulator collects the answer and its plan sections.
 type chatStreamAccumulator struct {
 	answerBuilder    strings.Builder
 	narrationBuilder strings.Builder // plan mode: text before plan_start
 	planBodyBuilder  strings.Builder // plan mode: text after plan_start
 	planStarted      bool            // plan mode: set true when plan_start tool called
-	pushErr          error
 }
 
 // ChatStreamResult is the outcome of one chat stream after persistence.
@@ -93,6 +91,7 @@ type ChatStreamResult struct {
 	SummaryUpdated    bool
 	PushFailed        bool
 	PushError         string
+	ExecutionError    string // External ACP failure after partial output was saved.
 	PlanID            string
 	Narration         string // text before the first heading in plan mode
 	PlanBody          string // text from the first heading onwards in plan mode

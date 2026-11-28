@@ -32,7 +32,7 @@ func explicitSkillLearningRequest(content string) bool {
 }
 
 func (s *ChatService) maybeLearnSkill(ctx context.Context, sessionID, requestID, assistantMessageID string, state *chatTurnState, result *chatTurnResult, planMode bool) *SkillLearningNotice {
-	if planMode || result.failed || result.interrupted {
+	if planMode || result.executionErr != nil || result.interrupted {
 		return nil
 	}
 	if state.session == nil || (state.session.Kind != "" && state.session.Kind != domain.SessionKindChat) || constants.IsMessagePlatformSessionID(sessionID) {

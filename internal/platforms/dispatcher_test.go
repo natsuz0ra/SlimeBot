@@ -27,20 +27,7 @@ func (m *mockPlatformChatService) ResolvePlatformRuntimeSettings(_ context.Conte
 	return "off", constants.ApprovalModeStandard, nil
 }
 
-func (m *mockPlatformChatService) HandleChatStream(
-	_ context.Context,
-	_ string,
-	_ string,
-	_ string,
-	_ string,
-	_ string,
-	_ []string,
-	_ string,
-	_ bool,
-	_ string,
-	_ string,
-	callbacks chatsvc.AgentCallbacks,
-) (*chatsvc.ChatStreamResult, error) {
+func (m *mockPlatformChatService) RunTurn(_ context.Context, _ chatsvc.ChatTurnRequest, callbacks chatsvc.AgentCallbacks) (*chatsvc.ChatStreamResult, error) {
 	_ = callbacks.OnToolCallStart(chatsvc.ApprovalRequest{
 		ToolCallID:       "tc_1",
 		ToolName:         "http_request",
@@ -59,12 +46,8 @@ func (m *mockPlatformChatService) HandleChatStream(
 }
 
 type captureAttachmentChatService struct {
-	lastPlatform      string
-	lastSessionID     string
-	lastContent       string
-	lastAttachmentIDs []string
-	lastThinkingLevel string
-	lastApprovalMode  string
+	lastPlatform string
+	lastRequest  chatsvc.ChatTurnRequest
 }
 
 func (m *captureAttachmentChatService) EnsureMessagePlatformSession(_ context.Context, platform string) (*domain.Session, error) {
@@ -80,25 +63,8 @@ func (m *captureAttachmentChatService) ResolvePlatformRuntimeSettings(_ context.
 	return "high", constants.ApprovalModeAutoReview, nil
 }
 
-func (m *captureAttachmentChatService) HandleChatStream(
-	_ context.Context,
-	sessionID string,
-	_ string,
-	content string,
-	_ string,
-	_ string,
-	attachmentIDs []string,
-	thinkingLevel string,
-	_ bool,
-	_ string,
-	approvalMode string,
-	_ chatsvc.AgentCallbacks,
-) (*chatsvc.ChatStreamResult, error) {
-	m.lastSessionID = sessionID
-	m.lastContent = content
-	m.lastAttachmentIDs = append([]string{}, attachmentIDs...)
-	m.lastThinkingLevel = thinkingLevel
-	m.lastApprovalMode = approvalMode
+func (m *captureAttachmentChatService) RunTurn(_ context.Context, req chatsvc.ChatTurnRequest, _ chatsvc.AgentCallbacks) (*chatsvc.ChatStreamResult, error) {
+	m.lastRequest = req
 	return &chatsvc.ChatStreamResult{Answer: "ok"}, nil
 }
 
@@ -116,20 +82,7 @@ func (m *mockApprovalChatService) ResolvePlatformRuntimeSettings(_ context.Conte
 	return "off", constants.ApprovalModeStandard, nil
 }
 
-func (m *mockApprovalChatService) HandleChatStream(
-	ctx context.Context,
-	_ string,
-	_ string,
-	_ string,
-	_ string,
-	_ string,
-	_ []string,
-	_ string,
-	_ bool,
-	_ string,
-	_ string,
-	callbacks chatsvc.AgentCallbacks,
-) (*chatsvc.ChatStreamResult, error) {
+func (m *mockApprovalChatService) RunTurn(ctx context.Context, _ chatsvc.ChatTurnRequest, callbacks chatsvc.AgentCallbacks) (*chatsvc.ChatStreamResult, error) {
 	_ = callbacks.OnToolCallStart(chatsvc.ApprovalRequest{
 		ToolCallID:       "tc_approval",
 		ToolName:         "exec",
@@ -161,7 +114,6 @@ func (m *mockApprovalChatService) HandleChatStream(
 type mockSender struct {
 	items       []string
 	approveData string
-	rejectData  string
 }
 
 type mockApprovalEntry struct {
@@ -174,6 +126,7 @@ type mockApprovalBroker struct {
 	mu         sync.Mutex
 	waitByTool map[string]chan chatsvc.ApprovalResponse
 	byToken    map[string]mockApprovalEntry
+	waiting    chan struct{}
 }
 
 func newMockApprovalBroker() *mockApprovalBroker {
@@ -205,6 +158,9 @@ func (m *mockApprovalBroker) Wait(ctx context.Context, toolCallID string) (*chat
 	m.mu.Unlock()
 	if !ok {
 		return nil, fmt.Errorf("approval context not found")
+	}
+	if m.waiting != nil {
+		close(m.waiting)
 	}
 
 	select {
@@ -261,10 +217,9 @@ func (m *mockSender) SendText(_ string, text string) error {
 	return nil
 }
 
-func (m *mockSender) SendApprovalKeyboard(_ string, text string, approveData string, rejectData string) error {
+func (m *mockSender) SendApprovalKeyboard(_ string, text string, approveData string, _ string) error {
 	m.items = append(m.items, text)
 	m.approveData = approveData
-	m.rejectData = rejectData
 	return nil
 }
 
@@ -341,21 +296,26 @@ func TestFormatToolApprovalPrompt_OmitsEmptyCommandLine(t *testing.T) {
 }
 
 func TestDispatcherHandleInbound_ApprovalByCallback(t *testing.T) {
-	dispatcher := NewDispatcher(&mockApprovalChatService{}, newMockApprovalBroker())
+	broker := newMockApprovalBroker()
+	broker.waiting = make(chan struct{})
+	dispatcher := NewDispatcher(&mockApprovalChatService{}, broker)
 	sender := &mockSender{}
 
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
 	done := make(chan error, 1)
 	go func() {
-		done <- dispatcher.HandleInbound(context.Background(), InboundMessage{
+		done <- dispatcher.HandleInbound(ctx, InboundMessage{
 			Platform: constants.TelegramPlatformName,
 			ChatID:   "20001",
 			Text:     "hello",
 		}, sender)
 	}()
 
-	deadline := time.Now().Add(2 * time.Second)
-	for strings.TrimSpace(sender.approveData) == "" && time.Now().Before(deadline) {
-		time.Sleep(10 * time.Millisecond)
+	select {
+	case <-broker.waiting:
+	case <-ctx.Done():
+		t.Fatal("dispatcher did not start waiting for approval")
 	}
 	if strings.TrimSpace(sender.approveData) == "" {
 		t.Fatalf("approve callback data was not sent")
@@ -393,14 +353,14 @@ func TestDispatcherHandleInbound_PassesAttachmentIDs(t *testing.T) {
 	if err != nil {
 		t.Fatalf("handle inbound failed: %v", err)
 	}
-	if len(chatSvc.lastAttachmentIDs) != 2 {
-		t.Fatalf("expected 2 attachment ids, got=%d", len(chatSvc.lastAttachmentIDs))
+	if len(chatSvc.lastRequest.AttachmentIDs) != 2 {
+		t.Fatalf("expected 2 attachment ids, got=%d", len(chatSvc.lastRequest.AttachmentIDs))
 	}
-	if chatSvc.lastAttachmentIDs[0] != "att_a" || chatSvc.lastAttachmentIDs[1] != "att_b" {
-		t.Fatalf("unexpected attachment ids: %#v", chatSvc.lastAttachmentIDs)
+	if chatSvc.lastRequest.AttachmentIDs[0] != "att_a" || chatSvc.lastRequest.AttachmentIDs[1] != "att_b" {
+		t.Fatalf("unexpected attachment ids: %#v", chatSvc.lastRequest.AttachmentIDs)
 	}
-	if chatSvc.lastContent != "" {
-		t.Fatalf("expected empty content for attachment-only input, got=%q", chatSvc.lastContent)
+	if chatSvc.lastRequest.Content != "" {
+		t.Fatalf("expected empty content for attachment-only input, got=%q", chatSvc.lastRequest.Content)
 	}
 }
 
@@ -418,11 +378,14 @@ func TestDispatcherHandleInbound_PassesPlatformRuntimeSettings(t *testing.T) {
 		t.Fatalf("handle inbound failed: %v", err)
 	}
 
-	if chatSvc.lastThinkingLevel != "high" {
-		t.Fatalf("thinking level = %q, want high", chatSvc.lastThinkingLevel)
+	if chatSvc.lastRequest.ThinkingLevel != "high" {
+		t.Fatalf("thinking level = %q, want high", chatSvc.lastRequest.ThinkingLevel)
 	}
-	if chatSvc.lastApprovalMode != constants.ApprovalModeAutoReview {
-		t.Fatalf("approval mode = %q, want %q", chatSvc.lastApprovalMode, constants.ApprovalModeAutoReview)
+	if chatSvc.lastRequest.ApprovalModeOverride != constants.ApprovalModeAutoReview {
+		t.Fatalf("approval mode = %q, want %q", chatSvc.lastRequest.ApprovalModeOverride, constants.ApprovalModeAutoReview)
+	}
+	if chatSvc.lastRequest.RequestID == "" || chatSvc.lastRequest.ModelID != "mock-model-id" || chatSvc.lastRequest.Content != "hello" {
+		t.Fatalf("inbound turn = %+v", chatSvc.lastRequest)
 	}
 }
 
@@ -437,8 +400,8 @@ func TestDispatcherHandleInbound_UsesPlatformSession(t *testing.T) {
 	if err != nil {
 		t.Fatalf("handle inbound failed: %v", err)
 	}
-	if chatSvc.lastPlatform != "discord" || chatSvc.lastSessionID != constants.MessagePlatformSessionIDFor("discord") {
-		t.Fatalf("platform=%q session=%q", chatSvc.lastPlatform, chatSvc.lastSessionID)
+	if chatSvc.lastPlatform != "discord" || chatSvc.lastRequest.SessionID != constants.MessagePlatformSessionIDFor("discord") {
+		t.Fatalf("platform=%q session=%q", chatSvc.lastPlatform, chatSvc.lastRequest.SessionID)
 	}
 }
 
@@ -458,20 +421,7 @@ func (m *markerAnswerChatService) ResolvePlatformRuntimeSettings(_ context.Conte
 	return "off", constants.ApprovalModeStandard, nil
 }
 
-func (m *markerAnswerChatService) HandleChatStream(
-	_ context.Context,
-	_ string,
-	_ string,
-	_ string,
-	_ string,
-	_ string,
-	_ []string,
-	_ string,
-	_ bool,
-	_ string,
-	_ string,
-	_ chatsvc.AgentCallbacks,
-) (*chatsvc.ChatStreamResult, error) {
+func (m *markerAnswerChatService) RunTurn(_ context.Context, _ chatsvc.ChatTurnRequest, _ chatsvc.AgentCallbacks) (*chatsvc.ChatStreamResult, error) {
 	return &chatsvc.ChatStreamResult{Answer: m.answer}, nil
 }
 

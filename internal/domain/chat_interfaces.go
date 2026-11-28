@@ -1,6 +1,29 @@
 package domain
 
-import "context"
+import (
+	"context"
+
+	llmsvc "slimebot/internal/services/llm"
+)
+
+type CompleteChatTurnInput struct {
+	SessionID        string
+	RequestID        string
+	ContextRequestID string
+	Content          string
+	Interrupted      bool
+	TokenUsage       *llmsvc.TokenUsage
+}
+
+type CompleteChatTurnResult struct {
+	AssistantMessage *Message
+	Deduplicated     bool
+}
+
+// ChatTurnCompleter atomically saves an assistant message and its turn records.
+type ChatTurnCompleter interface {
+	CompleteChatTurn(ctx context.Context, input CompleteChatTurnInput) (*CompleteChatTurnResult, error)
+}
 
 // ChatStore is the data access surface for the main chat flow.
 type ChatStore interface {

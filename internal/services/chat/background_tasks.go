@@ -652,45 +652,39 @@ func (s *ChatService) resumeBackground(ctx context.Context, wake backgroundWake,
 		history.messages = append(history.messages, llm.ChatMessage{Role: "system", Content: planModeSystemMessage})
 	}
 	history.messages = append(history.messages, llm.ChatMessage{Role: "assistant", ToolCalls: []llm.ToolCallInfo{{ID: toolID, Name: "process__status", Arguments: string(args)}}}, llm.ChatMessage{Role: "tool", ToolCallID: toolID, Content: wake.event.Output})
-	state := &chatTurnState{session: session, modelConfig: model, contextMessages: history.messages, contextUsage: history.usage, enabledMCPConfigs: mcps}
+	state := &chatTurnState{engine: localTurnEngine{}, session: session, modelConfig: model, contextMessages: history.messages, contextUsage: history.usage, enabledMCPConfigs: mcps}
+	turn := s.newChatTurn(ChatTurnRequest{
+		SessionID: sessionID, RequestID: requestID, PlanMode: wake.options.plan, SubagentModelID: wake.options.subagent,
+		ApprovalModeOverride: s.backgroundApproval(ctx, wake.options.approval),
+	}, state, callbacks)
 	ctx.Value(turnInboxKey{}).(*turnInbox).open()
-	if callbacks.OnTurnStarted != nil {
-		if err := callbacks.OnTurnStarted(requestID); err != nil {
-			return nil, err
-		}
+	if turn.events.OnTurnStarted != nil {
+		_ = turn.events.OnTurnStarted(requestID)
 	}
 	request := ApprovalRequest{ToolCallID: toolID, ToolName: "process", Command: "status", ModelFuncName: "process__status", Params: map[string]any{"process_id": wake.event.ID}}
 	completion := ToolCallResult{ToolCallID: toolID, ToolName: "process", Command: "status", ModelFuncName: "process__status", Status: constants.ToolCallStatusCompleted, Output: wake.event.Output}
-	if err = s.recordToolCallStart(ctx, sessionID, requestID, request, constants.ToolCallStatusExecuting); err != nil {
+	if err = turn.recorder.startTool(ctx, request, constants.ToolCallStatusExecuting); err != nil {
 		return nil, err
 	}
-	if err = s.recordToolCallResult(ctx, sessionID, requestID, completion, constants.ToolCallStatusCompleted); err != nil {
+	if err = turn.recorder.finishTool(ctx, completion); err != nil {
 		return nil, err
 	}
-	if callbacks.OnToolCallStart != nil {
-		if err = callbacks.OnToolCallStart(request); err != nil {
-			return nil, err
-		}
+	if turn.events.OnToolCallStart != nil {
+		_ = turn.events.OnToolCallStart(request)
 	}
-	if callbacks.OnToolCallResult != nil {
-		if err = callbacks.OnToolCallResult(completion); err != nil {
-			return nil, err
-		}
+	if turn.events.OnToolCallResult != nil {
+		_ = turn.events.OnToolCallResult(completion)
 	}
 	var interrupted bool
 	failed := true
 	defer func() { s.finishChatRoot(ctx, sessionID, requestID, interrupted, failed) }()
-	result, err := s.executeChatTurn(ctx, sessionID, requestID, state, callbacks, wake.options.plan, wake.options.subagent, s.backgroundApproval(ctx, wake.options.approval))
+	result, err := s.executeChatTurn(ctx, turn)
 	if err != nil {
 		return nil, err
 	}
-	interrupted = result.interrupted
 	result.answer = fmt.Sprintf(toolCallMarkerFmt, toolID) + result.answer
-	finalCtx := ctx
-	if result.interrupted {
-		finalCtx = context.WithoutCancel(ctx)
-	}
-	stream, err := s.finalizeChatTurn(finalCtx, sessionID, requestID, state, result, wake.options.plan, callbacks)
-	failed = err != nil || result.failed
+	stream, err := s.finalizeChatTurn(ctx, turn, result)
+	interrupted = result.interrupted
+	failed = err != nil || result.executionErr != nil
 	return stream, err
 }

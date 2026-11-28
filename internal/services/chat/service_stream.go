@@ -4,30 +4,25 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"slimebot/internal/apperrors"
-	"slimebot/internal/logging"
-	"slimebot/internal/tools"
-	"sort"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
 
+	"slimebot/internal/apperrors"
 	"slimebot/internal/constants"
 	"slimebot/internal/domain"
+	"slimebot/internal/logging"
 	sandboxpolicy "slimebot/internal/sandbox"
-	contextsvc "slimebot/internal/services/context"
 	llmsvc "slimebot/internal/services/llm"
 	usagesvc "slimebot/internal/services/usage"
-
-	"github.com/google/uuid"
 )
 
 const (
-	toolCallMarkerFmt = "\n<!-- TOOL_CALL:%s -->\n"
-	thinkingMarkerFmt = "\n<!-- THINKING:%s -->\n"
-	planStartMarker   = "\n<!-- PLAN_START -->\n"
-	planEndMarker     = "\n<!-- PLAN_END -->\n"
+	toolCallMarkerFmt   = "\n<!-- TOOL_CALL:%s -->\n"
+	thinkingMarkerFmt   = "\n<!-- THINKING:%s -->\n"
+	planStartMarker     = "\n<!-- PLAN_START -->\n"
+	planEndMarker       = "\n<!-- PLAN_END -->\n"
+	turnFinalizeTimeout = 10 * time.Second
 )
 
 // StripContentMarkers removes TOOL_CALL/PLAN markers from text for real-time display.
@@ -35,9 +30,24 @@ func StripContentMarkers(input string) string {
 	return domain.StripContentMarkers(input)
 }
 
-// chatTurnState holds intermediate state while preparing a chat turn.
+// ChatTurnRequest is the input shared by all chat entry points.
+type ChatTurnRequest struct {
+	SessionID            string
+	RequestID            string
+	ReceivedAt           time.Time
+	Content              string
+	DisplayContent       string
+	ModelID              string
+	AttachmentIDs        []string
+	ThinkingLevel        string
+	PlanMode             bool
+	SubagentModelID      string
+	ApprovalModeOverride string
+	EditMessageID        string
+}
+
 type chatTurnState struct {
-	acpAgentID        string
+	engine            turnEngine
 	userMessageID     string
 	modelUser         llmsvc.ChatMessage
 	contextRequestID  string
@@ -53,158 +63,92 @@ type chatTurnState struct {
 	activatedSkillIDs []string
 }
 
-// chatTurnResult holds intermediate results after the agent runs.
 type chatTurnResult struct {
-	failed        bool
 	answer        string
 	interrupted   bool
+	executionErr  error
 	planCompleted bool
-	pushErr       error
 	narration     string
 	planBody      string
 	tokenUsage    *llmsvc.TokenUsage
 	teamRuntime   *teamRuntime
 }
 
-// HandleChatStream runs one full turn: persist user message, build context, run agent, save assistant.
+type chatTurn struct {
+	request  ChatTurnRequest
+	state    *chatTurnState
+	recorder *TurnRecorder
+	sink     *EventSink
+	events   AgentCallbacks
+}
+
+func (s *ChatService) newChatTurn(req ChatTurnRequest, state *chatTurnState, callbacks AgentCallbacks) *chatTurn {
+	sink := &EventSink{}
+	return &chatTurn{
+		request:  req,
+		state:    state,
+		recorder: &TurnRecorder{store: s.store, sessionID: req.SessionID, requestID: req.RequestID, thinkings: make(map[thinkingScope]string)},
+		sink:     sink,
+		events:   sink.adapt(callbacks),
+	}
+}
+
 func (s *ChatService) HandleChatStream(
 	ctx context.Context,
-	sessionID string,
-	requestID string,
-	content string,
-	displayContent string,
-	modelID string,
+	sessionID, requestID, content, displayContent, modelID string,
 	attachmentIDs []string,
 	thinkingLevel string,
 	planMode bool,
-	subagentModelID string,
-	approvalModeOverride string,
+	subagentModelID, approvalModeOverride string,
 	callbacks AgentCallbacks,
 ) (*ChatStreamResult, error) {
-	ctx = llmsvc.WithPrivacyScope(ctx, sessionID, requestID, "chat")
-	return s.handleChatStreamWithReceivedAt(ctx, sessionID, requestID, time.Now(), content, displayContent, modelID, attachmentIDs, thinkingLevel, planMode, subagentModelID, approvalModeOverride, callbacks)
+	return s.HandleChatStreamWithReceivedAt(ctx, sessionID, requestID, time.Time{}, content, displayContent, modelID, attachmentIDs, thinkingLevel, planMode, subagentModelID, approvalModeOverride, callbacks)
 }
 
 func (s *ChatService) HandleChatStreamWithReceivedAt(
 	ctx context.Context,
-	sessionID string,
-	requestID string,
+	sessionID, requestID string,
 	receivedAt time.Time,
-	content string,
-	displayContent string,
-	modelID string,
+	content, displayContent, modelID string,
 	attachmentIDs []string,
 	thinkingLevel string,
 	planMode bool,
-	subagentModelID string,
-	approvalModeOverride string,
+	subagentModelID, approvalModeOverride string,
 	callbacks AgentCallbacks,
 ) (*ChatStreamResult, error) {
-	ctx = llmsvc.WithPrivacyScope(ctx, sessionID, requestID, "chat")
-	return s.handleChatStreamWithReceivedAt(ctx, sessionID, requestID, receivedAt, content, displayContent, modelID, attachmentIDs, thinkingLevel, planMode, subagentModelID, approvalModeOverride, callbacks)
+	return s.RunTurn(ctx, ChatTurnRequest{
+		SessionID: sessionID, RequestID: requestID, ReceivedAt: receivedAt,
+		Content: content, DisplayContent: displayContent, ModelID: modelID, AttachmentIDs: attachmentIDs,
+		ThinkingLevel: thinkingLevel, PlanMode: planMode, SubagentModelID: subagentModelID, ApprovalModeOverride: approvalModeOverride,
+	}, callbacks)
 }
 
 func (s *ChatService) HandleEditedChatStream(
 	ctx context.Context,
-	sessionID string,
-	requestID string,
-	messageID string,
-	content string,
-	modelID string,
-	thinkingLevel string,
+	sessionID, requestID, messageID, content, modelID, thinkingLevel string,
 	planMode bool,
-	subagentModelID string,
-	approvalModeOverride string,
+	subagentModelID, approvalModeOverride string,
 	callbacks AgentCallbacks,
 ) (*ChatStreamResult, error) {
-	ctx = llmsvc.WithPrivacyScope(ctx, sessionID, requestID, "chat")
-	ctx, endTurn, err := s.beginTurn(ctx, sessionID, requestID)
-	if err != nil {
-		return nil, err
+	if messageID == "" {
+		return nil, fmt.Errorf("message %s: %w", messageID, apperrors.ErrNotFound)
 	}
-	defer endTurn()
-	state, err := s.prepareEditedChatTurn(ctx, sessionID, messageID, content, modelID, thinkingLevel)
-	if err != nil {
-		return nil, err
-	}
-	if callbacks.OnMessageEdited != nil {
-		if err := callbacks.OnMessageEdited(messageID, state.userContent, state.userCreatedAt); err != nil {
-			return nil, err
-		}
-	}
-	if state.acpAgentID == "" {
-		ctx.Value(turnInboxKey{}).(*turnInbox).open()
-	}
-	if callbacks.OnTurnStarted != nil {
-		if err := callbacks.OnTurnStarted(requestID); err != nil {
-			return nil, err
-		}
-	}
-	if state.acpAgentID == "" && callbacks.OnContextUsage != nil {
-		if err := callbacks.OnContextUsage(state.contextUsage); err != nil {
-			return nil, err
-		}
-	}
-	if state.contextCompacted && callbacks.OnContextCompacted != nil {
-		if err := callbacks.OnContextCompacted(state.contextUsage); err != nil {
-			return nil, err
-		}
-	}
-	if planMode && state.acpAgentID == "" {
-		state.contextMessages = append(state.contextMessages, llmsvc.ChatMessage{
-			Role:    "system",
-			Content: planModeSystemMessage,
-		})
-	}
-	// Keep the root live until its assistant message is persisted. A reconnecting
-	// client can then fetch the report when the durable request becomes terminal.
-	var interrupted bool
-	failed := true
-	defer func() {
-		if state.acpAgentID == "" {
-			s.finishChatRoot(ctx, sessionID, requestID, interrupted, failed)
-		}
-	}()
-	result, err := s.executeChatTurn(ctx, sessionID, requestID, state, callbacks, planMode, subagentModelID, approvalModeOverride)
-	if result != nil {
-		interrupted = result.interrupted
-	}
-	failed = err != nil || (result != nil && result.failed)
-	if err != nil {
-		if errors.Is(err, usagesvc.ErrSessionOutputTokenBudgetExceeded) && callbacks.OnContextUsage != nil {
-			s.attachOutputBudget(ctx, sessionID, &state.contextUsage)
-			_ = callbacks.OnContextUsage(state.contextUsage)
-		}
-		return nil, err
-	}
-	finalizeCtx := ctx
-	if result.interrupted {
-		finalizeCtx = context.Background()
-	}
-	stream, finalErr := s.finalizeChatTurn(finalizeCtx, sessionID, requestID, state, result, planMode && state.acpAgentID == "", callbacks)
-	failed = finalErr != nil || result.failed
-	return stream, finalErr
+	return s.RunTurn(ctx, ChatTurnRequest{
+		SessionID: sessionID, RequestID: requestID, EditMessageID: messageID, Content: content, ModelID: modelID,
+		ThinkingLevel: thinkingLevel, PlanMode: planMode, SubagentModelID: subagentModelID, ApprovalModeOverride: approvalModeOverride,
+	}, callbacks)
 }
 
-func (s *ChatService) handleChatStreamWithReceivedAt(
-	ctx context.Context,
-	sessionID string,
-	requestID string,
-	receivedAt time.Time,
-	content string,
-	displayContent string,
-	modelID string,
-	attachmentIDs []string,
-	thinkingLevel string,
-	planMode bool,
-	subagentModelID string,
-	approvalModeOverride string,
-	callbacks AgentCallbacks,
-) (*ChatStreamResult, error) {
-	ctx = llmsvc.WithPrivacyScope(ctx, sessionID, requestID, "chat")
-	if strings.TrimSpace(content) == "" && len(attachmentIDs) == 0 {
+// RunTurn prepares, executes and records a new or edited chat turn.
+func (s *ChatService) RunTurn(ctx context.Context, req ChatTurnRequest, callbacks AgentCallbacks) (*ChatStreamResult, error) {
+	if req.EditMessageID == "" && strings.TrimSpace(req.Content) == "" && len(req.AttachmentIDs) == 0 {
 		return nil, fmt.Errorf("Message cannot be empty.")
 	}
+	if req.ReceivedAt.IsZero() {
+		req.ReceivedAt = time.Now()
+	}
+	sessionID, requestID := req.SessionID, req.RequestID
+	ctx = llmsvc.WithPrivacyScope(ctx, sessionID, requestID, "chat")
 	ctx = usagesvc.WithScope(ctx, usagesvc.Scope{RootSessionID: sessionID, SessionID: sessionID, RequestID: requestID, WorkingDirectory: sandboxpolicy.WorkingDirectoryFromContext(ctx)})
 
 	ctx, endTurn, err := s.beginTurn(ctx, sessionID, requestID)
@@ -212,70 +156,66 @@ func (s *ChatService) handleChatStreamWithReceivedAt(
 		return nil, err
 	}
 	defer endTurn()
-	state, err := s.prepareChatTurn(ctx, sessionID, receivedAt, content, displayContent, modelID, attachmentIDs, thinkingLevel)
+	session, err := s.store.GetSessionByID(ctx, sessionID)
+	if errors.Is(err, apperrors.ErrNotFound) {
+		return nil, fmt.Errorf("Session not found: %s.", sessionID)
+	}
 	if err != nil {
 		return nil, err
 	}
-	defer s.cleanupTurnAttachments(state.attachments)
-	if state.acpAgentID == "" {
+	engine, err := s.resolveTurnEngine(session, req.ModelID)
+	if err != nil {
+		return nil, err
+	}
+	state := &chatTurnState{engine: engine, session: session}
+	defer func() { s.cleanupTurnAttachments(state.attachments) }()
+	if err := engine.prepare(ctx, s, state, req); err != nil {
+		return nil, err
+	}
+
+	turn := s.newChatTurn(req, state, callbacks)
+	events := turn.events
+	localContext := engine.capabilities().localContext
+	if req.EditMessageID != "" && events.OnMessageEdited != nil {
+		_ = events.OnMessageEdited(req.EditMessageID, state.userContent, state.userCreatedAt)
+	}
+	if localContext {
 		ctx.Value(turnInboxKey{}).(*turnInbox).open()
 	}
-	if callbacks.OnTurnStarted != nil {
-		if err := callbacks.OnTurnStarted(requestID); err != nil {
-			return nil, err
-		}
+	if events.OnTurnStarted != nil {
+		_ = events.OnTurnStarted(requestID)
 	}
-	if state.acpAgentID == "" && callbacks.OnContextUsage != nil {
-		if err := callbacks.OnContextUsage(state.contextUsage); err != nil {
-			return nil, err
-		}
+	if localContext && events.OnContextUsage != nil {
+		_ = events.OnContextUsage(state.contextUsage)
 	}
-	if state.contextCompacted && callbacks.OnContextCompacted != nil {
-		if err := callbacks.OnContextCompacted(state.contextUsage); err != nil {
-			return nil, err
-		}
+	if state.contextCompacted && events.OnContextCompacted != nil {
+		_ = events.OnContextCompacted(state.contextUsage)
 	}
-	if state.acpAgentID == "" {
-		s.maybeGenerateTitleAsync(state.session, state.modelConfig, state.userContent, callbacks.TitlePrefix, callbacks.OnTitleGenerated)
+	if localContext && req.EditMessageID == "" {
+		s.maybeGenerateTitleAsync(state.session, state.modelConfig, state.userContent, events.TitlePrefix, events.OnTitleGenerated)
+	}
+	if localContext && req.PlanMode {
+		state.contextMessages = append(state.contextMessages, llmsvc.ChatMessage{Role: "system", Content: planModeSystemMessage})
 	}
 
-	if planMode && state.acpAgentID == "" {
-		state.contextMessages = append(state.contextMessages, llmsvc.ChatMessage{
-			Role:    "system",
-			Content: planModeSystemMessage,
-		})
-	}
-
-	// Keep the root live until its assistant message is persisted. A reconnecting
-	// client can then fetch the report when the durable request becomes terminal.
+	// Keep the root live until its assistant message is persisted.
 	var interrupted bool
 	failed := true
-	defer func() {
-		if state.acpAgentID == "" {
-			s.finishChatRoot(ctx, sessionID, requestID, interrupted, failed)
-		}
-	}()
-	result, err := s.executeChatTurn(ctx, sessionID, requestID, state, callbacks, planMode, subagentModelID, approvalModeOverride)
-	if result != nil {
-		interrupted = result.interrupted
+	if localContext {
+		defer func() { s.finishChatRoot(ctx, sessionID, requestID, interrupted, failed) }()
 	}
-	failed = err != nil || (result != nil && result.failed)
+	result, err := s.executeChatTurn(ctx, turn)
 	if err != nil {
-		if errors.Is(err, usagesvc.ErrSessionOutputTokenBudgetExceeded) && callbacks.OnContextUsage != nil {
+		if localContext && errors.Is(err, usagesvc.ErrSessionOutputTokenBudgetExceeded) && events.OnContextUsage != nil {
 			s.attachOutputBudget(ctx, sessionID, &state.contextUsage)
-			_ = callbacks.OnContextUsage(state.contextUsage)
+			_ = events.OnContextUsage(state.contextUsage)
 		}
 		return nil, err
 	}
-
-	// Use background context for finalization when interrupted so DB operations succeed.
-	finalizeCtx := ctx
-	if result.interrupted {
-		finalizeCtx = context.Background()
-	}
-	stream, finalErr := s.finalizeChatTurn(finalizeCtx, sessionID, requestID, state, result, planMode && state.acpAgentID == "", callbacks)
-	failed = finalErr != nil || result.failed
-	return stream, finalErr
+	stream, err := s.finalizeChatTurn(ctx, turn, result)
+	interrupted = result.interrupted
+	failed = err != nil || result.executionErr != nil
+	return stream, err
 }
 
 func (s *ChatService) finishChatRoot(ctx context.Context, sessionID, requestID string, interrupted, failed bool) {
@@ -295,745 +235,232 @@ func (s *ChatService) finishChatRoot(ctx context.Context, sessionID, requestID s
 	_ = s.cooperative.Runtime.FinishRootStatus(finishCtx, requestID, status)
 }
 
-// prepareChatTurn validates input, resolves model config, saves user message, builds context in parallel.
-func (s *ChatService) prepareChatTurn(
-	ctx context.Context,
-	sessionID string,
-	receivedAt time.Time,
-	content string,
-	displayContent string,
-	modelID string,
-	attachmentIDs []string,
-	thinkingLevel string,
-) (*chatTurnState, error) {
-	session, err := s.store.GetSessionByID(ctx, sessionID)
-	if errors.Is(err, apperrors.ErrNotFound) {
-		return nil, fmt.Errorf("Session not found: %s.", sessionID)
-	}
-	if err != nil {
-		return nil, err
-	}
-	agentID, err := s.acpRoute(session, modelID)
-	if err != nil {
-		return nil, err
-	}
-	if agentID != "" {
-		attachments, err := s.resolveTurnAttachments(sessionID, attachmentIDs)
-		if err != nil {
-			return nil, err
-		}
-		user, err := s.persistUserMessage(ctx, sessionID, content, displayContent, receivedAt, attachments)
-		if err != nil {
-			s.cleanupTurnAttachments(attachments)
-			return nil, err
-		}
-		return &chatTurnState{acpAgentID: agentID, session: session, userMessageID: user.ID, userContent: content, userCreatedAt: receivedAt, attachments: attachments}, nil
-	}
-	llmConfig, err := s.ResolveLLMConfig(ctx, modelID)
-	if err != nil {
-		return nil, err
-	}
-	modelConfig := llmsvc.ModelRuntimeConfig{
-		ConfigID:      llmConfig.ID,
-		ProviderID:    llmConfig.ProviderID,
-		Provider:      llmConfig.Provider,
-		BaseURL:       llmConfig.BaseURL,
-		APIKey:        llmConfig.APIKey,
-		Model:         llmConfig.Model,
-		ContextSize:   llmConfig.ContextSize,
-		ThinkingLevel: thinkingLevel,
-	}
-
-	if err := s.unbindACPForLocalTurn(ctx, session); err != nil {
-		return nil, err
-	}
-
-	attachments, err := s.resolveTurnAttachments(sessionID, attachmentIDs)
-	if err != nil {
-		return nil, err
-	}
-
-	userContentForLLM := content
-	userMessageParts := make([]llmsvc.ChatMessageContentPart, 0)
-	var attachmentFallback []string
-	if len(attachments) > 0 {
-		userMessageParts, attachmentFallback = buildUserMessageContentParts(userContentForLLM, attachments)
-		if len(userMessageParts) == 0 || len(attachmentFallback) > 0 {
-			userContentForLLM = buildUserPromptWithAttachments(userContentForLLM, attachments)
-		}
-	}
-
-	userMessage, addErr := s.persistUserMessage(ctx, sessionID, content, displayContent, receivedAt, attachments)
-	if addErr != nil {
-		s.cleanupTurnAttachments(attachments)
-		return nil, addErr
-	}
-
-	// Build context messages and enabled MCP configs in parallel to reduce turn latency.
-	var (
-		contextResult     contextBuildResult
-		enabledMCPConfigs []domain.MCPConfig
-		contextErr        error
-		mcpErr            error
-	)
-	var prepareWG sync.WaitGroup
-	prepareWG.Add(2)
-	go func() {
-		defer prepareWG.Done()
-		contextResult, contextErr = s.buildContextMessagesDetailed(ctx, sessionID, modelConfig)
-	}()
-	go func() {
-		defer prepareWG.Done()
-		enabledMCPConfigs, mcpErr = s.store.ListEnabledMCPConfigs(ctx)
-	}()
-	prepareWG.Wait()
-	if contextErr != nil {
-		s.cleanupTurnAttachments(attachments)
-		return nil, contextErr
-	}
-	if mcpErr != nil {
-		s.cleanupTurnAttachments(attachments)
-		return nil, mcpErr
-	}
-
-	if len(attachments) > 0 {
-		if len(userMessageParts) > 0 {
-			overrideLatestUserTurnWithParts(contextResult.messages, userContentForLLM, userMessageParts)
-		} else {
-			overrideLatestUserTurn(contextResult.messages, userContentForLLM)
-		}
-	} else if strings.TrimSpace(displayContent) != "" {
-		overrideLatestUserTurn(contextResult.messages, userContentForLLM)
-	}
-	return &chatTurnState{
-		userMessageID: userMessage.ID, modelUser: llmsvc.ChatMessage{Role: "user", Content: userContentForLLM, ContentParts: userMessageParts},
-		session:           session,
-		modelConfig:       modelConfig,
-		contextMessages:   contextResult.messages,
-		contextUsage:      contextResult.usage,
-		contextCompacted:  contextResult.compactedNow,
-		enabledMCPConfigs: enabledMCPConfigs,
-		attachments:       attachments,
-		userContent:       userContentForLLM,
-		userCreatedAt:     receivedAt,
-	}, nil
-}
-
-func (s *ChatService) prepareEditedChatTurn(
-	ctx context.Context,
-	sessionID string,
-	messageID string,
-	content string,
-	modelID string,
-	thinkingLevel string,
-) (*chatTurnState, error) {
-	session, err := s.store.GetSessionByID(ctx, sessionID)
-	if errors.Is(err, apperrors.ErrNotFound) {
-		return nil, fmt.Errorf("Session not found: %s.", sessionID)
-	}
-	if err != nil {
-		return nil, err
-	}
-	agentID, err := s.acpRoute(session, modelID)
-	if err != nil {
-		return nil, err
-	}
-	if agentID != "" {
-		user, err := s.store.UpdateUserMessageAndPruneAfter(ctx, sessionID, messageID, content)
-		if err != nil {
-			return nil, err
-		}
-		if err := s.acp.ClearBinding(ctx, sessionID, session.ACPAgentID); err != nil {
-			return nil, err
-		}
-		session.ACPRemoteSessionID = ""
-		return &chatTurnState{acpAgentID: agentID, session: session, userMessageID: user.ID, userContent: content, userCreatedAt: user.CreatedAt}, nil
-	}
-	llmConfig, err := s.ResolveLLMConfig(ctx, modelID)
-	if err != nil {
-		return nil, err
-	}
-	modelConfig := llmsvc.ModelRuntimeConfig{
-		ConfigID:      llmConfig.ID,
-		ProviderID:    llmConfig.ProviderID,
-		Provider:      llmConfig.Provider,
-		BaseURL:       llmConfig.BaseURL,
-		APIKey:        llmConfig.APIKey,
-		Model:         llmConfig.Model,
-		ContextSize:   llmConfig.ContextSize,
-		ThinkingLevel: thinkingLevel,
-	}
-
-	if err := s.unbindACPForLocalTurn(ctx, session); err != nil {
-		return nil, err
-	}
-	updatedUser, err := s.store.UpdateUserMessageAndPruneAfter(ctx, sessionID, messageID, content)
-	if err != nil {
-		return nil, err
-	}
-
-	var (
-		contextResult     contextBuildResult
-		enabledMCPConfigs []domain.MCPConfig
-		contextErr        error
-		mcpErr            error
-	)
-	var prepareWG sync.WaitGroup
-	prepareWG.Add(2)
-	go func() {
-		defer prepareWG.Done()
-		contextResult, contextErr = s.buildContextMessagesDetailed(ctx, sessionID, modelConfig)
-	}()
-	go func() {
-		defer prepareWG.Done()
-		enabledMCPConfigs, mcpErr = s.store.ListEnabledMCPConfigs(ctx)
-	}()
-	prepareWG.Wait()
-	if contextErr != nil {
-		return nil, contextErr
-	}
-	if mcpErr != nil {
-		return nil, mcpErr
-	}
-
-	return &chatTurnState{
-		userMessageID: updatedUser.ID, modelUser: historyToChatMessages([]domain.Message{*updatedUser}, nil)[0],
-		session:           session,
-		modelConfig:       modelConfig,
-		contextMessages:   contextResult.messages,
-		contextUsage:      contextResult.usage,
-		contextCompacted:  contextResult.compactedNow,
-		enabledMCPConfigs: enabledMCPConfigs,
-		userContent:       strings.TrimSpace(updatedUser.Content),
-		userCreatedAt:     updatedUser.CreatedAt,
-	}, nil
-}
-
-// executeChatTurn runs the agent loop and collects streamed output.
-func (s *ChatService) executeChatTurn(
-	ctx context.Context,
-	sessionID string,
-	requestID string,
-	state *chatTurnState,
-	callbacks AgentCallbacks,
-	planMode bool,
-	subagentModelID string,
-	approvalModeOverride string,
-) (*chatTurnResult, error) {
+// executeChatTurn wires reliable recording to the selected engine and collects its output.
+func (s *ChatService) executeChatTurn(ctx context.Context, turn *chatTurn) (*chatTurnResult, error) {
+	req, state := turn.request, turn.state
+	localContext := state.engine.capabilities().localContext
+	localPlan := req.PlanMode && localContext
 	accumulator := &chatStreamAccumulator{}
-	usageTracker := newContextUsageTracker(state.contextUsage, callbacks.OnContextUsage)
+	events := turn.events
+	recorder := turn.recorder
+	var streamMu sync.Mutex
 	streamStart := time.Now()
 	var firstTokenAt time.Time
-	var callbackMu sync.Mutex
-	type activeThinkingState struct {
-		id   string
-		done bool
-	}
-	activeThinkings := make(map[string]*activeThinkingState)
 
-	thinkingScopeKey := func(meta ThinkingEventMeta) string {
-		return meta.ParentToolCallID + "\x00" + meta.SubagentRunID
-	}
-	pushBodyLocked := func(body string) error {
-		if body == "" {
+	callbacks := events
+	callbacks.turnRecordingError = recorder.failure
+	callbacks.OnChunk = func(chunk string) error {
+		if chunk == "" {
 			return nil
 		}
-		accumulator.answerBuilder.WriteString(body)
-		if accumulator.pushErr != nil {
-			return nil
+		streamMu.Lock()
+		if firstTokenAt.IsZero() {
+			firstTokenAt = time.Now()
 		}
-		if planMode {
-			if accumulator.planStarted {
-				accumulator.planBodyBuilder.WriteString(body)
-				if callbacks.OnPlanChunk != nil {
-					if err := callbacks.OnPlanChunk(body); err != nil {
-						accumulator.pushErr = err
-					}
-				}
-				return nil
+		accumulator.answerBuilder.WriteString(chunk)
+		planStarted := accumulator.planStarted
+		if localPlan {
+			if planStarted {
+				accumulator.planBodyBuilder.WriteString(chunk)
+			} else {
+				accumulator.narrationBuilder.WriteString(chunk)
 			}
-			accumulator.narrationBuilder.WriteString(body)
-			// Narration: buffer AND stream in real-time (fall through to OnChunk)
 		}
-		if callbacks.OnChunk != nil {
-			if err := callbacks.OnChunk(body); err != nil {
-				accumulator.pushErr = err
+		streamMu.Unlock()
+		if planStarted {
+			if events.OnPlanChunk != nil {
+				return events.OnPlanChunk(chunk)
 			}
+		} else if events.OnChunk != nil {
+			return events.OnChunk(chunk)
 		}
 		return nil
 	}
-	finishActiveThinkingLocked := func(scope string, finishedAt time.Time) error {
-		active := activeThinkings[scope]
-		if active == nil || active.id == "" || active.done {
-			return nil
-		}
-		if err := s.store.FinishThinking(ctx, domain.ThinkingFinishRecordInput{
-			SessionID:  sessionID,
-			RequestID:  requestID,
-			ThinkingID: active.id,
-			FinishedAt: finishedAt,
-		}); err != nil {
+	callbacks.OnToolCallStart = func(req ApprovalRequest) error {
+		if err := recorder.startTool(ctx, req, toolStartStatus(req)); err != nil {
 			return err
 		}
-		active.done = true
-		return nil
-	}
-	finishAllActiveThinkings := func(finishedAt time.Time) error {
-		callbackMu.Lock()
-		defer callbackMu.Unlock()
-		for scope := range activeThinkings {
-			if err := finishActiveThinkingLocked(scope, finishedAt); err != nil {
-				return err
-			}
-		}
-		return nil
-	}
-
-	agentCallbacks := AgentCallbacks{
-		OnPrivacy: callbacks.OnPrivacy,
-		OnChunk: func(chunk string) error {
-			callbackMu.Lock()
-			defer callbackMu.Unlock()
-			if chunk != "" && firstTokenAt.IsZero() {
-				firstTokenAt = time.Now()
-			}
-			return pushBodyLocked(chunk)
-		},
-		OnToolCallStart: func(req ApprovalRequest) error {
-			callbackMu.Lock()
-			startStatus := constants.ToolCallStatusExecuting
-			if req.RequiresApproval {
-				startStatus = constants.ToolCallStatusPending
-			}
-			if req.ReviewStatus == string(ApprovalReviewStatusReviewing) {
-				startStatus = constants.ToolCallStatusReviewing
-			}
-			if err := s.recordToolCallStart(ctx, sessionID, requestID, req, startStatus); err != nil {
-				callbackMu.Unlock()
-				return err
-			}
-			// Insert marker into stored answer (not streamed to client).
-			accumulator.answerBuilder.WriteString(fmt.Sprintf(toolCallMarkerFmt, req.ToolCallID))
-			if planMode {
+		streamMu.Lock()
+		accumulator.answerBuilder.WriteString(fmt.Sprintf(toolCallMarkerFmt, req.ToolCallID))
+		streamMu.Unlock()
+		if events.OnToolCallStart != nil {
+			if localPlan {
 				req.Preamble = ""
 			}
-			callbackMu.Unlock()
-			if callbacks.OnToolCallStart == nil {
-				return nil
-			}
-			return callbacks.OnToolCallStart(req)
-		},
-		OnToolApprovalReview: func(event ApprovalReviewEvent) error {
-			if callbacks.OnToolApprovalReview == nil {
-				return nil
-			}
-			return callbacks.OnToolApprovalReview(event)
-		},
-		OnToolApprovalRequired: func(req ApprovalRequest) error {
-			callbackMu.Lock()
-			if err := s.recordToolCallStart(ctx, sessionID, requestID, req, constants.ToolCallStatusPending); err != nil {
-				callbackMu.Unlock()
-				return err
-			}
-			callbackMu.Unlock()
-			if callbacks.OnToolApprovalRequired == nil {
-				return nil
-			}
-			return callbacks.OnToolApprovalRequired(req)
-		},
-		WaitApproval: callbacks.WaitApproval,
-		OnToolCallResult: func(result ToolCallResult) error {
-			status := normalizeToolCallResultStatus(result)
-			callbackMu.Lock()
-			if err := s.recordToolCallResult(ctx, sessionID, requestID, result, status); err != nil {
-				callbackMu.Unlock()
-				return err
-			}
-			callbackMu.Unlock()
-			if callbacks.OnToolCallResult == nil {
-				return nil
-			}
-			return callbacks.OnToolCallResult(result)
-		},
-		OnTeamStart:        callbacks.OnTeamStart,
-		OnTeamMemberQueued: callbacks.OnTeamMemberQueued,
-		OnTeamDone:         callbacks.OnTeamDone,
-		OnSubagentStart: func(meta AgentEventMeta, title, task string) error {
-			if callbacks.OnSubagentStart != nil {
-				return callbacks.OnSubagentStart(meta, title, task)
-			}
-			return nil
-		},
-		OnSubagentChunk: func(meta AgentEventMeta, chunk string) error {
-			if callbacks.OnSubagentChunk != nil {
-				return callbacks.OnSubagentChunk(meta, chunk)
-			}
-			return nil
-		},
-		OnSubagentDone: func(meta AgentEventMeta, runErr error) error {
-			if callbacks.OnSubagentDone != nil {
-				return callbacks.OnSubagentDone(meta, runErr)
-			}
-			return nil
-		},
-		OnThinkingStart: func(meta ThinkingEventMeta) error {
-			callbackMu.Lock()
-			defer callbackMu.Unlock()
-			scope := thinkingScopeKey(meta)
-			startedAt := time.Now()
-			if err := finishActiveThinkingLocked(scope, startedAt); err != nil {
-				return err
-			}
-			thinkingID := uuid.NewString()
-			activeThinkings[scope] = &activeThinkingState{id: thinkingID}
-			if err := s.store.UpsertThinkingStart(ctx, domain.ThinkingStartRecordInput{
-				SessionID:        sessionID,
-				RequestID:        requestID,
-				ThinkingID:       thinkingID,
-				ParentToolCallID: meta.ParentToolCallID,
-				SubagentRunID:    meta.SubagentRunID,
-				StartedAt:        startedAt,
-			}); err != nil {
-				return err
-			}
-			if meta.ParentToolCallID == "" && meta.SubagentRunID == "" {
-				accumulator.answerBuilder.WriteString(fmt.Sprintf(thinkingMarkerFmt, thinkingID))
-			}
-			if callbacks.OnThinkingStart == nil {
-				return nil
-			}
-			return callbacks.OnThinkingStart(meta)
-		},
-		OnThinkingChunk: func(chunk string, meta ThinkingEventMeta) error {
-			callbackMu.Lock()
-			active := activeThinkings[thinkingScopeKey(meta)]
-			if active != nil && active.id != "" {
-				if err := s.store.AppendThinkingChunk(ctx, domain.ThinkingChunkRecordInput{
-					SessionID:  sessionID,
-					RequestID:  requestID,
-					ThinkingID: active.id,
-					Chunk:      chunk,
-				}); err != nil {
-					callbackMu.Unlock()
-					return err
-				}
-			}
-			callbackMu.Unlock()
-			if callbacks.OnThinkingChunk == nil {
-				return nil
-			}
-			return callbacks.OnThinkingChunk(chunk, meta)
-		},
-		OnThinkingDone: func(meta ThinkingEventMeta) error {
-			callbackMu.Lock()
-			if err := finishActiveThinkingLocked(thinkingScopeKey(meta), time.Now()); err != nil {
-				callbackMu.Unlock()
-				return err
-			}
-			callbackMu.Unlock()
-			if callbacks.OnThinkingDone == nil {
-				return nil
-			}
-			return callbacks.OnThinkingDone(meta)
-		},
-		OnTodoUpdate: func(update TodoUpdate) error {
-			if callbacks.OnTodoUpdate == nil {
-				return nil
-			}
-			return callbacks.OnTodoUpdate(update)
-		},
-		OnPlanStart: func() error {
-			callbackMu.Lock()
-			defer callbackMu.Unlock()
-			accumulator.planStarted = true
-			accumulator.answerBuilder.WriteString(planStartMarker)
-			return nil
-		},
-		OnPlanChunk: callbacks.OnPlanChunk,
-	}
-
-	approvalMode := constants.ApprovalModeStandard
-	if strings.TrimSpace(approvalModeOverride) != "" {
-		approvalMode = strings.TrimSpace(approvalModeOverride)
-	} else if s.settingsStore != nil {
-		if mode, err := s.settingsStore.GetSetting(ctx, constants.SettingApprovalMode); err == nil && mode != "" {
-			approvalMode = mode
-		}
-	}
-
-	if state.acpAgentID != "" {
-		// External agents own their own planning and model context.
-		stop, err := s.runACPStream(ctx, state, approvalMode, planMode, agentCallbacks)
-		if finishErr := finishAllActiveThinkings(time.Now()); err == nil {
-			err = finishErr
-		}
-		interrupted := acpInterrupted(stop, err)
-		finalAnswer := strings.TrimSpace(accumulator.answerBuilder.String())
-		if err != nil && !interrupted && finalAnswer == "" {
-			return nil, err
-		}
-		if err != nil && !interrupted && accumulator.pushErr == nil {
-			accumulator.pushErr = err
-		}
-		if !interrupted {
-			if err := s.store.FinishOpenToolCallsForRequest(ctx, sessionID, requestID, "External tool did not report completion."); err != nil {
-				return nil, err
-			}
-		}
-		if finalAnswer == "" && !interrupted {
-			finalAnswer = "The ACP agent returned no content."
-		}
-		return &chatTurnResult{failed: err != nil && !interrupted, answer: finalAnswer, interrupted: interrupted, pushErr: accumulator.pushErr}, nil
-	}
-
-	requestTeamRuntime := newTeamRuntime(s.teamService, sessionID, requestID)
-	activatedSkills := s.getSessionActivatedSkills(sessionID)
-	previouslyActivated := make(map[string]struct{}, len(activatedSkills))
-	for id := range activatedSkills {
-		previouslyActivated[id] = struct{}{}
-	}
-	sandboxPolicy, err := s.resolveSandboxPolicy(ctx, state.session.WorkingDirectory)
-	if err != nil {
-		return nil, err
-	}
-	if constants.ClientSurfaceFromContext(ctx) != constants.ClientSurfaceCLI {
-		ctx = sandboxpolicy.WithWorkingDirectory(ctx, state.session.WorkingDirectory)
-	}
-	ctx = usagesvc.WithScope(ctx, usagesvc.Scope{RootSessionID: sessionID, SessionID: sessionID, RequestID: requestID, WorkingDirectory: state.session.WorkingDirectory})
-
-	finishCheckpoint, err := s.beginFileCheckpoint(ctx, state, requestID, sandboxPolicy)
-	if err != nil {
-		return nil, err
-	}
-	defer finishCheckpoint()
-
-	ctx = tools.WithBackgroundObserver(ctx, s.backgroundObserver(ctx, state, subagentModelID, approvalMode, planMode))
-	var cooperative *cooperativeLoop
-	if s.cooperative != nil {
-		var rootErr error
-		ctx, rootErr = s.cooperative.Runtime.BeginRoot(ctx, sessionID, requestID)
-		if rootErr != nil {
-			return nil, rootErr
-		}
-		childModel := state.modelConfig
-		if subagentModelID != "" {
-			childModel, rootErr = s.ResolveModelRuntimeConfig(ctx, subagentModelID)
-			if rootErr != nil {
-				return nil, rootErr
-			}
-		}
-		caller := subagentCaller(sessionID, requestID, approvalMode, planMode)
-		caller.ThinkingLevel = state.modelConfig.ThinkingLevel
-		if s.settingsStore != nil {
-			if value, e := s.settingsStore.GetSetting(ctx, "SUBAGENT_MAX_DEPTH"); e == nil && value != "" {
-				if n, e := strconv.Atoi(value); e == nil && n >= 0 && n <= 4 {
-					caller.MaxDepth = n
-				}
-			}
-		}
-		cooperative = &cooperativeLoop{service: s.cooperative, caller: caller, model: childModel, workspace: state.session.WorkingDirectory, plan: planMode}
-	}
-	contextRun, err := s.beginContextRun(ctx, sessionID, requestID, state)
-	if err != nil {
-		return nil, err
-	}
-	defer contextRun.Close()
-	contextRun.OnStatus = func(phase string) error {
-		usage := state.contextUsage
-		usage.State = phase
-		if callbacks.OnContextUsage != nil {
-			return callbacks.OnContextUsage(usage)
+			return events.OnToolCallStart(req)
 		}
 		return nil
 	}
-	if cooperative != nil {
-		agentCallbacks = s.cooperativeApprovals(ctx, cooperative.caller, requestID, agentCallbacks)
-	}
-	agentStart := time.Now()
-	var planCompleted bool
-	var latestUsage llmsvc.TokenUsage
-	answer, err := s.agent.RunAgentLoop(ctx, state.modelConfig, sessionID, state.contextMessages, state.enabledMCPConfigs, activatedSkills, agentCallbacks, AgentLoopOptions{
-		Cooperative:     cooperative,
-		steering:        func() *turnInbox { v, _ := ctx.Value(turnInboxKey{}).(*turnInbox); return v }(),
-		ApprovalMode:    approvalMode,
-		PlanMode:        planMode,
-		PlanComplete:    &planCompleted,
-		SubagentModelID: subagentModelID,
-		LatestUsage:     &latestUsage,
-		OnProviderUsage: func(usage llmsvc.TokenUsage) error {
-			return usageTracker.setUsedTokens(usage.InputContextTokens(state.modelConfig.Provider))
-		},
-		ContextRun: contextRun,
-		OnPrepared: func(p contextsvc.Prepared) error {
-			if p.CompactedAt == "" {
-				p.CompactedAt = state.contextUsage.CompactedAt
-			}
-			usage := buildContextUsage(sessionID, state.modelConfig, p.Messages, nil, nil, state.contextUsage.IsCompacted || p.Compacted, p.CompactedAt)
-			usage.InputBudget = p.Budget.HardInput
-			usage.OutputReserve = p.Budget.Output
-			usage.CompactionBeforeTokens = state.contextUsage.CompactionBeforeTokens
-			usage.CompactionAfterTokens = state.contextUsage.CompactionAfterTokens
-			usage.CompactionReason = state.contextUsage.CompactionReason
-			if p.Compacted {
-				usage.CompactionBeforeTokens = p.CompactionBeforeTokens
-				usage.CompactionAfterTokens = p.CompactionAfterTokens
-				usage.CompactionReason = p.Reason
-			}
-			usage.UsedTokens = p.InputTokens
-			toolTokens := p.InputTokens - contextsvc.Estimate(p.Messages, nil)
-			if toolTokens > 0 {
-				usage.Layers = upsertContextLayerUsage(usage.Layers, "tools", toolTokens)
-			}
-			usage = normalizeContextUsagePercentages(usage)
-			s.attachOutputBudget(ctx, sessionID, &usage)
-			state.contextUsage = usage
-			usageTracker.mu.Lock()
-			usageTracker.usage = usage
-			usageTracker.mu.Unlock()
-			if callbacks.OnContextUsage != nil {
-				if err := callbacks.OnContextUsage(usage); err != nil {
-					return err
-				}
-			}
-			if p.Compacted && callbacks.OnContextCompacted != nil {
-				return callbacks.OnContextCompacted(usage)
-			}
-			return nil
-		},
-		SandboxPolicy: sandboxPolicy,
-		teamRuntime:   requestTeamRuntime,
-	})
-	logging.Span("agent_loop", agentStart)
-	state.activatedSkillIDs = state.activatedSkillIDs[:0]
-	for id := range activatedSkills {
-		if _, existed := previouslyActivated[id]; !existed {
-			state.activatedSkillIDs = append(state.activatedSkillIDs, id)
+	callbacks.OnToolApprovalRequired = func(req ApprovalRequest) error {
+		if err := recorder.startTool(ctx, req, constants.ToolCallStatusPending); err != nil {
+			return err
 		}
+		if events.OnToolApprovalRequired != nil {
+			return events.OnToolApprovalRequired(req)
+		}
+		return nil
 	}
-	sort.Strings(state.activatedSkillIDs)
-	s.mergeSessionActivatedSkills(sessionID, activatedSkills)
-	if finishErr := finishAllActiveThinkings(time.Now()); finishErr != nil && err == nil {
-		err = finishErr
+	callbacks.OnToolCallResult = func(result ToolCallResult) error {
+		if err := recorder.finishTool(ctx, result); err != nil {
+			return err
+		}
+		if events.OnToolCallResult != nil {
+			return events.OnToolCallResult(result)
+		}
+		return nil
+	}
+	callbacks.OnThinkingStart = func(meta ThinkingEventMeta) error {
+		id, err := recorder.startThinking(ctx, meta)
+		if err != nil {
+			return err
+		}
+		if meta.ParentToolCallID == "" && meta.SubagentRunID == "" {
+			streamMu.Lock()
+			accumulator.answerBuilder.WriteString(fmt.Sprintf(thinkingMarkerFmt, id))
+			streamMu.Unlock()
+		}
+		if events.OnThinkingStart != nil {
+			return events.OnThinkingStart(meta)
+		}
+		return nil
+	}
+	callbacks.OnThinkingChunk = func(chunk string, meta ThinkingEventMeta) error {
+		if err := recorder.appendThinking(ctx, meta, chunk); err != nil {
+			return err
+		}
+		if events.OnThinkingChunk != nil {
+			return events.OnThinkingChunk(chunk, meta)
+		}
+		return nil
+	}
+	callbacks.OnThinkingDone = func(meta ThinkingEventMeta) error {
+		if err := recorder.finishThinking(ctx, meta); err != nil {
+			return err
+		}
+		if events.OnThinkingDone != nil {
+			return events.OnThinkingDone(meta)
+		}
+		return nil
+	}
+	callbacks.OnPlanStart = func() error {
+		streamMu.Lock()
+		accumulator.planStarted = true
+		accumulator.answerBuilder.WriteString(planStartMarker)
+		streamMu.Unlock()
+		return nil
 	}
 
-	interrupted := errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)
-	if err != nil && !interrupted && answer == "" {
+	approvalMode := strings.TrimSpace(req.ApprovalModeOverride)
+	if approvalMode == "" {
+		approvalMode = constants.ApprovalModeStandard
+		if s.settingsStore != nil {
+			if mode, err := s.settingsStore.GetSetting(ctx, constants.SettingApprovalMode); err == nil && mode != "" {
+				approvalMode = mode
+			}
+		}
+	}
+
+	result, runErr := state.engine.run(ctx, s, turn, approvalMode, callbacks)
+	if err := recorder.failure(); err != nil {
 		return nil, err
+	}
+	canceled := ctx.Err() != nil || errors.Is(runErr, context.Canceled) || errors.Is(runErr, context.DeadlineExceeded)
+	if result == nil {
+		if !canceled {
+			return nil, runErr
+		}
+		result = &chatTurnResult{}
+	}
+	result.interrupted = result.interrupted || canceled
+	if !result.interrupted {
+		if err := recorder.finishThinkings(ctx); err != nil {
+			if ctx.Err() == nil || !errors.Is(err, ctx.Err()) {
+				return nil, err
+			}
+			result.interrupted = true
+		}
+	}
+	if runErr != nil && !result.interrupted {
+		if result.answer == "" && (localContext || strings.TrimSpace(accumulator.answerBuilder.String()) == "") {
+			return nil, runErr
+		}
+		result.executionErr = runErr
 	}
 
 	firstTokenMs := int64(-1)
 	if !firstTokenAt.IsZero() {
 		firstTokenMs = firstTokenAt.Sub(streamStart).Milliseconds()
 	}
-	logging.Info("chat_stream_done", "session", sessionID, "first_token_ms", firstTokenMs, "total_stream_ms", time.Since(streamStart).Milliseconds())
+	logging.Info("chat_stream_done", "session", req.SessionID, "first_token_ms", firstTokenMs, "total_stream_ms", time.Since(streamStart).Milliseconds())
 
-	var finalAnswer string
-	var resultNarration string
-	var resultPlanBody string
-
-	if planMode {
+	if localPlan {
 		if accumulator.planStarted {
 			accumulator.answerBuilder.WriteString(planEndMarker)
-		}
-		accumulated := strings.TrimSpace(accumulator.answerBuilder.String())
-		finalAnswer = accumulated
-
-		var narration, planBody string
-		if accumulator.planStarted {
-			narration = strings.TrimSpace(accumulator.narrationBuilder.String())
-			planBody = accumulator.planBodyBuilder.String()
+			result.answer = strings.TrimSpace(accumulator.answerBuilder.String())
+			result.narration = strings.TrimSpace(accumulator.narrationBuilder.String())
+			result.planBody = accumulator.planBodyBuilder.String()
 		} else {
-			// Fallback: model did not call plan_start, use heuristic split.
-			narration, planBody = splitNarrationAndPlan(accumulated)
+			result.answer = strings.TrimSpace(accumulator.answerBuilder.String())
+			result.narration, result.planBody = splitNarrationAndPlan(result.answer)
 		}
-		resultNarration = narration
-		resultPlanBody = planBody
-
-		// Send plan body via OnPlanBody (non-streaming)
-		if planBody != "" && callbacks.OnPlanBody != nil {
-			if sendErr := callbacks.OnPlanBody(planBody); sendErr != nil && !interrupted {
-				return nil, sendErr
-			}
+		if result.planBody != "" && events.OnPlanBody != nil {
+			_ = events.OnPlanBody(result.planBody)
 		}
-	} else {
-		finalAnswer = strings.TrimSpace(accumulator.answerBuilder.String())
-		if finalAnswer == "" {
-			finalAnswer = answer
-		}
+	} else if accumulated := strings.TrimSpace(accumulator.answerBuilder.String()); accumulated != "" {
+		result.answer = accumulated
 	}
-
-	if strings.TrimSpace(finalAnswer) == "" && !interrupted {
-		finalAnswer = "The model returned no content."
+	if strings.TrimSpace(result.answer) == "" && !result.interrupted {
+		result.answer = state.engine.emptyAnswer()
 	}
-
-	return &chatTurnResult{
-		failed:        err != nil && !interrupted,
-		answer:        finalAnswer,
-		interrupted:   interrupted,
-		planCompleted: planCompleted,
-		pushErr:       accumulator.pushErr,
-		narration:     resultNarration,
-		planBody:      resultPlanBody,
-		tokenUsage:    nonZeroTokenUsage(latestUsage),
-		teamRuntime:   requestTeamRuntime,
-	}, nil
+	return result, nil
 }
 
-// finalizeChatTurn persists assistant message and saves plan if applicable.
-func (s *ChatService) finalizeChatTurn(
-	ctx context.Context,
-	sessionID string,
-	requestID string,
-	state *chatTurnState,
-	result *chatTurnResult,
-	planMode bool,
-	callbacks AgentCallbacks,
-) (*ChatStreamResult, error) {
+// finalizeChatTurn commits the assistant and its records before running follow-up work.
+func (s *ChatService) finalizeChatTurn(ctx context.Context, turn *chatTurn, result *chatTurnResult) (*ChatStreamResult, error) {
+	req, state := turn.request, turn.state
+	sessionID, requestID := req.SessionID, req.RequestID
+	if result.interrupted || ctx.Err() != nil {
+		result.interrupted = true
+		finalCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), turnFinalizeTimeout)
+		defer cancel()
+		ctx = finalCtx
+	}
 	ctx = llmsvc.WithPrivacyScope(ctx, sessionID, requestID, "chat")
-	assistantMessage, err := s.store.AddMessageWithInput(ctx, domain.AddMessageInput{
-		SessionID:         sessionID,
-		Role:              "assistant",
-		Content:           result.answer,
-		IsInterrupted:     result.interrupted,
-		IsStopPlaceholder: result.interrupted && strings.TrimSpace(result.answer) == "",
-		TokenUsage:        result.tokenUsage,
+	completed, err := turn.recorder.complete(ctx, domain.CompleteChatTurnInput{
+		SessionID: sessionID, RequestID: requestID, ContextRequestID: state.contextRequestID,
+		Content: result.answer, Interrupted: result.interrupted, TokenUsage: result.tokenUsage,
 	})
 	if err != nil {
 		return nil, err
 	}
-	if store, ok := s.store.(contextsvc.Store); ok && state.contextRequestID != "" {
-		if err := store.BindContextRequest(ctx, sessionID, state.contextRequestID, assistantMessage.ID); err != nil {
-			return nil, err
-		}
-	}
-	if result.interrupted {
-		if err := s.store.FinishOpenToolCallsForRequest(ctx, sessionID, requestID, "Execution cancelled."); err != nil {
-			return nil, err
-		}
-		if err := s.store.FinishOpenThinkingForRequest(ctx, sessionID, requestID); err != nil {
-			return nil, err
-		}
-	}
-	if err := s.store.BindToolCallsToAssistantMessage(ctx, sessionID, requestID, assistantMessage.ID); err != nil {
-		return nil, err
-	}
-	if err := s.store.BindThinkingRecordsToAssistantMessage(ctx, sessionID, requestID, assistantMessage.ID); err != nil {
-		return nil, err
-	}
-	if result.teamRuntime != nil {
-		if err := result.teamRuntime.finalize(ctx, assistantMessage.ID, result.interrupted, callbacks); err != nil {
-			return nil, err
-		}
-	}
 
+	assistant := completed.AssistantMessage
 	streamResult := &ChatStreamResult{
-		Answer:            result.answer,
-		IsInterrupted:     result.interrupted,
-		IsStopPlaceholder: result.interrupted && strings.TrimSpace(result.answer) == "",
-		Narration:         result.narration,
-		PlanBody:          result.planBody,
+		Answer:            assistant.Content,
+		IsInterrupted:     assistant.IsInterrupted,
+		IsStopPlaceholder: assistant.IsStopPlaceholder,
 	}
-
+	defer func() {
+		if pushErr := turn.sink.failure(); pushErr != nil {
+			streamResult.PushFailed = true
+			streamResult.PushError = pushErr.Error()
+		}
+	}()
+	if completed.Deduplicated {
+		return streamResult, nil
+	}
+	streamResult.Narration = result.narration
+	streamResult.PlanBody = result.planBody
+	capabilities := state.engine.capabilities()
+	if result.executionErr != nil && !capabilities.localContext {
+		streamResult.ExecutionError = result.executionErr.Error()
+	}
+	planMode := req.PlanMode && capabilities.localContext
+	if result.teamRuntime != nil {
+		if err := result.teamRuntime.finalize(ctx, assistant.ID, result.interrupted, turn.events); err != nil {
+			return nil, err
+		}
+	}
 	if planMode && !result.interrupted && s.planService != nil && strings.TrimSpace(result.planBody) != "" {
 		if !result.planCompleted {
 			logging.Info("plan_not_submitted", "session", sessionID)
@@ -1056,21 +483,20 @@ func (s *ChatService) finalizeChatTurn(
 		}
 	}
 
-	if result.pushErr != nil && !result.interrupted {
-		streamResult.PushFailed = true
-		streamResult.PushError = result.pushErr.Error()
+	if capabilities.skillLearning {
+		streamResult.SkillLearning = s.maybeLearnSkill(ctx, sessionID, requestID, assistant.ID, state, result, planMode)
 	}
-	if state.acpAgentID != "" {
-		return streamResult, nil
-	}
-	streamResult.SkillLearning = s.maybeLearnSkill(ctx, sessionID, requestID, assistantMessage.ID, state, result, planMode)
 	if !planMode && !result.interrupted && strings.TrimSpace(result.answer) != "" {
-		s.maybeTriggerMemoryReview(sessionID, state.modelConfig, state.userContent, result.answer)
-		s.maybeTriggerIdleCompaction(sessionID, state.modelConfig, state.contextUsage)
+		if capabilities.memoryReview {
+			s.maybeTriggerMemoryReview(sessionID, state.modelConfig, state.userContent, result.answer)
+		}
+		if capabilities.idleCompaction {
+			s.maybeTriggerIdleCompaction(sessionID, state.modelConfig, state.contextUsage)
+		}
 	}
-	if callbacks.OnContextUsage != nil {
+	if capabilities.localContext && turn.events.OnContextUsage != nil {
 		s.attachOutputBudget(ctx, sessionID, &state.contextUsage)
-		_ = callbacks.OnContextUsage(state.contextUsage)
+		_ = turn.events.OnContextUsage(state.contextUsage)
 	}
 	return streamResult, nil
 }

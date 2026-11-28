@@ -11,6 +11,7 @@ import (
 // Interface compliance checks at compile time.
 var (
 	_ domain.ChatStore                  = (*Repository)(nil)
+	_ domain.ChatTurnCompleter          = (*Repository)(nil)
 	_ domain.SessionStore               = (*Repository)(nil)
 	_ domain.LLMConfigStore             = (*Repository)(nil)
 	_ domain.LLMProviderStore           = (*Repository)(nil)

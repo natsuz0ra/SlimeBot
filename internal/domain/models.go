@@ -45,8 +45,9 @@ type ACPConfig struct {
 
 type Message struct {
 	ID        string `gorm:"primaryKey;size:36" json:"id"`
-	SessionID string `gorm:"size:36;index;index:idx_messages_session_created,priority:1;not null" json:"sessionId"`
+	SessionID string `gorm:"size:36;index;index:idx_messages_session_created,priority:1;index:idx_messages_assistant_request,unique,where:request_id <> '' AND role = 'assistant',priority:1;not null" json:"sessionId"`
 	Role      string `gorm:"size:16;index;not null" json:"role"`
+	RequestID string `gorm:"size:64;index:idx_messages_assistant_request,priority:2" json:"-"`
 	Content   string `gorm:"type:text;not null" json:"content"`
 	// IsInterrupted is true if streaming assistant output was cancelled by the user or context.
 	IsInterrupted bool `gorm:"not null;default:false" json:"isInterrupted"`

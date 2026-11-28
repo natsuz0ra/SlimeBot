@@ -44,6 +44,101 @@ func TestACPRoute(t *testing.T) {
 	}
 }
 
+type scriptedACPClient struct {
+	prompt func(context.Context, *domain.Session, string, acpclient.Turn) (sdk.StopReason, error)
+}
+
+func (c scriptedACPClient) Prompt(ctx context.Context, session *domain.Session, agentID string, turn acpclient.Turn) (sdk.StopReason, error) {
+	return c.prompt(ctx, session, agentID, turn)
+}
+
+func (scriptedACPClient) ClearBinding(context.Context, string, *string) error { return nil }
+func (scriptedACPClient) Reset(context.Context, *domain.Session) error        { return nil }
+
+func TestRunTurnExternalACPEngine(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		stop    sdk.StopReason
+		runErr  error
+		wantErr string
+	}{
+		{name: "normal", stop: sdk.StopReasonEndTurn, wantErr: "External tool did not report completion."},
+		{name: "interrupted", stop: sdk.StopReasonCancelled, wantErr: "Execution cancelled."},
+		{name: "partial output", runErr: errors.New("ACP transport disconnected"), wantErr: "External tool did not report completion."},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			repo := newTestRepo(t)
+			t.Cleanup(func() { _ = repo.Close() })
+			session, err := repo.CreateSession(ctx, "External turn")
+			if err != nil {
+				t.Fatal(err)
+			}
+			req := ChatTurnRequest{
+				SessionID: session.ID, RequestID: "external-turn", ModelID: "acp:agent",
+				Content: "save this as a skill", DisplayContent: "visible prompt", PlanMode: true,
+			}
+			service := NewChatService(repo, nil, nil, nil, nil)
+			var lateUpdate func(sdk.SessionUpdate) error
+			service.acp = scriptedACPClient{prompt: func(_ context.Context, session *domain.Session, agentID string, turn acpclient.Turn) (sdk.StopReason, error) {
+				lateUpdate = turn.Update
+				blocks := turn.Content(sdk.PromptCapabilities{})
+				if session.ID != req.SessionID || agentID != "agent" || !turn.PlanMode || len(blocks) != 1 ||
+					blocks[0].Text == nil || blocks[0].Text.Text != req.Content {
+					t.Fatalf("external prompt: session=%s agent=%s plan=%v blocks=%+v", session.ID, agentID, turn.PlanMode, blocks)
+				}
+				for _, update := range []sdk.SessionUpdate{
+					sdk.UpdateAgentThoughtText("external reasoning"),
+					sdk.UpdateAgentMessageText("external response"),
+					sdk.StartToolCall("remote-tool", "List items", sdk.WithStartStatus(sdk.ToolCallStatusInProgress)),
+				} {
+					if err := turn.Update(update); err != nil {
+						return "", err
+					}
+				}
+				return tc.stop, tc.runErr
+			}}
+
+			local, err := service.resolveTurnEngine(session, "model")
+			if err != nil || local.capabilities() != (turnEngineCapabilities{localContext: true, skillLearning: true, memoryReview: true, idleCompaction: true}) {
+				t.Fatalf("local engine = %+v, %v", local, err)
+			}
+			result, err := service.RunTurn(ctx, req, AgentCallbacks{
+				OnContextUsage: func(ContextUsage) error {
+					t.Error("external ACP turn reported local context usage")
+					return nil
+				},
+				OnThinkingChunk: func(chunk string, _ ThinkingEventMeta) error {
+					if chunk == "late thought" {
+						t.Error("received a thinking event after the ACP turn closed")
+					}
+					return nil
+				},
+			})
+			if err != nil || result.PushFailed || StripContentMarkers(result.Answer) != "external response" || result.IsInterrupted != (tc.stop == sdk.StopReasonCancelled) ||
+				(result.ExecutionError != "") != (tc.runErr != nil) || result.PlanBody != "" || result.SkillLearning != nil {
+				t.Fatalf("external turn = %+v, %v", result, err)
+			}
+			if err := lateUpdate(sdk.UpdateAgentThoughtText("late thought")); err != nil {
+				t.Fatal(err)
+			}
+			assistant := recordedAssistant(t, repo, req)
+			records, err := repo.ListSessionToolCallRecordsByAssistantMessageIDs(ctx, req.SessionID, []string{assistant.ID})
+			if err != nil || len(records) != 1 || records[0].Status != constants.ToolCallStatusError || records[0].Error != tc.wantErr {
+				t.Fatalf("external tool records = %+v, %v", records, err)
+			}
+			thoughts, err := repo.ListSessionThinkingRecordsByAssistantMessageIDs(ctx, req.SessionID, []string{assistant.ID})
+			if err != nil || len(thoughts) != 1 || thoughts[0].Status != "completed" || thoughts[0].Content != "external reasoning" {
+				t.Fatalf("external thinking records = %+v, %v", thoughts, err)
+			}
+			snapshot, err := repo.GetContextSnapshot(ctx, req.SessionID)
+			if err != nil || len(snapshot.Entries) != 0 {
+				t.Fatalf("external turn context = %+v, %v", snapshot, err)
+			}
+		})
+	}
+}
+
 func TestACPPromptBlocks(t *testing.T) {
 	root := t.TempDir()
 	imagePath := filepath.Join(root, "pixel.png")
@@ -218,6 +313,11 @@ func TestACPStreamBridgePermissionModes(t *testing.T) {
 	}
 	if len(autoLog.approvals) != 0 {
 		t.Fatalf("auto mode should not ask the user: %+v", autoLog.approvals)
+	}
+	autoBridge.closed = true
+	response, err = autoBridge.permission(context.Background(), request)
+	if err != nil || response.Outcome.Cancelled == nil {
+		t.Fatalf("closed bridge permission = %+v, %v", response.Outcome, err)
 	}
 
 	log := &acpCallbackLog{}

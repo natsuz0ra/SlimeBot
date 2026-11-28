@@ -174,6 +174,7 @@ type AgentCallbacks struct {
 	OnPlanChunk            func(chunk string) error
 	OnPlanBody             func(planBody string) error
 	OnTitleGenerated       func(sessionID, title string)
+	turnRecordingError     func() error
 }
 
 // AgentLoopOptions configures nested agent execution.

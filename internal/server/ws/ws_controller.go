@@ -554,12 +554,18 @@ func (w *Controller) handleChatIncoming(
 		}
 	}
 
-	var streamResult *chatsvc.ChatStreamResult
 	if agentID := strings.TrimSpace(incoming.ACPAgentID); agentID != "" {
 		incoming.ModelID = "acp:" + agentID
 	}
+	request := chatsvc.ChatTurnRequest{
+		SessionID: session.ID, RequestID: requestID, ReceivedAt: receivedAt,
+		Content: incoming.Content, DisplayContent: incoming.DisplayContent, ModelID: incoming.ModelID,
+		AttachmentIDs: incoming.AttachmentIDs, ThinkingLevel: incoming.ThinkingLevel, PlanMode: incoming.PlanMode,
+		SubagentModelID: incoming.SubagentModelID,
+	}
+	startEnqueued := false
 	if incoming.Type == "chat_edit" {
-		startEnqueued := false
+		request.EditMessageID = incoming.MessageID
 		callbacks.OnMessageEdited = func(messageID, content string, createdAt time.Time) error {
 			if !enqueue(buildMessageEditedPayload(session.ID, messageID, content, createdAt)) {
 				return context.Canceled
@@ -571,42 +577,8 @@ func (w *Controller) handleChatIncoming(
 			}
 			return nil
 		}
-		streamResult, err = w.chatService.HandleEditedChatStream(
-			chatCtx,
-			session.ID,
-			requestID,
-			incoming.MessageID,
-			incoming.Content,
-			incoming.ModelID,
-			incoming.ThinkingLevel,
-			incoming.PlanMode,
-			incoming.SubagentModelID,
-			"",
-			callbacks,
-		)
-		if err == nil && !startEnqueued {
-			startSentAt = time.Now()
-			if !enqueue(startPayload(startSentAt)) {
-				return false
-			}
-		}
-	} else {
-		streamResult, err = w.chatService.HandleChatStreamWithReceivedAt(
-			chatCtx,
-			session.ID,
-			requestID,
-			receivedAt,
-			incoming.Content,
-			incoming.DisplayContent,
-			incoming.ModelID,
-			incoming.AttachmentIDs,
-			incoming.ThinkingLevel,
-			incoming.PlanMode,
-			incoming.SubagentModelID,
-			"",
-			callbacks,
-		)
 	}
+	streamResult, err := w.chatService.RunTurn(chatCtx, request, callbacks)
 	cancel()
 
 	if err != nil {
@@ -616,7 +588,13 @@ func (w *Controller) handleChatIncoming(
 			"error":     err.Error(),
 		})
 	}
-	if streamResult.PushFailed {
+	if incoming.Type == "chat_edit" && !startEnqueued {
+		startSentAt = time.Now()
+		if !enqueue(startPayload(startSentAt)) {
+			return false
+		}
+	}
+	if streamResult.PushFailed || streamResult.ExecutionError != "" {
 		if !enqueue(map[string]any{
 			"type":      "error",
 			"sessionId": session.ID,

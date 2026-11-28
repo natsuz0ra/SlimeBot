@@ -150,9 +150,20 @@ func (r *Repository) ListAllSessionMessages(ctx context.Context, sessionID strin
 }
 
 func (r *Repository) AddMessageWithInput(ctx context.Context, input domain.AddMessageInput) (*domain.Message, error) {
+	var message *domain.Message
+	err := r.dbWithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var err error
+		message, err = addMessage(tx, input)
+		return err
+	})
+	return message, err
+}
+
+func addMessage(tx *gorm.DB, input domain.AddMessageInput) (*domain.Message, error) {
 	message := &domain.Message{
 		ID:                uuid.NewString(),
 		SessionID:         input.SessionID,
+		RequestID:         input.RequestID,
 		Role:              input.Role,
 		Content:           input.Content,
 		IsInterrupted:     input.IsInterrupted,
@@ -165,28 +176,23 @@ func (r *Repository) AddMessageWithInput(ctx context.Context, input domain.AddMe
 	if !input.CreatedAt.IsZero() {
 		message.CreatedAt = input.CreatedAt
 	}
-	err := r.dbWithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		var last domain.Message
-		if err := tx.Model(&domain.Message{}).
-			Select("seq").
-			Where("session_id = ?", input.SessionID).
-			Order("seq desc").
-			Limit(1).
-			Take(&last).Error; err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
-			return err
-		}
-		message.Seq = last.Seq + 1
-		if err := tx.Create(message).Error; err != nil {
-			return err
-		}
-		if err := bumpContextHistory(tx, input.SessionID); err != nil {
-			return err
-		}
-		return tx.Model(&domain.Session{}).
-			Where("id = ?", input.SessionID).
-			Update("updated_at", time.Now()).
-			Error
-	})
+	var last domain.Message
+	if err := tx.Model(&domain.Message{}).
+		Select("seq").
+		Where("session_id = ?", input.SessionID).
+		Order("seq desc").
+		Limit(1).
+		Take(&last).Error; err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+		return message, err
+	}
+	message.Seq = last.Seq + 1
+	if err := tx.Create(message).Error; err != nil {
+		return message, err
+	}
+	if err := bumpContextHistory(tx, input.SessionID); err != nil {
+		return message, err
+	}
+	err := tx.Model(&domain.Session{}).Where("id = ?", input.SessionID).Update("updated_at", time.Now()).Error
 	return message, err
 }
 

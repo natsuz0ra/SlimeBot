@@ -39,7 +39,18 @@ func writeTest(t *testing.T, dir, path, content string) {
 		t.Fatal(err)
 	}
 }
+
+func preserveFixtureLineEndings(t *testing.T) {
+	t.Helper()
+	// The assertions compare LF bytes written by the fixture. Shell Git can
+	// inherit Windows-wide checkout conversion settings.
+	t.Setenv("GIT_CONFIG_COUNT", "1")
+	t.Setenv("GIT_CONFIG_KEY_0", "core.autocrlf")
+	t.Setenv("GIT_CONFIG_VALUE_0", "false")
+}
+
 func TestDirtyBaselineIntegrationPreservesIndex(t *testing.T) {
+	preserveFixtureLineEndings(t)
 	root := testRepo(t)
 	writeTest(t, root, "a.txt", "staged\n")
 	testGit(t, root, "add", "a.txt")
@@ -238,6 +249,7 @@ func TestValidationCannotChangeMergedSource(t *testing.T) {
 }
 
 func TestDirectoryWorkspaceIntegratesWithoutCreatingUserGitMetadata(t *testing.T) {
+	preserveFixtureLineEndings(t)
 	root := t.TempDir()
 	writeTest(t, root, "a.txt", "original\n")
 	writeTest(t, root, ".gitignore", "ignored.txt\n")

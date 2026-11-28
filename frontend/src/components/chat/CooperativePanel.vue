@@ -11,7 +11,7 @@ import { settingAPI } from '@/api/settings'
 import { renderMarkdown } from '@/utils/markdown'
 
 const props = defineProps<{ sessionId?: string; header?: boolean }>()
-const emit = defineEmits<{ settled: [sessionId: string] }>()
+const emit = defineEmits<{ settled: [sessionId: string]; opened: [] }>()
 const { locale } = useI18n()
 const english = computed(() => locale.value.startsWith('en'))
 const text = (zh: string, en: string) => english.value ? en : zh
@@ -92,8 +92,9 @@ watch(() => props.sessionId, () => {
 }, { immediate: true })
 onUnmounted(() => { generation++; clearTimeout(timer); request?.abort(); document.removeEventListener('keydown', onKey) })
 watch(selected, () => { message.value = '' })
-async function open(event: MouseEvent) { trigger = event.currentTarget as HTMLElement; visible.value = true; document.addEventListener('keydown', onKey); await nextTick(); panel.value?.querySelector<HTMLButtonElement>('button')?.focus(); void refresh(); try { maxDepth.value = (await settingAPI.get()).subagentMaxDepth ?? 2 } catch { /* current delegation still works with saved defaults */ } }
-function close() { visible.value = false; document.removeEventListener('keydown', onKey); trigger?.focus() }
+async function open(event: MouseEvent) { trigger = event.currentTarget as HTMLElement; visible.value = true; emit('opened'); document.addEventListener('keydown', onKey); await nextTick(); panel.value?.querySelector<HTMLButtonElement>('button')?.focus(); void refresh(); try { maxDepth.value = (await settingAPI.get()).subagentMaxDepth ?? 2 } catch { /* current delegation still works with saved defaults */ } }
+function close() { if (!visible.value) return; visible.value = false; document.removeEventListener('keydown', onKey); trigger?.focus() }
+defineExpose({ close })
 function onKey(event: KeyboardEvent) {
   if (!visible.value || !ownsModalKeyboard(panel.value)) return
   if (event.key === 'Escape') { event.preventDefault(); close() }
@@ -161,6 +162,7 @@ function approvalLabel(payload: string) { try { const p = JSON.parse(payload); r
         'coop-trigger--attention': approvals.length > 0,
       }"
       :aria-expanded="visible"
+      :aria-label="text('协作', 'Collaboration')"
       @click="open"
     >
       <MdiIcon :path="mdiAccountGroupOutline" :size="16" />
@@ -293,6 +295,10 @@ function approvalLabel(payload: string) { try { const p = JSON.parse(payload); r
 .coop-trigger--header.coop-trigger--active { border-color: var(--border-subtle); background: var(--bg-subtle); color: var(--text-primary); }
 .coop-trigger--header.coop-trigger--active:hover { background: var(--bg-hover); border-color: var(--border-default); }
 .coop-trigger--header.coop-trigger--attention { border-color: var(--warning-alpha-20); background: var(--warning-alpha-12); color: var(--text-primary); }
+@media (max-width: 767px) {
+  .coop-trigger--header { width: 30px; padding: 0; justify-content: center; }
+  .coop-trigger--header > span { display: none; }
+}
 .coop-count { font-variant-numeric: tabular-nums; border-radius: 5px; background: var(--bg-subtle); padding: 0 5px; }
 .coop-running { display: flex; align-items: center; gap: 5px; color: var(--tool-success-text); }
 .coop-attention { color: var(--tool-pending-text); }

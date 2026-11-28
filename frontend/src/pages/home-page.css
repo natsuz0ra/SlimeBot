@@ -70,6 +70,21 @@
   border-radius: 50%;
   background: var(--tool-success-dot);
 }
+.workspace-header-button {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  height: 30px;
+  padding-inline: 6px;
+  border-radius: 8px;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+.workspace-header-button:hover { background: var(--bg-hover); }
+.workspace-header-button[aria-pressed="true"] { background: var(--bg-active); color: var(--text-primary); }
+.workspace-header-button code { max-width: min(90px, 12vw); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 12px var(--font-mono); }
+.workspace-header-count { padding: 1px 4px; border: 1px solid var(--border-default); border-radius: 6px; background: var(--bg-subtle); font-size: 11px; }
+@media (max-width: 767px) { .workspace-header-button code { display: none; } }
 
 .chat-content-shell--switching.chat-content-shell--from-right {
   animation: chat-content-switch-in-right var(--duration-slide) var(--ease-out-smooth) both;

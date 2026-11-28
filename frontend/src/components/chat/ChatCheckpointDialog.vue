@@ -16,7 +16,7 @@ const props = defineProps<{
   turnRunning: boolean
   workspaceRunning: boolean
 }>()
-const emit = defineEmits<{ close: [] }>()
+const emit = defineEmits<{ close: []; restored: [] }>()
 
 const { t, locale } = useI18n()
 const dateFormatter = computed(() => new Intl.DateTimeFormat(locale.value, { dateStyle: 'medium', timeStyle: 'short' }))
@@ -180,6 +180,7 @@ async function rollback() {
   rollingBack.value = true
   try {
     await checkpointAPI.rollback(props.sessionId, target.id, target.mode)
+    emit('restored')
     if (generation !== viewGeneration) return
     rollbackDone.value = true
     confirmation.value = undefined

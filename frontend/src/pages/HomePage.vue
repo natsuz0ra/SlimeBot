@@ -9,6 +9,8 @@ import {
   mdiDownloadOutline,
   mdiPinOutline,
   mdiPinOffOutline,
+  mdiSourceBranch,
+  mdiFolderOutline,
   mdiMenu,
   mdiCalendarClockOutline,
   mdiPencilOutline,
@@ -21,6 +23,7 @@ import MdiIcon from '@/components/ui/MdiIcon.vue'
 import ChatComposer from '@/components/chat/ChatComposer.vue'
 import TerminalDrawer from '@/components/chat/TerminalDrawer.vue'
 import SessionExportDialog from '@/components/chat/SessionExportDialog.vue'
+import WorkspaceDrawer from '@/components/chat/WorkspaceDrawer.vue'
 import ChatCheckpointDialog from '@/components/chat/ChatCheckpointDialog.vue'
 import CooperativePanel from '@/components/chat/CooperativePanel.vue'
 import ChatMessageList from '@/components/chat/ChatMessageList.vue'
@@ -46,6 +49,7 @@ import { skillsAPI } from '@/api/skills'
 import type { SessionItem } from '@/api/chat'
 import type { SkillItem } from '@/types/settings'
 import { getSlashCommands, type PromptTemplate, type WorkspaceCommand } from '@/utils/slashCommands'
+import { workspaceAPI, type WorkspaceGitStatus } from '@/api/workspace'
 import type { SettingsTabKey } from '@/types/settings'
 
 const {
@@ -92,6 +96,82 @@ const slashCommands = computed(() => getSlashCommands(
   templates.value, skills.value, command => t(`slashCommand.${command}`), name => t('slashSkillPrompt', { name }),
 ))
 const floatingSession = computed(() => store.sessions.find(session => session.id === sessions.activeSessionMenu?.id))
+const workspaceOpen = ref(false)
+const workspaceTab = ref<'git' | 'files'>('git')
+const workspaceSwitch = ref<HTMLButtonElement>()
+const cooperative = ref<InstanceType<typeof CooperativePanel>>()
+const gitStatus = ref<WorkspaceGitStatus>()
+const gitLoading = ref(false)
+const gitFailed = ref(false)
+const workspaceDirectory = computed(() => sessions.currentSession?.workingDirectory?.trim() || '')
+const workspaceName = computed(() => workspaceDirectory.value.split(/[\\/]/).filter(Boolean).pop() || workspaceDirectory.value)
+const drawerMedia = window.matchMedia('(max-width: 1023px)')
+const workspaceModal = ref(drawerMedia.matches)
+const workspaceOverlay = computed(() => workspaceOpen.value && workspaceModal.value)
+let statusRequest: AbortController | undefined
+
+function updateWorkspaceMedia(event: MediaQueryListEvent) {
+  workspaceModal.value = event.matches
+}
+
+async function refreshGitStatus() {
+  statusRequest?.abort()
+  const id = store.currentSessionId
+  if (isTasksWorkspace.value || !id || !workspaceDirectory.value) return
+  const request = new AbortController()
+  statusRequest = request
+  gitLoading.value = true
+  gitFailed.value = false
+  try {
+    const status = await workspaceAPI.status(id, request.signal)
+    if (!request.signal.aborted) gitStatus.value = status
+  } catch {
+    if (!request.signal.aborted) gitFailed.value = true
+  } finally {
+    if (!request.signal.aborted) gitLoading.value = false
+  }
+}
+
+watch([() => store.currentSessionId, workspaceDirectory, isTasksWorkspace], () => {
+  workspaceOpen.value = false
+  gitStatus.value = undefined
+  gitLoading.value = false
+  gitFailed.value = false
+  void refreshGitStatus()
+}, { immediate: true })
+watch(() => store.waiting, (waiting, wasWaiting) => {
+  if (!waiting && wasWaiting) void refreshGitStatus()
+})
+
+async function closeWorkspace(restoreFocus = true) {
+  workspaceOpen.value = false
+  if (restoreFocus) {
+    await nextTick()
+    workspaceSwitch.value?.focus()
+  }
+}
+
+function openWorkspace(toggle = false) {
+  if (!workspaceDirectory.value || !store.currentSessionId) {
+    toast.warning(t('slashNeedsWorkspace'))
+    return
+  }
+  if (workspaceOpen.value && toggle) {
+    void closeWorkspace()
+    return
+  }
+  cooperative.value?.close()
+  workspaceTab.value = gitStatus.value?.isRepo ? 'git' : 'files'
+  workspaceOpen.value = true
+}
+
+async function quoteWorkspacePath(path: string) {
+  const longest = Math.max(0, ...(path.match(/`+/g) ?? []).map(match => match.length))
+  const fence = '`'.repeat(longest + 1)
+  const text = path.replace(/[\r\n]/g, ' ')
+  if (workspaceOverlay.value) await closeWorkspace(false)
+  await appendToComposer(t('workspaceQuote', { path: `${fence} ${text} ${fence}` }))
+}
 
 async function refreshSlashCommands() {
   await Promise.allSettled([
@@ -135,7 +215,7 @@ function runSlashAction(command: WorkspaceCommand) {
       if (sessions.currentSession) openPrivacyMappingConfirmation()
       else toast.warning(t('slashNeedsSession'))
       break
-    case 'workspace': toast.warning(t('slashNeedsWorkspace')); break
+    case 'workspace': openWorkspace(); break
   }
 }
 
@@ -369,6 +449,7 @@ const { isMac, isDesktop } = useHomeShortcuts({
     || accountDialogVisible.value
     || checkpointSessionId.value
     || exportSession.value
+    || workspaceOverlay.value
     || privacyMappingTarget.value
     || store.pendingQuestions,
   ),
@@ -414,6 +495,7 @@ const { isMac, isDesktop } = useHomeShortcuts({
 })
 
 onMounted(() => {
+  drawerMedia.addEventListener('change', updateWorkspaceMedia)
   void refreshSlashCommands()
   void terminal.refresh().catch(() => {})
   void checkForUpdate()
@@ -424,6 +506,8 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
+  drawerMedia.removeEventListener('change', updateWorkspaceMedia)
+  statusRequest?.abort()
   window.removeEventListener('dragover', onWindowDragOver)
   window.removeEventListener('drop', onWindowDrop)
   window.removeEventListener('dragend', resetDragDepth)
@@ -443,6 +527,7 @@ onUnmounted(() => {
     :turn-running="store.waiting"
     :workspace-running="store.waiting || store.backgroundTaskCount > 0"
     @close="checkpointSessionId = undefined"
+    @restored="refreshGitStatus"
   />
   <AppDialog
     :visible="!!privacyMappingTarget"
@@ -477,6 +562,7 @@ onUnmounted(() => {
       <Transition name="sidebar">
         <HomeSidebar
           v-if="ui.drawerOpen"
+          :inert="workspaceOverlay"
           :sessions="store.sessions"
           :current-session-id="isTasksWorkspace ? undefined : store.currentSessionId"
           :tasks-active="isTasksWorkspace"
@@ -503,7 +589,7 @@ onUnmounted(() => {
       </Transition>
 
       <!-- ───── Main content ───── -->
-      <main class="relative z-0 flex-1 flex flex-col min-w-0">
+      <main class="relative z-0 flex-1 flex flex-col min-w-0" :inert="workspaceOverlay">
 
         <header v-if="isTasksWorkspace" class="header-bar flex items-center gap-2.5 h-12 shrink-0 px-3">
           <button type="button" class="sb-text-muted w-8 h-8 flex items-center justify-center rounded-lg cursor-pointer" :aria-label="t('scheduleToggleSidebar')" @click="ui.toggleSidebar"><MdiIcon :path="mdiMenu" :size="18" /></button>
@@ -530,14 +616,25 @@ onUnmounted(() => {
           @clear-privacy-mappings="openPrivacyMappingConfirmation"
         >
           <template #right>
+            <button
+              v-if="workspaceDirectory" ref="workspaceSwitch" type="button" class="workspace-header-button"
+              :aria-pressed="workspaceOpen" :aria-label="t('workspaceDrawer')" :title="workspaceDirectory"
+              @click="openWorkspace(true)"
+            >
+              <MdiIcon :path="gitStatus?.isRepo ? mdiSourceBranch : mdiFolderOutline" :size="15" />
+              <code>{{ gitStatus?.isRepo ? gitStatus.branch : workspaceName }}</code>
+              <span v-if="gitStatus?.changes.length" class="workspace-header-count">{{ gitStatus.changes.length }}{{ gitStatus.truncated ? '+' : '' }}</span>
+            </button>
             <button type="button" class="terminal-header-button" :aria-pressed="terminal.isOpen" :title="t('terminalTitle') + (isMac ? ' (⌘`)' : ' (Ctrl+`)')" :aria-label="t('terminalTitle')" @click="toggleTerminal">
               <MdiIcon :path="mdiConsoleLine" :size="17" />
               <span v-if="terminal.hasRunning && !terminal.isOpen" class="terminal-header-dot" />
             </button>
             <CooperativePanel
+              ref="cooperative"
               header
               :session-id="store.currentSessionId"
-              @settled="id => !store.waiting && store.loadNewMessagesForSession(id)"
+              @opened="closeWorkspace(false)"
+              @settled="id => { if (!store.waiting) { void store.loadNewMessagesForSession(id); void refreshGitStatus() } }"
             />
           </template>
         </HomeHeaderBar>
@@ -721,6 +818,13 @@ onUnmounted(() => {
         />
         </template>
       </main>
+      <WorkspaceDrawer
+        v-if="workspaceOpen && store.currentSessionId && !isTasksWorkspace" v-model:tab="workspaceTab"
+        :session-id="store.currentSessionId" :directory="workspaceDirectory"
+        :status="gitStatus" :status-loading="gitLoading" :status-failed="gitFailed"
+        :can-quote="!sessions.isMessagePlatformSession" :modal="workspaceModal"
+        @close="closeWorkspace()" @refresh="refreshGitStatus" @quote="quoteWorkspacePath"
+      />
     </div>
 
     <!-- ───── Floating session menu ───── -->

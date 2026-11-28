@@ -55,22 +55,23 @@ function onClearPrivacyClick() {
 </script>
 
 <template>
-  <header class="header-bar relative z-30 flex items-center justify-center h-12 flex-shrink-0" @keydown.esc="dismissTopMenu">
+  <header class="header-bar relative z-30 flex items-center h-12 flex-shrink-0 px-3 gap-2" @keydown.esc="dismissTopMenu">
     <button
       type="button"
-      class="sb-text-muted absolute left-3 w-8 h-8 flex items-center justify-center rounded-lg hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] transition-colors duration-150 cursor-pointer"
+      class="sb-text-muted w-8 h-8 flex shrink-0 items-center justify-center rounded-lg hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] transition-colors duration-150 cursor-pointer"
       :aria-label="t('scheduleToggleSidebar')"
       @click.stop="emit('toggleSidebar')"
     >
       <MdiIcon :path="mdiMenu" :size="19" />
     </button>
 
+    <div class="min-w-0 flex flex-1 items-center">
     <button
       v-if="currentSession && canManageCurrentSession"
       ref="titleButton"
       type="button"
       :aria-expanded="topMenuVisible"
-      class="group/tip flex min-w-0 items-center gap-1.5 px-2.5 py-1 rounded-lg transition-colors duration-150 cursor-pointer max-w-[280px] header-title-btn"
+      class="group/tip flex min-w-0 items-center gap-1.5 px-2.5 py-1 rounded-lg transition-colors duration-150 cursor-pointer max-w-full header-title-btn"
       @click.stop="toggleTopMenu"
     >
       <TruncationTooltip
@@ -98,15 +99,16 @@ function onClearPrivacyClick() {
       />
       <span class="text-[10px] px-1.5 py-0.5 rounded-md platform-badge">IM</span>
     </div>
+    </div>
 
-    <div class="absolute right-3 flex items-center gap-2">
+    <div class="flex shrink-0 items-center gap-1.5">
       <div
         v-if="networkStatusText"
         class="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium"
         :class="connectionStatus === 'reconnecting' ? 'status-warning' : 'status-error'"
       >
         <span class="w-1.5 h-1.5 rounded-full animate-pulse" :class="connectionStatus === 'reconnecting' ? 'bg-amber-400' : 'bg-red-400'" />
-        {{ networkStatusText }}
+        <span class="max-sm:sr-only">{{ networkStatusText }}</span>
       </div>
       <slot name="right" />
     </div>

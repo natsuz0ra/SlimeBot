@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"sync"
 
 	"github.com/aymanbagabas/go-pty"
@@ -35,7 +36,7 @@ func startPTY(shell, cwd string, cols, rows int) (PTY, error) {
 	}
 	cmd := p.Command(shell)
 	cmd.Dir = cwd
-	cmd.Env = append(os.Environ(), "TERM=xterm-256color", "COLORTERM=truecolor")
+	cmd.Env = filteredTerminalEnv(os.Environ())
 	if err := cmd.Start(); err != nil {
 		_ = p.Close()
 		return nil, err
@@ -61,6 +62,19 @@ func (p *processPTY) Wait() int {
 		return -1
 	}
 	return p.cmd.ProcessState.ExitCode()
+}
+
+func filteredTerminalEnv(environ []string) []string {
+	env := make([]string, 0, len(environ)+2)
+	for _, item := range environ {
+		key, _, _ := strings.Cut(item, "=")
+		switch strings.ToUpper(key) {
+		case "JWT_SECRET", "SLIMEBOT_CLI_TOKEN", "SLIMEBOT_DESKTOP_TOKEN", "TERM", "COLORTERM":
+			continue
+		}
+		env = append(env, item)
+	}
+	return append(env, "TERM=xterm-256color", "COLORTERM=truecolor")
 }
 
 func DetectShell(preferred ...string) string {

@@ -29,6 +29,26 @@ export function chooseEngine(options: SelectOption[], selected: string | undefin
   return options[0]?.value || ''
 }
 
+export function resolveSessionSwitchEngine(
+  localOptions: SelectOption[],
+  enabledAgents: ACPConfig[],
+  currentSelected: string,
+  agentId: string | undefined,
+  existingSession: boolean,
+  lastLocalModelId: string,
+): string | undefined {
+  if (agentId && enabledAgents.some(agent => agent.id === agentId)) {
+    return acpEngineId(agentId)
+  }
+  if (existingSession && !agentId && isACPEngine(currentSelected)) {
+    if (lastLocalModelId && localOptions.some(option => option.value === lastLocalModelId)) {
+      return lastLocalModelId
+    }
+    return localOptions[0]?.value
+  }
+  return undefined
+}
+
 export function parseACPArguments(input: string): string[] {
   if (!input.trim()) return []
   if (input.trimStart().startsWith('[')) {

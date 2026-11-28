@@ -118,7 +118,7 @@ func (m *Manager) Create(owner string, opts Options, configuredShell string) (Se
 	}
 	now := time.Now()
 	info := SessionInfo{ID: uuid.NewString(), Options: opts, Status: "running", CreatedAt: now, LastActiveAt: now,
-		Title: strings.TrimSuffix(filepath.Base(opts.Shell), ".exe") + " · " + filepath.Base(opts.Cwd)}
+		Title: trimExeSuffix(filepath.Base(opts.Shell)) + " · " + filepath.Base(opts.Cwd)}
 	s := &Session{owner: owner, pty: p, info: info, subscribers: make(map[chan []byte]struct{}), closed: make(chan struct{}), done: make(chan struct{})}
 	m.sessions[info.ID] = s
 	m.running++
@@ -246,6 +246,13 @@ type Session struct {
 }
 
 func validSize(cols, rows int) bool { return cols >= 1 && cols <= 500 && rows >= 1 && rows <= 500 }
+
+func trimExeSuffix(name string) string {
+	if len(name) >= 4 && strings.EqualFold(name[len(name)-4:], ".exe") {
+		return name[:len(name)-4]
+	}
+	return name
+}
 
 func (s *Session) Info() SessionInfo {
 	s.mu.Lock()

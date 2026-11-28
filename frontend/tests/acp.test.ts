@@ -7,6 +7,7 @@ import {
   composeEngineOptions,
   isACPEngine,
   parseACPArguments,
+  resolveSessionSwitchEngine,
 } from '../src/utils/acp.ts'
 import type { ACPConfig } from '../src/api/acp.ts'
 import type { SelectOption } from '../src/components/ui/AppSelect.vue'
@@ -74,6 +75,16 @@ test('chooseEngine prefers a still-valid selection, then the bound session agent
   assert.equal(chooseEngine(options, undefined, undefined, 'stale'), 'a1')
   assert.equal(chooseEngine([], undefined, 'on', 'b1'), 'acp:on')
   assert.equal(chooseEngine([], undefined, undefined, 'b1'), '')
+})
+
+test('resolveSessionSwitchEngine switches between ACP-bound and existing local sessions cleanly', () => {
+  const agents = [agent({ id: 'on', name: 'Zed' })]
+
+  assert.equal(resolveSessionSwitchEngine(localOptions, agents, 'a1', 'on', true, 'b1'), 'acp:on')
+  assert.equal(resolveSessionSwitchEngine(localOptions, agents, 'acp:on', undefined, true, 'b1'), 'b1')
+  assert.equal(resolveSessionSwitchEngine(localOptions, agents, 'acp:on', undefined, true, 'stale'), 'a1')
+  assert.equal(resolveSessionSwitchEngine(localOptions, agents, 'acp:on', undefined, false, 'b1'), undefined)
+  assert.equal(resolveSessionSwitchEngine(localOptions, agents, 'a1', undefined, true, 'b1'), undefined)
 })
 
 test('parseACPArguments accepts JSON arrays and newline separated values', () => {

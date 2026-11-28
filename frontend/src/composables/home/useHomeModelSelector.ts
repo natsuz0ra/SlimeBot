@@ -4,7 +4,7 @@ import { llmAPI } from '@/api/llm'
 import { acpAPI, type ACPConfig } from '@/api/acp'
 import type { LLMConfig } from '@/types/settings'
 import { groupedModelOptions } from '@/utils/modelSelectOptions'
-import { acpAgentIdFromEngine, acpEngineId, chooseEngine, composeEngineOptions, isACPEngine } from '@/utils/acp'
+import { acpAgentIdFromEngine, chooseEngine, composeEngineOptions, isACPEngine, resolveSessionSwitchEngine } from '@/utils/acp'
 
 const MODEL_STORAGE_KEY = 'slimebot:selectedModelId'
 const THINKING_STORAGE_KEY = 'slimebot:thinkingLevel'
@@ -16,6 +16,7 @@ export function useHomeModelSelector() {
   const acpAgents = ref<ACPConfig[]>([])
   const boundAgentId = ref<string>()
   const selectedModelId = ref('')
+  const lastLocalModelId = ref('')
   const thinkingLevel = ref(localStorage.getItem(THINKING_STORAGE_KEY) || 'off')
   const subagentModelId = ref(localStorage.getItem(SUBAGENT_MODEL_STORAGE_KEY) || '')
 
@@ -43,6 +44,9 @@ export function useHomeModelSelector() {
   ])
 
   function syncModelToLocal(modelId: string) {
+    if (modelId && !isACPEngine(modelId)) {
+      lastLocalModelId.value = modelId
+    }
     if (!modelId) {
       localStorage.removeItem(MODEL_STORAGE_KEY)
       return
@@ -68,7 +72,7 @@ export function useHomeModelSelector() {
     modelOptions.value = latestModels
     const remembered = localStorage.getItem(MODEL_STORAGE_KEY)
     const bound = boundAgentId.value && enabledACPAgents.value.some(agent => agent.id === boundAgentId.value)
-      ? acpEngineId(boundAgentId.value!)
+      ? boundAgentId.value
       : undefined
     const next = chooseEngine(
       engineSelectOptions.value,
@@ -85,11 +89,19 @@ export function useHomeModelSelector() {
     syncModelToLocal(modelId)
   }
 
-  function applySessionAgent(agentId?: string) {
+  function applySessionAgent(agentId?: string, existingSession = false) {
     boundAgentId.value = agentId
-    if (agentId && enabledACPAgents.value.some(agent => agent.id === agentId)) {
-      selectedModelId.value = acpEngineId(agentId)
-      syncModelToLocal(selectedModelId.value)
+    const next = resolveSessionSwitchEngine(
+      modelSelectOptions.value,
+      enabledACPAgents.value,
+      selectedModelId.value,
+      agentId,
+      existingSession,
+      lastLocalModelId.value,
+    )
+    if (next) {
+      selectedModelId.value = next
+      syncModelToLocal(next)
     }
   }
 

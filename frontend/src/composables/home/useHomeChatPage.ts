@@ -104,8 +104,8 @@ export function useHomeChatPage() {
   })
 
   watch(
-    () => sessionActions.currentSession.value?.acpAgentId,
-    (agentId) => modelState.applySessionAgent(agentId),
+    () => [sessionActions.currentSession.value?.id, sessionActions.currentSession.value?.acpAgentId] as const,
+    ([sessionId, agentId]) => modelState.applySessionAgent(agentId, Boolean(sessionId)),
     { immediate: true },
   )
 

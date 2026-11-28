@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"net/http"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -169,11 +170,8 @@ func (b *bridge) LoadSession(ctx context.Context, req sdk.LoadSessionRequest) (s
 	if err != nil {
 		return sdk.LoadSessionResponse{}, err
 	}
-	if history.Session.WorkingDirectory != "" {
-		relative, err := filepath.Rel(history.Session.WorkingDirectory, state.cwd)
-		if err != nil || relative != "." {
-			return sdk.LoadSessionResponse{}, sdk.NewInvalidParams("cwd differs from the saved session workspace")
-		}
+	if history.Session.WorkingDirectory != "" && !sameWorkspaceDirectory(history.Session.WorkingDirectory, state.cwd) {
+		return sdk.LoadSessionResponse{}, sdk.NewInvalidParams("cwd differs from the saved session workspace")
 	}
 	options, err := b.options(ctx, state)
 	if err != nil {
@@ -259,6 +257,16 @@ func (b *bridge) SetSessionConfigOption(ctx context.Context, req sdk.SetSessionC
 	b.mu.Unlock()
 	options, err := b.options(ctx, state)
 	return sdk.SetSessionConfigOptionResponse{ConfigOptions: options}, err
+}
+
+func sameWorkspaceDirectory(saved, current string) bool {
+	if savedInfo, err := os.Stat(saved); err == nil {
+		if currentInfo, err := os.Stat(current); err == nil {
+			return os.SameFile(savedInfo, currentInfo)
+		}
+	}
+	relative, err := filepath.Rel(saved, current)
+	return err == nil && relative == "."
 }
 
 func ValidApprovalMode(value string) bool {

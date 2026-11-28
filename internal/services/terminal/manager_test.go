@@ -75,3 +75,25 @@ func TestPTYInputResizeExitAndReplay(t *testing.T) {
 		t.Fatalf("exit info %#v, output %q", end, got)
 	}
 }
+
+func TestFilteredTerminalEnvStripsInternalSecrets(t *testing.T) {
+	env := filteredTerminalEnv([]string{
+		"PATH=/usr/bin",
+		"JWT_SECRET=top-secret",
+		"slimebot_cli_token=cli-secret",
+		"SLIMEBOT_DESKTOP_TOKEN=desk-secret",
+		"TERM=dumb",
+	})
+	joined := strings.Join(env, "\n")
+	for _, secret := range []string{"JWT_SECRET=", "cli-secret", "desk-secret", "TERM=dumb"} {
+		if strings.Contains(joined, secret) {
+			t.Fatalf("unexpected secret or stale TERM in env: %q", joined)
+		}
+	}
+	if !strings.Contains(joined, "TERM=xterm-256color") || !strings.Contains(joined, "COLORTERM=truecolor") || !strings.Contains(joined, "PATH=/usr/bin") {
+		t.Fatalf("missing expected terminal env entries: %q", joined)
+	}
+	if got := trimExeSuffix("PWSH.EXE"); got != "PWSH" {
+		t.Fatalf("trimExeSuffix(PWSH.EXE) = %q, want PWSH", got)
+	}
+}

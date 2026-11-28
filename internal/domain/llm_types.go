@@ -25,8 +25,7 @@ type ModelRuntimeConfig struct {
 	Purpose         string
 }
 
-// orchestration, and provider adapters.
-// ToolDef is passed to the LLM tools API.
+// ToolDef describes one callable tool schema passed to the LLM tools API.
 type ToolDef struct {
 	Name        string
 	Description string
@@ -94,20 +93,6 @@ type TokenUsage struct {
 	// TotalTokens is the provider-reported total for the request when available.
 	// It is the best available snapshot of the context window used by that call.
 	TotalTokens int `json:"totalTokens,omitempty"`
-}
-
-func (u TokenUsage) TotalContextTokens() int {
-	if u.TotalTokens > 0 {
-		return u.TotalTokens
-	}
-	return u.InputTokens + u.OutputTokens + u.CacheCreationInputTokens + u.CacheReadInputTokens
-}
-
-func (u TokenUsage) ContextWindowTokens() int {
-	if u.TotalTokens > 0 {
-		return u.TotalTokens
-	}
-	return u.InputTokens + u.CacheCreationInputTokens + u.CacheReadInputTokens
 }
 
 // InputContextTokens excludes output and counts provider caches exactly once.

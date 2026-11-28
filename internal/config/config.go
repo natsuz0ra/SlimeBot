@@ -75,15 +75,15 @@ func load(strict bool) (Config, error) {
 		{key: "CONTEXT_HISTORY_ROUNDS", fallback: defaultContextHistoryRounds, target: &cfg.ContextHistoryRounds},
 		{key: "DEFAULT_CONTEXT_SIZE", fallback: defaultContextSize, target: &cfg.DefaultContextSize},
 	} {
-		value := GetIntEnv(item.key, item.fallback)
 		if strict {
 			parsed, err := parseIntEnv(item.key, item.fallback)
 			if err != nil {
 				return Config{}, err
 			}
-			value = parsed
+			*item.target = parsed
+		} else {
+			*item.target = GetIntEnv(item.key, item.fallback)
 		}
-		*item.target = value
 	}
 	return cfg, nil
 }

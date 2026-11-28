@@ -224,12 +224,12 @@ export interface TeamMemberData {
 
 function normalizeTeamRun(data: Extract<ChatWSEvent, { type: 'team_start' | 'team_done' }>): TeamRunData {
   return {
-    id: data.teamRunId || data.id || '',
+    id: data.teamRunId ?? data.id!,
     sessionId: data.sessionId || '',
     requestId: data.requestId || '',
     status: data.status === 'completed' ? 'succeeded' : (data.status || 'running'),
-    maxMembers: Number(data.maxMembers) || 8,
-    maxParallel: Number(data.maxParallel) || 4,
+    maxMembers: data.maxMembers || 8,
+    maxParallel: data.maxParallel || 4,
     lastError: data.lastError,
     startedAt: data.startedAt || data.createdAt || '',
     finishedAt: data.finishedAt,
@@ -240,8 +240,8 @@ function normalizeTeamRun(data: Extract<ChatWSEvent, { type: 'team_start' | 'tea
 
 function normalizeTeamMember(data: Extract<ChatWSEvent, { type: 'team_member_queued' }>): TeamMemberData {
   return {
-    id: data.memberRunId || '',
-    teamRunId: data.teamRunId || '',
+    id: data.memberRunId,
+    teamRunId: data.teamRunId,
     toolCallId: data.toolCallId || '',
     subagentRunId: data.subagentRunId,
     title: data.title || '',

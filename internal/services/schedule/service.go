@@ -847,9 +847,6 @@ func (m *MemoryStore) DeleteScheduledTask(_ context.Context, id string) error {
 func (m *MemoryStore) CreateScheduledTaskRun(_ context.Context, run *domain.ScheduledTaskRun) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if run.ID == "" {
-		run.ID = uuid.NewString()
-	}
 	m.runs = append(m.runs, *run)
 	return nil
 }
@@ -865,9 +862,6 @@ func (m *MemoryStore) ClaimScheduledTaskRun(_ context.Context, taskID string, cl
 	task.NextRunAt = nextRunAt
 	task.UpdatedAt = time.Now()
 	m.tasks[taskID] = task
-	if run.ID == "" {
-		run.ID = uuid.NewString()
-	}
 	run.TaskID = taskID
 	run.Status = domain.ScheduledTaskRunStatusRunning
 	m.runs = append(m.runs, *run)
@@ -882,9 +876,6 @@ func (m *MemoryStore) CompleteScheduledTaskRun(_ context.Context, taskID, runID 
 		return false, fmt.Errorf("scheduled task %s not found", taskID)
 	}
 	if runID == "" {
-		if run.ID == "" {
-			run.ID = uuid.NewString()
-		}
 		run.TaskID = taskID
 		m.runs = append(m.runs, *run)
 	} else {

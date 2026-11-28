@@ -58,7 +58,7 @@ test("socket disconnect settles active chat, thinking, tools, and approval UI", 
   assert.deepEqual(state.pendingApprovals, []);
   assert.equal(state.qaToolCallId, "");
   assert.equal(state.timeline[0].thinkingDone, true);
-  assert.equal(state.timeline[1].subagentThinking?.thinkingDone, true);
+  assert.equal(state.timeline[1].subagentThinkings?.at(-1)?.thinkingDone, true);
   assert.equal(state.timeline[1].status, "error");
   assert.deepEqual(state.timeline[2], { kind: "assistant", content: "partial answer" });
   assert.match(state.timeline[3].content, /connection interrupted/i);
@@ -859,9 +859,9 @@ test("tagged subagent thinking updates parent tool instead of global timeline", 
 	});
 
 	assert.deepEqual(state.timeline.map((entry) => entry.kind), ["tool"]);
-	assert.equal(state.timeline[0].subagentThinking?.content, "child reasoning");
-	assert.equal(state.timeline[0].subagentThinking?.thinkingDone, true);
-	assert.equal(state.timeline[0].subagentThinking?.thinkingDurationMs, 400);
+	assert.equal(state.timeline[0].subagentThinkings?.at(-1)?.content, "child reasoning");
+	assert.equal(state.timeline[0].subagentThinkings?.at(-1)?.thinkingDone, true);
+	assert.equal(state.timeline[0].subagentThinkings?.at(-1)?.thinkingDurationMs, 400);
 
 	state = reduce(state, {
 		type: "THINKING_START", parentToolCallId: "parent-tool", subagentRunId: "sub-run", startedAt: 1_500,
@@ -889,11 +889,11 @@ test("SUBAGENT_DONE closes open subagent thinking and marks failed parent tool",
 			toolName: "run_subagent",
 			command: "delegate",
 			status: "executing",
-			subagentThinking: {
+			subagentThinkings: [{
 				content: "child reasoning",
 				thinkingDone: false,
 				thinkingStartedAt: 1_000,
-			},
+			}],
 		}],
 	};
 
@@ -906,8 +906,8 @@ test("SUBAGENT_DONE closes open subagent thinking and marks failed parent tool",
 
 	assert.equal(state.timeline[0].status, "error");
 	assert.equal(state.timeline[0].error, "context canceled");
-	assert.equal(state.timeline[0].subagentThinking?.thinkingDone, true);
-	assert.equal(state.timeline[0].subagentThinking?.thinkingDurationMs, 500);
+	assert.equal(state.timeline[0].subagentThinkings?.at(-1)?.thinkingDone, true);
+	assert.equal(state.timeline[0].subagentThinkings?.at(-1)?.thinkingDurationMs, 500);
 });
 
 test("STREAM_DONE closes open subagent thinking and open tool states", () => {
@@ -921,11 +921,11 @@ test("STREAM_DONE closes open subagent thinking and open tool states", () => {
 			toolName: "run_subagent",
 			command: "delegate",
 			status: "executing",
-			subagentThinking: {
+			subagentThinkings: [{
 				content: "child reasoning",
 				thinkingDone: false,
 				thinkingStartedAt: 1_000,
-			},
+			}],
 		}],
 	};
 
@@ -933,7 +933,7 @@ test("STREAM_DONE closes open subagent thinking and open tool states", () => {
 
 	assert.equal(next.timeline[0].status, "error");
 	assert.equal(next.timeline[0].error, "Execution cancelled.");
-	assert.equal(next.timeline[0].subagentThinking?.thinkingDone, true);
+	assert.equal(next.timeline[0].subagentThinkings?.at(-1)?.thinkingDone, true);
 });
 
 test("STREAM_DONE keeps final assistant when previous timeline already has a plan", () => {

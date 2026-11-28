@@ -74,9 +74,7 @@ type turnToolRuntimeKey struct{}
 
 // WithTurnToolRuntime bridges the typed runtime to the registered Tool API.
 func WithTurnToolRuntime(ctx context.Context, runtime TurnToolRuntime) context.Context {
-	if runtime.SandboxPolicy != nil {
-		ctx = sandbox.WithPolicy(ctx, runtime.SandboxPolicy)
-	}
+	ctx = sandbox.WithPolicy(ctx, runtime.SandboxPolicy)
 	return context.WithValue(ctx, turnToolRuntimeKey{}, runtime)
 }
 

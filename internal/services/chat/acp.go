@@ -27,14 +27,6 @@ type acpTurnClient interface {
 	Reset(ctx context.Context, session *domain.Session) error
 }
 
-func (s *ChatService) SetACPClient(manager *acpclient.Manager) {
-	if manager == nil {
-		s.acp = nil
-		return
-	}
-	s.acp = manager
-}
-
 func (s *ChatService) acpRoute(session *domain.Session, modelID string) (string, error) {
 	modelID = strings.TrimSpace(modelID)
 	if id, explicit := strings.CutPrefix(modelID, "acp:"); explicit {

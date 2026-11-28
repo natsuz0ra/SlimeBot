@@ -15,7 +15,7 @@ import type {
   ToolCallReviewData,
   ToolCallStartData,
 } from '../../../shared/chat-protocol/dispatch.js'
-import { parseContentMarkers, stripContentMarkers } from '../utils/contentMarkers'
+import { isOpenToolStatus, parseContentMarkers, stripContentMarkers } from '../../../shared/chat-protocol/timeline.js'
 import {
   appendPlanBodyToBatch,
   appendPlanChunkToBatch,
@@ -32,7 +32,6 @@ import {
 import { applyEditedUserMessage } from '../utils/messageEditing'
 import {
   buildInterleavedTimeline,
-  normalizeToolStatus,
   type AssistantReplyBatch,
   type AssistantReplyTimelineItem,
 } from '../utils/replyBatchBuilder'
@@ -347,7 +346,7 @@ function reduceToolResult(state: ChatRuntimeState, data: ToolCallResultData, dep
   return withCurrentBatch(state, (next, batch) => {
     const item = batch.toolCalls.find(tool => tool.toolCallId === data.toolCallId)
     if (item) {
-      item.status = normalizeToolStatus(data.status, data.error)
+      item.status = data.status
       item.output = data.output
       item.error = data.error
       item.metadata = data.metadata
@@ -518,7 +517,7 @@ export function reduceChatRuntimeEvent(
         finishSubagentThinking(batch, event.data.parentToolCallId, deps.now())
         if (event.data.error) {
           const parent = batch.toolCalls.find(tool => tool.toolCallId === event.data.parentToolCallId)
-          if (parent && (parent.status === 'pending' || parent.status === 'reviewing' || parent.status === 'executing')) {
+          if (parent && isOpenToolStatus(parent.status)) {
             markToolCallError(batch, event.data.parentToolCallId, event.data.error, deps.now())
           }
         }

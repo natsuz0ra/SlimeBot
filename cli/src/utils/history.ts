@@ -37,7 +37,7 @@ function timelineToolEntry({ record: tc, subagentThinkings }: ProjectedTool<Tool
     ...(tc.teamRunId ? { teamRunId: tc.teamRunId } : {}),
     ...(tc.memberRunId ? { memberRunId: tc.memberRunId } : {}),
     ...subagentHistoryFields(tc),
-    ...(thinkings.length > 0 ? { subagentThinkings: thinkings, subagentThinking: thinkings.at(-1) } : {}),
+    ...(thinkings.length > 0 ? { subagentThinkings: thinkings } : {}),
   };
 }
 

@@ -465,10 +465,10 @@ test("formatSubagentThinkingLines shows live child reasoning while sub-agent is 
     content: "",
     toolName: "run_subagent",
     status: "executing",
-    subagentThinking: {
+    subagentThinkings: [{
       content: "checking files before answering",
       thinkingDone: false,
-    },
+    }],
   };
 
   const lines = formatSubagentThinkingLines(entry, 80, false);
@@ -483,11 +483,11 @@ test("formatSubagentThinkingLines collapses completed child reasoning by default
     content: "",
     toolName: "run_subagent",
     status: "completed",
-    subagentThinking: {
+    subagentThinkings: [{
       content: Array.from({ length: 8 }, (_, i) => `child reason ${i + 1}`).join("\n"),
       thinkingDone: true,
       thinkingDurationMs: 1200,
-    },
+    }],
   };
 
   const lines = formatSubagentThinkingLines(entry, 80, false);
@@ -751,11 +751,11 @@ function runSubagentFixture(): { parent: TimelineEntry; nested: TimelineEntry[] 
         priority: "high",
       },
       output: "final result line 1\nfinal result line 2\nfinal result line 3\nfinal result line 4",
-      subagentThinking: {
+      subagentThinkings: [{
         content: "child reason 1\nchild reason 2\nchild reason 3\nchild reason 4",
         thinkingDone: true,
         thinkingDurationMs: 1250,
-      },
+      }],
     },
     nested: [{
       kind: "tool",
@@ -815,10 +815,10 @@ test("formatRunSubagentDetailLines shows active subagent thinking without detail
   const { parent, nested } = runSubagentFixture();
   parent.status = "executing";
   parent.output = "";
-  parent.subagentThinking = {
+  parent.subagentThinkings = [{
     content: "private child reasoning",
     thinkingDone: false,
-  };
+  }];
 
   const lines = formatRunSubagentDetailLines(parent, nested, 100, true);
 

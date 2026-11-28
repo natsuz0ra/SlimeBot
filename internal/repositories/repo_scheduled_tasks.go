@@ -61,9 +61,6 @@ func (r *Repository) DeleteScheduledTask(ctx context.Context, id string) error {
 }
 
 func (r *Repository) CreateScheduledTaskRun(ctx context.Context, run *domain.ScheduledTaskRun) error {
-	if run.ID == "" {
-		run.ID = uuid.NewString()
-	}
 	return r.dbWithContext(ctx).Create(run).Error
 }
 
@@ -80,9 +77,6 @@ func (r *Repository) ClaimScheduledTaskRun(ctx context.Context, taskID string, c
 		}
 		if result.RowsAffected != 1 {
 			return nil
-		}
-		if run.ID == "" {
-			run.ID = uuid.NewString()
 		}
 		run.TaskID = taskID
 		run.Status = domain.ScheduledTaskRunStatusRunning
@@ -101,9 +95,6 @@ func (r *Repository) CompleteScheduledTaskRun(ctx context.Context, taskID, runID
 	completed := false
 	err := r.dbWithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if runID == "" {
-			if run.ID == "" {
-				run.ID = uuid.NewString()
-			}
 			run.TaskID = taskID
 			if err := tx.Create(run).Error; err != nil {
 				return err

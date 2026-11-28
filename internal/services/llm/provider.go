@@ -80,10 +80,10 @@ func ValidateProviderName(provider string) error {
 // Unknown protocols and known protocols without an implementation are errors;
 // neither case silently falls back to OpenAI.
 func (f *Factory) ResolveProvider(provider string) (Provider, error) {
-	if err := ValidateProviderName(provider); err != nil {
+	name := NormalizeProviderName(provider)
+	if err := ValidateProviderName(name); err != nil {
 		return nil, err
 	}
-	name := NormalizeProviderName(provider)
 	p, ok := f.providers[name]
 	if !ok || p == nil {
 		return nil, fmt.Errorf("%w: LLM provider %q is not initialized", apperrors.ErrInvalidInput, name)

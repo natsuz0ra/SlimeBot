@@ -89,23 +89,25 @@ function isOpenToolStatus(status?: string): boolean {
   return status === "pending" || status === "reviewing" || status === "executing";
 }
 
+function computeThinkingDurationMs(startedAt: number | undefined, finishedAt: number, fallback: number | undefined): number | undefined {
+  return startedAt !== undefined ? Math.max(0, finishedAt - startedAt) : fallback;
+}
+
 function finishSubagentSegment(thinking: SubagentThinking, finishedAt: number): SubagentThinking {
   if (thinking.thinkingDone) return thinking;
-  const startedAt = thinking.thinkingStartedAt;
   return {
     ...thinking,
     thinkingDone: true,
-    thinkingDurationMs: startedAt !== undefined ? Math.max(0, finishedAt - startedAt) : thinking.thinkingDurationMs,
+    thinkingDurationMs: computeThinkingDurationMs(thinking.thinkingStartedAt, finishedAt, thinking.thinkingDurationMs),
   };
 }
 
 function finishThinkingEntry(entry: TimelineEntry, finishedAt: number): TimelineEntry {
   if (entry.kind === "thinking" && !entry.thinkingDone) {
-    const startedAt = entry.thinkingStartedAt;
     return {
       ...entry,
       thinkingDone: true,
-      thinkingDurationMs: startedAt !== undefined ? Math.max(0, finishedAt - startedAt) : entry.thinkingDurationMs,
+      thinkingDurationMs: computeThinkingDurationMs(entry.thinkingStartedAt, finishedAt, entry.thinkingDurationMs),
     };
   }
   if (entry.kind === "tool") {
@@ -214,7 +216,6 @@ export function chatReducer(state: AppState, action: AppAction): AppState | null
           ...nextEntry,
           subagentStream: nextEntry.subagentStream ?? previous.subagentStream,
           subagentThinkings: nextEntry.subagentThinkings ?? previous.subagentThinkings,
-          subagentThinking: nextEntry.subagentThinking ?? previous.subagentThinking,
         };
       }
       return { ...state, timeline: entries, turnTokenEstimate: state.streaming ? estimateTurnTokens(state, entries) : state.turnTokenEstimate };
@@ -452,8 +453,11 @@ export function chatReducer(state: AppState, action: AppAction): AppState | null
       const entries = [...state.timeline];
       for (let index = entries.length - 1; index >= 0; index--) {
         if (entries[index].kind === "thinking" && !entries[index].thinkingDone) {
-          const startedAt = entries[index].thinkingStartedAt;
-          const durationMs = startedAt !== undefined ? Math.max(0, (action.finishedAt ?? Date.now()) - startedAt) : entries[index].thinkingDurationMs;
+          const durationMs = computeThinkingDurationMs(
+            entries[index].thinkingStartedAt,
+            action.finishedAt ?? Date.now(),
+            entries[index].thinkingDurationMs,
+          );
           entries[index] = { ...entries[index], thinkingDone: true, thinkingDurationMs: durationMs };
           return { ...state, timeline: entries, turnThoughtDurationMs: durationMs };
         }

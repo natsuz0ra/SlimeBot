@@ -216,7 +216,7 @@ func (s *ChatService) SubscribeSessionEvents(sessionID string) (<-chan any, func
 					}
 				}
 				if !found {
-					items = append(items, newBackgroundTask(item).BackgroundTask)
+					items = append(items, item)
 				}
 			}
 		}

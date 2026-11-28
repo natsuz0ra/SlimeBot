@@ -357,7 +357,7 @@ test("mapHistoryMessages closes interrupted streaming subagent thinking history"
   const parent = entries.find((e) => e.kind === "tool" && e.toolCallId === "parent");
 
   assert.ok(parent && parent.kind === "tool");
-  assert.equal(parent.subagentThinking?.thinkingDone, true);
+  assert.equal(parent.subagentThinkings?.at(-1)?.thinkingDone, true);
 });
 
 test("mapHistoryMessages restores thinking entries from history markers", () => {

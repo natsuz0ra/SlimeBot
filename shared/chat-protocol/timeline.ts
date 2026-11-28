@@ -8,10 +8,6 @@ export type ContentSegment =
 
 const markerPattern = /\n?<!-- (TOOL_CALL:(.+?)|THINKING:(.+?)|PLAN_START|PLAN_END) -->\n?/g
 
-export function hasContentMarkers(content: string): boolean {
-  return new RegExp(markerPattern.source).test(content)
-}
-
 export function stripContentMarkers(content: string): string {
   return content.replace(markerPattern, '')
 }

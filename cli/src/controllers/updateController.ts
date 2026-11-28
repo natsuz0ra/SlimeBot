@@ -53,7 +53,7 @@ export function createUpdateController({ api, dispatch, appendSystem, getState }
     }
   };
 
-  const refreshUpdateJob = async (isCancelled: () => boolean = () => false) => {
+  const refreshUpdateJob = async (isCancelled: () => boolean) => {
     try {
       const job = await api.getUpdateJob();
       if (isCancelled()) return;

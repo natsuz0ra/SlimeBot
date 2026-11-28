@@ -414,8 +414,6 @@ export interface TimelineEntry {
   subagentStream?: string;
   /** Ordered thinking segments scoped to the parent run_subagent tool. */
   subagentThinkings?: SubagentThinking[];
-  /** Latest segment, also used by older timeline entries. */
-  subagentThinking?: SubagentThinking;
   /** Thinking entry: whether thinking is complete. */
   thinkingDone?: boolean;
   /** Thinking entry: started timestamp (ms since epoch). */

@@ -3,6 +3,7 @@ import type { ToolCallItem } from '@/api/chat'
 import type { ReplyTimelineEntry } from '@/types/chat'
 
 export interface ChatMessageContext {
+  sendToTerminal?: (code: string, language: string) => void
   waiting: ComputedRef<boolean>
   planGenerating: ComputedRef<boolean>
   latestEditableUserMessageId: ComputedRef<string>

@@ -5,6 +5,7 @@ import { isAxiosError } from 'axios'
 import { apiClient } from '@/api/client'
 import {
   mdiDeleteOutline,
+  mdiConsoleLine,
   mdiMenu,
   mdiCalendarClockOutline,
   mdiPencilOutline,
@@ -15,6 +16,7 @@ import QuestionAnswerDrawer from '@/components/chat/QuestionAnswerDrawer.vue'
 import TodoPanel from '@/components/chat/TodoPanel.vue'
 import MdiIcon from '@/components/ui/MdiIcon.vue'
 import ChatComposer from '@/components/chat/ChatComposer.vue'
+import TerminalDrawer from '@/components/chat/TerminalDrawer.vue'
 import ChatCheckpointDialog from '@/components/chat/ChatCheckpointDialog.vue'
 import CooperativePanel from '@/components/chat/CooperativePanel.vue'
 import ChatMessageList from '@/components/chat/ChatMessageList.vue'
@@ -33,6 +35,8 @@ import { useUpdateNotice } from '@/composables/useUpdateNotice'
 import { useTheme } from '@/composables/useTheme'
 import { useToast } from '@/composables/useToast'
 import { useAuthStore } from '@/stores/auth'
+import { useTerminalStore } from '@/stores/terminal'
+import { extractTerminalCommand, canStageTerminalCommand } from '@/utils/terminalLink'
 import type { SettingsTabKey } from '@/types/settings'
 
 const {
@@ -51,6 +55,8 @@ const searchVisible = ref(false)
 const shortcutsHelpVisible = ref(false)
 const settingsInitialTab = ref<SettingsTabKey>('basic')
 const composerRef = ref<InstanceType<typeof ChatComposer> | null>(null)
+const terminalRef = ref<InstanceType<typeof TerminalDrawer>>()
+const terminal = useTerminalStore()
 const dragDepth = ref(0)
 const route = useRoute()
 const router = useRouter()
@@ -69,6 +75,42 @@ const checkpointSession = computed(() => {
 const privacyMappingTarget = ref<{ id: string; name: string; busy: boolean; error: string }>()
 const announcePrivacyMappingCleared = ref(false)
 const toast = useToast()
+
+function terminalError() {
+  toast.error(t('terminalError'))
+}
+
+async function toggleTerminal() {
+  if (terminal.isOpen) {
+    terminal.isOpen = false
+    await nextTick()
+    composerRef.value?.focus()
+    return
+  }
+  try {
+    await terminal.openFor({ chatSessionId: store.currentSessionId || undefined, cwd: store.currentWorkingDirectory })
+  } catch { terminalError() }
+}
+
+async function sendToTerminal(code: string, language: string) {
+  const command = extractTerminalCommand(code, language)
+  if (!canStageTerminalCommand(command, true)) {
+    toast.error(t('terminalUnsafeCommand'))
+    return
+  }
+  try {
+    const tab = await terminal.openFor({ chatSessionId: store.currentSessionId || undefined, cwd: store.currentWorkingDirectory }, true)
+    await nextTick()
+    if (tab) terminalRef.value?.stage(tab.id, command)
+  } catch { terminalError() }
+}
+
+async function appendToComposer(text: string) {
+  terminal.isMaximized = false
+  composer.inputValue = composer.inputValue ? `${composer.inputValue}\n\n${text}` : text
+  await nextTick()
+  composerRef.value?.focusAtEnd()
+}
 
 watch([() => store.currentSessionId, isTasksWorkspace], () => {
   checkpointSessionId.value = undefined
@@ -224,6 +266,7 @@ const {
 })
 
 provideChatContext({
+  sendToTerminal,
   waiting: computed(() => store.waiting),
   planGenerating: computed(() => store.planGenerating),
   latestEditableUserMessageId: computed(() => store.latestEditableUserMessageId),
@@ -286,6 +329,9 @@ const { isMac, isDesktop } = useHomeShortcuts({
       case 'toggle-sidebar':
         ui.toggleSidebar()
         break
+      case 'toggle-terminal':
+        void toggleTerminal()
+        break
       case 'toggle-settings':
         if (ui.settingsVisible) ui.settingsVisible = false
         else openSettings('basic')
@@ -304,6 +350,7 @@ const { isMac, isDesktop } = useHomeShortcuts({
 })
 
 onMounted(() => {
+  void terminal.refresh().catch(() => {})
   void checkForUpdate()
   window.addEventListener('dragover', onWindowDragOver)
   window.addEventListener('drop', onWindowDrop)
@@ -415,6 +462,10 @@ onUnmounted(() => {
           @clear-privacy-mappings="openPrivacyMappingConfirmation"
         >
           <template #right>
+            <button type="button" class="terminal-header-button" :aria-pressed="terminal.isOpen" :title="t('terminalTitle') + (isMac ? ' (⌘`)' : ' (Ctrl+`)')" :aria-label="t('terminalTitle')" @click="toggleTerminal">
+              <MdiIcon :path="mdiConsoleLine" :size="17" />
+              <span v-if="terminal.hasRunning && !terminal.isOpen" class="terminal-header-dot" />
+            </button>
             <CooperativePanel
               header
               :session-id="store.currentSessionId"
@@ -423,6 +474,7 @@ onUnmounted(() => {
           </template>
         </HomeHeaderBar>
         <div
+          v-show="!(terminal.isOpen && terminal.isMaximized)"
           class="chat-content-shell relative"
           :class="[
             playChatContentSwitch ? 'chat-content-shell--switching' : '',
@@ -579,6 +631,16 @@ onUnmounted(() => {
           </footer>
           </template>
         </div>
+        <TerminalDrawer
+          ref="terminalRef"
+          :session-id="store.currentSessionId || ''"
+          :cwd="store.currentWorkingDirectory"
+          :dark="isDark"
+          :can-send-output="!sessions.isMessagePlatformSession"
+          @output="appendToComposer"
+          @error="terminalError"
+          @staged="toast.success(t('terminalStaged'))"
+        />
         <TodoPanel
           :items="store.runtimeTodos"
           :note="store.runtimeTodoNote"

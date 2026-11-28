@@ -17,6 +17,8 @@ import (
 	chatsvc "slimebot/internal/services/chat"
 	llmsvc "slimebot/internal/services/llm"
 	plansvc "slimebot/internal/services/plan"
+	settingssvc "slimebot/internal/services/settings"
+	"slimebot/internal/services/terminal"
 
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
@@ -24,10 +26,12 @@ import (
 
 // Controller is the WebSocket handler: upgrades connections, splits read/write, serializes chat and tool approval.
 type Controller struct {
-	wakeBrokers sync.Map
-	chatService *chatsvc.ChatService
-	planService *plansvc.PlanService
-	upgrader    websocket.Upgrader
+	terminal         *terminal.Manager
+	terminalSettings func(context.Context) (settingssvc.TerminalSettings, error)
+	wakeBrokers      sync.Map
+	chatService      *chatsvc.ChatService
+	planService      *plansvc.PlanService
+	upgrader         websocket.Upgrader
 }
 
 // chatIncoming is the client WebSocket message shape.

@@ -18,19 +18,21 @@ import (
 	"slimebot/internal/server/router"
 	"slimebot/internal/server/ws"
 	schedulesvc "slimebot/internal/services/schedule"
+	"slimebot/internal/services/terminal"
 	"slimebot/web"
 )
 
 // App holds process-level dependencies and manages the HTTP server, platform workers, and background resource lifecycle.
 type App struct {
-	httpServer     *http.Server
-	listener       net.Listener
-	telegramWorker *telegram.Worker
-	scheduleRunner *schedulesvc.Scheduler
-	core           *Core
-	cliToken       string
-	startCancelMu  sync.Mutex
-	startCancel    context.CancelFunc
+	terminalManager *terminal.Manager
+	httpServer      *http.Server
+	listener        net.Listener
+	telegramWorker  *telegram.Worker
+	scheduleRunner  *schedulesvc.Scheduler
+	core            *Core
+	cliToken        string
+	startCancelMu   sync.Mutex
+	startCancel     context.CancelFunc
 }
 
 // New builds repositories, services, controller, and background components needed to run the app.
@@ -91,6 +93,7 @@ func newApp(cfg config.Config, desktopToken string) (*App, error) {
 	}
 	engine := router.New(cfg, tokenManager, httpController, wsController, subDist,
 		router.RouterConfig{DesktopToken: desktopToken})
+	terminals := wireTerminal(httpController, wsController, core)
 
 	addr := ":" + cfg.ServerPort
 	if desktopToken != "" {
@@ -99,6 +102,7 @@ func newApp(cfg config.Config, desktopToken string) (*App, error) {
 	logging.Info("server_listening", "addr", addr)
 
 	app := &App{
+		terminalManager: terminals,
 		httpServer: &http.Server{
 			Addr:              addr,
 			Handler:           engine,
@@ -171,8 +175,10 @@ func NewHeadless(cfg config.Config) (*App, error) {
 			Headless: true,
 		},
 	)
+	terminals := wireTerminal(httpController, wsController, core)
 
 	app := &App{
+		terminalManager: terminals,
 		httpServer: &http.Server{
 			Addr:              "127.0.0.1:0", // localhost only, OS assigns port
 			Handler:           engine,
@@ -308,5 +314,17 @@ func (a *App) cleanup(ctx context.Context) {
 	if a == nil || a.core == nil {
 		return
 	}
+	if a.terminalManager != nil {
+		deadline, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		a.terminalManager.CloseAll(deadline)
+	}
 	a.core.Close(ctx)
+}
+
+func wireTerminal(httpController *controller.HTTPController, wsController *ws.Controller, core *Core) *terminal.Manager {
+	manager := terminal.NewManager()
+	httpController.SetTerminalService(manager, core.SettingsService)
+	wsController.SetTerminalService(manager, core.SettingsService.Terminal)
+	return manager
 }

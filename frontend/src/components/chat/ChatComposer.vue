@@ -152,7 +152,15 @@ function focus() {
   textareaRef.value?.focus()
 }
 
-defineExpose({ focus, addFiles })
+function focusAtEnd() {
+  const textarea = textareaRef.value
+  if (!textarea) return
+  textarea.focus()
+  textarea.setSelectionRange(textarea.value.length, textarea.value.length)
+  resizeTextarea(textarea)
+}
+
+defineExpose({ focus, focusAtEnd, addFiles })
 
 function getFileExt(name: string) {
   const parts = name.split('.')

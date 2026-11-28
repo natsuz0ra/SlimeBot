@@ -44,38 +44,36 @@
 .plan-block-body.bubble-markdown .markdown-code-block pre {
   margin: 0;
 }
-.assistant-reply-body .bubble-markdown .markdown-code-copy-btn,
-.plan-block-body.bubble-markdown .markdown-code-copy-btn {
+.markdown-code-actions {
   position: absolute;
-  top: 14px;
-  right: 14px;
-  z-index: 1;
+  top: 8px;
+  right: 8px;
   display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 22px;
-  height: 22px;
-  padding: 0;
-  border: 0;
-  outline: 0;
-  background: transparent;
-  color: #a1a1aa;
+  gap: 4px;
+  z-index: 1;
+}
+.markdown-code-actions button {
+  display: inline-grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  background: var(--bg-elevated);
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
   cursor: pointer;
-  opacity: 0.9;
-  touch-action: manipulation;
-  transition: opacity 0.15s ease, color 0.15s ease;
 }
-.assistant-reply-body .bubble-markdown .markdown-code-block--single-line .markdown-code-copy-btn,
-.plan-block-body.bubble-markdown .markdown-code-block--single-line .markdown-code-copy-btn {
-  top: 50%;
-  transform: translateY(-50%);
+.markdown-code-actions button:hover,
+.markdown-code-actions button:focus-visible {
+  color: var(--text-primary);
+  box-shadow: var(--focus-ring-shadow);
 }
-.assistant-reply-body .bubble-markdown .markdown-code-copy-btn:hover,
-.assistant-reply-body .bubble-markdown .markdown-code-copy-btn:focus-visible,
-.plan-block-body.bubble-markdown .markdown-code-copy-btn:hover,
-.plan-block-body.bubble-markdown .markdown-code-copy-btn:focus-visible {
-  color: #f4f4f5;
-  opacity: 1;
+.markdown-code-block:has(.markdown-code-terminal-btn) pre { padding-right: 76px; }
+@media (hover: hover) {
+  .markdown-code-actions { opacity: 0; }
+  .markdown-code-block:hover .markdown-code-actions,
+  .markdown-code-block:focus-within .markdown-code-actions { opacity: 1; }
 }
 .assistant-reply-body .bubble-markdown .markdown-code-copy-btn::before,
 .plan-block-body.bubble-markdown .markdown-code-copy-btn::before {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"mime/multipart"
 	"slimebot/internal/domain"
+	"slimebot/internal/services/terminal"
 	"time"
 
 	"slimebot/internal/auth"
@@ -108,28 +109,30 @@ type updateService interface {
 
 // HTTPController wires REST handlers and request/response shaping.
 type HTTPController struct {
-	skillPackage    skillPackageService
-	skillRuntime    skillRuntimeService
-	chatUploads     chatUploadService
-	settings        settingsService
-	memory          memoryService
-	agents          agentsInstructionsService
-	auth            authService
-	sessions        sessionService
-	llmConfigs      llmConfigService
-	mcpConfigs      mcpConfigService
-	platforms       messagePlatformConfigService
-	plans           planService
-	chatUsage       chatContextUsageService
-	schedule        *schedulesvc.Service
-	cooperative     *subagentsvc.Service
-	update          updateService
-	privacy         *privacysvc.Service
-	backgroundTasks backgroundTaskService
-	taskCenter      taskCenterService
-	usage           usageService
-	checkpoints     fileCheckpointService
-	tokenManager    *auth.TokenManager
+	terminal         *terminal.Manager
+	terminalSettings terminalSettings
+	skillPackage     skillPackageService
+	skillRuntime     skillRuntimeService
+	chatUploads      chatUploadService
+	settings         settingsService
+	memory           memoryService
+	agents           agentsInstructionsService
+	auth             authService
+	sessions         sessionService
+	llmConfigs       llmConfigService
+	mcpConfigs       mcpConfigService
+	platforms        messagePlatformConfigService
+	plans            planService
+	chatUsage        chatContextUsageService
+	schedule         *schedulesvc.Service
+	cooperative      *subagentsvc.Service
+	update           updateService
+	privacy          *privacysvc.Service
+	backgroundTasks  backgroundTaskService
+	taskCenter       taskCenterService
+	usage            usageService
+	checkpoints      fileCheckpointService
+	tokenManager     *auth.TokenManager
 }
 
 // NewHTTPController constructs the HTTP controller with injected services.

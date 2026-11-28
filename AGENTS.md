@@ -70,6 +70,7 @@ internal/
 │  ├─ settings/              # User/system settings
 │  ├─ skill/                 # Skill loading/execution
 │  ├─ subagent/              # Persistent agents, scoped messaging, task DAG/CAS, and artifact acceptance
+│  ├─ terminal/              # Interactive PTY sessions, replay, and process lifecycle
 │  ├─ team/                  # Legacy Agent Team history and compatibility records
 │  └─ usage/                 # Provider-reported token accounting and session output budgets
 ├─ tools/                    # Tool implementations
@@ -129,6 +130,7 @@ Quick index (feature -> first place to inspect):
 - HTTP route definitions: `internal/server/router/`
 - HTTP controller behavior: `internal/server/controller/`
 - WebSocket server flow: `internal/server/ws/`
+- Integrated terminal: `internal/services/terminal/`, `internal/server/controller/terminal.go`, `internal/server/ws/terminal.go`, `frontend/src/components/chat/TerminalDrawer.vue`
 - Sandbox policy and command isolation: `internal/sandbox/`
 - LLM abstraction/provider wiring: `internal/services/llm/`, `internal/services/openai/`, `internal/services/anthropic/`
 - Active-turn steering: `internal/services/chat/steering.go`, `internal/services/chat/agent.go`, `AGENT-FLOW.md`

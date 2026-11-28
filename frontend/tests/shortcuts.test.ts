@@ -28,6 +28,16 @@ function baseContext(overrides: Partial<ShortcutContext> = {}): ShortcutContext 
   }
 }
 
+test('terminal toggle uses the physical Backquote key while other shortcuts stay in the terminal', () => {
+  const terminal = baseContext({ inTerminal: true, isStreaming: true, stopDisabled: false })
+  assert.equal(resolveHomeShortcut({ key: '§', code: 'Backquote', ctrlKey: true }, terminal), 'toggle-terminal')
+  assert.equal(resolveHomeShortcut({ key: '`', code: 'Backquote', metaKey: true }, { ...terminal, isMac: true }), 'toggle-terminal')
+  for (const key of ['c', 'b', 'k', 'Escape']) {
+    assert.equal(resolveHomeShortcut({ key, ctrlKey: key !== 'Escape' }, terminal), null)
+  }
+  assert.equal(resolveHomeShortcut({ key: '`', code: 'Backquote', ctrlKey: true }, { ...terminal, hasModalOpen: true }), null)
+})
+
 test('resolveHomeShortcut matches platform modifiers for search, sidebar, settings, help and new chat', () => {
   assert.equal(resolveHomeShortcut({ key: 'k', ctrlKey: true }, baseContext()), 'toggle-search')
   assert.equal(resolveHomeShortcut({ key: 'k', metaKey: true }, baseContext({ isMac: true })), 'toggle-search')

@@ -15,7 +15,7 @@ const props = withDefaults(defineProps<{
 })
 
 const { t } = useI18n()
-const { handleMarkdownClick } = useMarkdownCodeCopy()
+const { handleMarkdownClick, sendToTerminal } = useMarkdownCodeCopy()
 const hasBody = computed(() => props.content.trim().length > 0)
 const expanded = ref(false)
 
@@ -67,7 +67,7 @@ function toggleExpand() {
       <div
         v-if="showBody"
         class="plan-block-body bubble-markdown"
-        v-html="renderMarkdown(content, { codeCopyButton: true })"
+        v-html="renderMarkdown(content, { codeCopyButton: true, terminalLabel: sendToTerminal ? t('terminalStage') : undefined })"
         @click="handleMarkdownClick"
       />
     </Transition>

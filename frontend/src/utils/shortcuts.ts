@@ -25,12 +25,14 @@ export interface ShortcutContext {
   isMessagePlatformSession: boolean
   inComposerTextarea: boolean
   inEditableElement: boolean
+  inTerminal?: boolean
 }
 
 export type ShortcutAction =
   | 'toggle-search'
   | 'new-session'
   | 'toggle-sidebar'
+  | 'toggle-terminal'
   | 'toggle-settings'
   | 'toggle-plan-mode'
   | 'stop-stream'
@@ -57,6 +59,7 @@ export function getShortcutHelpItems(isMac: boolean, isDesktop: boolean): Shortc
     ? formatShortcutKeys(isMac, { mac: '⌘N / ⌘⇧O', other: 'Ctrl+N / Ctrl+Shift+O' })
     : formatShortcutKeys(isMac, { mac: '⌘⇧O', other: 'Ctrl+Shift+O' })
   return [
+    { action: 'toggle-terminal', labelKey: 'terminalTitle', keys: formatShortcutKeys(isMac, { mac: '⌘`', other: 'Ctrl+`' }) },
     { action: 'toggle-search', labelKey: 'shortcutSearch', keys: formatShortcutKeys(isMac, { mac: '⌘K', other: 'Ctrl+K' }) },
     { action: 'new-session', labelKey: 'shortcutNewChat', keys: newChatKeys },
     { action: 'toggle-sidebar', labelKey: 'shortcutToggleSidebar', keys: formatShortcutKeys(isMac, { mac: '⌘B', other: 'Ctrl+B' }) },
@@ -77,6 +80,8 @@ export function resolveHomeShortcut(event: ShortcutEventLike, context: ShortcutC
   const mod = context.isMac ? Boolean(event.metaKey && !event.ctrlKey) : Boolean(event.ctrlKey && !event.metaKey)
   const alt = Boolean(event.altKey)
   const shift = Boolean(event.shiftKey)
+  const terminalKey = mod && !alt && !shift && code === 'Backquote'
+  if (context.inTerminal) return terminalKey && !context.hasModalOpen && !context.isTasksWorkspace ? 'toggle-terminal' : null
 
   const isSearchKey = mod && !alt && !shift && key === 'k'
   const isSettingsKey = mod && !alt && !shift && (key === ',' || code === 'Comma')
@@ -94,6 +99,7 @@ export function resolveHomeShortcut(event: ShortcutEventLike, context: ShortcutC
   if (context.hasModalOpen) {
     return null
   }
+  if (terminalKey && !context.isTasksWorkspace) return 'toggle-terminal'
 
   if (isSearchKey) return 'toggle-search'
   if (isSettingsKey) return 'toggle-settings'

@@ -45,6 +45,32 @@
   overflow: visible;
 }
 
+.terminal-header-button {
+  position: relative;
+  display: inline-grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+.terminal-header-button:hover { background: var(--bg-hover); }
+.terminal-header-button[aria-pressed="true"] {
+  background: var(--bg-active);
+  box-shadow: inset 0 -2px var(--sb-brand);
+  color: var(--text-primary);
+}
+.terminal-header-dot {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--tool-success-dot);
+}
+
 .chat-content-shell--switching.chat-content-shell--from-right {
   animation: chat-content-switch-in-right var(--duration-slide) var(--ease-out-smooth) both;
 }

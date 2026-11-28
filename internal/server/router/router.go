@@ -100,6 +100,10 @@ func New(cfg config.Config, tokenManager *auth.TokenManager, httpController *con
 			api.Post("/privacy/model/cancel", adapt(httpController.CancelPrivacyModel))
 			api.Delete("/privacy/model", adapt(httpController.RemovePrivacyModel))
 			api.Put("/settings", adapt(httpController.UpdateSettings))
+			api.Get("/terminal/status", adapt(httpController.GetTerminalStatus))
+			api.Put("/terminal/settings", adapt(httpController.UpdateTerminalSettings))
+			api.Post("/terminal/sessions", adapt(httpController.CreateTerminal))
+			api.Delete("/terminal/sessions/{id}", adapt(httpController.DeleteTerminal))
 			api.Post("/settings/proxy/test", adapt(httpController.TestProxyConnection))
 			api.Get("/scheduled-tasks", adapt(httpController.ListScheduledTasks))
 			api.Post("/background-tasks/{id}/actions", adapt(httpController.ActOnBackgroundTask))
@@ -156,6 +160,7 @@ func New(cfg config.Config, tokenManager *auth.TokenManager, httpController *con
 
 	// WebSocket
 	wsAuthmw := middleware.RequireJWT(tokenManager, rc.CLIToken, rc.DesktopToken)
+	r.With(wsAuthmw).Get("/ws/terminal", wsController.Terminal)
 	r.With(wsAuthmw).Get("/ws/chat", func(w http.ResponseWriter, req *http.Request) {
 		wsController.Chat(w, req)
 	})

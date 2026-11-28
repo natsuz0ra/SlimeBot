@@ -1,6 +1,7 @@
 import DOMPurify from 'dompurify'
 import hljs from 'highlight.js/lib/common'
 import MarkdownIt from 'markdown-it'
+import { isShellLanguage } from './terminalLink'
 
 function escapeHtml(value: string): string {
   return value
@@ -38,6 +39,7 @@ const md = new MarkdownIt({
 
 interface MarkdownRenderEnv {
   codeCopyButton?: boolean
+  terminalLabel?: string
 }
 
 const defaultLinkOpenRule =
@@ -67,7 +69,10 @@ md.renderer.rules.fence = (tokens, idx, options, env: MarkdownRenderEnv) => {
   const blockClass = code.replace(/\n+$/, '').includes('\n')
     ? 'markdown-code-block'
     : 'markdown-code-block markdown-code-block--single-line'
-  return `<div class="${blockClass}">${codeMarkup}<button type="button" class="markdown-code-copy-btn" title="Copy code" aria-label="Copy code"></button></div>`
+  const terminal = env.terminalLabel && isShellLanguage(language)
+    ? `<button type="button" class="markdown-code-terminal-btn" data-code-lang="${escapeHtml(language)}" title="${escapeHtml(env.terminalLabel)}" aria-label="${escapeHtml(env.terminalLabel)}">›_</button>`
+    : ''
+  return `<div class="${blockClass}">${codeMarkup}<div class="markdown-code-actions">${terminal}<button type="button" class="markdown-code-copy-btn" title="Copy code" aria-label="Copy code"></button></div></div>`
 }
 
 /**
@@ -89,11 +94,11 @@ function sanitizeHtml(raw: string): string {
   if (!sanitize) return raw
   return sanitize(raw, {
     USE_PROFILES: { html: true },
-    ADD_ATTR: ['target', 'rel', 'type', 'title', 'aria-label'],
+    ADD_ATTR: ['target', 'rel', 'type', 'title', 'aria-label', 'data-code-lang'],
   })
 }
 
-export function renderMarkdown(content: string, options: { codeCopyButton?: boolean } = {}): string {
-  const raw = md.render(preprocessCJKEmphasis(content || ''), { codeCopyButton: !!options.codeCopyButton })
+export function renderMarkdown(content: string, options: MarkdownRenderEnv = {}): string {
+  const raw = md.render(preprocessCJKEmphasis(content || ''), options)
   return sanitizeHtml(raw)
 }

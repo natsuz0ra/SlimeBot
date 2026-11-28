@@ -41,16 +41,24 @@ test('renderMarkdown does not add copy controls for inline code', () => {
 test('PlanBlock enables copy controls for fenced code blocks', () => {
   const source = readFileSync(resolve(projectRoot, 'src/components/chat/PlanBlock.vue'), 'utf8')
 
-  assert.match(source, /renderMarkdown\(content,\s*\{\s*codeCopyButton:\s*true\s*\}\)/)
+  assert.match(source, /renderMarkdown\(content,\s*\{\s*codeCopyButton:\s*true\b/)
   assert.match(source, /@click="handleMarkdownClick"/)
 })
 
-test('markdown code copy trims trailing newlines and uses a minimal icon button', () => {
+test('markdown code actions share a keyboard-accessible toolbar', () => {
   const copySource = readFileSync(resolve(projectRoot, 'src/composables/chat/useMarkdownCodeCopy.ts'), 'utf8')
   const markdownStyles = readFileSync(resolve(projectRoot, 'src/styles/markdown.css'), 'utf8')
 
   assert.match(copySource, /replace\(\s*\/\\n\+\$\/,\s*''\s*\)/)
-  assert.match(markdownStyles, /\.markdown-code-copy-btn\s*\{[\s\S]*?width:\s*22px;[\s\S]*?height:\s*22px;[\s\S]*?border:\s*0;[\s\S]*?background:\s*transparent;[\s\S]*?opacity:\s*0\.9;/)
+  assert.match(markdownStyles, /\.markdown-code-actions button\s*\{[^}]*width:\s*28px;[^}]*height:\s*28px;/)
   assert.match(markdownStyles, /\.markdown-code-copy-btn::before\s*\{[\s\S]*?width:\s*14px;[\s\S]*?height:\s*14px;/)
-  assert.match(markdownStyles, /\.markdown-code-block--single-line \.markdown-code-copy-btn\s*\{[\s\S]*?top:\s*50%;[\s\S]*?transform:\s*translateY\(-50%\);/)
+  assert.match(markdownStyles, /\.markdown-code-block:focus-within \.markdown-code-actions/)
+})
+
+test('terminal controls are limited to shell fences and escape their label', () => {
+  const options = { codeCopyButton: true, terminalLabel: '"Send"' }
+  const shell = renderMarkdown('\x60\x60\x60bash\necho hello\n\x60\x60\x60', options)
+  const source = renderMarkdown('\x60\x60\x60ts\nconst x = 1\n\x60\x60\x60', options)
+  assert.match(shell, /markdown-code-terminal-btn" data-code-lang="bash" title="&quot;Send&quot;"/)
+  assert.doesNotMatch(source, /markdown-code-terminal-btn/)
 })

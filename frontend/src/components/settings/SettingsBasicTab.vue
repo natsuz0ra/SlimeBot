@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import LanguageSwitcher from '@/components/ui/LanguageSwitcher.vue'
 import AppSelect from '@/components/ui/AppSelect.vue'
@@ -10,6 +11,9 @@ import { mdiAlertCircleOutline, mdiCheckCircleOutline, mdiLanConnect } from '@md
 import type { SelectOption } from '@/components/ui/AppSelect.vue'
 import type { LanguageCode } from '@/composables/useLanguagePreference'
 import type { ProxyTestResult, SandboxMode } from '@/types/settings'
+import { getTerminalStatus, updateTerminalSettings, type TerminalStatus } from '@/api/terminal'
+import { useTerminalStore } from '@/stores/terminal'
+import { useToast } from '@/composables/useToast'
 
 const props = defineProps<{
   language: LanguageCode
@@ -41,10 +45,55 @@ const emit = defineEmits<{
 
 const { t } = useI18n()
 const isDesktop = Boolean(window.slimebotDesktop)
+const terminal = useTerminalStore()
+const toast = useToast()
+const terminalSettings = ref<TerminalStatus>()
+const shellDraft = ref('')
+const savingTerminal = ref(false)
+
+async function loadTerminal() {
+  terminalSettings.value = await getTerminalStatus()
+  shellDraft.value = terminalSettings.value.defaultShell
+}
+
+async function saveTerminal(enabled?: boolean) {
+  if (savingTerminal.value) return
+  savingTerminal.value = true
+  try {
+    await updateTerminalSettings({ enabled, defaultShell: shellDraft.value })
+    await Promise.all([loadTerminal(), terminal.refresh()])
+  } catch {
+    toast.error(t('terminalError'))
+  } finally {
+    savingTerminal.value = false
+  }
+}
+
+onMounted(() => { void loadTerminal().catch(() => toast.error(t('terminalError'))) })
 </script>
 
 <template>
   <div>
+    <section v-if="terminalSettings" class="settings-card px-4 py-3.5 rounded-xl mb-2">
+      <div class="flex items-center justify-between gap-3">
+        <label id="settings-terminal-enabled" class="settings-field-label">{{ t('terminalEnable') }}</label>
+        <ToggleSwitch
+          :model-value="terminalSettings.enabled" :disabled="terminalSettings.lockedByEnv || savingTerminal"
+          aria-labelledby="settings-terminal-enabled" role="switch" :aria-checked="terminalSettings.enabled"
+          @update:model-value="saveTerminal"
+        />
+      </div>
+      <p v-if="terminalSettings.lockedByEnv" class="settings-item-sub mt-1"><code>SLIMEBOT_TERMINAL_ENABLED=false</code></p>
+      <label for="settings-terminal-shell" class="settings-field-label block mt-3 mb-1">{{ t('terminalDefaultShell') }}</label>
+      <div class="flex gap-2">
+        <AppTextInput
+          id="settings-terminal-shell" v-model="shellDraft" class="min-w-0 flex-1"
+          :placeholder="terminalSettings.detectedShell || t('terminalSystemShell')" spellcheck="false"
+          @keydown.enter="saveTerminal()"
+        />
+        <button type="button" class="proxy-save px-4 rounded-lg" :disabled="savingTerminal || shellDraft === terminalSettings.defaultShell" @click="saveTerminal()">{{ t('save') }}</button>
+      </div>
+    </section>
     <div v-if="!isDesktop" class="settings-card flex items-center justify-between px-4 py-3.5 rounded-xl mb-2">
       <span class="settings-field-label">{{ t('accountEdit') }}</span>
       <button type="button" class="px-3 py-1.5 rounded-lg cursor-pointer account-edit-btn settings-action-text" @click="emit('openAccount')">

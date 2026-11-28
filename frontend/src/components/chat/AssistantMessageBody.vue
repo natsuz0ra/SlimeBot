@@ -22,7 +22,7 @@ const props = defineProps<{
 const ctx = useChatContext()
 const store = useChatStore()
 const { t } = useI18n()
-const { handleMarkdownClick } = useMarkdownCodeCopy()
+const { handleMarkdownClick, sendToTerminal } = useMarkdownCodeCopy()
 const elapsedTick = ref(0)
 let elapsedTimer: ReturnType<typeof setInterval> | undefined
 
@@ -173,7 +173,7 @@ onUnmounted(() => {
           <div
             v-else-if="row.entry.kind === 'text'"
             class="bubble-markdown sb-text-primary"
-            v-html="renderMarkdown(row.entry.content, { codeCopyButton: true })"
+            v-html="renderMarkdown(row.entry.content, { codeCopyButton: true, terminalLabel: sendToTerminal ? t('terminalStage') : undefined })"
             @click="handleMarkdownClick"
           />
 

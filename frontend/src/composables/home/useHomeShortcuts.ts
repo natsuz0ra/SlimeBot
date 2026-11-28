@@ -43,7 +43,8 @@ export function useHomeShortcuts(options: UseHomeShortcutsOptions) {
   const isDesktop = typeof window !== 'undefined' && Boolean(window.slimebotDesktop)
 
   function onKeydown(event: KeyboardEvent) {
-    if (event.defaultPrevented) return
+    const inTerminal = event.target instanceof Element && Boolean(event.target.closest('.xterm'))
+    if (event.defaultPrevented || inTerminal) return
     const action = resolveHomeShortcut(event, {
       isMac,
       isDesktop,
@@ -67,12 +68,24 @@ export function useHomeShortcuts(options: UseHomeShortcutsOptions) {
     options.onAction(action)
   }
 
+  function onTerminalKeydown(event: KeyboardEvent) {
+    if (!(event.target instanceof Element) || !event.target.closest('.xterm')) return
+    if (event.isComposing || event.keyCode === 229 || event.code !== 'Backquote' || event.altKey || event.shiftKey) return
+    if (!(isMac ? event.metaKey && !event.ctrlKey : event.ctrlKey && !event.metaKey)) return
+    if (options.hasModalOpen() || options.isTasksWorkspace()) return
+    event.preventDefault()
+    event.stopPropagation()
+    options.onAction('toggle-terminal')
+  }
+
   onMounted(() => {
     window.addEventListener('keydown', onKeydown)
+    window.addEventListener('keydown', onTerminalKeydown, true)
   })
 
   onUnmounted(() => {
     window.removeEventListener('keydown', onKeydown)
+    window.removeEventListener('keydown', onTerminalKeydown, true)
   })
 
   return {

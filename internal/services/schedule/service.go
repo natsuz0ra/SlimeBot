@@ -18,44 +18,17 @@ import (
 	"github.com/google/uuid"
 )
 
-type ScheduleKind string
+type ScheduleKind = domain.ScheduleKind
 
 const (
-	ScheduleKindOnce     ScheduleKind = "once"
-	ScheduleKindInterval ScheduleKind = "interval"
-	ScheduleKindCron     ScheduleKind = "cron"
+	ScheduleKindOnce     = domain.ScheduleKindOnce
+	ScheduleKindInterval = domain.ScheduleKindInterval
+	ScheduleKindCron     = domain.ScheduleKindCron
 )
 
-type ScheduleSpec struct {
-	Kind            ScheduleKind `json:"kind"`
-	RunAt           time.Time    `json:"runAt,omitempty"`
-	IntervalMinutes int          `json:"intervalMinutes,omitempty"`
-	CronExpr        string       `json:"cronExpr,omitempty"`
-	Timezone        string       `json:"timezone,omitempty"`
-}
-
-type CreateInput struct {
-	WorkingDirectory string
-	Name             string
-	Prompt           string
-	SessionID        string
-	Schedule         ScheduleSpec
-	ModelConfigID    string
-	ThinkingLevel    string
-	ApprovalMode     string
-	MaxRuns          int
-}
-
-type UpdateInput struct {
-	Name          *string
-	Prompt        *string
-	SessionID     *string
-	Schedule      *ScheduleSpec
-	ModelConfigID *string
-	ThinkingLevel *string
-	ApprovalMode  *string
-	MaxRuns       *int
-}
+type ScheduleSpec = domain.ScheduleSpec
+type CreateInput = domain.ScheduledTaskCreateInput
+type UpdateInput = domain.ScheduledTaskUpdateInput
 
 type RunResult struct {
 	RequestID  string

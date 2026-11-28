@@ -42,7 +42,7 @@ internal/
 ├─ auth/                     # Auth primitives
 ├─ config/                   # Runtime configuration
 ├─ constants/                # Shared constants
-├─ domain/                   # Domain models/types
+├─ domain/                   # Domain models and shared service/tool DTOs
 ├─ logging/                  # Logger setup and helpers
 ├─ mcp/                      # MCP protocol integration
 ├─ platforms/
@@ -61,7 +61,7 @@ internal/
 ├─ services/
 │  ├─ anthropic/             # Anthropic provider integration
 │  ├─ auth/                  # Auth service logic
-│  ├─ chat/                  # Chat orchestration, active-turn steering, and background completion continuations
+│  ├─ chat/                  # Chat orchestration, tool dispatch, subagent execution, and active-turn steering
 │  ├─ context/               # Model transcript projection, per-request budgets, pruning, and atomic checkpoints
 │  ├─ config/                # Config service logic
 │  ├─ llm/                   # LLM abstraction/service
@@ -144,6 +144,8 @@ Quick index (feature -> first place to inspect):
 - Web ACP settings and external engine picker: `frontend/src/components/settings/SettingsACPTab.vue`, `frontend/src/api/acp.ts`, `frontend/src/utils/acp.ts`, `frontend/src/composables/home/useHomeModelSelector.ts`
 - Sandbox policy and command isolation: `internal/sandbox/`
 - LLM abstraction/provider wiring: `internal/services/llm/`, `internal/services/openai/`, `internal/services/anthropic/`
+- Turn tool execution: `internal/services/chat/tool_dispatcher.go`, `internal/services/chat/special_tool_handlers.go`, `internal/tools/runtime_context.go` (per-turn dependencies, tool batches, approvals, and special handlers)
+- Nested subagent execution: `internal/services/chat/agent_run_subagent.go` (shared executor contract and team lifecycle for cooperative and direct execution)
 - Active-turn steering: `internal/services/chat/steering.go`, `internal/services/chat/agent.go`, `AGENT-FLOW.md`
 - Web conversation history navigation: `frontend/src/components/chat/ChatHistoryNav.vue`, `frontend/src/composables/home/useHomeScroll.ts`
 - Conversation pinning and export: `internal/repositories/repo_sessions.go`, `internal/services/session/export.go`, `internal/server/controller/session_export.go`, `frontend/src/components/chat/SessionExportDialog.vue`

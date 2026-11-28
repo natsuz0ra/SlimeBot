@@ -2,20 +2,20 @@ package memory
 
 import (
 	"errors"
-	"strings"
+	"slimebot/internal/domain"
 )
 
-type Target string
+type Target = domain.MemoryTarget
 
 const (
-	TargetMemory Target = "memory"
-	TargetUser   Target = "user"
+	TargetMemory = domain.MemoryTargetAssistant
+	TargetUser   = domain.MemoryTargetUser
 )
 
 const entrySeparator = "\n§\n"
 
 var (
-	ErrInvalidTarget        = errors.New("invalid memory target")
+	ErrInvalidTarget        = domain.ErrInvalidMemoryTarget
 	ErrEmptyEntry           = errors.New("memory entry is empty")
 	ErrDuplicateEntry       = errors.New("memory entry already exists")
 	ErrEntryNotFound        = errors.New("memory entry not found")
@@ -35,23 +35,8 @@ type Config struct {
 	NudgeInterval      int
 }
 
-type TargetState struct {
-	Target     Target   `json:"target"`
-	Entries    []string `json:"entries"`
-	UsageChars int      `json:"usageChars"`
-	CharLimit  int      `json:"charLimit"`
-	EntryCount int      `json:"entryCount"`
-	Enabled    bool     `json:"enabled"`
-}
-
-type Snapshot struct {
-	Memory                   TargetState `json:"memory"`
-	User                     TargetState `json:"user"`
-	MemoryEnabled            bool        `json:"memoryEnabled"`
-	MemoryUserProfileEnabled bool        `json:"memoryUserProfileEnabled"`
-	MemoryNudgeInterval      int         `json:"memoryNudgeInterval"`
-	MemoryDirectory          string      `json:"memoryDirectory"`
-}
+type TargetState = domain.MemoryTargetState
+type Snapshot = domain.MemorySnapshot
 
 func DefaultConfig() Config {
 	return Config{
@@ -64,14 +49,7 @@ func DefaultConfig() Config {
 }
 
 func NormalizeTarget(value string) (Target, error) {
-	switch Target(strings.ToLower(strings.TrimSpace(value))) {
-	case TargetMemory:
-		return TargetMemory, nil
-	case TargetUser:
-		return TargetUser, nil
-	default:
-		return "", ErrInvalidTarget
-	}
+	return domain.NormalizeMemoryTarget(value)
 }
 
 func targetLimit(cfg Config, target Target) int {

@@ -4,13 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	subagent "slimebot/internal/services/subagent"
 	"strings"
 	"time"
 
 	"slimebot/internal/constants"
 	"slimebot/internal/domain"
 	llmsvc "slimebot/internal/services/llm"
+	"slimebot/internal/services/subagent"
 	teamsvc "slimebot/internal/services/team"
 	"slimebot/internal/tools"
 
@@ -19,74 +19,120 @@ import (
 
 const maxSubagentTitleRunes = 80
 
+// SubagentExecutor runs one run_subagent call using the selected execution engine.
+type SubagentExecutor interface {
+	ExecuteSubagent(context.Context, subagentExecutionRequest) (*tools.ExecuteResult, error)
+}
+
+type subagentExecutionRequest struct {
+	parentModel     llmsvc.ModelRuntimeConfig
+	sessionID       string
+	mcpConfigs      []domain.MCPConfig
+	activatedSkills map[string]struct{}
+	callbacks       AgentCallbacks
+	opts            AgentLoopOptions
+	toolCall        llmsvc.ToolCallInfo
+	invocation      resolvedToolInvocation
+	params          map[string]any
+	preamble        string
+	reservedMember  *domain.TeamMemberRun
+	reservationErr  error
+}
+
+// agentSubagentRunner adapts the registered tool to the chat execution port.
 type agentSubagentRunner struct {
-	agent               *AgentService
-	parentModel         llmsvc.ModelRuntimeConfig
-	sessionID           string
-	mcpConfigs          []domain.MCPConfig
-	activatedSkills     map[string]struct{}
-	callbacks           AgentCallbacks
-	opts                AgentLoopOptions
-	toolCall            llmsvc.ToolCallInfo
-	invocation          resolvedToolInvocation
-	userSubagentModelID string
-	preamble            string
-	reservedMember      *domain.TeamMemberRun
-	reservationErr      error
+	executor SubagentExecutor
+	request  subagentExecutionRequest
 }
 
-func (r agentSubagentRunner) RunSubagent(ctx context.Context, request tools.SubagentRunRequest) (*tools.ExecuteResult, error) {
-	params := request.Params
-	if params == nil {
-		params = map[string]any{
-			"title":   request.Title,
-			"task":    request.Task,
-			"context": request.Context,
-		}
+func (r agentSubagentRunner) RunSubagent(ctx context.Context, input tools.SubagentRunRequest) (*tools.ExecuteResult, error) {
+	r.request.params = input.Params
+	if r.request.params == nil {
+		r.request.params = map[string]any{"title": input.Title, "task": input.Task, "context": input.Context}
 	}
-	return r.agent.executeRunSubagentTool(
-		ctx,
-		r.parentModel,
-		r.sessionID,
-		r.mcpConfigs,
-		r.activatedSkills,
-		r.callbacks,
-		r.opts,
-		r.toolCall,
-		r.invocation,
-		params,
-		r.userSubagentModelID,
-		r.preamble,
-		r.reservedMember,
-		r.reservationErr,
-	)
+	return r.executor.ExecuteSubagent(ctx, r.request)
 }
 
-func (a *AgentService) reserveParallelSubagentMember(
-	ctx context.Context,
-	parentModel llmsvc.ModelRuntimeConfig,
-	opts AgentLoopOptions,
-	tc llmsvc.ToolCallInfo,
-	params map[string]any,
-	callbacks AgentCallbacks,
-) (*domain.TeamMemberRun, error) {
-	if opts.teamRuntime == nil || a.subagentHost == nil || opts.Depth >= constants.MaxSubagentDepth {
-		return nil, nil
+func (a *AgentService) subagentExecutor(loop *cooperativeLoop) SubagentExecutor {
+	if loop != nil {
+		return cooperativeSubagentExecutor{host: a.subagentHost, loop: loop}
 	}
-	task := anyToTrimmedString(params["task"])
-	if task == "" {
-		return nil, nil
+	return directSubagentExecutor{agent: a}
+}
+
+type subagentInput struct {
+	title   string
+	task    string
+	context string
+}
+
+func (r subagentExecutionRequest) admit(host SubagentHost, loop *cooperativeLoop) (subagentInput, *tools.ExecuteResult) {
+	if host == nil {
+		return subagentInput{}, &tools.ExecuteResult{Output: "subagent execution is not configured"}
 	}
-	modelConfigID := parentModel.ConfigID
-	if userOverride := strings.TrimSpace(opts.SubagentModelID); userOverride != "" {
-		resolved, err := a.subagentHost.ResolveModelRuntimeConfig(ctx, userOverride)
-		if err != nil {
-			return nil, fmt.Errorf("failed to resolve user subagent model: %w", err)
+	input := subagentInput{
+		title:   anyToTrimmedString(r.params["title"]),
+		task:    anyToTrimmedString(r.params["task"]),
+		context: anyToTrimmedString(r.params["context"]),
+	}
+	depth, maxDepth := r.opts.Depth, constants.MaxSubagentDepth
+	if loop != nil {
+		if input.task == "" || len(input.task)+len(input.context) > 16384 {
+			return subagentInput{}, &tools.ExecuteResult{Error: "task must be nonempty and at most 16 KiB"}
 		}
-		modelConfigID = resolved.ConfigID
+		depth, maxDepth = loop.caller.Depth, loop.caller.MaxDepth
+		if depth == 0 && maxDepth == 0 {
+			return subagentInput{}, &tools.ExecuteResult{Error: "delegation is disabled"}
+		}
 	}
-	title := normalizeSubagentTitle(anyToTrimmedString(params["title"]), task)
-	return opts.teamRuntime.reserveMember(ctx, tc.ID, title, task, modelConfigID, callbacks)
+	if depth >= maxDepth {
+		if loop != nil {
+			return subagentInput{}, &tools.ExecuteResult{Error: "delegation depth limit exceeded"}
+		}
+		return subagentInput{}, &tools.ExecuteResult{Output: "nested run_subagent is not allowed"}
+	}
+	if input.task == "" {
+		return subagentInput{}, &tools.ExecuteResult{Output: "task is required"}
+	}
+	return input, nil
+}
+
+func (r subagentExecutionRequest) resolveModel(ctx context.Context, host SubagentHost) (llmsvc.ModelRuntimeConfig, error) {
+	// The user selection takes priority over the inherited model. Ignore model_id
+	// in tool arguments so the model cannot choose a configuration on its own.
+	userOverride := strings.TrimSpace(r.opts.SubagentModelID)
+	if userOverride == "" {
+		return r.parentModel, nil
+	}
+	resolved, err := host.ResolveModelRuntimeConfig(ctx, userOverride)
+	if err != nil {
+		return llmsvc.ModelRuntimeConfig{}, fmt.Errorf("failed to resolve user subagent model: %w", err)
+	}
+	resolved.ThinkingLevel = r.parentModel.ThinkingLevel
+	return resolved, nil
+}
+
+func (r *subagentExecutionRequest) reserveParallelMember(ctx context.Context, host SubagentHost) {
+	if r.opts.teamRuntime == nil || r.opts.Depth >= constants.MaxSubagentDepth {
+		return
+	}
+	input, rejection := r.admit(host, r.opts.Cooperative)
+	if rejection != nil {
+		return
+	}
+	model, err := r.resolveModel(ctx, host)
+	if err != nil {
+		r.reservationErr = err
+		return
+	}
+	r.reservedMember, r.reservationErr = r.reserveMember(ctx, normalizeSubagentTitle(input.title, input.task), input.task, model.ConfigID)
+}
+
+func (r subagentExecutionRequest) reserveMember(ctx context.Context, title, task, modelID string) (*domain.TeamMemberRun, error) {
+	if r.reservationErr != nil || r.reservedMember != nil || r.opts.teamRuntime == nil {
+		return r.reservedMember, r.reservationErr
+	}
+	return r.opts.teamRuntime.reserveMember(ctx, r.toolCall.ID, title, task, modelID, r.callbacks)
 }
 
 func normalizeSubagentTitle(title, task string) string {
@@ -98,9 +144,6 @@ func normalizeSubagentTitle(title, task string) string {
 	if len(runes) <= maxSubagentTitleRunes {
 		return normalized
 	}
-	if maxSubagentTitleRunes <= 3 {
-		return string(runes[:maxSubagentTitleRunes])
-	}
 	return string(runes[:maxSubagentTitleRunes-3]) + "..."
 }
 
@@ -111,266 +154,194 @@ func anyToTrimmedString(v any) string {
 	return strings.TrimSpace(fmt.Sprintf("%v", v))
 }
 
-func cloneActivatedSkills(activated map[string]struct{}) map[string]struct{} {
-	cloned := make(map[string]struct{}, len(activated))
-	for name := range activated {
-		cloned[name] = struct{}{}
-	}
-	return cloned
+type subagentExecution struct {
+	id, title, task, modelID string
+	member                   *domain.TeamMemberRun
 }
 
-func mergeActivatedSkills(dst, src map[string]struct{}) {
-	for name := range src {
-		dst[name] = struct{}{}
-	}
+type subagentOutcome struct {
+	answer   string
+	err      error
+	canceled bool
 }
 
-func (a *AgentService) handleRunSubagentTool(
+func (r subagentExecutionRequest) runWithLifecycle(
 	ctx context.Context,
-	parentModel llmsvc.ModelRuntimeConfig,
-	sessionID string,
-	mcpConfigs []domain.MCPConfig,
-	activatedSkills map[string]struct{},
-	callbacks AgentCallbacks,
-	opts AgentLoopOptions,
-	tc llmsvc.ToolCallInfo,
-	invocation resolvedToolInvocation,
-	params map[string]any,
-	userSubagentModelID string,
-	preamble string,
-	messages *[]llmsvc.ChatMessage,
-) error {
-	execResult, err := a.executeRunSubagentTool(ctx, parentModel, sessionID, mcpConfigs, activatedSkills, callbacks, opts, tc, invocation, params, userSubagentModelID, preamble, nil, nil)
-	if err != nil {
-		return err
-	}
-	resultStatus := buildToolResultStatus(execResult)
-	notifyToolResult(callbacks, ToolCallResult{
-		ToolCallID:       tc.ID,
-		ToolName:         invocation.toolName,
-		Command:          invocation.command,
-		ModelFuncName:    invocation.modelFuncName,
-		RequiresApproval: invocation.requiresApproval,
-		Status:           resultStatus,
-		Output:           execResult.Output,
-		Error:            execResult.Error,
-	})
-	*messages = appendToolMessage(*messages, tc.ID, buildToolResultContent(execResult))
-	return nil
-}
-
-func (a *AgentService) executeRunSubagentTool(
-	ctx context.Context,
-	parentModel llmsvc.ModelRuntimeConfig,
-	sessionID string,
-	mcpConfigs []domain.MCPConfig,
-	activatedSkills map[string]struct{},
-	callbacks AgentCallbacks,
-	opts AgentLoopOptions,
-	tc llmsvc.ToolCallInfo,
-	invocation resolvedToolInvocation,
-	params map[string]any,
-	userSubagentModelID string,
-	preamble string,
-	reservedMember *domain.TeamMemberRun,
-	reservationErr error,
+	execution subagentExecution,
+	run func(context.Context, AgentEventMeta) subagentOutcome,
 ) (*tools.ExecuteResult, error) {
-	if a.subagentHost == nil {
-		return &tools.ExecuteResult{Output: "subagent execution is not configured"}, nil
-	}
-	if opts.Cooperative != nil {
-		if reservationErr != nil {
-			return &tools.ExecuteResult{Error: reservationErr.Error()}, nil
-		}
-		c := opts.Cooperative
-		d, err := c.service.Spawn(ctx, c.caller, subagent.Spawn{Title: anyToTrimmedString(params["title"]), Task: anyToTrimmedString(params["task"]), Context: anyToTrimmedString(params["context"]), ModelID: c.model.ConfigID, Workspace: c.workspace, OneShot: true})
+	meta := AgentEventMeta{ParentToolCallID: r.toolCall.ID, SubagentRunID: execution.id}
+	if execution.member != nil {
+		started, err := r.opts.teamRuntime.startMember(ctx, execution.member.ID, execution.id, execution.modelID)
 		if err != nil {
 			return &tools.ExecuteResult{Error: err.Error()}, nil
-		}
-		// Compatibility callbacks can fail after admission; do not leave an
-		// invisible one-shot activation behind on those error paths.
-		defer func() {
-			if c.service.Runtime.IsLive(d.SessionID) {
-				finish, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
-				defer cancel()
-				_ = c.service.Runtime.Interrupt(finish, d.SessionID, true)
-			}
-		}()
-		member := reservedMember
-		if opts.teamRuntime != nil && member == nil {
-			member, err = opts.teamRuntime.reserveMember(ctx, tc.ID, d.Title, d.Task, c.model.ConfigID, callbacks)
-			if err != nil {
-				return &tools.ExecuteResult{Error: err.Error()}, nil
-			}
-		}
-		meta := AgentEventMeta{ParentToolCallID: tc.ID, SubagentRunID: d.SessionID}
-		if member != nil {
-			started, e := opts.teamRuntime.startMember(ctx, member.ID, d.SessionID, c.model.ConfigID)
-			if e != nil {
-				return &tools.ExecuteResult{Error: e.Error()}, nil
-			}
-			meta.TeamRunID = started.TeamRunID
-			meta.MemberRunID = started.ID
-		}
-		if callbacks.OnSubagentStart != nil {
-			if e := callbacks.OnSubagentStart(meta, d.Title, d.Task); e != nil {
-				return nil, e
-			}
-		}
-		for c.service.Runtime.IsLive(d.SessionID) {
-			if e := c.service.Runtime.Wait(ctx, c.caller.RootID, nil, time.Second); e != nil {
-				return nil, e
-			}
-		}
-		turns, e := c.service.Store.ListAgentTurns(context.WithoutCancel(ctx), d.SessionID)
-		if e != nil {
-			return nil, e
-		}
-		if len(turns) == 0 {
-			return &tools.ExecuteResult{Error: "subagent did not produce a terminal record"}, nil
-		}
-		t := turns[0]
-		var runErr error
-		if t.Status != "succeeded" {
-			runErr = fmt.Errorf("%s: %s", t.StopReason, t.Error)
-		}
-		if t.Thinking != "" {
-			childCB := wrapSubagentCallbacks(callbacks, meta)
-			if childCB.OnThinkingStart != nil {
-				_ = childCB.OnThinkingStart(ThinkingEventMeta{})
-			}
-			if childCB.OnThinkingChunk != nil {
-				_ = childCB.OnThinkingChunk(t.Thinking, ThinkingEventMeta{})
-			}
-			if childCB.OnThinkingDone != nil {
-				_ = childCB.OnThinkingDone(ThinkingEventMeta{})
-			}
-		}
-		if callbacks.OnSubagentChunk != nil && t.Answer != "" {
-			_ = callbacks.OnSubagentChunk(meta, t.Answer)
-		}
-		if callbacks.OnSubagentDone != nil {
-			_ = callbacks.OnSubagentDone(meta, runErr)
-		}
-		if member != nil {
-			_, _ = opts.teamRuntime.finishMember(context.WithoutCancel(ctx), member.ID, teamsvc.MemberResult{Answer: t.Answer, Err: runErr})
-		}
-		result := &tools.ExecuteResult{Output: t.Answer}
-		if runErr != nil {
-			result.Error = runErr.Error()
-		}
-		return result, nil
-	}
-	if opts.Depth >= constants.MaxSubagentDepth {
-		return &tools.ExecuteResult{Output: "nested run_subagent is not allowed"}, nil
-	}
-
-	task := anyToTrimmedString(params["task"])
-	if task == "" {
-		return &tools.ExecuteResult{Output: "task is required"}, nil
-	}
-
-	if callbacks.OnToolCallStart != nil {
-		if err := callbacks.OnToolCallStart(ApprovalRequest{
-			ToolCallID:       tc.ID,
-			ToolName:         invocation.toolName,
-			Command:          invocation.command,
-			ModelFuncName:    invocation.modelFuncName,
-			Params:           params,
-			RequiresApproval: invocation.requiresApproval,
-			Preamble:         preamble,
-		}); err != nil {
-			return nil, fmt.Errorf("failed to push tool approval request: %w", err)
-		}
-	}
-
-	approved, rejectionMessage, _ := waitApprovalIfNeeded(ctx, callbacks, tc, invocation, params, preamble, nil)
-	if !approved {
-		return &tools.ExecuteResult{Output: rejectionMessage}, nil
-	}
-
-	parentCtx := anyToTrimmedString(params["context"])
-	subModel := parentModel
-	title := normalizeSubagentTitle(anyToTrimmedString(params["title"]), task)
-
-	// Priority: user UI/config selection > inherit parent model. Ignore any LLM-supplied
-	// model_id argument so the model cannot invent aliases such as "fast".
-	if userOverride := strings.TrimSpace(userSubagentModelID); userOverride != "" {
-		resolved, err := a.subagentHost.ResolveModelRuntimeConfig(ctx, userOverride)
-		if err != nil {
-			msg := fmt.Sprintf("failed to resolve user subagent model: %s", err.Error())
-			return &tools.ExecuteResult{Error: msg}, nil
-		}
-		resolved.ThinkingLevel = parentModel.ThinkingLevel
-		subModel = resolved
-	}
-
-	if reservationErr != nil {
-		return &tools.ExecuteResult{Error: reservationErr.Error()}, nil
-	}
-	member := reservedMember
-	if opts.teamRuntime != nil && member == nil {
-		reserved, err := opts.teamRuntime.reserveMember(ctx, tc.ID, title, task, subModel.ConfigID, callbacks)
-		if err != nil {
-			return &tools.ExecuteResult{Error: err.Error()}, nil
-		}
-		member = reserved
-	}
-
-	subMsgs, err := a.subagentHost.BuildSubagentMessages(ctx, sessionID, task, parentCtx)
-	if err != nil {
-		msg := fmt.Sprintf("failed to build subagent context: %s", err.Error())
-		return &tools.ExecuteResult{Error: msg}, nil
-	}
-
-	runID := uuid.NewString()
-	meta := AgentEventMeta{ParentToolCallID: tc.ID, SubagentRunID: runID}
-	if member != nil {
-		started, startErr := opts.teamRuntime.startMember(ctx, member.ID, runID, subModel.ConfigID)
-		if startErr != nil {
-			return &tools.ExecuteResult{Error: startErr.Error()}, nil
 		}
 		meta.TeamRunID = started.TeamRunID
 		meta.MemberRunID = started.ID
 	}
-	if callbacks.OnSubagentStart != nil {
-		if err := callbacks.OnSubagentStart(meta, title, task); err != nil {
-			if member != nil {
-				_, _ = opts.teamRuntime.finishMember(context.Background(), member.ID, teamsvc.MemberResult{Err: err})
+	cooperative := r.opts.Cooperative != nil
+	if r.callbacks.OnSubagentStart != nil {
+		if err := r.callbacks.OnSubagentStart(meta, execution.title, execution.task); err != nil {
+			_ = r.finishMember(ctx, execution.member, subagentOutcome{err: err})
+			if cooperative {
+				return nil, err
 			}
 			return nil, fmt.Errorf("failed to push subagent start: %w", err)
 		}
 	}
 
-	subCb := wrapSubagentCallbacks(callbacks, meta)
-	childOpts := AgentLoopOptions{Depth: opts.Depth + 1, ApprovalMode: opts.ApprovalMode, PlanMode: opts.PlanMode, SandboxPolicy: opts.SandboxPolicy}
-
-	answer, runErr := a.RunAgentLoop(ctx, subModel, sessionID, subMsgs, mcpConfigs, activatedSkills, subCb, childOpts)
-	if member != nil {
-		finishCtx := ctx
-		if ctx.Err() != nil {
-			finishCtx = context.Background()
-		}
-		memberResult := teamsvc.MemberResult{Answer: answer, Err: runErr}
-		if errors.Is(runErr, context.Canceled) || errors.Is(runErr, context.DeadlineExceeded) {
-			memberResult.Err = nil
-			memberResult.Canceled = true
-		}
-		if _, finishErr := opts.teamRuntime.finishMember(finishCtx, member.ID, memberResult); finishErr != nil && runErr == nil {
-			runErr = finishErr
+	outcome := run(ctx, meta)
+	// The cooperative compatibility event historically precedes the team update.
+	if !cooperative {
+		if err := r.finishMember(ctx, execution.member, outcome); err != nil && outcome.err == nil {
+			outcome.err = err
 		}
 	}
+	if r.callbacks.OnSubagentDone != nil {
+		_ = r.callbacks.OnSubagentDone(meta, outcome.err)
+	}
+	if cooperative {
+		_ = r.finishMember(ctx, execution.member, outcome)
+	}
+	result := &tools.ExecuteResult{Output: outcome.answer}
+	if outcome.err != nil {
+		result.Error = outcome.err.Error()
+	}
+	return result, nil
+}
 
-	if callbacks.OnSubagentDone != nil {
-		_ = callbacks.OnSubagentDone(meta, runErr)
+func (r subagentExecutionRequest) finishMember(ctx context.Context, member *domain.TeamMemberRun, outcome subagentOutcome) error {
+	if member == nil {
+		return nil
+	}
+	result := teamsvc.MemberResult{Answer: outcome.answer, Err: outcome.err}
+	if outcome.canceled || errors.Is(outcome.err, context.Canceled) || errors.Is(outcome.err, context.DeadlineExceeded) {
+		result.Err = nil
+		result.Canceled = true
+	}
+	_, err := r.opts.teamRuntime.finishMember(context.WithoutCancel(ctx), member.ID, result)
+	return err
+}
+
+type directSubagentExecutor struct {
+	agent *AgentService
+}
+
+func (e directSubagentExecutor) ExecuteSubagent(ctx context.Context, r subagentExecutionRequest) (*tools.ExecuteResult, error) {
+	host := e.agent.subagentHost
+	input, rejection := r.admit(host, nil)
+	if rejection != nil {
+		return rejection, nil
+	}
+	if r.callbacks.OnToolCallStart != nil {
+		request := (toolInvocation{call: r.toolCall, resolvedToolInvocation: r.invocation, params: r.params}).startRequest()
+		request.ReviewStatus = ""
+		request.Preamble = r.preamble
+		if err := r.callbacks.OnToolCallStart(request); err != nil {
+			return nil, fmt.Errorf("failed to push tool approval request: %w", err)
+		}
+	}
+	approved, message, _ := waitApprovalIfNeeded(ctx, r.callbacks, r.toolCall, r.invocation, r.params, r.preamble, nil)
+	if !approved {
+		return &tools.ExecuteResult{Output: message}, nil
 	}
 
-	var execResult *tools.ExecuteResult
-	if runErr != nil {
-		execResult = &tools.ExecuteResult{Output: strings.TrimSpace(answer), Error: runErr.Error()}
-	} else {
-		execResult = &tools.ExecuteResult{Output: strings.TrimSpace(answer), Error: ""}
+	model, err := r.resolveModel(ctx, host)
+	if err != nil {
+		return &tools.ExecuteResult{Error: err.Error()}, nil
+	}
+	title := normalizeSubagentTitle(input.title, input.task)
+	member, err := r.reserveMember(ctx, title, input.task, model.ConfigID)
+	if err != nil {
+		return &tools.ExecuteResult{Error: err.Error()}, nil
+	}
+	messages, err := host.BuildSubagentMessages(ctx, r.sessionID, input.task, input.context)
+	if err != nil {
+		return &tools.ExecuteResult{Error: fmt.Sprintf("failed to build subagent context: %s", err)}, nil
 	}
 
-	return execResult, nil
+	execution := subagentExecution{id: uuid.NewString(), title: title, task: input.task, modelID: model.ConfigID, member: member}
+	return r.runWithLifecycle(ctx, execution, func(ctx context.Context, meta AgentEventMeta) subagentOutcome {
+		callbacks := wrapSubagentCallbacks(r.callbacks, meta)
+		opts := AgentLoopOptions{
+			Depth: r.opts.Depth + 1, ApprovalMode: r.opts.ApprovalMode, PlanMode: r.opts.PlanMode,
+			SandboxPolicy: r.opts.SandboxPolicy,
+		}
+		answer, err := e.agent.RunAgentLoop(ctx, model, r.sessionID, messages, r.mcpConfigs, r.activatedSkills, callbacks, opts)
+		return subagentOutcome{answer: strings.TrimSpace(answer), err: err}
+	})
+}
+
+type cooperativeSubagentExecutor struct {
+	host SubagentHost
+	loop *cooperativeLoop
+}
+
+func (e cooperativeSubagentExecutor) ExecuteSubagent(ctx context.Context, r subagentExecutionRequest) (*tools.ExecuteResult, error) {
+	c := e.loop
+	input, rejection := r.admit(e.host, c)
+	if rejection != nil {
+		return rejection, nil
+	}
+	if r.reservationErr != nil {
+		return &tools.ExecuteResult{Error: r.reservationErr.Error()}, nil
+	}
+	d, err := c.service.Spawn(ctx, c.caller, subagent.Spawn{
+		Title: input.title, Task: input.task, Context: input.context,
+		ModelID: c.model.ConfigID, Workspace: c.workspace, OneShot: true,
+	})
+	if err != nil {
+		return &tools.ExecuteResult{Error: err.Error()}, nil
+	}
+	defer func() {
+		// A failed callback or canceled caller still owns this one-shot child.
+		if c.service.Runtime.IsLive(d.SessionID) {
+			finish, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+			defer cancel()
+			_ = c.service.Runtime.Interrupt(finish, d.SessionID, true)
+		}
+	}()
+
+	member, err := r.reserveMember(ctx, d.Title, d.Task, c.model.ConfigID)
+	if err != nil {
+		return &tools.ExecuteResult{Error: err.Error()}, nil
+	}
+	execution := subagentExecution{id: d.SessionID, title: d.Title, task: d.Task, modelID: c.model.ConfigID, member: member}
+	return r.runWithLifecycle(ctx, execution, func(ctx context.Context, meta AgentEventMeta) subagentOutcome {
+		return e.waitForResult(ctx, d.SessionID, wrapSubagentCallbacks(r.callbacks, meta))
+	})
+}
+
+func (e cooperativeSubagentExecutor) waitForResult(ctx context.Context, id string, callbacks AgentCallbacks) subagentOutcome {
+	runtime := e.loop.service.Runtime
+	for {
+		changed := runtime.Changes()
+		if !runtime.IsLive(id) {
+			break
+		}
+		if err := runtime.WaitSignal(ctx, changed, time.Second); err != nil {
+			return subagentOutcome{err: err}
+		}
+	}
+	turns, err := e.loop.service.Store.ListAgentTurns(context.WithoutCancel(ctx), id)
+	if err != nil {
+		return subagentOutcome{err: err}
+	}
+	if len(turns) == 0 {
+		return subagentOutcome{err: errors.New("subagent did not produce a terminal record")}
+	}
+	turn := turns[0]
+	outcome := subagentOutcome{answer: turn.Answer, canceled: turn.Status == "canceled"}
+	if turn.Status != "succeeded" {
+		outcome.err = fmt.Errorf("%s: %s", turn.StopReason, turn.Error)
+	}
+	if turn.Thinking != "" {
+		_ = callbacks.OnThinkingStart(ThinkingEventMeta{})
+		_ = callbacks.OnThinkingChunk(turn.Thinking, ThinkingEventMeta{})
+		_ = callbacks.OnThinkingDone(ThinkingEventMeta{})
+	}
+	if turn.Answer != "" {
+		_ = callbacks.OnChunk(turn.Answer)
+	}
+	return outcome
 }

@@ -10,7 +10,6 @@ import (
 
 	"slimebot/internal/constants"
 	"slimebot/internal/domain"
-	schedulesvc "slimebot/internal/services/schedule"
 )
 
 type scheduleTool struct{}
@@ -87,7 +86,7 @@ func (s *scheduleTool) Execute(ctx context.Context, command string, params map[s
 	}
 	switch strings.TrimSpace(command) {
 	case "create":
-		return scheduleOutput(service.Create(ctx, schedulesvc.CreateInput{
+		return scheduleOutput(service.Create(ctx, domain.ScheduledTaskCreateInput{
 			Name:          paramStringTrim(params, "name"),
 			Prompt:        paramStringTrim(params, "prompt"),
 			SessionID:     sessionIDParam(ctx, params),
@@ -119,7 +118,7 @@ func (s *scheduleTool) Execute(ctx context.Context, command string, params map[s
 		return scheduleOutput(service.Trigger(ctx, paramStringTrim(params, "task_id")))
 	case "update":
 		taskID := paramStringTrim(params, "task_id")
-		input := schedulesvc.UpdateInput{}
+		input := domain.ScheduledTaskUpdateInput{}
 		if hasParam(params, "name") {
 			value := paramStringTrim(params, "name")
 			input.Name = &value
@@ -176,9 +175,9 @@ func jsonOutput(value any) (*ExecuteResult, error) {
 	return &ExecuteResult{Output: string(data)}, nil
 }
 
-func scheduleSpecFromParams(params map[string]any) schedulesvc.ScheduleSpec {
-	spec := schedulesvc.ScheduleSpec{
-		Kind:            schedulesvc.ScheduleKind(paramStringTrim(params, "schedule_kind")),
+func scheduleSpecFromParams(params map[string]any) domain.ScheduleSpec {
+	spec := domain.ScheduleSpec{
+		Kind:            domain.ScheduleKind(paramStringTrim(params, "schedule_kind")),
 		IntervalMinutes: intParam(params, "interval_minutes"),
 		CronExpr:        paramStringTrim(params, "cron_expr"),
 	}
@@ -190,7 +189,7 @@ func scheduleSpecFromParams(params map[string]any) schedulesvc.ScheduleSpec {
 	return spec
 }
 
-func scheduleSpecForUpdate(ctx context.Context, service *schedulesvc.Service, taskID string, params map[string]any) (*schedulesvc.ScheduleSpec, error) {
+func scheduleSpecForUpdate(ctx context.Context, service ScheduleService, taskID string, params map[string]any) (*domain.ScheduleSpec, error) {
 	if !hasAnyParam(params, "schedule_kind", "run_at", "interval_minutes", "cron_expr") {
 		return nil, nil
 	}
@@ -200,7 +199,7 @@ func scheduleSpecForUpdate(ctx context.Context, service *schedulesvc.Service, ta
 	}
 	spec := scheduleSpecFromTask(*task)
 	if hasParam(params, "schedule_kind") {
-		spec.Kind = schedulesvc.ScheduleKind(paramStringTrim(params, "schedule_kind"))
+		spec.Kind = domain.ScheduleKind(paramStringTrim(params, "schedule_kind"))
 	}
 	if hasParam(params, "run_at") {
 		parsed, err := time.Parse(time.RFC3339, paramStringTrim(params, "run_at"))
@@ -223,9 +222,9 @@ func scheduleSpecForUpdate(ctx context.Context, service *schedulesvc.Service, ta
 	return &spec, nil
 }
 
-func scheduleSpecFromTask(task domain.ScheduledTask) schedulesvc.ScheduleSpec {
-	spec := schedulesvc.ScheduleSpec{
-		Kind:            schedulesvc.ScheduleKind(task.ScheduleKind),
+func scheduleSpecFromTask(task domain.ScheduledTask) domain.ScheduleSpec {
+	spec := domain.ScheduleSpec{
+		Kind:            domain.ScheduleKind(task.ScheduleKind),
 		IntervalMinutes: task.IntervalMinutes,
 		CronExpr:        task.CronExpr,
 		Timezone:        task.Timezone,
@@ -236,17 +235,17 @@ func scheduleSpecFromTask(task domain.ScheduledTask) schedulesvc.ScheduleSpec {
 	return spec
 }
 
-func requireScheduleFieldsForKind(kind schedulesvc.ScheduleKind, params map[string]any) error {
+func requireScheduleFieldsForKind(kind domain.ScheduleKind, params map[string]any) error {
 	switch kind {
-	case schedulesvc.ScheduleKindOnce:
+	case domain.ScheduleKindOnce:
 		if !hasParam(params, "run_at") {
 			return fmt.Errorf("run_at is required when changing to once schedule")
 		}
-	case schedulesvc.ScheduleKindInterval:
+	case domain.ScheduleKindInterval:
 		if !hasParam(params, "interval_minutes") {
 			return fmt.Errorf("interval_minutes is required when changing to interval schedule")
 		}
-	case schedulesvc.ScheduleKindCron:
+	case domain.ScheduleKindCron:
 		if !hasParam(params, "cron_expr") {
 			return fmt.Errorf("cron_expr is required when changing to cron schedule")
 		}

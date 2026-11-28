@@ -1227,3 +1227,42 @@ func (h *stubSubagentHost) ResolveModelRuntimeConfig(_ context.Context, modelID 
 	}
 	return h.resolved, nil
 }
+
+func (a *AgentService) handleRunSubagentTool(
+	ctx context.Context,
+	parentModel llmsvc.ModelRuntimeConfig,
+	sessionID string,
+	mcpConfigs []domain.MCPConfig,
+	activatedSkills map[string]struct{},
+	callbacks AgentCallbacks,
+	opts AgentLoopOptions,
+	tc llmsvc.ToolCallInfo,
+	invocation resolvedToolInvocation,
+	params map[string]any,
+	userSubagentModelID string,
+	preamble string,
+	messages *[]llmsvc.ChatMessage,
+) error {
+	opts.SubagentModelID = userSubagentModelID
+	execResult, err := a.subagentExecutor(opts.Cooperative).ExecuteSubagent(ctx, subagentExecutionRequest{
+		parentModel: parentModel, sessionID: sessionID, mcpConfigs: mcpConfigs,
+		activatedSkills: activatedSkills, callbacks: callbacks, opts: opts,
+		toolCall: tc, invocation: invocation, params: params, preamble: preamble,
+	})
+	if err != nil {
+		return err
+	}
+	resultStatus := buildToolResultStatus(execResult)
+	notifyToolResult(callbacks, ToolCallResult{
+		ToolCallID:       tc.ID,
+		ToolName:         invocation.toolName,
+		Command:          invocation.command,
+		ModelFuncName:    invocation.modelFuncName,
+		RequiresApproval: invocation.requiresApproval,
+		Status:           resultStatus,
+		Output:           execResult.Output,
+		Error:            execResult.Error,
+	})
+	*messages = appendToolMessage(*messages, tc.ID, buildToolResultContent(execResult))
+	return nil
+}

@@ -7,7 +7,7 @@ import (
 	"strings"
 
 	"slimebot/internal/constants"
-	memorysvc "slimebot/internal/services/memory"
+	"slimebot/internal/domain"
 )
 
 type memoryTool struct{}
@@ -90,7 +90,7 @@ func (m *memoryTool) Execute(ctx context.Context, command string, params map[str
 	}
 }
 
-func (m *memoryTool) add(ctx context.Context, service *memorysvc.Service, params map[string]any) (*ExecuteResult, error) {
+func (m *memoryTool) add(ctx context.Context, service MemoryStore, params map[string]any) (*ExecuteResult, error) {
 	target, err := targetFromParams(params)
 	if err != nil {
 		return &ExecuteResult{Error: err.Error()}, nil
@@ -106,7 +106,7 @@ func (m *memoryTool) add(ctx context.Context, service *memorysvc.Service, params
 	return memoryToolOutput(state)
 }
 
-func (m *memoryTool) replace(ctx context.Context, service *memorysvc.Service, params map[string]any) (*ExecuteResult, error) {
+func (m *memoryTool) replace(ctx context.Context, service MemoryStore, params map[string]any) (*ExecuteResult, error) {
 	target, err := targetFromParams(params)
 	if err != nil {
 		return &ExecuteResult{Error: err.Error()}, nil
@@ -126,7 +126,7 @@ func (m *memoryTool) replace(ctx context.Context, service *memorysvc.Service, pa
 	return memoryToolOutput(state)
 }
 
-func (m *memoryTool) remove(ctx context.Context, service *memorysvc.Service, params map[string]any) (*ExecuteResult, error) {
+func (m *memoryTool) remove(ctx context.Context, service MemoryStore, params map[string]any) (*ExecuteResult, error) {
 	target, err := targetFromParams(params)
 	if err != nil {
 		return &ExecuteResult{Error: err.Error()}, nil
@@ -142,10 +142,10 @@ func (m *memoryTool) remove(ctx context.Context, service *memorysvc.Service, par
 	return memoryToolOutput(state)
 }
 
-func (m *memoryTool) read(ctx context.Context, service *memorysvc.Service, params map[string]any) (*ExecuteResult, error) {
+func (m *memoryTool) read(ctx context.Context, service MemoryStore, params map[string]any) (*ExecuteResult, error) {
 	targetText := paramStringTrim(params, "target")
 	if targetText != "" {
-		target, err := memorysvc.NormalizeTarget(targetText)
+		target, err := domain.NormalizeMemoryTarget(targetText)
 		if err != nil {
 			return &ExecuteResult{Error: "target must be memory or user"}, nil
 		}
@@ -153,7 +153,7 @@ func (m *memoryTool) read(ctx context.Context, service *memorysvc.Service, param
 		if err != nil {
 			return &ExecuteResult{Error: err.Error()}, nil
 		}
-		if target == memorysvc.TargetUser {
+		if target == domain.MemoryTargetUser {
 			return memoryToolOutput(snapshot.User)
 		}
 		return memoryToolOutput(snapshot.Memory)
@@ -169,15 +169,15 @@ func (m *memoryTool) read(ctx context.Context, service *memorysvc.Service, param
 	return &ExecuteResult{Output: string(data)}, nil
 }
 
-func targetFromParams(params map[string]any) (memorysvc.Target, error) {
-	target, err := memorysvc.NormalizeTarget(paramStringTrim(params, "target"))
+func targetFromParams(params map[string]any) (domain.MemoryTarget, error) {
+	target, err := domain.NormalizeMemoryTarget(paramStringTrim(params, "target"))
 	if err != nil {
 		return "", fmt.Errorf("target must be memory or user")
 	}
 	return target, nil
 }
 
-func memoryToolOutput(state memorysvc.TargetState) (*ExecuteResult, error) {
+func memoryToolOutput(state domain.MemoryTargetState) (*ExecuteResult, error) {
 	body := map[string]any{
 		"success":    true,
 		"target":     state.Target,

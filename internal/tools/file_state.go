@@ -1,11 +1,6 @@
 package tools
 
-import (
-	"context"
-	"sync"
-)
-
-type fileToolContextKey struct{}
+import "sync"
 
 // ReadFileState tracks files the model has read during a chat session.
 type ReadFileState struct {
@@ -25,22 +20,6 @@ type ReadFileEntry struct {
 // NewReadFileState constructs an empty file state cache.
 func NewReadFileState() *ReadFileState {
 	return &ReadFileState{files: make(map[string]ReadFileEntry)}
-}
-
-// WithReadFileState attaches a file state cache to a tool execution context.
-func WithReadFileState(ctx context.Context, state *ReadFileState) context.Context {
-	if state == nil {
-		return ctx
-	}
-	return context.WithValue(ctx, fileToolContextKey{}, state)
-}
-
-func readFileStateFromContext(ctx context.Context) *ReadFileState {
-	if ctx == nil {
-		return nil
-	}
-	state, _ := ctx.Value(fileToolContextKey{}).(*ReadFileState)
-	return state
 }
 
 func (s *ReadFileState) get(path string) (ReadFileEntry, bool) {

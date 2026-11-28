@@ -98,15 +98,7 @@ test('parent tool call does not auto-expand after nested approval is resolved', 
   assert.equal(shouldAutoExpandToolCall(parent, nestedTools), false)
 })
 
-test('chat store only promotes done.planId to pending plan confirmation', () => {
-  const chatStoreSource = readFileSync(resolve(import.meta.dirname, '../src/stores/chat.ts'), 'utf8') + readFileSync(resolve(import.meta.dirname, '../src/stores/chatSessionRuntime.ts'), 'utf8')
-
-  assert.match(chatStoreSource, /if \(meta\?\.planId\) \{/)
-  assert.match(chatStoreSource, /pendingPlanConfirmation\.value = \{[\s\S]*planId: meta\.planId/s)
-  assert.match(chatStoreSource, /pendingPlanConfirmation\.value = \{[\s\S]*sessionId,/s)
-  assert.match(chatStoreSource, /onPlanBody: \(content, sessionId\) => \{[\s\S]*appendPlanBodyToBatch\(batch, content\)[\s\S]*planGenerating\.value = false/s)
-})
-
+// The executable done.planId behavior is covered by chatSessionReducer.test.ts.
 test('plan confirmation is only visible for the owning session', () => {
   const homePageSource = readFileSync(resolve(import.meta.dirname, '../src/pages/HomePage.vue'), 'utf8')
   const homeChatPageSource = readFileSync(resolve(import.meta.dirname, '../src/composables/home/useHomeChatPage.ts'), 'utf8')
@@ -184,13 +176,10 @@ test('chat socket done event forwards plan metadata while plan_body stays separa
   assert.deepEqual(events, [wire.plan_body.content, [wire.done.planId, wire.done.planBody]])
 })
 
-test('chat socket and store forward subagent title from start event', () => {
+test('chat socket forwards subagent title from start event', () => {
   const received: string[] = []
   dispatchChatSocketMessage(wire.subagent_start, { onSubagentStart: data => received.push(data.title) })
   assert.deepEqual(received, [wire.subagent_start.title])
-
-  const chatStoreSource = readFileSync(resolve(import.meta.dirname, '../src/stores/chatSessionRuntime.ts'), 'utf8')
-  assert.match(chatStoreSource, /parent\.subagentTitle = data\.title/)
 })
 
 test('chat socket forwards backend event timestamps for tool and thinking ordering', () => {
@@ -209,10 +198,7 @@ test('chat socket forwards backend event timestamps for tool and thinking orderi
     wire.thinking_start.startedAt, wire.thinking_done.finishedAt,
   ])
 
-  const chatStoreSource = readFileSync(resolve(import.meta.dirname, '../src/stores/chatSessionRuntime.ts'), 'utf8')
-  assert.match(chatStoreSource, /startedAt: parseSocketTimestamp\(data\.startedAt\)/)
-  assert.match(chatStoreSource, /startSubagentThinking\(batch, data\.parentToolCallId, parseSocketTimestamp\(data\.startedAt\)\)/)
-  assert.match(chatStoreSource, /finishSubagentThinking\(batch, data\.parentToolCallId, parseSocketTimestamp\(data\.finishedAt\)\)/)
+  // Reducer timestamp persistence is covered by chatSessionReducer.test.ts.
 })
 
 test('chat socket and store forward backend reply timing for live batches', () => {
@@ -232,9 +218,7 @@ test('chat socket and store forward backend reply timing for live batches', () =
     [wire.done.finishedAt, wire.done.durationMs],
   ])
 
-  const chatStoreSource = readFileSync(resolve(import.meta.dirname, '../src/stores/chatSessionRuntime.ts'), 'utf8')
-  assert.match(chatStoreSource, /onStart: \(sessionId, meta\) => \{[\s\S]*startedAt: parseSocketTimestamp\(meta\?\.startedAt\),/s)
-  assert.match(chatStoreSource, /finalizeReplyBatchTiming\(batch, parseSocketTimestamp\(meta\?\.finishedAt\), meta\?\.durationMs\)/)
+  // Reducer reply timing is covered by chatSessionReducer.test.ts.
 })
 
 test('ThinkingBlock supports live subagent reasoning content before completion', () => {

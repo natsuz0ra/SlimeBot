@@ -1,0 +1,51 @@
+{
+  "sessionId": "session-consistency",
+  "events": [
+    { "type": "start", "sessionId": "session-consistency", "turnId": "turn-1", "startedAt": "2026-04-29T01:00:00Z" },
+    { "type": "thinking_start", "sessionId": "session-consistency", "startedAt": "2026-04-29T01:00:01Z" },
+    { "type": "thinking_chunk", "sessionId": "session-consistency", "content": "Root reasoning", "startedAt": "2026-04-29T01:00:01Z" },
+    { "type": "thinking_done", "sessionId": "session-consistency", "finishedAt": "2026-04-29T01:00:02Z" },
+    { "type": "chunk", "sessionId": "session-consistency", "content": "Before tool." },
+    { "type": "tool_call_start", "sessionId": "session-consistency", "toolCallId": "parent-tool", "toolName": "run_subagent", "command": "delegate", "params": { "title": "Worker", "task": "Inspect timeline" }, "requiresApproval": false, "startedAt": "2026-04-29T01:00:03Z" },
+    { "type": "subagent_start", "sessionId": "session-consistency", "parentToolCallId": "parent-tool", "subagentRunId": "worker-1", "title": "Worker", "task": "Inspect timeline" },
+    { "type": "thinking_start", "sessionId": "session-consistency", "parentToolCallId": "parent-tool", "subagentRunId": "worker-1", "startedAt": "2026-04-29T01:00:04Z" },
+    { "type": "thinking_chunk", "sessionId": "session-consistency", "parentToolCallId": "parent-tool", "subagentRunId": "worker-1", "content": "First child thought", "startedAt": "2026-04-29T01:00:04Z" },
+    { "type": "thinking_done", "sessionId": "session-consistency", "parentToolCallId": "parent-tool", "subagentRunId": "worker-1", "finishedAt": "2026-04-29T01:00:05Z" },
+    { "type": "thinking_start", "sessionId": "session-consistency", "parentToolCallId": "parent-tool", "subagentRunId": "worker-1", "startedAt": "2026-04-29T01:00:06Z" },
+    { "type": "thinking_chunk", "sessionId": "session-consistency", "parentToolCallId": "parent-tool", "subagentRunId": "worker-1", "content": "Second child thought", "startedAt": "2026-04-29T01:00:06Z" },
+    { "type": "thinking_done", "sessionId": "session-consistency", "parentToolCallId": "parent-tool", "subagentRunId": "worker-1", "finishedAt": "2026-04-29T01:00:07Z" },
+    { "type": "subagent_chunk", "sessionId": "session-consistency", "parentToolCallId": "parent-tool", "subagentRunId": "worker-1", "content": "Worker output" },
+    { "type": "subagent_done", "sessionId": "session-consistency", "parentToolCallId": "parent-tool", "subagentRunId": "worker-1" },
+    { "type": "tool_call_result", "sessionId": "session-consistency", "toolCallId": "parent-tool", "toolName": "run_subagent", "command": "delegate", "requiresApproval": false, "status": "completed", "output": "Worker output", "error": "", "finishedAt": "2026-04-29T01:00:08Z" },
+    { "type": "plan_start", "sessionId": "session-consistency" },
+    { "type": "plan_chunk", "sessionId": "session-consistency", "content": "# Draft plan" },
+    { "type": "plan_body", "sessionId": "session-consistency", "content": "# Final plan\n\nVerify both timelines." },
+    { "type": "chunk", "sessionId": "session-consistency", "content": "After plan." },
+    { "type": "done", "sessionId": "session-consistency", "answer": "<!-- THINKING:think-root -->\nBefore tool.\n<!-- TOOL_CALL:parent-tool -->\n<!-- PLAN_START -->\n# Final plan\n\nVerify both timelines.\n<!-- PLAN_END -->\nAfter plan.", "finishedAt": "2026-04-29T01:00:09Z", "durationMs": 9000 }
+  ],
+  "history": {
+    "content": "<!-- THINKING:think-root -->\nBefore tool.\n<!-- TOOL_CALL:parent-tool -->\n<!-- PLAN_START -->\n# Final plan\n\nVerify both timelines.\n<!-- PLAN_END -->\nAfter plan.",
+    "toolCalls": [
+      {
+        "toolCallId": "parent-tool",
+        "toolName": "run_subagent",
+        "command": "delegate",
+        "params": { "title": "Worker", "task": "Inspect timeline" },
+        "requiresApproval": false,
+        "status": "completed",
+        "output": "Worker output",
+        "error": "",
+        "startedAt": "2026-04-29T01:00:03Z",
+        "finishedAt": "2026-04-29T01:00:08Z",
+        "subagentRunId": "worker-1",
+        "subagentTitle": "Worker",
+        "subagentTask": "Inspect timeline"
+      }
+    ],
+    "thinking": [
+      { "thinkingId": "think-root", "content": "Root reasoning", "status": "completed", "startedAt": "2026-04-29T01:00:01Z", "finishedAt": "2026-04-29T01:00:02Z", "durationMs": 1000 },
+      { "thinkingId": "think-child-1", "parentToolCallId": "parent-tool", "subagentRunId": "worker-1", "content": "First child thought", "status": "completed", "startedAt": "2026-04-29T01:00:04Z", "finishedAt": "2026-04-29T01:00:05Z", "durationMs": 1000 },
+      { "thinkingId": "think-child-2", "parentToolCallId": "parent-tool", "subagentRunId": "worker-1", "content": "Second child thought", "status": "completed", "startedAt": "2026-04-29T01:00:06Z", "finishedAt": "2026-04-29T01:00:07Z", "durationMs": 1000 }
+    ]
+  }
+}

@@ -109,19 +109,8 @@ test("getChatFooterHint returns toggle hint in auto review mode", () => {
   );
 });
 
-test("memory command opens the dedicated console instead of printing only a snapshot", () => {
-  const source = readFileSync(new URL("./app.tsx", import.meta.url), "utf-8");
-  const loadMemoryStart = source.indexOf("const loadMemory = useCallback");
-  const resetMemoryStart = source.indexOf("const resetMemory = useCallback");
+// Memory console behavior is covered by controllers/memoryConsole.test.ts.
 
-  assert.notEqual(loadMemoryStart, -1);
-  assert.ok(resetMemoryStart > loadMemoryStart);
-  const loadMemorySource = source.slice(loadMemoryStart, resetMemoryStart);
-
-  assert.match(loadMemorySource, /SET_MEMORY_CONSOLE/);
-  assert.match(source, /<MemoryConsoleView/);
-  assert.doesNotMatch(loadMemorySource, /appendSystem\(formatMemorySnapshot\(snapshot\)\)/);
-});
 
 test("Agent Team command opens a dedicated compact detail view", () => {
   const source = readFileSync(new URL("./app.tsx", import.meta.url), "utf-8");
@@ -197,12 +186,10 @@ test("session redraw uses Ink frame reset instead of raw terminal clearing", () 
   assert.doesNotMatch(source, /const clearScreenDeferred = useCallback/);
 });
 
-test("app checks for updates silently on startup and passes banner marker state", () => {
+test("app passes update availability to the banner", () => {
   const source = readFileSync(new URL("./app.tsx", import.meta.url), "utf8");
 
-  assert.match(source, /getUpdateCheck\(false\)/);
   assert.match(source, /updateAvailable=\{Boolean\(state\.updateCheck\?\.updateAvailable\)\}/);
-  assert.match(source, /Update checks are informational; keep startup quiet/);
 });
 
 test("internal Ink forceRedraw keeps scrollback optional", () => {

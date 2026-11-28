@@ -100,7 +100,7 @@ frontend/src/
 │  ├─ home/                  # Home composables
 │  └─ settings/              # Settings composables
 ├─ pages/                    # Route pages/views
-├─ stores/                   # Pinia stores
+├─ stores/                   # Pinia stores and pure chat session event reduction
 ├─ styles/                   # Global styles/themes
 ├─ types/                    # Frontend shared types
 └─ utils/                    # Frontend utilities
@@ -115,6 +115,7 @@ cli/src/
 ├─ controllers/              # CLI flow/control logic
 ├─ hooks/                    # Ink/React hooks
 ├─ native/                   # Native bridge wrappers
+├─ reducers/                 # Chat, navigation, settings, and console state slices
 ├─ types/                    # CLI types/interfaces
 ├─ utils/                    # CLI utilities
 └─ ws/                       # WebSocket client logic
@@ -171,7 +172,8 @@ Quick index (feature -> first place to inspect):
 - Web memory settings: `frontend/src/components/settings/SettingsMemoryTab.vue`, `frontend/src/api/memory.ts`
 - Web privacy settings and previews: `frontend/src/components/settings/SettingsPrivacyTab.vue`, `frontend/src/api/privacy.ts`
 - Web update center: `frontend/src/components/settings/SettingsAboutTab.vue`, `frontend/src/api/update.ts`
-- CLI interaction flow: `cmd/cli/`, `cli/src/controllers/`, `cli/src/components/`, `cli/src/ws/`
+- Vue live chat event reduction: `frontend/src/stores/chatSessionReducer.ts` (pure state transitions), `frontend/src/stores/chatSessionRuntime.ts` (Vue/WebSocket/API side effects)
+- CLI interaction flow: `cmd/cli/`, `cli/src/controllers/`, `cli/src/components/`, `cli/src/ws/`; feature reducers in `cli/src/reducers/` composed by `cli/src/reducer.ts`
 - CLI memory command: `/memory` routing in `cli/src/controllers/commands.ts`, API in `cli/src/api/client.ts`
 - CLI background task controls: `/background` routing in `cli/src/controllers/commands.ts`, events in `cli/src/hooks/useCliSocket.ts`
 - CLI privacy commands: `/privacy` routing in `cli/src/controllers/commands.ts`, parsing and formatting in `cli/src/utils/privacy.ts`

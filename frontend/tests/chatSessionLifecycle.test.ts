@@ -297,6 +297,31 @@ test('completion loads persisted message IDs when returning, so editing remains 
   store.disconnectSocket()
 })
 
+test('editing keeps local history until message_edited confirms the backend prune', async () => {
+  const store = useChatStore()
+  histories.set('a', {
+    messages: [
+      { id: 'u1', sessionId: 'a', role: 'user', content: 'first', seq: 1, createdAt: '2026-01-01T00:00:00Z' },
+      { id: 'a1', sessionId: 'a', role: 'assistant', content: 'first answer', seq: 2, createdAt: '2026-01-01T00:00:01Z' },
+      { id: 'u2', sessionId: 'a', role: 'user', content: 'before edit', seq: 3, createdAt: '2026-01-01T00:00:02Z' },
+      { id: 'a2', sessionId: 'a', role: 'assistant', content: 'answer to prune', seq: 4, createdAt: '2026-01-01T00:00:03Z' },
+    ],
+    toolCallsByAssistantMessageId: {}, hasMore: false,
+  })
+  const socket = await select(store, 'a')
+  const before = store.messages.map(message => message.id)
+
+  assert.equal(await store.sendEditedMessage('u2', 'after edit', 'model'), true)
+  assert.deepEqual(store.messages.map(message => message.id), before)
+  assert.equal(store.messages.find(message => message.id === 'u2')?.content, 'before edit')
+
+  socket.emit('message_edited', 'a', { messageId: 'u2', content: 'after edit', createdAt: '2026-01-01T00:00:04Z' })
+  assert.deepEqual(store.messages.map(message => message.id), ['u1', 'a1', 'u2'])
+  assert.equal(store.messages.at(-1)?.content, 'after edit')
+  assert.deepEqual(store.replyBatches.map(batch => batch.assistantMessageId), ['a1'])
+  store.disconnectSocket()
+})
+
 test('completion while the browser is hidden remains unread until it becomes visible', async () => {
   const store = useChatStore()
   store.setChatViewActive(true)

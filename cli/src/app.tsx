@@ -27,10 +27,13 @@ import { ModelEditor } from "./components/ModelEditor.js";
 import { ProviderEditor } from "./components/ProviderEditor.js";
 import { TextInput } from "./components/TextInput.js";
 import { Timeline } from "./components/Timeline.js";
-import { UpdateView, getInitialUpdateJobForView, isUpdateActive } from "./components/UpdateView.js";
+import { UpdateView } from "./components/UpdateView.js";
 import { UsageView } from "./components/UsageView.js";
 import { getChatFooterHint, handleChatShortcut, runCliCommand } from "./controllers/commands.js";
 import { applySessionResponse, captureSessionRequest, type SessionSelection } from "./controllers/sessionRequests.js";
+import { createMemoryConsoleController } from "./controllers/memoryConsole.js";
+import { createUpdateController } from "./controllers/updateController.js";
+import { createWorkspaceConsoleController } from "./controllers/workspaceConsole.js";
 import { useCliKeyboard } from "./hooks/useCliKeyboard.js";
 import { clampContextSize, formatContextSize, formatContextTokenCount, formatContextUsageStatus } from "./utils/contextSize.js";
 import { useCliSocket } from "./hooks/useCliSocket.js";
@@ -40,14 +43,6 @@ import { formatTimestamp, formatWaitingStatsSuffix } from "./utils/format.js";
 import { getAgentTeamRuns } from "./utils/agentTeam.js";
 import { mapHistoryMessages } from "./utils/history.js";
 import { buildSandboxMenuItems, type SandboxMenuAction } from "./utils/sandboxSettings.js";
-import { formatMemorySnapshot, normalizeMemoryResetTarget } from "./utils/memory.js";
-import {
-  MEMORY_CONSOLE_ACTIONS,
-  MEMORY_CONSOLE_EDIT_LIMITS,
-  MEMORY_CONSOLE_RESET_ACTIONS,
-  parseMemoryConsoleDraft,
-  type MemoryConsoleEditField,
-} from "./utils/memoryConsole.js";
 import { CLI_ACCENT_COLOR, clearScreen, setTerminalTitle, terminalWorkspaceLayout } from "./utils/terminal.js";
 import { CLI_THEME } from "./utils/theme.js";
 import { SHOW_CLI_THINKING } from "./utils/timelineFormat.js";
@@ -113,6 +108,8 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
     reducer,
     createInitialState(apiURL, cliToken, process.cwd(), version),
   );
+  const stateRef = useRef(state);
+  stateRef.current = state;
 
   const apiRef = useRef(new APIClient(apiURL, cliToken));
   const providerMenuRef = useRef<LLMProvider | null>(null);
@@ -170,6 +167,42 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
   const applyTerminalTitle = useCallback((sessionName = "") => {
     setTerminalTitle(sessionName.trim() || "SlimeBot CLI");
   }, []);
+
+  const {
+    loadMemory,
+    resetMemory,
+    handleMemoryConsoleSelect,
+    saveMemoryConsoleDraft,
+  } = React.useMemo(() => createMemoryConsoleController({
+    api: apiRef.current,
+    dispatch,
+    appendSystem,
+    getState: () => stateRef.current,
+  }), [appendSystem]);
+
+  const {
+    loadUpdate,
+    checkForUpdatesSilently,
+    applyUpdate,
+    refreshUpdateJob,
+  } = React.useMemo(() => createUpdateController({
+    api: apiRef.current,
+    dispatch,
+    appendSystem,
+    getState: () => stateRef.current,
+  }), [appendSystem]);
+
+  const { handleCheckpointCommand, handleUsageCommand } = React.useMemo(() => createWorkspaceConsoleController({
+    api: apiRef.current,
+    dispatch,
+    appendSystem,
+    getState: () => stateRef.current,
+    getSessionId: () => sessionRef.current.id,
+    getOutputBudgetTokens: () => outputBudgetTokens,
+    setOutputBudgetTokens,
+    refreshContextUsage,
+  }), [appendSystem, outputBudgetTokens, refreshContextUsage]);
+
 
   useEffect(() => {
     modelIdRef.current = state.modelId;
@@ -560,259 +593,23 @@ export function App({ apiURL, cliToken, version }: AppProps): React.ReactElement
     dispatch({ type: "SET_VIEW", view: "context" } as AppAction);
   }, [refreshContextUsage, state.modelId]);
 
-  const handleCheckpointCommand = useCallback(async (input: string) => {
-    const sid = sessionRef.current.id;
-    if (!sid) {
-      appendSystem("Create or open a session first.");
-      return;
-    }
-    if (input === "list") {
-      try {
-        const list = await apiRef.current.listCheckpoints(sid);
-        if (list.length === 0) {
-          appendSystem("No file checkpoints recorded for this session.");
-          return;
-        }
-        appendSystem(
-          list.map((cp) => `${cp.id.slice(0, 8)} · ${cp.kind} · ${cp.fileCount} file(s) · ${formatTimestamp(cp.createdAt)}`).join("\n"),
-        );
-      } catch (error) {
-        appendSystem(`Failed to list checkpoints: ${(error as Error).message}`);
-      }
-      return;
-    }
-    dispatch({ type: "SET_VIEW", view: "checkpoint" } as AppAction);
-  }, [appendSystem]);
+  // Checkpoint and usage orchestration lives in workspaceConsole.ts.
 
-  const handleUsageCommand = useCallback(async (input: string) => {
-    const trimmed = input.trim();
-    if (trimmed === "budget" || trimmed.startsWith("budget ")) {
-      const raw = trimmed.slice(6).trim();
-      if (!raw) {
-        appendSystem(
-          outputBudgetTokens > 0
-            ? `Current session output token budget: ${formatContextTokenCount(outputBudgetTokens)}. Use /usage budget <tokens|0> to change.`
-            : "Session output token budget is unlimited. Use /usage budget <tokens> to set a limit.",
-        );
-        return;
-      }
-      const parsed = Number(raw.replace(/[,_]/g, ""));
-      if (!Number.isFinite(parsed) || parsed < 0) {
-        appendSystem("Usage: /usage budget <non-negative integer|0>");
-        return;
-      }
-      const nextBudget = Math.round(parsed);
-      try {
-        await apiRef.current.updateSettings({ sessionOutputTokenBudget: nextBudget });
-        setOutputBudgetTokens(nextBudget);
-        if (sessionRef.current.id && state.modelId) {
-          await refreshContextUsage(sessionRef.current.id, state.modelId);
-        }
-        appendSystem(
-          nextBudget > 0
-            ? `Session output token budget set to ${formatContextTokenCount(nextBudget)}.`
-            : "Session output token budget cleared (unlimited).",
-        );
-      } catch (error) {
-        appendSystem(`Failed to update output budget: ${(error as Error).message}`);
-      }
-      return;
-    }
-    dispatch({ type: "SET_VIEW", view: "usage" } as AppAction);
-  }, [appendSystem, outputBudgetTokens, refreshContextUsage, state.modelId]);
+  // Memory console orchestration lives in memoryConsole.ts.
 
-  const loadMemory = useCallback(async () => {
-    dispatch({ type: "SET_MEMORY_CONSOLE", loading: true, message: "" } as AppAction);
-    try {
-      const snapshot = await apiRef.current.getMemory();
-      dispatch({ type: "SET_MEMORY_CONSOLE", snapshot, loading: false, message: "" } as AppAction);
-    } catch (error) {
-      dispatch({ type: "SET_MEMORY_CONSOLE", loading: false, message: `Failed to load memory: ${(error as Error).message}` } as AppAction);
-    }
-  }, []);
-
-  const resetMemory = useCallback(async (targetText: string) => {
-    const target = normalizeMemoryResetTarget(targetText);
-    if (!target) {
-      appendSystem("Usage: /memory reset memory|user|all");
-      return;
-    }
-    try {
-      await apiRef.current.clearMemory(target);
-      appendSystem(`Memory reset: ${target}`);
-      const snapshot = await apiRef.current.getMemory();
-      appendSystem(formatMemorySnapshot(snapshot));
-    } catch (error) {
-      appendSystem(`Failed to reset memory: ${(error as Error).message}`);
-    }
-  }, [appendSystem]);
-
-  const refreshMemoryConsole = useCallback(async (message = "") => {
-    try {
-      const snapshot = await apiRef.current.getMemory();
-      dispatch({ type: "SET_MEMORY_CONSOLE", snapshot, loading: false, message } as AppAction);
-    } catch (error) {
-      dispatch({ type: "SET_MEMORY_CONSOLE", loading: false, message: `Failed to refresh memory: ${(error as Error).message}` } as AppAction);
-    }
-  }, []);
-
-  const startMemoryConsoleEdit = useCallback((field: MemoryConsoleEditField) => {
-    const snapshot = state.memorySnapshot;
-    if (!snapshot) return;
-    const draft = field === "memoryCharLimit"
-      ? String(snapshot.memory.charLimit)
-      : field === "memoryUserCharLimit"
-        ? String(snapshot.user.charLimit)
-        : String(snapshot.memoryNudgeInterval);
-    dispatch({ type: "MEMORY_CONSOLE_START_EDIT", field, draft } as AppAction);
-  }, [state.memorySnapshot]);
-
-  const handleMemoryConsoleSelect = useCallback(async () => {
-    const snapshot = state.memorySnapshot;
-    if (!snapshot || state.memoryLoading) return;
-
-    if (state.memoryMode === "reset") {
-      const item = MEMORY_CONSOLE_RESET_ACTIONS[state.memoryCursor];
-      if (!item || item.action === "cancel") {
-        dispatch({ type: "MEMORY_CONSOLE_SET_MODE", mode: "actions", message: "" } as AppAction);
-        return;
-      }
-      try {
-        await apiRef.current.clearMemory(item.action);
-        await refreshMemoryConsole(`Memory reset: ${item.action}.`);
-        dispatch({ type: "MEMORY_CONSOLE_SET_MODE", mode: "actions" } as AppAction);
-      } catch (error) {
-        dispatch({ type: "MEMORY_CONSOLE_MESSAGE", message: `Failed to reset memory: ${(error as Error).message}` } as AppAction);
-      }
-      return;
-    }
-
-    if (state.memoryMode === "view") {
-      dispatch({ type: "MEMORY_CONSOLE_SET_MODE", mode: "actions", message: "" } as AppAction);
-      return;
-    }
-
-    if (state.memoryMode !== "actions") return;
-
-    const item = MEMORY_CONSOLE_ACTIONS[state.memoryCursor];
-    if (!item) return;
-    try {
-      if (item.action === "toggle-memory") {
-        await apiRef.current.updateSettings({ memoryEnabled: !snapshot.memoryEnabled });
-        await refreshMemoryConsole(`Long-term memory ${snapshot.memoryEnabled ? "disabled" : "enabled"}.`);
-        return;
-      }
-      if (item.action === "toggle-user-profile") {
-        await apiRef.current.updateSettings({ memoryUserProfileEnabled: !snapshot.memoryUserProfileEnabled });
-        await refreshMemoryConsole(`User profile memory ${snapshot.memoryUserProfileEnabled ? "disabled" : "enabled"}.`);
-        return;
-      }
-      if (item.action === "edit-memory-budget") {
-        startMemoryConsoleEdit("memoryCharLimit");
-        return;
-      }
-      if (item.action === "edit-user-budget") {
-        startMemoryConsoleEdit("memoryUserCharLimit");
-        return;
-      }
-      if (item.action === "edit-review-interval") {
-        startMemoryConsoleEdit("memoryNudgeInterval");
-        return;
-      }
-      if (item.action === "view-memory") {
-        dispatch({ type: "MEMORY_CONSOLE_VIEW_TARGET", target: "memory" } as AppAction);
-        return;
-      }
-      if (item.action === "view-user") {
-        dispatch({ type: "MEMORY_CONSOLE_VIEW_TARGET", target: "user" } as AppAction);
-        return;
-      }
-      if (item.action === "reset") {
-        dispatch({ type: "MEMORY_CONSOLE_SET_MODE", mode: "reset", message: "" } as AppAction);
-      }
-    } catch (error) {
-      dispatch({ type: "MEMORY_CONSOLE_MESSAGE", message: `Memory action failed: ${(error as Error).message}` } as AppAction);
-    }
-  }, [refreshMemoryConsole, startMemoryConsoleEdit, state.memoryCursor, state.memoryLoading, state.memoryMode, state.memorySnapshot]);
-
-  const saveMemoryConsoleDraft = useCallback(async () => {
-    const field = state.memoryEditingField;
-    if (!field) return;
-    const parsed = parseMemoryConsoleDraft(field, state.memoryDraft);
-    if (parsed.value === null) {
-      dispatch({ type: "MEMORY_CONSOLE_MESSAGE", message: parsed.error } as AppAction);
-      return;
-    }
-    try {
-      await apiRef.current.updateSettings({ [field]: parsed.value });
-      const label = MEMORY_CONSOLE_EDIT_LIMITS[field].label;
-      await refreshMemoryConsole(`${label} set to ${parsed.value}.`);
-      dispatch({ type: "MEMORY_CONSOLE_SET_MODE", mode: "actions" } as AppAction);
-    } catch (error) {
-      dispatch({ type: "MEMORY_CONSOLE_MESSAGE", message: `Failed to save memory setting: ${(error as Error).message}` } as AppAction);
-    }
-  }, [refreshMemoryConsole, state.memoryDraft, state.memoryEditingField]);
-
-  const loadUpdate = useCallback(async () => {
-    dispatch({ type: "SET_VIEW", view: "update" } as AppAction);
-    dispatch({ type: "SET_UPDATE_STATE", loading: true, confirming: false } as AppAction);
-    try {
-      const check = await apiRef.current.getUpdateCheck(true);
-      const job = await apiRef.current.getUpdateJob();
-      const visibleJob = getInitialUpdateJobForView(job);
-      dispatch({ type: "SET_UPDATE_STATE", check, job: visibleJob, loading: false, applying: isUpdateActive(visibleJob) } as AppAction);
-    } catch (error) {
-      dispatch({ type: "SET_UPDATE_STATE", loading: false, applying: false } as AppAction);
-      appendSystem(`Failed to load update status: ${(error as Error).message}`);
-    }
-  }, [appendSystem]);
-
-  const checkForUpdatesSilently = useCallback(async () => {
-    try {
-      const check = await apiRef.current.getUpdateCheck(false);
-      dispatch({ type: "SET_UPDATE_STATE", check } as AppAction);
-    } catch {
-      // Update checks are informational; keep startup quiet.
-    }
-  }, []);
-
-  const applyUpdate = useCallback(async () => {
-    if (!state.updateCheck?.canApply || !state.updateCheck.latest || state.updateApplying) {
-      appendSystem("No applicable update is available.");
-      return;
-    }
-    dispatch({ type: "SET_UPDATE_STATE", applying: true, confirming: false } as AppAction);
-    try {
-      const job = await apiRef.current.applyUpdate(state.updateCheck.latest);
-      dispatch({ type: "SET_UPDATE_STATE", job, applying: true } as AppAction);
-      appendSystem(`Update started for ${state.updateCheck.latest}. The update view will keep showing progress while the service is reachable.`);
-    } catch (error) {
-      dispatch({ type: "SET_UPDATE_STATE", applying: false } as AppAction);
-      appendSystem(`Failed to start update: ${(error as Error).message}`);
-    }
-  }, [appendSystem, state.updateApplying, state.updateCheck]);
+  // Update orchestration lives in updateController.ts.
 
   useEffect(() => {
     if (!state.updateApplying) return;
     let cancelled = false;
-    const poll = async () => {
-      try {
-        const job = await apiRef.current.getUpdateJob();
-        if (cancelled) return;
-        dispatch({ type: "SET_UPDATE_STATE", job, applying: isUpdateActive(job) } as AppAction);
-      } catch {
-        if (!cancelled) {
-          dispatch({ type: "SET_UPDATE_STATE", applying: false } as AppAction);
-        }
-      }
-    };
+    const poll = () => refreshUpdateJob(() => cancelled);
     const timer = setInterval(() => { void poll(); }, 1500);
     void poll();
     return () => {
       cancelled = true;
       clearInterval(timer);
     };
-  }, [state.updateApplying]);
+  }, [refreshUpdateJob, state.updateApplying]);
 
   const showHelp = useCallback(() => {
     const categoryLabels: Record<string, string> = {

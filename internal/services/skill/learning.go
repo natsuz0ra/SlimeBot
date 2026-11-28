@@ -104,9 +104,9 @@ func (s *LearningService) protectedTranscript(ctx context.Context, input Learnin
 }
 
 func (s *LearningService) generate(ctx context.Context, model llmsvc.ModelRuntimeConfig, target, current, transcript string) (string, error) {
-	provider := s.factory.GetProvider(model.Provider)
-	if provider == nil {
-		return "", fmt.Errorf("skill learning provider is unavailable")
+	provider, err := s.factory.ResolveProvider(model.Provider)
+	if err != nil {
+		return "", err
 	}
 	catalog, _, err := s.runtime.BuildCatalogPrompt()
 	if err != nil {

@@ -1,9 +1,6 @@
 package tools
 
-import (
-	"slimebot/internal/domain"
-	llmsvc "slimebot/internal/services/llm"
-)
+import "slimebot/internal/domain"
 
 // SpecialToolOptions controls which stable-name special tools are exposed.
 type SpecialToolOptions struct {
@@ -13,8 +10,8 @@ type SpecialToolOptions struct {
 }
 
 // BuildSpecialToolDefs returns stable-name special tool definitions in a fixed order.
-func BuildSpecialToolDefs(opts SpecialToolOptions) []llmsvc.ToolDef {
-	var defs []llmsvc.ToolDef
+func BuildSpecialToolDefs(opts SpecialToolOptions) []domain.ToolDef {
+	var defs []domain.ToolDef
 	if def := BuildActivateSkillToolDef(opts.Skills); def != nil {
 		defs = append(defs, *def)
 	}

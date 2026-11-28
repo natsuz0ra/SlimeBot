@@ -6,7 +6,6 @@ import (
 
 	"slimebot/internal/constants"
 	"slimebot/internal/domain"
-	llmsvc "slimebot/internal/services/llm"
 )
 
 type activateSkillTool struct{}
@@ -59,7 +58,7 @@ func (a *activateSkillTool) activate(ctx context.Context, params map[string]any)
 }
 
 // BuildActivateSkillToolDef builds the dynamic activate_skill definition.
-func BuildActivateSkillToolDef(skills []domain.Skill) *llmsvc.ToolDef {
+func BuildActivateSkillToolDef(skills []domain.Skill) *domain.ToolDef {
 	if len(skills) == 0 {
 		return nil
 	}
@@ -72,7 +71,7 @@ func BuildActivateSkillToolDef(skills []domain.Skill) *llmsvc.ToolDef {
 	if len(enumValues) == 0 {
 		return nil
 	}
-	return &llmsvc.ToolDef{
+	return &domain.ToolDef{
 		Name:        constants.ActivateSkillTool,
 		Description: (&activateSkillTool{}).Description(),
 		Parameters: map[string]any{

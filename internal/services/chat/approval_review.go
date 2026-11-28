@@ -33,9 +33,9 @@ func (a *AgentService) reviewToolApproval(
 	transcript []llmsvc.ChatMessage,
 	req ApprovalReviewRequest,
 ) (*ApprovalReviewResult, error) {
-	provider := a.providerFactory.GetProvider(modelConfig.Provider)
-	if provider == nil {
-		return nil, fmt.Errorf("approval reviewer provider is not initialized")
+	provider, err := a.providerFactory.ResolveProvider(modelConfig.Provider)
+	if err != nil {
+		return nil, err
 	}
 	reviewModel := modelConfig
 	reviewModel.ThinkingLevel = ""

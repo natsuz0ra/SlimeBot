@@ -38,7 +38,10 @@ func RunDesktopHost(input io.Reader, output io.Writer) error {
 	if err := runtime.EnsureAndLoadEnv(); err != nil {
 		return err
 	}
-	cfg := desktopConfig(startup.Token)
+	cfg, err := desktopConfig(startup.Token)
+	if err != nil {
+		return err
+	}
 	instance, err := NewDesktop(cfg, startup.Token)
 	if err != nil {
 		return err
@@ -64,9 +67,12 @@ func RunDesktopHost(input io.Reader, output io.Writer) error {
 	return nil
 }
 
-func desktopConfig(token string) config.Config {
-	cfg := config.Load()
+func desktopConfig(token string) (config.Config, error) {
+	cfg, err := config.LoadValidated()
+	if err != nil {
+		return config.Config{}, err
+	}
 	cfg.Frontend = ""
 	cfg.JWTSecret = token
-	return cfg
+	return cfg, nil
 }

@@ -601,9 +601,9 @@ func (r *Run) summarize(ctx context.Context, c llm.ModelRuntimeConfig, items []i
 	if r.service.factory == nil {
 		return "", "", fmt.Errorf("summary provider unavailable")
 	}
-	provider := r.service.factory.GetProvider(c.Provider)
-	if provider == nil {
-		return "", "", fmt.Errorf("summary provider unavailable")
+	provider, err := r.service.factory.ResolveProvider(c.Provider)
+	if err != nil {
+		return "", "", err
 	}
 	var transcript strings.Builder
 	for _, it := range items {

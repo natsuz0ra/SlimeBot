@@ -28,7 +28,10 @@ func RunFromEnv() error {
 
 // RunFromEnvWithMode loads config from the environment and starts the entry for the given mode.
 func RunFromEnvWithMode(mode RunMode, runCLI func(context.Context, *Core) error) error {
-	cfg := config.Load()
+	cfg, err := config.LoadValidated()
+	if err != nil {
+		return err
+	}
 
 	if err := ValidateConfigForMode(cfg, mode); err != nil {
 		return err
@@ -70,7 +73,10 @@ func RunFromEnvWithMode(mode RunMode, runCLI func(context.Context, *Core) error)
 // RunCLIHeadless starts the headless HTTP server and returns the App (caller must close).
 // CLI mode does not require JWT_SECRET; one is auto-generated. The returned App is already listening.
 func RunCLIHeadless() (*App, error) {
-	cfg := config.Load()
+	cfg, err := config.LoadValidated()
+	if err != nil {
+		return nil, err
+	}
 
 	// CLI mode does not require JWT_SECRET; generate one if missing.
 	if strings.TrimSpace(cfg.JWTSecret) == "" {

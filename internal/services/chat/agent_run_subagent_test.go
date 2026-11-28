@@ -535,7 +535,9 @@ func TestHandleRunSubagentTool_InheritsParentModelForEmptyOrDefaultModelID(t *te
 
 func TestHandleRunSubagentTool_UserConfiguredModelKeepsParentThinkingLevel(t *testing.T) {
 	provider := &captureToolDefsProvider{}
-	agent := NewAgentService(llmsvc.NewFactory(provider), nil, nil)
+	factory := llmsvc.NewFactory(provider)
+	factory.Register(llmsvc.ProviderAnthropic, provider)
+	agent := NewAgentService(factory, nil, nil)
 	host := &stubSubagentHost{
 		resolved: llmsvc.ModelRuntimeConfig{
 			Provider: llmsvc.ProviderAnthropic,

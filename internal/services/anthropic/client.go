@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
-	"time"
 
 	llmsvc "slimebot/internal/services/llm"
 
@@ -21,11 +20,9 @@ type AnthropicClient struct {
 	Client *http.Client
 }
 
-// NewAnthropicClient constructs a client with default HTTP timeouts.
+// NewAnthropicClient constructs a client with phase-scoped HTTP timeouts.
 func NewAnthropicClient() *AnthropicClient {
-	return &AnthropicClient{
-		Client: &http.Client{Timeout: 90 * time.Second},
-	}
+	return &AnthropicClient{Client: llmsvc.NewStreamingHTTPClient()}
 }
 
 // StreamChatWithTools starts a streaming chat request with tool use; implements llmsvc.Provider.

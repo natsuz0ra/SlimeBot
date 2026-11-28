@@ -30,7 +30,10 @@ type Options struct {
 	Now           func() time.Time
 	Level         zapcore.Level
 	ConsoleWriter io.Writer
-	EnableFile    bool
+	// EnableFile is retained for source compatibility. File logging defaults to
+	// enabled; use DisableFile to explicitly turn it off.
+	EnableFile  bool
+	DisableFile bool
 }
 
 func Init(opts Options) (*zap.Logger, func(), error) {
@@ -54,16 +57,6 @@ func Init(opts Options) (*zap.Logger, func(), error) {
 	if strings.TrimSpace(opts.LogDir) == "" {
 		opts.LogDir = filepath.Join(runtime.SlimeBotHomeDir(), "log")
 	}
-	if !opts.EnableFile {
-		opts.EnableFile = true
-	}
-
-	if err := os.MkdirAll(opts.LogDir, os.ModePerm); err != nil {
-		logger := zap.NewNop()
-		zap.ReplaceGlobals(logger)
-		return logger, func() {}, nil
-	}
-	_ = cleanupOldLogs(opts.LogDir, now, opts.RetentionDays, opts.MaxFiles)
 
 	encoderCfg := zap.NewProductionEncoderConfig()
 	encoderCfg.TimeKey = "time"
@@ -73,15 +66,7 @@ func Init(opts Options) (*zap.Logger, func(), error) {
 	cores := make([]zapcore.Core, 0, 2)
 	closeFns := make([]func(), 0, 1)
 
-	if opts.EnableFile {
-		logFilePath := filepath.Join(opts.LogDir, fmt.Sprintf("%s-%s.log", opts.Mode, now.Format("20060102")))
-		file, err := os.OpenFile(logFilePath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
-		if err == nil {
-			cores = append(cores, zapcore.NewCore(zapcore.NewJSONEncoder(encoderCfg), zapcore.AddSync(file), opts.Level))
-			closeFns = append(closeFns, func() { _ = file.Close() })
-		}
-	}
-
+	// Server console logging is independent of filesystem availability.
 	if opts.Mode == ModeServer {
 		consoleWriter := opts.ConsoleWriter
 		if consoleWriter == nil {
@@ -92,14 +77,37 @@ func Init(opts Options) (*zap.Logger, func(), error) {
 		cores = append(cores, zapcore.NewCore(zapcore.NewConsoleEncoder(consoleCfg), zapcore.AddSync(consoleWriter), opts.Level))
 	}
 
+	var fileErr error
+	if !opts.DisableFile {
+		if err := os.MkdirAll(opts.LogDir, os.ModePerm); err != nil {
+			fileErr = fmt.Errorf("create log directory %q: %w", opts.LogDir, err)
+		} else {
+			_ = cleanupOldLogs(opts.LogDir, now, opts.RetentionDays, opts.MaxFiles)
+			logFilePath := filepath.Join(opts.LogDir, fmt.Sprintf("%s-%s.log", opts.Mode, now.Format("20060102")))
+			file, err := os.OpenFile(logFilePath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
+			if err != nil {
+				fileErr = fmt.Errorf("open log file %q: %w", logFilePath, err)
+			} else {
+				cores = append(cores, zapcore.NewCore(zapcore.NewJSONEncoder(encoderCfg), zapcore.AddSync(file), opts.Level))
+				closeFns = append(closeFns, func() { _ = file.Close() })
+			}
+		}
+	}
+
 	if len(cores) == 0 {
 		logger := zap.NewNop()
 		zap.ReplaceGlobals(logger)
-		return logger, func() {}, nil
+		if fileErr != nil {
+			return logger, func() {}, fileErr
+		}
+		return logger, func() {}, fmt.Errorf("logging has no enabled outputs")
 	}
 
 	logger := zap.New(zapcore.NewTee(cores...), zap.AddCaller(), zap.AddCallerSkip(1))
 	zap.ReplaceGlobals(logger)
+	if fileErr != nil {
+		logger.Warn("file_logging_disabled", zap.Error(fileErr))
+	}
 
 	cleanup := func() {
 		_ = logger.Sync()

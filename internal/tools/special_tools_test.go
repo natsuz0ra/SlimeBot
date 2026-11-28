@@ -7,7 +7,6 @@ import (
 
 	"slimebot/internal/constants"
 	"slimebot/internal/domain"
-	llmsvc "slimebot/internal/services/llm"
 	skillsvc "slimebot/internal/services/skill"
 )
 
@@ -292,7 +291,7 @@ func TestBuildRegistryToolDefsPreservesKeySchemas(t *testing.T) {
 	}
 }
 
-func containsToolDefName(defs []llmsvc.ToolDef, name string) bool {
+func containsToolDefName(defs []domain.ToolDef, name string) bool {
 	for _, def := range defs {
 		if def.Name == name {
 			return true
@@ -301,7 +300,7 @@ func containsToolDefName(defs []llmsvc.ToolDef, name string) bool {
 	return false
 }
 
-func specialToolNames(defs []llmsvc.ToolDef) []string {
+func specialToolNames(defs []domain.ToolDef) []string {
 	names := make([]string, 0, len(defs))
 	for _, def := range defs {
 		names = append(names, def.Name)
@@ -309,7 +308,7 @@ func specialToolNames(defs []llmsvc.ToolDef) []string {
 	return names
 }
 
-func findSpecialToolDef(defs []llmsvc.ToolDef, name string) *llmsvc.ToolDef {
+func findSpecialToolDef(defs []domain.ToolDef, name string) *domain.ToolDef {
 	for i := range defs {
 		if defs[i].Name == name {
 			return &defs[i]

@@ -41,7 +41,11 @@ func RunACP(args []string, input io.Reader, protocolOutput io.Writer) error {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	core, err := NewCore(config.Load())
+	cfg, err := config.LoadValidated()
+	if err != nil {
+		return err
+	}
+	core, err := NewCore(cfg)
 	if err != nil {
 		return err
 	}

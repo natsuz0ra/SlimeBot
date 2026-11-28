@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"sort"
 
-	llmsvc "slimebot/internal/services/llm"
+	"slimebot/internal/domain"
 )
 
 const TodoUpdateFunctionName = "todo_update"
@@ -18,8 +18,8 @@ func ModelFunctionName(toolName, command string) string {
 }
 
 // BuildRegistryToolDefs builds function-calling tool definitions from the global registry.
-func BuildRegistryToolDefs() []llmsvc.ToolDef {
-	var defs []llmsvc.ToolDef
+func BuildRegistryToolDefs() []domain.ToolDef {
+	var defs []domain.ToolDef
 	for _, t := range All() {
 		if IsStableNameTool(t.Name()) {
 			continue
@@ -54,7 +54,7 @@ func BuildRegistryToolDefs() []llmsvc.ToolDef {
 				params["required"] = required
 			}
 
-			defs = append(defs, llmsvc.ToolDef{
+			defs = append(defs, domain.ToolDef{
 				Name:        ModelFunctionName(t.Name(), cmd.Name),
 				Description: fmt.Sprintf("[%s] %s", t.Name(), cmd.Description),
 				Parameters:  params,

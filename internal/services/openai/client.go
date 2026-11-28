@@ -5,9 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"net/url"
 	"strings"
-	"time"
 
 	llmsvc "slimebot/internal/services/llm"
 
@@ -22,9 +20,7 @@ type OpenAIClient struct {
 }
 
 func NewOpenAIClient() *OpenAIClient {
-	return &OpenAIClient{
-		Client: &http.Client{Timeout: 90 * time.Second},
-	}
+	return &OpenAIClient{Client: llmsvc.NewStreamingHTTPClient()}
 }
 
 // StreamChat starts a streaming chat request without tools (legacy compatibility).
@@ -65,8 +61,8 @@ func (c *OpenAIClient) StreamChatWithTools(
 		option.WithHTTPClient(c.Client),
 	)
 
-	supportDeveloperRole := supportsDeveloperRole(baseURL)
-	requestMessages := buildRequestMessages(messages, supportDeveloperRole)
+	capabilities := llmsvc.ResolveCapabilities(modelConfig)
+	requestMessages := buildRequestMessages(messages, capabilities.SupportsDeveloperRole)
 	if len(requestMessages) == 0 {
 		return nil, fmt.Errorf("Request messages are empty.")
 	}
@@ -80,12 +76,12 @@ func (c *OpenAIClient) StreamChatWithTools(
 		//Temperature: openai.Float(modelConfig.Temperature),
 	}
 
-	if !usesCompletionTokenLimit(modelConfig) {
+	if !capabilities.UsesMaxCompletionTokens {
 		params.MaxTokens = openai.Int(int64(modelConfig.MaxOutputTokens))
 	} else {
 		params.MaxCompletionTokens = openai.Int(int64(modelConfig.MaxOutputTokens))
 	}
-	applyThinkingParams(&params, modelConfig)
+	applyThinkingStrategy(&params, capabilities.ThinkingStrategy, modelConfig.ThinkingLevel)
 
 	if len(toolDefs) > 0 {
 		params.Tools = buildToolParams(toolDefs)
@@ -204,48 +200,27 @@ func isStreamUsageUnsupported(err error) bool {
 	return strings.Contains(msg, "stream_options") || strings.Contains(msg, "include_usage")
 }
 
-// Compatible APIs commonly ignore max_completion_tokens rather than rejecting
-// it. Select the budget field independently of developer-role support.
+// These wrappers retain the existing package-level test/adapter API while all
+// inference lives in llmsvc.ResolveCapabilities.
 func usesCompletionTokenLimit(c llmsvc.ModelRuntimeConfig) bool {
-	if isDeepSeekRequest(c) || !supportsDeveloperRole(c.BaseURL) {
-		return false
-	}
-	parsed, _ := url.Parse(strings.TrimSpace(c.BaseURL))
-	if parsed != nil && strings.EqualFold(parsed.Hostname(), "api.openai.com") {
-		return true
-	}
-	model := strings.ToLower(strings.TrimSpace(c.Model))
-	return strings.HasPrefix(model, "gpt-") || model == "o1" || strings.HasPrefix(model, "o1-") || model == "o3" || strings.HasPrefix(model, "o3-") || model == "o4" || strings.HasPrefix(model, "o4-")
-}
-
-// These official DeepSeek model IDs also occur in generic OpenAI-compatible
-// configurations. Their default thinking mode must not override an explicit off.
-func isDeepSeekRequest(c llmsvc.ModelRuntimeConfig) bool {
-	if strings.EqualFold(strings.TrimSpace(c.Provider), llmsvc.ProviderDeepSeek) {
-		return true
-	}
-	if !strings.EqualFold(strings.TrimSpace(c.Provider), llmsvc.ProviderOpenAI) {
-		return false
-	}
-	switch strings.ToLower(strings.TrimSpace(c.Model)) {
-	case "deepseek-flash", "deepseek-v4-flash", "deepseek-v4-pro":
-		return true
-	default:
-		return false
-	}
+	return llmsvc.ResolveCapabilities(c).UsesMaxCompletionTokens
 }
 
 func applyThinkingParams(params *openai.ChatCompletionNewParams, modelConfig llmsvc.ModelRuntimeConfig) {
-	if isDeepSeekRequest(modelConfig) {
+	applyThinkingStrategy(params, llmsvc.ResolveCapabilities(modelConfig).ThinkingStrategy, modelConfig.ThinkingLevel)
+}
+
+func applyThinkingStrategy(params *openai.ChatCompletionNewParams, strategy llmsvc.ThinkingStrategy, level string) {
+	if strategy == llmsvc.ThinkingStrategyDeepSeek {
 		thinking := map[string]any{"type": "disabled"}
-		if effort := llmsvc.DeepSeekReasoningEffort(modelConfig.ThinkingLevel); effort != "" {
+		if effort := llmsvc.DeepSeekReasoningEffort(level); effort != "" {
 			thinking["type"] = "enabled"
 			params.ReasoningEffort = shared.ReasoningEffort(effort)
 		}
 		params.SetExtraFields(map[string]any{"thinking": thinking})
 		return
 	}
-	if effort := llmsvc.ThinkingReasoningEffort(modelConfig.ThinkingLevel); effort != "" {
+	if effort := llmsvc.ThinkingReasoningEffort(level); effort != "" {
 		params.ReasoningEffort = shared.ReasoningEffort(effort)
 	}
 }
@@ -270,22 +245,8 @@ func extractReasoningContent(delta openai.ChatCompletionChunkChoiceDelta) string
 	return result
 }
 
-// supportsDeveloperRole: some compatible endpoints (e.g. Alibaba Cloud) omit developer role; fall back to system.
 func supportsDeveloperRole(baseURL string) bool {
-	parsed, err := url.Parse(strings.TrimSpace(baseURL))
-	if err != nil {
-		return true
-	}
-
-	host := strings.ToLower(parsed.Hostname())
-	path := strings.ToLower(strings.TrimSpace(parsed.Path))
-	if strings.Contains(host, "dashscope.aliyuncs.com") {
-		return false
-	}
-	if strings.Contains(host, "aliyuncs.com") && strings.Contains(path, "/compatible-mode/") {
-		return false
-	}
-	return true
+	return llmsvc.ResolveCapabilities(llmsvc.ModelRuntimeConfig{BaseURL: baseURL}).SupportsDeveloperRole
 }
 
 // buildRequestMessages converts internal ChatMessages to SDK message params.

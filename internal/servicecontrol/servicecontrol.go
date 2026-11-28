@@ -80,7 +80,10 @@ type program struct {
 }
 
 func (p *program) Start(_ kservice.Service) error {
-	cfg := config.Load()
+	cfg, err := config.LoadValidated()
+	if err != nil {
+		return err
+	}
 	if err := app.ValidateConfig(cfg); err != nil {
 		return err
 	}

@@ -92,7 +92,10 @@ func TestDesktopConfigUsesSharedDataPaths(t *testing.T) {
 	t.Setenv("CHAT_UPLOAD_ROOT", uploadRoot)
 	t.Setenv("HERMES_SKILLS_ROOTS", hermesRoot)
 	t.Setenv("FRONTEND_ORIGIN", "https://example.org")
-	cfg := desktopConfig("local-token")
+	cfg, err := desktopConfig("local-token")
+	if err != nil {
+		t.Fatal(err)
+	}
 	if cfg.DBPath != dbPath || cfg.SkillsRoot != skillsRoot || cfg.ChatUploadRoot != uploadRoot {
 		t.Fatalf("desktop does not use the shared data paths: %+v", cfg)
 	}

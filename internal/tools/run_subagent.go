@@ -5,7 +5,7 @@ import (
 	"fmt"
 
 	"slimebot/internal/constants"
-	llmsvc "slimebot/internal/services/llm"
+	"slimebot/internal/domain"
 )
 
 type runSubagentTool struct{}
@@ -62,8 +62,8 @@ func (r *runSubagentTool) run(ctx context.Context, params map[string]any) (*Exec
 }
 
 // BuildRunSubagentToolDef builds the stable run_subagent definition.
-func BuildRunSubagentToolDef() llmsvc.ToolDef {
-	return llmsvc.ToolDef{
+func BuildRunSubagentToolDef() domain.ToolDef {
+	return domain.ToolDef{
 		Name:        constants.RunSubagentTool,
 		Description: (&runSubagentTool{}).Description(),
 		Parameters: map[string]any{

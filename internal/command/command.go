@@ -132,7 +132,11 @@ func executeServiceStart(stdout io.Writer, svc ServiceController) error {
 		return err
 	}
 
-	webURL := "http://localhost:" + strings.TrimSpace(config.Load().ServerPort)
+	cfg, err := config.LoadValidated()
+	if err != nil {
+		return err
+	}
+	webURL := "http://localhost:" + strings.TrimSpace(cfg.ServerPort)
 	healthURL := webURL + "/health"
 	if err := waitForServiceReady(healthURL); err != nil {
 		return fmt.Errorf("service start succeeded but health check did not become ready at %s: %w", healthURL, err)

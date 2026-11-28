@@ -88,7 +88,10 @@ func (g *titleGenerator) generate(ctx context.Context, modelConfig llmsvc.ModelR
 		{Role: "user", Content: buildTitleUserPrompt(userMsg)},
 	}
 
-	provider := g.factory.GetProvider(modelConfig.Provider)
+	provider, err := g.factory.ResolveProvider(modelConfig.Provider)
+	if err != nil {
+		return "", err
+	}
 
 	// Collect full response via accumulator pattern (same as agent loop).
 	var buf strings.Builder

@@ -494,7 +494,10 @@ func (a *AgentService) RunAgentLoop(
 		}
 		return nil
 	}
-	provider := a.providerFactory.GetProvider(modelConfig.Provider)
+	provider, err := a.providerFactory.ResolveProvider(modelConfig.Provider)
+	if err != nil {
+		return "", err
+	}
 
 	overflowRecoveries := 0
 	for i := 0; ; i++ {

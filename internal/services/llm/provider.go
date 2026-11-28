@@ -1,6 +1,12 @@
 package llm
 
-import "context"
+import (
+	"context"
+	"fmt"
+	"strings"
+
+	"slimebot/internal/apperrors"
+)
 
 // Provider abstracts streaming chat with optional tools.
 type Provider interface {
@@ -35,7 +41,7 @@ func (f *Factory) ProtectText(ctx context.Context, cfg ModelRuntimeConfig, text 
 	return text, nil
 }
 
-// NewFactory builds a factory with OpenAI as the default provider.
+// NewFactory builds a factory with OpenAI as the legacy default provider.
 func NewFactory(openai Provider) *Factory {
 	return &Factory{
 		providers: map[string]Provider{
@@ -47,21 +53,59 @@ func NewFactory(openai Provider) *Factory {
 
 // Register adds a named provider implementation.
 func (f *Factory) Register(name string, p Provider) {
-	f.providers[name] = p
+	f.providers[NormalizeProviderName(name)] = p
 }
 
-// GetProvider returns the implementation for a provider string.
-// Unknown names fall back to OpenAI.
-func (f *Factory) GetProvider(provider string) Provider {
-	if p, ok := f.providers[provider]; ok {
-		if p == nil {
-			return nil
-		}
-		return observedProvider{Provider: p, factory: f}
+// NormalizeProviderName canonicalizes protocol names for configuration and
+// runtime lookup. An empty name retains the historical OpenAI default.
+func NormalizeProviderName(provider string) string {
+	normalized := strings.ToLower(strings.TrimSpace(provider))
+	if normalized == "" {
+		return ProviderOpenAI
 	}
-	p := f.providers[ProviderOpenAI]
-	if p == nil {
+	return normalized
+}
+
+// ValidateProviderName rejects unsupported wire protocols explicitly.
+func ValidateProviderName(provider string) error {
+	switch NormalizeProviderName(provider) {
+	case ProviderOpenAI, ProviderDeepSeek, ProviderAnthropic:
+		return nil
+	default:
+		return fmt.Errorf("%w: unsupported LLM provider %q (supported: %s, %s, %s)", apperrors.ErrInvalidInput, strings.TrimSpace(provider), ProviderOpenAI, ProviderDeepSeek, ProviderAnthropic)
+	}
+}
+
+// ResolveProvider returns the implementation for a supported provider string.
+// Unknown protocols and known protocols without an implementation are errors;
+// neither case silently falls back to OpenAI.
+func (f *Factory) ResolveProvider(provider string) (Provider, error) {
+	if err := ValidateProviderName(provider); err != nil {
+		return nil, err
+	}
+	name := NormalizeProviderName(provider)
+	p, ok := f.providers[name]
+	if !ok || p == nil {
+		return nil, fmt.Errorf("%w: LLM provider %q is not initialized", apperrors.ErrInvalidInput, name)
+	}
+	return observedProvider{Provider: p, factory: f}, nil
+}
+
+// GetProvider retains the legacy no-error API for tests and compatibility
+// callers. Known protocols may still use the historical OpenAI implementation
+// fallback when their own implementation was not registered. Unknown protocol
+// names return nil; production code must use ResolveProvider.
+func (f *Factory) GetProvider(provider string) Provider {
+	p, err := f.ResolveProvider(provider)
+	if err == nil {
+		return p
+	}
+	if ValidateProviderName(provider) != nil {
 		return nil
 	}
-	return observedProvider{Provider: p, factory: f}
+	fallback := f.providers[ProviderOpenAI]
+	if fallback == nil {
+		return nil
+	}
+	return observedProvider{Provider: fallback, factory: f}
 }

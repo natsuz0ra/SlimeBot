@@ -32,6 +32,9 @@ cmd/
 └─ cli/
 
 internal/
+├─ acp/                      # Agent Client Protocol (ACP) support
+│  ├─ agent/                 # `slimebot acp` agent-side bridge over ChatService
+│  └─ client/                # External ACP agent process pool, sessions, and permission bridge
 ├─ app/                      # App composition/wiring
 ├─ apperrors/                # Shared application errors
 ├─ auth/                     # Auth primitives
@@ -133,6 +136,9 @@ Quick index (feature -> first place to inspect):
 - WebSocket server flow: `internal/server/ws/`
 - Integrated terminal: `internal/services/terminal/`, `internal/server/controller/terminal.go`, `internal/server/ws/terminal.go`, `frontend/src/components/chat/TerminalDrawer.vue`
 - Read-only workspace browser: `internal/services/workspace/`, `internal/server/controller/workspace.go`, `frontend/src/components/chat/WorkspaceDrawer.vue`
+- ACP agent mode (`slimebot acp`): `internal/acp/agent/`, `internal/app/acp.go`, stdout reserved for JSON-RPC (logs redirected to stderr in `cmd/server/main.go`)
+- External ACP agents: `internal/acp/client/`, `internal/services/chat/acp.go`, `internal/services/config/acp_config.go`, `internal/repositories/repo_acp_configs.go`, `internal/server/controller/acp_configs.go`, `internal/command/command.go`
+- Web ACP settings and external engine picker: `frontend/src/components/settings/SettingsACPTab.vue`, `frontend/src/api/acp.ts`, `frontend/src/utils/acp.ts`, `frontend/src/composables/home/useHomeModelSelector.ts`
 - Sandbox policy and command isolation: `internal/sandbox/`
 - LLM abstraction/provider wiring: `internal/services/llm/`, `internal/services/openai/`, `internal/services/anthropic/`
 - Active-turn steering: `internal/services/chat/steering.go`, `internal/services/chat/agent.go`, `AGENT-FLOW.md`

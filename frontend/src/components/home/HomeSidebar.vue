@@ -1,27 +1,28 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import {
   mdiChevronDown,
   mdiCalendarClockOutline,
   mdiCogOutline,
-  mdiDotsHorizontal,
   mdiMagnify,
   mdiFolderOutline,
   mdiMessageTextOutline,
   mdiSlack,
   mdiWechat,
   mdiPlus,
+  mdiPinOutline,
   mdiWeatherNight,
   mdiWeatherSunny,
 } from '@mdi/js'
 import type { SessionItem } from '@/api/chat'
 import MdiIcon from '@/components/ui/MdiIcon.vue'
 import AppLogo from '@/components/ui/AppLogo.vue'
-import LoadingSpinner from '@/components/ui/LoadingSpinner.vue'
+import AppSelect from '@/components/ui/AppSelect.vue'
+import SidebarSessionRow from '@/components/home/SidebarSessionRow.vue'
 import TruncationTooltip from '@/components/ui/TruncationTooltip.vue'
 import { useChatStore } from '@/stores/chat'
-import { groupSessionsByDirectory, type SessionGroup } from '@/utils/sessionGroups'
+import { buildSidebarSessionGroups, type SessionGroup } from '@/utils/sessionGroups'
 import { isMessagePlatformSessionId, listPlatformSessions, platformFromSessionId, platformSessionName } from '@/utils/messagePlatformSessions'
 import { detectMacPlatform, formatShortcutKeys } from '@/utils/shortcuts'
 
@@ -59,7 +60,20 @@ const settingsShortcut = formatShortcutKeys(isMac, { mac: '⌘,', other: 'Ctrl+,
 const collapsed = ref<string[]>([])
 const platformCollapsed = ref(false)
 const groupSessionLimits = ref<Record<string, number>>({})
-const groupedSessions = computed(() => groupSessionsByDirectory(props.sessions.filter((session) => !isMessagePlatformSessionId(session.id)), t('workspaceUnclassified')))
+const pinnedCollapsed = ref(false)
+const directoryFilter = ref('all')
+const sidebarGroups = computed(() => buildSidebarSessionGroups(
+  props.sessions.filter(session => !isMessagePlatformSessionId(session.id)),
+  t('workspaceUnclassified'),
+  directoryFilter.value === 'all' ? undefined : directoryFilter.value.slice(4),
+))
+const directoryOptions = computed(() => [
+  { value: 'all', label: t('sessionAllDirectories') },
+  ...sidebarGroups.value.directories.map(group => ({ value: `dir:${group.path}`, label: group.name })),
+])
+watch(directoryOptions, options => {
+  if (!options.some(option => option.value === directoryFilter.value)) directoryFilter.value = 'all'
+})
 const platformSessions = computed(() => listPlatformSessions(props.sessions))
 function platformIcon(id: string) {
   switch (platformFromSessionId(id)) {
@@ -138,7 +152,26 @@ function toggleGroup(path: string) {
       </button>
     </nav>
     <div :ref="setSidebarListRef" class="scroll-area flex-1 overflow-y-auto py-2 px-1">
-      <section class="mb-1 px-0.5">
+      <div v-if="directoryOptions.length > 2 || directoryFilter !== 'all'" class="mx-1 mb-2">
+        <AppSelect v-model="directoryFilter" :options="directoryOptions" size="xs" :aria-label="t('sessionAllDirectories')" />
+      </div>
+      <section v-if="sidebarGroups.pinnedSessions.length" class="mb-1 border-b border-[var(--border-subtle)] pb-1">
+        <button
+          type="button" class="workspace-group flex h-9 w-full items-center gap-1.5 rounded-lg px-2 text-left text-sm font-semibold cursor-pointer"
+          :aria-expanded="!pinnedCollapsed" @click="pinnedCollapsed = !pinnedCollapsed"
+        >
+          <MdiIcon :path="mdiChevronDown" :size="13" :class="pinnedCollapsed ? '-rotate-90' : ''" />
+          <MdiIcon :path="mdiPinOutline" :size="14" />
+          {{ t('sessionPinned') }} <span class="sb-text-muted ml-1 text-xs">{{ sidebarGroups.pinnedSessions.length }}</span>
+        </button>
+        <div v-if="!pinnedCollapsed" class="workspace-session-list ml-7 mt-0.5 space-y-0.5 border-l pl-2">
+          <SidebarSessionRow
+            v-for="item in sidebarGroups.pinnedSessions" :key="item.id" :item="item" :active="item.id === currentSessionId"
+            @pick="emit('pickSession', item.id)" @menu="emit('toggleSessionMenu', item.id, $event)"
+          />
+        </div>
+      </section>
+      <section v-if="directoryFilter === 'all'" class="mb-1 px-0.5">
         <button
           type="button"
           class="workspace-group flex h-9 w-full min-w-0 items-center gap-1.5 rounded-lg px-1.5 text-left text-sm font-semibold cursor-pointer"
@@ -172,7 +205,7 @@ function toggleGroup(path: string) {
         </div>
       </section>
 
-      <section v-for="group in groupedSessions" :key="group.path || 'unclassified'" class="mb-1">
+      <section v-for="group in sidebarGroups.directoryGroups" :key="group.path || 'unclassified'" class="mb-1">
         <div class="group flex items-center gap-1 px-0.5 min-w-0">
           <button
             type="button"
@@ -195,38 +228,10 @@ function toggleGroup(path: string) {
           ><MdiIcon :path="mdiPlus" :size="15" /></button>
         </div>
         <div v-if="isGroupExpanded(group.path)" class="workspace-session-list ml-7 mt-0.5 space-y-0.5 border-l pl-2">
-          <div
-            v-for="item in visibleSessions(group)"
-            :key="item.id"
-            class="workspace-session-row group group/tip relative flex h-9 min-w-0 items-center rounded-lg"
-            :class="item.id === currentSessionId ? 'workspace-session-row-active' : ''"
-          >
-            <button
-              type="button"
-              class="workspace-session-main relative flex h-full min-w-0 flex-1 items-center rounded-lg px-2 pr-9 text-left cursor-pointer"
-              :aria-current="item.id === currentSessionId ? 'page' : undefined"
-              @click="emit('pickSession', item.id)"
-            >
-              <span v-if="item.id === currentSessionId" class="session-active-indicator absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-4 rounded-r-full" />
-              <TruncationTooltip inherit-group :text="item.name" wrapper-class="min-w-0 flex-1" content-class="text-sm" />
-            </button>
-            <span
-              v-if="store.runningSessionIds.has(item.id) || store.unreadSessionIds.has(item.id)"
-              class="session-activity absolute right-2.5 top-1/2 flex h-4 w-4 -translate-y-1/2 items-center justify-center pointer-events-none"
-              role="img"
-              :aria-label="t(store.runningSessionIds.has(item.id) ? 'sessionRunning' : 'sessionUnread')"
-              :title="t(store.runningSessionIds.has(item.id) ? 'sessionRunning' : 'sessionUnread')"
-            >
-              <LoadingSpinner v-if="store.runningSessionIds.has(item.id)" size-class="w-3.5 h-3.5" class="session-running-spinner" aria-hidden="true" />
-              <span v-else class="session-unread-dot h-1.5 w-1.5 rounded-full" />
-            </span>
-            <button
-              type="button"
-              class="workspace-session-menu absolute right-1 top-1/2 -translate-y-1/2 w-7 h-7 flex items-center justify-center rounded-md transition-colors duration-150 cursor-pointer flex-shrink-0"
-              :aria-label="t('sessionMenu')"
-              @click.stop="emit('toggleSessionMenu', item.id, $event as MouseEvent)"
-            ><MdiIcon :path="mdiDotsHorizontal" :size="15" /></button>
-          </div>
+          <SidebarSessionRow
+            v-for="item in visibleSessions(group)" :key="item.id" :item="item" :active="item.id === currentSessionId"
+            @pick="emit('pickSession', item.id)" @menu="emit('toggleSessionMenu', item.id, $event)"
+          />
           <div v-if="group.sessions.length > INITIAL_GROUP_SESSION_COUNT" class="workspace-session-actions flex items-center gap-1">
             <button
               v-if="visibleSessions(group).length < group.sessions.length"
@@ -294,6 +299,19 @@ function toggleGroup(path: string) {
 .workspace-group:hover, .workspace-group:focus-visible, .workspace-group-add:hover, .workspace-group-add:focus-visible { color: var(--text-primary); background: var(--bg-hover); }
 .workspace-group-add { color: var(--text-muted); }
 .workspace-session-list { border-color: var(--border-subtle); }
+.workspace-session-more, .workspace-load-more { color: var(--text-muted); transition: background 150ms ease, color 150ms ease; }
+.workspace-session-more:hover, .workspace-session-more:focus-visible, .workspace-load-more:hover:not(:disabled), .workspace-load-more:focus-visible { color: var(--text-primary); background: var(--bg-hover); }
+.update-notice-dot {
+  width: 7px;
+  height: 7px;
+  flex: 0 0 auto;
+  border-radius: 999px;
+  background: #ef4444;
+  box-shadow: 0 0 0 2px var(--sidebar-bg);
+}
+</style>
+
+<style>
 .workspace-session-row { color: var(--text-secondary); border: 1px solid transparent; transition: background 150ms ease, color 150ms ease, border-color 150ms ease; }
 .workspace-session-row:hover, .workspace-session-row:focus-within { color: var(--text-primary); background: var(--bg-hover); }
 .workspace-session-row-active { color: var(--text-primary); background: var(--bg-active); border-color: var(--border-subtle); }
@@ -307,14 +325,8 @@ function toggleGroup(path: string) {
 .workspace-session-row:hover .workspace-session-menu, .workspace-session-menu:focus-visible { opacity: 1; }
 .workspace-session-row:hover .session-activity, .workspace-session-row:has(.workspace-session-menu:focus-visible) .session-activity { opacity: 0; }
 .workspace-session-menu:hover, .workspace-session-menu:focus-visible { color: var(--text-primary); background: var(--bg-hover); }
-.workspace-session-more, .workspace-load-more { color: var(--text-muted); transition: background 150ms ease, color 150ms ease; }
-.workspace-session-more:hover, .workspace-session-more:focus-visible, .workspace-load-more:hover:not(:disabled), .workspace-load-more:focus-visible { color: var(--text-primary); background: var(--bg-hover); }
-.update-notice-dot {
-  width: 7px;
-  height: 7px;
-  flex: 0 0 auto;
-  border-radius: 999px;
-  background: #ef4444;
-  box-shadow: 0 0 0 2px var(--sidebar-bg);
+@media (hover: none) {
+  .workspace-session-menu { opacity: 1; }
+  .workspace-session-row .session-activity { right: 2rem; }
 }
 </style>

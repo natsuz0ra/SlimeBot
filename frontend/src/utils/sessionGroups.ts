@@ -20,3 +20,12 @@ export function groupSessionsByDirectory(sessions: SessionItem[], unclassifiedLa
   }
   return [...groups.values()].sort((a, b) => a.path === '' ? 1 : b.path === '' ? -1 : 0)
 }
+
+export function buildSidebarSessionGroups(sessions: SessionItem[], unclassifiedLabel: string, directoryFilter?: string) {
+  const directories = groupSessionsByDirectory(sessions, unclassifiedLabel)
+  const filtered = directoryFilter === undefined ? sessions : sessions.filter(session => (session.workingDirectory ?? '') === directoryFilter)
+  const pinnedSessions = filtered.filter(session => session.isPinned)
+    .sort((a, b) => (b.pinnedAt ?? '').localeCompare(a.pinnedAt ?? '') || b.updatedAt.localeCompare(a.updatedAt))
+  const directoryGroups = groupSessionsByDirectory(filtered.filter(session => !session.isPinned), unclassifiedLabel)
+  return { directories, pinnedSessions, directoryGroups }
+}

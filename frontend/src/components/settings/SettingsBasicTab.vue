@@ -14,6 +14,7 @@ import type { ProxyTestResult, SandboxMode } from '@/types/settings'
 import { getTerminalStatus, updateTerminalSettings, type TerminalStatus } from '@/api/terminal'
 import { useTerminalStore } from '@/stores/terminal'
 import { useToast } from '@/composables/useToast'
+import SettingsPromptTemplates from '@/components/settings/SettingsPromptTemplates.vue'
 
 const props = defineProps<{
   language: LanguageCode
@@ -74,6 +75,7 @@ onMounted(() => { void loadTerminal().catch(() => toast.error(t('terminalError')
 
 <template>
   <div>
+    <SettingsPromptTemplates />
     <section v-if="terminalSettings" class="settings-card px-4 py-3.5 rounded-xl mb-2">
       <div class="flex items-center justify-between gap-3">
         <label id="settings-terminal-enabled" class="settings-field-label">{{ t('terminalEnable') }}</label>

@@ -6,6 +6,9 @@ import { apiClient } from '@/api/client'
 import {
   mdiDeleteOutline,
   mdiConsoleLine,
+  mdiDownloadOutline,
+  mdiPinOutline,
+  mdiPinOffOutline,
   mdiMenu,
   mdiCalendarClockOutline,
   mdiPencilOutline,
@@ -17,6 +20,7 @@ import TodoPanel from '@/components/chat/TodoPanel.vue'
 import MdiIcon from '@/components/ui/MdiIcon.vue'
 import ChatComposer from '@/components/chat/ChatComposer.vue'
 import TerminalDrawer from '@/components/chat/TerminalDrawer.vue'
+import SessionExportDialog from '@/components/chat/SessionExportDialog.vue'
 import ChatCheckpointDialog from '@/components/chat/ChatCheckpointDialog.vue'
 import CooperativePanel from '@/components/chat/CooperativePanel.vue'
 import ChatMessageList from '@/components/chat/ChatMessageList.vue'
@@ -37,6 +41,11 @@ import { useToast } from '@/composables/useToast'
 import { useAuthStore } from '@/stores/auth'
 import { useTerminalStore } from '@/stores/terminal'
 import { extractTerminalCommand, canStageTerminalCommand } from '@/utils/terminalLink'
+import { promptTemplatesAPI } from '@/api/promptTemplates'
+import { skillsAPI } from '@/api/skills'
+import type { SessionItem } from '@/api/chat'
+import type { SkillItem } from '@/types/settings'
+import { getSlashCommands, type PromptTemplate, type WorkspaceCommand } from '@/utils/slashCommands'
 import type { SettingsTabKey } from '@/types/settings'
 
 const {
@@ -75,6 +84,60 @@ const checkpointSession = computed(() => {
 const privacyMappingTarget = ref<{ id: string; name: string; busy: boolean; error: string }>()
 const announcePrivacyMappingCleared = ref(false)
 const toast = useToast()
+const exportSession = ref<SessionItem>()
+const pinning = new Set<string>()
+const templates = ref<PromptTemplate[]>([])
+const skills = ref<SkillItem[]>([])
+const slashCommands = computed(() => getSlashCommands(
+  templates.value, skills.value, command => t(`slashCommand.${command}`), name => t('slashSkillPrompt', { name }),
+))
+const floatingSession = computed(() => store.sessions.find(session => session.id === sessions.activeSessionMenu?.id))
+
+async function refreshSlashCommands() {
+  await Promise.allSettled([
+    promptTemplatesAPI.list().then(items => { templates.value = items }),
+    skillsAPI.list().then(items => { skills.value = items }),
+  ])
+}
+
+watch(() => ui.settingsVisible, visible => { if (!visible) void refreshSlashCommands() })
+
+async function toggleSessionPin(session: SessionItem) {
+  sessions.activeSessionMenu = null
+  if (pinning.has(session.id)) return
+  pinning.add(session.id)
+  try { await store.setSessionPinned(session.id, !session.isPinned) }
+  catch { toast.error(t('sessionPinFailed')) }
+  finally { pinning.delete(session.id) }
+}
+
+function showSessionExport(session?: SessionItem) {
+  sessions.activeSessionMenu = null
+  if (session) exportSession.value = session
+  else toast.warning(t('slashNeedsSession'))
+}
+
+function runSlashAction(command: WorkspaceCommand) {
+  switch (command) {
+    case 'terminal': void toggleTerminal(); break
+    case 'plan': composer.onPlanToggle(); break
+    case 'help': shortcutsHelpVisible.value = true; break
+    case 'export': showSessionExport(sessions.currentSession); break
+    case 'compact':
+      if (store.currentSessionId) void store.compactContext(models.selectedModelId)
+      else toast.warning(t('slashNeedsSession'))
+      break
+    case 'checkpoints':
+      if (checkpointSession.value) checkpointSessionId.value = checkpointSession.value.id
+      else toast.warning(t('slashNeedsWorkspace'))
+      break
+    case 'clear-privacy':
+      if (sessions.currentSession) openPrivacyMappingConfirmation()
+      else toast.warning(t('slashNeedsSession'))
+      break
+    case 'workspace': toast.warning(t('slashNeedsWorkspace')); break
+  }
+}
 
 function terminalError() {
   toast.error(t('terminalError'))
@@ -305,6 +368,7 @@ const { isMac, isDesktop } = useHomeShortcuts({
     || tools.toolDetailVisible
     || accountDialogVisible.value
     || checkpointSessionId.value
+    || exportSession.value
     || privacyMappingTarget.value
     || store.pendingQuestions,
   ),
@@ -350,6 +414,7 @@ const { isMac, isDesktop } = useHomeShortcuts({
 })
 
 onMounted(() => {
+  void refreshSlashCommands()
   void terminal.refresh().catch(() => {})
   void checkForUpdate()
   window.addEventListener('dragover', onWindowDragOver)
@@ -367,6 +432,7 @@ onUnmounted(() => {
 </script>
 
 <template>
+  <SessionExportDialog v-if="exportSession" :session="exportSession" @close="exportSession = undefined" />
   <ChatSearchDialog :visible="searchVisible" :pick-result="pickSearchResult" @close="searchVisible = false" />
   <ChatCheckpointDialog
     v-if="checkpointSession?.workingDirectory"
@@ -457,6 +523,8 @@ onUnmounted(() => {
           @toggle-sidebar="ui.toggleSidebar"
           @update:top-menu-visible="ui.topMenuVisible = $event"
           @rename-current="sessions.currentSession && sessions.openRename(sessions.currentSession.id, sessions.currentSession.name)"
+          @pin-current="sessions.currentSession && toggleSessionPin(sessions.currentSession)"
+          @export-current="showSessionExport(sessions.currentSession)"
           @remove-current="sessions.currentSession && sessions.removeSession(sessions.currentSession.id)"
           @open-checkpoints="checkpointSessionId = checkpointSession?.id"
           @clear-privacy-mappings="openPrivacyMappingConfirmation"
@@ -544,6 +612,8 @@ onUnmounted(() => {
                   :plan-mode="composer.planMode"
                   :approval-mode="composer.approvalMode"
                   :plan-confirmation-visible="composer.currentSessionPlanConfirmationVisible"
+                  :slash-commands="slashCommands"
+                  @slash-action="runSlashAction"
                   @send="composer.sendMessage"
                   @stop="composer.stopMessage"
                   @stop-background="store.stopBackgroundTasks"
@@ -611,6 +681,8 @@ onUnmounted(() => {
                 :plan-mode="composer.planMode"
                 :approval-mode="composer.approvalMode"
                 :plan-confirmation-visible="composer.currentSessionPlanConfirmationVisible"
+                :slash-commands="slashCommands"
+                @slash-action="runSlashAction"
                 @send="composer.sendMessage"
                 @stop="composer.stopMessage"
                   @stop-background="store.stopBackgroundTasks"
@@ -654,11 +726,18 @@ onUnmounted(() => {
     <!-- ───── Floating session menu ───── -->
     <Transition name="session-menu-pop">
       <div
-        v-if="sessions.activeSessionMenu && sessions.canManageCurrentSession"
+        v-if="sessions.activeSessionMenu && floatingSession"
         class="floating-session-menu fixed z-[80] w-40 rounded-xl py-1 overflow-hidden"
         :style="{ left: `${sessions.activeSessionMenu.x}px`, top: `${sessions.activeSessionMenu.y}px` }"
         @click.stop
       >
+        <button
+          type="button" class="w-full flex items-center gap-2.5 px-3 h-9 text-sm cursor-pointer menu-item"
+          @click="toggleSessionPin(floatingSession)"
+        >
+          <MdiIcon :path="floatingSession.isPinned ? mdiPinOffOutline : mdiPinOutline" :size="14" />
+          {{ t(floatingSession.isPinned ? 'sessionUnpin' : 'sessionPin') }}
+        </button>
         <button
           type="button"
           class="w-full flex items-center gap-2.5 px-3 h-9 text-sm transition-colors duration-150 cursor-pointer menu-item"
@@ -668,8 +747,15 @@ onUnmounted(() => {
           <span>{{ t('rename') }}</span>
         </button>
         <button
+          type="button" class="w-full flex items-center gap-2.5 px-3 h-9 text-sm cursor-pointer menu-item"
+          @click="showSessionExport(floatingSession)"
+        >
+          <MdiIcon :path="mdiDownloadOutline" :size="14" />
+          {{ t('sessionExport') }}
+        </button>
+        <button
           type="button"
-          class="w-full flex items-center gap-2.5 px-3 h-9 text-sm transition-colors duration-150 cursor-pointer menu-item-danger"
+          class="w-full flex items-center gap-2.5 px-3 h-9 text-sm border-t border-[var(--border-subtle)] transition-colors duration-150 cursor-pointer menu-item-danger"
           @click="sessions.deleteFromFloatingMenu"
         >
           <MdiIcon :path="mdiDeleteOutline" :size="14" />

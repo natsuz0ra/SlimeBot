@@ -2,10 +2,12 @@ import { createI18n } from 'vue-i18n'
 import { privacyMessages } from './privacyMessages'
 import { checkpointMessages } from './checkpointMessages'
 import { terminalMessages } from './terminalMessages'
+import { workbenchMessages } from './workbenchMessages'
 
 const messages = {
   'zh-CN': {
     ...terminalMessages['zh-CN'],
+    ...workbenchMessages['zh-CN'],
     ...checkpointMessages['zh-CN'],
     sessionRunning: '正在运行',
     sessionUnread: '有未读回复',
@@ -588,6 +590,7 @@ const messages = {
   },
   'en-US': {
     ...terminalMessages['en-US'],
+    ...workbenchMessages['en-US'],
     ...checkpointMessages['en-US'],
     sessionRunning: 'Running',
     sessionUnread: 'Unread reply',

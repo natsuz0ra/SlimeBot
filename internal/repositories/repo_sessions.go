@@ -20,7 +20,7 @@ func escapeSQLiteLikePattern(s string) string {
 
 func (r *Repository) ListSessions(ctx context.Context, limit int, offset int, query string) ([]domain.Session, error) {
 	var sessions []domain.Session
-	q := r.dbWithContext(ctx).Where("kind = ?", domain.SessionKindChat).Order("updated_at desc")
+	q := r.dbWithContext(ctx).Where("kind = ?", domain.SessionKindChat).Order("is_pinned desc, pinned_at desc, updated_at desc, id asc")
 	if trimmed := strings.TrimSpace(query); trimmed != "" {
 		like := "%" + escapeSQLiteLikePattern(trimmed) + "%"
 		q = q.Where("name LIKE ? ESCAPE '\\'", like)
@@ -30,6 +30,59 @@ func (r *Repository) ListSessions(ctx context.Context, limit int, offset int, qu
 	}
 	err := q.Find(&sessions).Error
 	return sessions, err
+}
+
+func (r *Repository) SetSessionPinned(ctx context.Context, id string, pinned bool) error {
+	var pinnedAt *time.Time
+	if pinned {
+		now := time.Now().UTC()
+		pinnedAt = &now
+	}
+	result := r.dbWithContext(ctx).Model(&domain.Session{}).
+		Where("id = ? AND kind = ? AND deleted_at IS NULL", id, domain.SessionKindChat).
+		Where("is_pinned <> ?", pinned).
+		UpdateColumns(map[string]any{"is_pinned": pinned, "pinned_at": pinnedAt})
+	if result.Error != nil || result.RowsAffected > 0 {
+		return result.Error
+	}
+	var count int64
+	if err := r.dbWithContext(ctx).Model(&domain.Session{}).
+		Where("id = ? AND kind = ? AND deleted_at IS NULL", id, domain.SessionKindChat).
+		Count(&count).Error; err != nil {
+		return err
+	}
+	if count == 0 {
+		return apperrors.ErrNotFound
+	}
+	return nil
+}
+
+func (r *Repository) ReadSessionExport(ctx context.Context, id string, includeTools, includeThinking bool) (domain.SessionExportSnapshot, error) {
+	var snapshot domain.SessionExportSnapshot
+	err := r.dbWithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Where("id = ? AND kind = ? AND deleted_at IS NULL", id, domain.SessionKindChat).Take(&snapshot.Session).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return apperrors.ErrNotFound
+			}
+			return err
+		}
+		if err := tx.Where("session_id = ?", id).Order("created_at asc, seq asc, id asc").Find(&snapshot.Messages).Error; err != nil {
+			return err
+		}
+		normalizeMessages(snapshot.Messages)
+		if includeTools {
+			if err := tx.Where("session_id = ? AND assistant_message_id IS NOT NULL", id).Order("started_at asc, id asc").Find(&snapshot.ToolCalls).Error; err != nil {
+				return err
+			}
+		}
+		if includeThinking {
+			if err := tx.Where("session_id = ? AND assistant_message_id IS NOT NULL", id).Order("started_at asc, id asc").Find(&snapshot.Thinking).Error; err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	return snapshot, err
 }
 
 func (r *Repository) GetSessionByID(ctx context.Context, id string) (*domain.Session, error) {

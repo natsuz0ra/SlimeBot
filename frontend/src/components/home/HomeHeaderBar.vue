@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref } from 'vue'
-import { mdiChevronDown, mdiDeleteOutline, mdiFolderClockOutline, mdiMenu, mdiPencilOutline, mdiShieldOffOutline } from '@mdi/js'
+import { mdiChevronDown, mdiDeleteOutline, mdiDownloadOutline, mdiFolderClockOutline, mdiMenu, mdiPencilOutline, mdiPinOffOutline, mdiPinOutline, mdiShieldOffOutline } from '@mdi/js'
 import { useI18n } from 'vue-i18n'
 import type { SessionItem } from '@/api/chat'
 import MdiIcon from '@/components/ui/MdiIcon.vue'
@@ -18,6 +18,8 @@ const emit = defineEmits<{
   toggleSidebar: []
   'update:topMenuVisible': [visible: boolean]
   renameCurrent: []
+  pinCurrent: []
+  exportCurrent: []
   removeCurrent: []
   openCheckpoints: []
   clearPrivacyMappings: []
@@ -116,6 +118,14 @@ function onClearPrivacyClick() {
         @click.stop
       >
         <button
+          v-if="currentSession" type="button"
+          class="w-full flex items-center gap-2.5 px-3 h-9 text-sm cursor-pointer menu-item"
+          @click="dismissTopMenu(); emit('pinCurrent')"
+        >
+          <MdiIcon :path="currentSession.isPinned ? mdiPinOffOutline : mdiPinOutline" :size="14" />
+          {{ t(currentSession.isPinned ? 'sessionUnpin' : 'sessionPin') }}
+        </button>
+        <button
           v-if="currentSession"
           type="button"
           class="w-full flex items-center gap-2.5 px-3 h-9 text-sm transition-colors duration-150 cursor-pointer menu-item"
@@ -123,6 +133,14 @@ function onClearPrivacyClick() {
         >
           <MdiIcon :path="mdiPencilOutline" :size="14" />
           <span>{{ t('rename') }}</span>
+        </button>
+        <button
+          v-if="currentSession" type="button"
+          class="w-full flex items-center gap-2.5 px-3 h-9 text-sm cursor-pointer menu-item"
+          @click="dismissTopMenu(); emit('exportCurrent')"
+        >
+          <MdiIcon :path="mdiDownloadOutline" :size="14" />
+          {{ t('sessionExport') }}
         </button>
         <button
           v-if="currentSession?.workingDirectory?.trim()"
@@ -145,7 +163,7 @@ function onClearPrivacyClick() {
         <button
           v-if="currentSession"
           type="button"
-          class="w-full flex items-center gap-2.5 px-3 h-9 text-sm transition-colors duration-150 cursor-pointer menu-item-danger"
+          class="w-full flex items-center gap-2.5 px-3 h-9 text-sm border-t border-[var(--border-subtle)] transition-colors duration-150 cursor-pointer menu-item-danger"
           @click="emit('removeCurrent')"
         >
           <MdiIcon :path="mdiDeleteOutline" :size="14" />

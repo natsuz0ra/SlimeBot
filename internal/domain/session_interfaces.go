@@ -12,8 +12,17 @@ type SessionStore interface {
 	ListSessions(ctx context.Context, limit int, offset int, query string) ([]Session, error)
 	CreateSession(ctx context.Context, name string, workingDirectory ...string) (*Session, error)
 	RenameSessionByUser(ctx context.Context, id, name string) error
+	SetSessionPinned(ctx context.Context, id string, pinned bool) error
+	ReadSessionExport(ctx context.Context, id string, includeTools, includeThinking bool) (SessionExportSnapshot, error)
 	DeleteSession(ctx context.Context, id string) error
 	ListSessionMessagesPage(ctx context.Context, sessionID string, limit int, before *time.Time, beforeSeq *int64, after *time.Time, afterSeq *int64) ([]Message, bool, error)
 	ListSessionToolCallRecordsByAssistantMessageIDs(ctx context.Context, sessionID string, messageIDs []string) ([]ToolCallRecord, error)
 	ListSessionThinkingRecordsByAssistantMessageIDs(ctx context.Context, sessionID string, messageIDs []string) ([]ThinkingRecord, error)
+}
+
+type SessionExportSnapshot struct {
+	Session   Session
+	Messages  []Message
+	ToolCalls []ToolCallRecord
+	Thinking  []ThinkingRecord
 }

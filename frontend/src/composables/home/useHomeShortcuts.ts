@@ -30,7 +30,7 @@ function isComposerTextarea(target: EventTarget | null): boolean {
 
 function hasOpenDomPopoverOrMenu(): boolean {
   return Boolean(
-    document.querySelector('.context-usage-panel, .composer-settings-panel, .floating-session-menu, .header-dropdown'),
+    document.querySelector('.context-usage-panel, .composer-settings-panel, .floating-session-menu, .header-dropdown, .slash-menu'),
   )
 }
 

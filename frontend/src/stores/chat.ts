@@ -178,6 +178,14 @@ export const useChatStore = defineStore('chat', () => {
     hasMoreSessions.value = res.hasMore
   }
 
+  async function setSessionPinned(id: string, pinned: boolean) {
+    const value = await sessionAPI.pin(id, pinned)
+    sessionMetadata.set(id, value)
+    if (searchSelection.value?.id === id) searchSelection.value = value
+    sessions.value = sessions.value.map(session => session.id === id ? value : session)
+    await loadSessions()
+  }
+
   async function loadMoreSessions() {
     if (loadingMoreSessions.value || !hasMoreSessions.value) return
     loadingMoreSessions.value = true
@@ -613,6 +621,7 @@ export const useChatStore = defineStore('chat', () => {
     replyBatches,
     currentBatchId,
     loadSessions,
+    setSessionPinned,
     loadMoreSessions,
     hasMoreSessions,
     loadingMoreSessions,

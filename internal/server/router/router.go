@@ -42,6 +42,7 @@ func New(cfg config.Config, tokenManager *auth.TokenManager, httpController *con
 			AllowedOrigins:   []string{cfg.Frontend},
 			AllowedMethods:   []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
 			AllowedHeaders:   []string{"Content-Type", "Authorization"},
+			ExposedHeaders:   []string{"Content-Disposition"},
 			AllowCredentials: true,
 		}))
 	}
@@ -72,6 +73,8 @@ func New(cfg config.Config, tokenManager *auth.TokenManager, httpController *con
 			api.Get("/working-directory/browse", adapt(httpController.BrowseWorkingDirectory))
 			api.Get("/sessions/{id}", adapt(httpController.GetSession))
 			api.Patch("/sessions/{id}/name", adapt(httpController.RenameSession))
+			api.Patch("/sessions/{id}/pin", adapt(httpController.PinSession))
+			api.Get("/sessions/{id}/export", adapt(httpController.ExportSession))
 			api.Delete("/sessions/{id}", adapt(httpController.DeleteSession))
 			api.Delete("/sessions/{id}/privacy-mappings", adapt(httpController.DestroySessionPrivacyMappings))
 			api.Get("/sessions/{id}/checkpoints", adapt(httpController.ListFileCheckpoints))
@@ -100,6 +103,8 @@ func New(cfg config.Config, tokenManager *auth.TokenManager, httpController *con
 			api.Post("/privacy/model/cancel", adapt(httpController.CancelPrivacyModel))
 			api.Delete("/privacy/model", adapt(httpController.RemovePrivacyModel))
 			api.Put("/settings", adapt(httpController.UpdateSettings))
+			api.Get("/prompt-templates", adapt(httpController.GetPromptTemplates))
+			api.Put("/prompt-templates", adapt(httpController.PutPromptTemplates))
 			api.Get("/terminal/status", adapt(httpController.GetTerminalStatus))
 			api.Put("/terminal/settings", adapt(httpController.UpdateTerminalSettings))
 			api.Post("/terminal/sessions", adapt(httpController.CreateTerminal))

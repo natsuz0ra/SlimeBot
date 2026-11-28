@@ -314,3 +314,11 @@ func TestSearchReturnsSnippetsWithPagination(t *testing.T) {
 func (s *storeStub) GetSessionByID(ctx context.Context, id string) (*domain.Session, error) {
 	return &domain.Session{ID: id, Name: "Test"}, nil
 }
+
+func (s *storeStub) SetSessionPinned(context.Context, string, bool) error {
+	return nil
+}
+
+func (s *storeStub) ReadSessionExport(context.Context, string, bool, bool) (domain.SessionExportSnapshot, error) {
+	return domain.SessionExportSnapshot{}, nil
+}

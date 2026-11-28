@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, reactive, ref, useId, watch } from 'vue'
 import { mdiChevronLeft, mdiChevronRight, mdiClose, mdiPaperclip, mdiSend, mdiStop, mdiTuneVariant } from '@mdi/js'
 import { useI18n } from 'vue-i18n'
 import ToggleSwitch from '@/components/ui/ToggleSwitch.vue'
@@ -15,6 +15,8 @@ import type { ContextUsageData } from '@/api/chatSocket'
 import type { ApprovalMode } from '@/types/settings'
 import WorkspacePicker from '@/components/chat/WorkspacePicker.vue'
 import ContextUsagePopover from '@/components/chat/ContextUsagePopover.vue'
+import SlashCommandMenu from '@/components/chat/SlashCommandMenu.vue'
+import { expandSlashTemplate, filterSlashCommands, slashQuery, type SlashCommand, type WorkspaceCommand } from '@/utils/slashCommands'
 import { getApprovalModeLabelKey, getApprovalModeOptions, getApprovalModeTone } from '@/utils/approvalMode'
 
 const props = defineProps<{
@@ -39,6 +41,7 @@ const props = defineProps<{
   planConfirmationVisible?: boolean
   contextUsage?: ContextUsageData | null
   contextCompacting?: boolean
+  slashCommands?: SlashCommand[]
 }>()
 
 const emit = defineEmits<{
@@ -58,6 +61,7 @@ const emit = defineEmits<{
   workspaceChange: [path: string]
   compactContext: []
   openUsageSettings: []
+  slashAction: [command: WorkspaceCommand]
 }>()
 
 const textareaRef = ref<HTMLTextAreaElement | null>(null)
@@ -67,6 +71,46 @@ const toast = useToast()
 const budgetProgress = computed(() => getOutputBudgetProgress(props.contextUsage))
 const imagePreviewMap = new Map<File, string>()
 const previewUrls = ref<Map<File, string>>(new Map())
+const slashMenuId = useId()
+const slashFocused = ref(false)
+const caret = ref(0)
+const slashDismissed = ref(false)
+const slashIndex = ref(0)
+const slashMatches = computed(() => {
+  if (!slashFocused.value || slashDismissed.value || props.planConfirmationVisible) return []
+  const query = slashQuery(props.modelValue, caret.value)
+  return query === undefined ? [] : filterSlashCommands(props.slashCommands ?? [], query)
+})
+
+watch(() => props.modelValue, () => {
+  slashDismissed.value = false
+  slashIndex.value = 0
+})
+watch(slashMatches, matches => {
+  if (slashIndex.value >= matches.length) slashIndex.value = 0
+})
+
+function syncCaret() {
+  const field = textareaRef.value
+  caret.value = field?.selectionStart === field?.selectionEnd ? field?.selectionStart ?? 0 : -1
+}
+
+async function selectSlashCommand(command: SlashCommand) {
+  if (command.kind === 'workbench') {
+    emit('update:modelValue', '')
+    emit('slashAction', command.slash)
+    return
+  }
+  const choice = expandSlashTemplate(command.content)
+  emit('update:modelValue', choice.text)
+  await nextTick()
+  const field = textareaRef.value
+  if (!field) return
+  field.focus()
+  field.setSelectionRange(choice.caret, choice.caret)
+  resizeTextarea(field)
+  syncCaret()
+}
 
 function syncImagePreviews(files: File[]) {
   const currentSet = new Set(files)
@@ -101,11 +145,29 @@ function resizeTextarea(el: HTMLTextAreaElement) {
 function onTextareaInput(e: Event) {
   const el = e.target as HTMLTextAreaElement
   resizeTextarea(el)
+  syncCaret()
   emit('update:modelValue', el.value)
 }
 
 function onTextareaKeydown(e: KeyboardEvent) {
-  if (e.isComposing) return
+  if (e.isComposing || e.keyCode === 229) return
+  const commands = slashMatches.value
+  if (commands.length && !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey) {
+    if (['ArrowUp', 'ArrowDown', 'Enter', 'Tab', 'Escape'].includes(e.key)) {
+      e.preventDefault()
+      e.stopPropagation()
+      if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+        const step = e.key === 'ArrowDown' ? 1 : -1
+        slashIndex.value = (slashIndex.value + step + commands.length) % commands.length
+      } else if (e.key === 'Escape') {
+        slashDismissed.value = true
+      } else {
+        const command = commands[slashIndex.value]
+        if (command) void selectSlashCommand(command)
+      }
+      return
+    }
+  }
   if (e.key === 'Enter' && !e.shiftKey) {
     e.preventDefault()
     emit('send')
@@ -322,6 +384,10 @@ onUnmounted(() => {
     </button>
   </div>
   <div class="input-container focus-ring rounded-xl">
+    <SlashCommandMenu
+      v-if="slashMatches.length" :id="slashMenuId" :commands="slashMatches" :active="slashIndex"
+      @highlight="slashIndex = $event" @select="selectSlashCommand"
+    />
     <div v-if="planConfirmationVisible" class="plan-confirm-inline" data-plan-confirmation="true">
       <div class="plan-confirm-copy">{{ t('planConfirmPrompt') }}</div>
       <div class="plan-confirm-actions">
@@ -377,6 +443,13 @@ onUnmounted(() => {
       rows="1"
       @keydown="onTextareaKeydown"
       @input="onTextareaInput"
+      @focus="slashFocused = true; syncCaret()"
+      @blur="slashFocused = false"
+      @keyup="syncCaret"
+      @click="syncCaret"
+      @select="syncCaret"
+      :aria-controls="slashMatches.length ? slashMenuId : undefined"
+      :aria-activedescendant="slashMatches.length ? `${slashMenuId}-${slashIndex}` : undefined"
       @paste="onTextareaPaste"
     />
     <div class="absolute bottom-2 left-3 right-3 flex items-center justify-between gap-2 z-10">

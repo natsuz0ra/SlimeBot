@@ -10,6 +10,8 @@ export interface SessionItem {
   name: string
   updatedAt: string
   workingDirectory?: string
+  isPinned?: boolean
+  pinnedAt?: string
 }
 
 export interface ChatSearchHit {
@@ -229,6 +231,7 @@ export interface SubagentThinkingItem {
 }
 
 export const sessionAPI = {
+  pin: async (id: string, pinned: boolean) => (await apiClient.patch<SessionItem>(`/api/sessions/${encodeURIComponent(id)}/pin`, { pinned })).data,
   get: async (id: string) => (await apiClient.get<SessionItem>(`/api/sessions/${id}`)).data,
   search: async (q: string, scope: ChatSearchScope, offset = 0, signal?: AbortSignal) =>
     (await apiClient.get<ChatSearchResponse>('/api/sessions/search', { params: { q, scope, limit: 30, offset }, signal })).data,

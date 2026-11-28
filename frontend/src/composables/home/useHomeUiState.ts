@@ -36,7 +36,11 @@ export function useHomeUiState() {
       return
     }
     const rect = target.getBoundingClientRect()
-    activeSessionMenu.value = { id: sessionId, x: rect.right + 6, y: rect.top }
+    activeSessionMenu.value = {
+      id: sessionId,
+      x: Math.max(8, Math.min(rect.right + 6, window.innerWidth - 168)),
+      y: Math.max(8, Math.min(rect.top, window.innerHeight - 160)),
+    }
   }
 
   onMounted(() => {
